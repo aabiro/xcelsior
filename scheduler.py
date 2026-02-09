@@ -2,6 +2,7 @@
 # Ever upward. No limits. Pure power.
 
 import json
+import logging
 import os
 import subprocess
 import threading
@@ -10,6 +11,41 @@ import uuid
 
 HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
 JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
+LOG_FILE = os.path.join(os.path.dirname(__file__), "excelsior.log")
+
+
+# ── Phase 7: Logging ─────────────────────────────────────────────────
+
+def setup_logging(log_file=None, level=logging.INFO):
+    """
+    Log everything. Every move. Every crash. Every win.
+    Console + file. No silent failures.
+    """
+    log_file = log_file or LOG_FILE
+    logger = logging.getLogger("excelsior")
+
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(level)
+    fmt = logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # File handler — the permanent record
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(level)
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    # Console handler — see it live
+    ch = logging.StreamHandler()
+    ch.setLevel(level)
+    ch.setFormatter(fmt)
+    logger.addHandler(ch)
+
+    return logger
+
+
+log = setup_logging()
 
 
 # ── Phase 1: Allocate ────────────────────────────────────────────────
@@ -28,6 +64,8 @@ def allocate(job, hosts):
         return None
 
     best = max(candidates, key=lambda h: (h.get("free_vram_gb", 0), -h.get("latency_ms", 999)))
+    log.info("ALLOCATE job=%s -> host=%s (%s, %sGB free)",
+             job.get("name", "?"), best["host_id"], best.get("gpu_model"), best.get("free_vram_gb"))
     return best
 
 
@@ -75,10 +113,12 @@ def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_
         if h["host_id"] == host_id:
             hosts[i] = entry
             save_hosts(hosts)
+            log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
             return entry
 
     hosts.append(entry)
     save_hosts(hosts)
+    log.info("HOST REGISTERED %s | %s | %s | %sGB | $%s/hr", host_id, ip, gpu_model, total_vram_gb, cost_per_hour)
     return entry
 
 
@@ -87,6 +127,7 @@ def remove_host(host_id):
     hosts = load_hosts()
     hosts = [h for h in hosts if h["host_id"] != host_id]
     save_hosts(hosts)
+    log.warning("HOST REMOVED %s", host_id)
 
 
 def list_hosts(active_only=True):
@@ -122,9 +163,13 @@ def check_hosts():
         alive = ping_host(h["ip"])
         if alive:
             h["last_seen"] = time.time()
+            if h.get("status") == "dead":
+                log.info("HOST REVIVED %s (%s)", h["host_id"], h["ip"])
             h["status"] = "active"
             results[h["host_id"]] = "alive"
         else:
+            if h.get("status") != "dead":
+                log.warning("HOST DEAD %s (%s)", h["host_id"], h["ip"])
             h["status"] = "dead"
             results[h["host_id"]] = "dead"
 
@@ -194,6 +239,7 @@ def submit_job(name, vram_needed_gb, priority=0):
 
     jobs.append(job)
     save_jobs(jobs)
+    log.info("JOB SUBMITTED %s | %s | %sGB VRAM | priority %s", job["job_id"], name, vram_needed_gb, priority)
     return job
 
 
@@ -217,6 +263,7 @@ def update_job_status(job_id, status, host_id=None):
     jobs = load_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
+            old_status = j["status"]
             j["status"] = status
             if host_id:
                 j["host_id"] = host_id
@@ -224,6 +271,9 @@ def update_job_status(job_id, status, host_id=None):
                 j["started_at"] = time.time()
             if status in ("completed", "failed"):
                 j["completed_at"] = time.time()
+            lvl = logging.WARNING if status == "failed" else logging.INFO
+            log.log(lvl, "JOB %s %s -> %s | %s | host=%s",
+                    status.upper(), old_status, status, job_id, host_id or j.get("host_id", "—"))
             break
     save_jobs(jobs)
 
@@ -293,10 +343,13 @@ def run_job(job, host, docker_image=None):
 
     rc, stdout, stderr = ssh_exec(host["ip"], cmd)
     if rc != 0:
+        log.error("RUN FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], stderr)
         update_job_status(job["job_id"], "failed")
         return None
 
     container_id = stdout[:12]
+    log.info("CONTAINER STARTED job=%s host=%s container=%s image=%s",
+             job["job_id"], host["host_id"], container_id, image)
 
     # Store container info on the job
     jobs = load_jobs()
@@ -332,6 +385,7 @@ def kill_job(job, host):
     ssh_exec(host["ip"], f"docker rm -f {container_name}")
     # Mark done
     update_job_status(job["job_id"], "completed")
+    log.info("JOB KILLED job=%s host=%s container=%s", job["job_id"], host["host_id"], container_name)
 
 
 def wait_for_job(job, host, poll_interval=5):
@@ -486,7 +540,13 @@ if __name__ == "__main__":
         host = j['host_id'] or "—"
         print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | host: {host}")
 
+    # Show the log file
+    print("\n=== LOG FILE CONTENTS ===")
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE) as lf:
+            print(lf.read())
+
     # Cleanup
-    for f in (HOSTS_FILE, JOBS_FILE):
+    for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE):
         if os.path.exists(f):
             os.remove(f)

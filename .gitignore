@@ -5,3 +5,10 @@
 **/.env.*
 !.env.example
 !**/.env.example
+
+# Logs
+*.log
+
+# Runtime data
+hosts.json
+jobs.json
