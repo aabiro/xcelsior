@@ -1,0 +1,151 @@
+# Xcelsior API — Phase 9
+# FastAPI. POST /job. GET /status. PUT /host. No fluff.
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+from scheduler import (
+    register_host, remove_host, list_hosts, check_hosts,
+    submit_job, list_jobs, update_job_status, process_queue,
+    bill_job, bill_all_completed, get_total_revenue, load_billing,
+    log,
+)
+
+app = FastAPI(title="Xcelsior", version="0.1.0")
+
+
+# ── Request models ────────────────────────────────────────────────────
+
+class HostIn(BaseModel):
+    host_id: str
+    ip: str
+    gpu_model: str
+    total_vram_gb: float
+    free_vram_gb: float
+    cost_per_hour: float = 0.20
+
+
+class JobIn(BaseModel):
+    name: str
+    vram_needed_gb: float
+    priority: int = 0
+
+
+class StatusUpdate(BaseModel):
+    status: str
+    host_id: str | None = None
+
+
+# ── Host endpoints ────────────────────────────────────────────────────
+
+@app.put("/host")
+def api_register_host(h: HostIn):
+    """Register or update a host."""
+    entry = register_host(h.host_id, h.ip, h.gpu_model,
+                          h.total_vram_gb, h.free_vram_gb, h.cost_per_hour)
+    return {"ok": True, "host": entry}
+
+
+@app.get("/hosts")
+def api_list_hosts(active_only: bool = True):
+    """List all hosts."""
+    return {"hosts": list_hosts(active_only=active_only)}
+
+
+@app.delete("/host/{host_id}")
+def api_remove_host(host_id: str):
+    """Remove a host."""
+    remove_host(host_id)
+    return {"ok": True, "removed": host_id}
+
+
+@app.post("/hosts/check")
+def api_check_hosts():
+    """Ping all hosts and update status."""
+    results = check_hosts()
+    return {"results": results}
+
+
+# ── Job endpoints ─────────────────────────────────────────────────────
+
+@app.post("/job")
+def api_submit_job(j: JobIn):
+    """Submit a job to the queue."""
+    job = submit_job(j.name, j.vram_needed_gb, j.priority)
+    return {"ok": True, "job": job}
+
+
+@app.get("/jobs")
+def api_list_jobs(status: str | None = None):
+    """List jobs. Optional filter by status."""
+    return {"jobs": list_jobs(status=status)}
+
+
+@app.get("/job/{job_id}")
+def api_get_job(job_id: str):
+    """Get a specific job by ID."""
+    jobs = list_jobs()
+    for j in jobs:
+        if j["job_id"] == job_id:
+            return {"job": j}
+    raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+
+@app.patch("/job/{job_id}")
+def api_update_job(job_id: str, update: StatusUpdate):
+    """Update a job's status."""
+    update_job_status(job_id, update.status, host_id=update.host_id)
+    return {"ok": True, "job_id": job_id, "status": update.status}
+
+
+@app.post("/queue/process")
+def api_process_queue():
+    """Process the job queue — assign jobs to hosts."""
+    assigned = process_queue()
+    return {
+        "assigned": [
+            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]}
+            for j, h in assigned
+        ]
+    }
+
+
+# ── Billing endpoints ────────────────────────────────────────────────
+
+@app.post("/billing/bill/{job_id}")
+def api_bill_job(job_id: str):
+    """Bill a specific completed job."""
+    record = bill_job(job_id)
+    if not record:
+        raise HTTPException(status_code=400, detail=f"Could not bill job {job_id}")
+    return {"ok": True, "bill": record}
+
+
+@app.post("/billing/bill-all")
+def api_bill_all():
+    """Bill all unbilled completed jobs."""
+    bills = bill_all_completed()
+    return {"billed": len(bills), "bills": bills}
+
+
+@app.get("/billing")
+def api_billing():
+    """Get all billing records and total revenue."""
+    records = load_billing()
+    return {
+        "records": records,
+        "total_revenue": get_total_revenue(),
+    }
+
+
+# ── Health ────────────────────────────────────────────────────────────
+
+@app.get("/")
+def root():
+    return {"name": "Xcelsior", "status": "running"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    log.info("API STARTING on port 8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
