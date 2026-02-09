@@ -16,6 +16,12 @@ HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
 JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
 LOG_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.log")
 
+# ── Phase 13: Security ───────────────────────────────────────────────
+
+SSH_KEY_PATH = os.environ.get("XCELSIOR_SSH_KEY_PATH", os.path.expanduser("~/.ssh/xcelsior"))
+SSH_USER = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
+API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN", "")
+
 
 # ── Phase 7: Logging ─────────────────────────────────────────────────
 
@@ -328,14 +334,54 @@ def process_queue():
 # ── Phase 5 & 6: Run Job / Kill Job ──────────────────────────────────
 
 def ssh_exec(ip, cmd):
-    """Run a command on a remote host via SSH. Returns (returncode, stdout, stderr)."""
+    """
+    Run a command on a remote host via SSH.
+    Key-based auth only. No passwords. No agent forwarding.
+    Returns (returncode, stdout, stderr).
+    """
     full_cmd = [
-        "ssh", "-o", "StrictHostKeyChecking=no",
+        "ssh",
+        "-i", SSH_KEY_PATH,
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "PasswordAuthentication=no",
+        "-o", "KbdInteractiveAuthentication=no",
+        "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
-        f"root@{ip}", cmd,
+        "-o", "ServerAliveInterval=10",
+        "-o", "ServerAliveCountMax=3",
+        f"{SSH_USER}@{ip}", cmd,
     ]
     result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=30)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+def generate_ssh_keypair(path=None):
+    """Generate an Ed25519 SSH keypair. No passphrase. Fast. Secure."""
+    path = path or SSH_KEY_PATH
+    if os.path.exists(path):
+        log.info("SSH key already exists: %s", path)
+        return path
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    result = subprocess.run(
+        ["ssh-keygen", "-t", "ed25519", "-f", path, "-N", "", "-C", "xcelsior"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        os.chmod(path, 0o600)
+        log.info("SSH KEYPAIR GENERATED: %s", path)
+    else:
+        log.error("SSH KEYGEN FAILED: %s", result.stderr.strip())
+    return path
+
+
+def get_public_key(path=None):
+    """Read the public key. For distributing to hosts."""
+    path = (path or SSH_KEY_PATH) + ".pub"
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return f.read().strip()
 
 
 def run_job(job, host, docker_image=None):

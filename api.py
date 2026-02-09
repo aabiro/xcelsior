@@ -1,12 +1,15 @@
 # Xcelsior API — Phase 9 + 11
 # FastAPI. POST /job. GET /status. PUT /host. Dashboard. No fluff.
 
+import hmac
 import os
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
@@ -15,10 +18,48 @@ from scheduler import (
     submit_job, list_jobs, update_job_status, process_queue,
     bill_job, bill_all_completed, get_total_revenue, load_billing,
     configure_alerts, ALERT_CONFIG,
+    generate_ssh_keypair, get_public_key, API_TOKEN,
     log,
 )
 
 app = FastAPI(title="Xcelsior", version="0.1.0")
+
+
+# ── Phase 13: API Token Auth ─────────────────────────────────────────
+
+# Public routes — no token required
+PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/dashboard"}
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Bearer token auth. If XCELSIOR_API_TOKEN is set, every request
+    (except public routes) must include it. No token set = open access.
+    """
+    async def dispatch(self, request: Request, call_next):
+        if not API_TOKEN:
+            return await call_next(request)
+
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+        else:
+            token = request.query_params.get("token", "")
+
+        if not token or not hmac.compare_digest(token, API_TOKEN):
+            return HTMLResponse(
+                content='{"detail":"Unauthorized"}',
+                status_code=401,
+                media_type="application/json",
+            )
+
+        return await call_next(request)
+
+
+app.add_middleware(TokenAuthMiddleware)
 
 
 # ── Request models ────────────────────────────────────────────────────
@@ -183,6 +224,32 @@ def api_set_alert_config(cfg: AlertConfig):
     updates = {k: v for k, v in cfg.model_dump().items() if v is not None}
     configure_alerts(**updates)
     return {"ok": True, "updated": list(updates.keys())}
+
+
+# ── Phase 13: SSH key management ──────────────────────────────────────
+
+@app.post("/ssh/keygen")
+def api_generate_ssh_key():
+    """Generate an Ed25519 SSH keypair for host access."""
+    path = generate_ssh_keypair()
+    pub = get_public_key(path)
+    return {"ok": True, "key_path": path, "public_key": pub}
+
+
+@app.get("/ssh/pubkey")
+def api_get_pubkey():
+    """Get the public key to add to hosts' authorized_keys."""
+    pub = get_public_key()
+    if not pub:
+        raise HTTPException(status_code=404, detail="No SSH key found. POST /ssh/keygen first.")
+    return {"public_key": pub}
+
+
+@app.post("/token/generate")
+def api_generate_token():
+    """Generate a secure random API token. User must set it in .env themselves."""
+    token = secrets.token_urlsafe(32)
+    return {"token": token, "note": "Set XCELSIOR_API_TOKEN in your .env to enable auth."}
 
 
 # ── Health ────────────────────────────────────────────────────────────

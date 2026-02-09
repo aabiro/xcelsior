@@ -4,6 +4,7 @@
 
 import argparse
 import json
+import secrets
 import sys
 
 from scheduler import (
@@ -11,6 +12,7 @@ from scheduler import (
     submit_job, list_jobs, update_job_status, process_queue,
     bill_job, bill_all_completed, get_total_revenue, load_billing,
     start_health_monitor,
+    generate_ssh_keypair, get_public_key,
 )
 
 
@@ -119,6 +121,35 @@ def cmd_revenue(args):
     print(f"Total revenue:     ${total}")
 
 
+def cmd_ssh_keygen(args):
+    """Generate SSH keypair."""
+    path = generate_ssh_keypair()
+    pub = get_public_key(path)
+    print(f"Key generated: {path}")
+    print(f"Public key:    {path}.pub")
+    if pub:
+        print(f"\nAdd this to your hosts' ~/.ssh/authorized_keys:")
+        print(f"  {pub}")
+
+
+def cmd_ssh_pubkey(args):
+    """Show SSH public key."""
+    pub = get_public_key()
+    if pub:
+        print(pub)
+    else:
+        print("No SSH key found. Run: xcelsior ssh-keygen", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_token_gen(args):
+    """Generate a secure API token."""
+    token = secrets.token_urlsafe(32)
+    print(f"Token: {token}")
+    print(f"\nAdd to .env:")
+    print(f"  XCELSIOR_API_TOKEN={token}")
+
+
 def cmd_serve(args):
     """Start the API server."""
     import uvicorn
@@ -193,6 +224,18 @@ def main():
     # xcelsior revenue
     p_rev = sub.add_parser("revenue", help="Show total revenue")
     p_rev.set_defaults(func=cmd_revenue)
+
+    # xcelsior ssh-keygen
+    p_sshkg = sub.add_parser("ssh-keygen", help="Generate SSH keypair for host access")
+    p_sshkg.set_defaults(func=cmd_ssh_keygen)
+
+    # xcelsior ssh-pubkey
+    p_sshpk = sub.add_parser("ssh-pubkey", help="Show SSH public key")
+    p_sshpk.set_defaults(func=cmd_ssh_pubkey)
+
+    # xcelsior token-gen
+    p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
+    p_tgen.set_defaults(func=cmd_token_gen)
 
     # xcelsior serve
     p_serve = sub.add_parser("serve", help="Start the API server")
