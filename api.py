@@ -1,8 +1,14 @@
-# Xcelsior API — Phase 9
-# FastAPI. POST /job. GET /status. PUT /host. No fluff.
+# Xcelsior API — Phase 9 + 11
+# FastAPI. POST /job. GET /status. PUT /host. Dashboard. No fluff.
+
+import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+
+TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
 from scheduler import (
     register_host, remove_host, list_hosts, check_hosts,
@@ -136,6 +142,15 @@ def api_billing():
         "records": records,
         "total_revenue": get_total_revenue(),
     }
+
+
+# ── Phase 11: Dashboard ───────────────────────────────────────────────
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    """The dashboard. HTML + JS. No React. No npm. No build step."""
+    html = (TEMPLATES_DIR / "dashboard.html").read_text()
+    return HTMLResponse(content=html)
 
 
 # ── Health ────────────────────────────────────────────────────────────

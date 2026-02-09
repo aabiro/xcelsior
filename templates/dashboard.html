@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xcelsior</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Courier New', monospace; background: #0a0a0a; color: #e0e0e0; padding: 20px; }
+  h1 { color: #ff3333; margin-bottom: 4px; font-size: 28px; }
+  .subtitle { color: #666; margin-bottom: 24px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .card { background: #111; border: 1px solid #222; border-radius: 6px; padding: 16px; }
+  .card h2 { color: #ff3333; font-size: 14px; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #222; padding-bottom: 8px; }
+  .card.full { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #666; font-weight: normal; padding: 4px 8px; border-bottom: 1px solid #222; }
+  td { padding: 4px 8px; border-bottom: 1px solid #1a1a1a; }
+  .status { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+  .status-active, .status-running { background: #0a2e0a; color: #4caf50; }
+  .status-dead, .status-failed { background: #2e0a0a; color: #f44336; }
+  .status-queued { background: #2e2e0a; color: #ff9800; }
+  .status-completed { background: #0a1a2e; color: #2196f3; }
+  .stat-row { display: flex; gap: 16px; margin-bottom: 16px; }
+  .stat { background: #111; border: 1px solid #222; border-radius: 6px; padding: 16px; flex: 1; text-align: center; }
+  .stat .num { font-size: 32px; font-weight: bold; color: #ff3333; }
+  .stat .label { font-size: 11px; color: #666; text-transform: uppercase; margin-top: 4px; }
+  .btn { background: #ff3333; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  .btn:hover { background: #cc2222; }
+  .btn-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .refresh-note { color: #444; font-size: 11px; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>XCELSIOR</h1>
+<p class="subtitle">Distributed GPU scheduler. Ever upward.</p>
+
+<div class="btn-row">
+  <button class="btn" onclick="refresh()">Refresh</button>
+  <button class="btn" onclick="processQueue()">Process Queue</button>
+  <button class="btn" onclick="billAll()">Bill All</button>
+  <button class="btn" onclick="pingHosts()">Ping Hosts</button>
+</div>
+
+<div class="stat-row">
+  <div class="stat"><div class="num" id="stat-hosts">-</div><div class="label">Active Hosts</div></div>
+  <div class="stat"><div class="num" id="stat-jobs">-</div><div class="label">Total Jobs</div></div>
+  <div class="stat"><div class="num" id="stat-running">-</div><div class="label">Running</div></div>
+  <div class="stat"><div class="num" id="stat-queued">-</div><div class="label">Queued</div></div>
+  <div class="stat"><div class="num" id="stat-revenue">-</div><div class="label">Revenue</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Hosts</h2>
+    <table>
+      <thead><tr><th>ID</th><th>IP</th><th>GPU</th><th>VRAM Free</th><th>$/hr</th><th>Status</th></tr></thead>
+      <tbody id="hosts-table"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Jobs</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>VRAM</th><th>Priority</th><th>Host</th><th>Status</th></tr></thead>
+      <tbody id="jobs-table"></tbody>
+    </table>
+  </div>
+  <div class="card full">
+    <h2>Billing</h2>
+    <table>
+      <thead><tr><th>Job</th><th>Name</th><th>Host</th><th>Duration</th><th>Rate</th><th>Cost</th></tr></thead>
+      <tbody id="billing-table"></tbody>
+    </table>
+  </div>
+</div>
+
+<p class="refresh-note">Auto-refreshes every 5 seconds.</p>
+
+<script>
+const API = '';
+
+function s(status) {
+  return `<span class="status status-${status}">${status}</span>`;
+}
+
+async function fetchHosts() {
+  const r = await fetch(`${API}/hosts?active_only=false`);
+  const d = await r.json();
+  const active = d.hosts.filter(h => h.status === 'active').length;
+  document.getElementById('stat-hosts').textContent = active;
+  document.getElementById('hosts-table').innerHTML = d.hosts.map(h =>
+    `<tr><td>${h.host_id}</td><td>${h.ip}</td><td>${h.gpu_model}</td><td>${h.free_vram_gb}GB</td><td>$${h.cost_per_hour}</td><td>${s(h.status)}</td></tr>`
+  ).join('');
+}
+
+async function fetchJobs() {
+  const r = await fetch(`${API}/jobs`);
+  const d = await r.json();
+  const running = d.jobs.filter(j => j.status === 'running').length;
+  const queued = d.jobs.filter(j => j.status === 'queued').length;
+  document.getElementById('stat-jobs').textContent = d.jobs.length;
+  document.getElementById('stat-running').textContent = running;
+  document.getElementById('stat-queued').textContent = queued;
+  document.getElementById('jobs-table').innerHTML = d.jobs.map(j =>
+    `<tr><td>${j.job_id}</td><td>${j.name}</td><td>${j.vram_needed_gb}GB</td><td>${j.priority}</td><td>${j.host_id || '—'}</td><td>${s(j.status)}</td></tr>`
+  ).join('');
+}
+
+async function fetchBilling() {
+  const r = await fetch(`${API}/billing`);
+  const d = await r.json();
+  document.getElementById('stat-revenue').textContent = `$${d.total_revenue}`;
+  document.getElementById('billing-table').innerHTML = d.records.map(b =>
+    `<tr><td>${b.job_id}</td><td>${b.job_name}</td><td>${b.host_id || '—'}</td><td>${b.duration_sec}s</td><td>$${b.rate_per_hour}/hr</td><td>$${b.cost}</td></tr>`
+  ).join('');
+}
+
+async function refresh() {
+  await Promise.all([fetchHosts(), fetchJobs(), fetchBilling()]);
+}
+
+async function processQueue() {
+  await fetch(`${API}/queue/process`, { method: 'POST' });
+  refresh();
+}
+
+async function billAll() {
+  await fetch(`${API}/billing/bill-all`, { method: 'POST' });
+  refresh();
+}
+
+async function pingHosts() {
+  await fetch(`${API}/hosts/check`, { method: 'POST' });
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
