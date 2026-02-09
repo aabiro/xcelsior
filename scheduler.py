@@ -3,6 +3,8 @@
 
 import json
 import os
+import subprocess
+import threading
 import time
 import uuid
 
@@ -31,12 +33,15 @@ def allocate(job, hosts):
 
 # ── Phase 2: Host Registry ───────────────────────────────────────────
 
-def load_hosts():
+def load_hosts(active_only=False):
     """Load hosts from JSON. No file? Empty list. Simple."""
     if not os.path.exists(HOSTS_FILE):
         return []
     with open(HOSTS_FILE, "r") as f:
-        return json.load(f)
+        hosts = json.load(f)
+    if active_only:
+        return [h for h in hosts if h.get("status") == "active"]
+    return hosts
 
 
 def save_hosts(hosts):
@@ -86,10 +91,66 @@ def remove_host(host_id):
 
 def list_hosts(active_only=True):
     """Show what we've got."""
-    hosts = load_hosts()
-    if active_only:
-        return [h for h in hosts if h.get("status") == "active"]
-    return hosts
+    return load_hosts(active_only=active_only)
+
+
+# ── Phase 4: Health Check ─────────────────────────────────────────────
+
+def ping_host(ip):
+    """Ping once. Returns True if alive, False if dead."""
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def check_hosts():
+    """
+    Ping every registered host. Once.
+    Dead? Mark it dead. Alive? Update last_seen.
+    Returns dict of results.
+    """
+    hosts = load_hosts(active_only=False)
+    results = {}
+
+    for h in hosts:
+        alive = ping_host(h["ip"])
+        if alive:
+            h["last_seen"] = time.time()
+            h["status"] = "active"
+            results[h["host_id"]] = "alive"
+        else:
+            h["status"] = "dead"
+            results[h["host_id"]] = "dead"
+
+    save_hosts(hosts)
+    return results
+
+
+def health_loop(interval=5, callback=None):
+    """
+    Ping hosts every `interval` seconds. Forever.
+    If one dies — mark it dead.
+    If one comes back — mark it active.
+    Run this in a thread.
+    """
+    while True:
+        results = check_hosts()
+        if callback:
+            callback(results)
+        time.sleep(interval)
+
+
+def start_health_monitor(interval=5, callback=None):
+    """Start the health loop in a background thread. Fire and forget."""
+    t = threading.Thread(target=health_loop, args=(interval, callback), daemon=True)
+    t.start()
+    return t
 
 
 # ── Phase 3: Job Queue ────────────────────────────────────────────────
@@ -211,29 +272,36 @@ if __name__ == "__main__":
         if os.path.exists(f):
             os.remove(f)
 
-    # Phase 2: Register hosts
-    register_host("rig-01", "192.168.1.10", "RTX 4090", 24, 24)
-    register_host("rig-02", "192.168.1.11", "RTX 3090", 24, 16)
-    register_host("rig-03", "192.168.1.12", "A100", 80, 80, cost_per_hour=0.50)
+    # Phase 2: Register hosts (localhost will respond, fake IPs won't)
+    register_host("rig-01", "127.0.0.1", "RTX 4090", 24, 24)
+    register_host("rig-02", "192.0.2.1", "RTX 3090", 24, 16)       # dead (RFC 5737 TEST-NET)
+    register_host("rig-03", "127.0.0.1", "A100", 80, 80, cost_per_hour=0.50)
 
     print("=== REGISTERED HOSTS ===")
-    for h in list_hosts():
+    for h in list_hosts(active_only=False):
         print(f"  {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr")
 
-    # Phase 3: Submit jobs
+    # Phase 4: Health check
+    print("\n=== HEALTH CHECK ===")
+    results = check_hosts()
+    for host_id, status in results.items():
+        print(f"  {host_id}: {status}")
+
+    print("\n=== ACTIVE HOSTS AFTER CHECK ===")
+    for h in list_hosts():
+        print(f"  {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['status']}")
+
+    print("\n=== ALL HOSTS (including dead) ===")
+    for h in list_hosts(active_only=False):
+        print(f"  {h['host_id']} | {h['ip']} | {h['status']}")
+
+    # Phase 3: Submit jobs and process with only alive hosts
     submit_job("llama3-70b", vram_needed_gb=40, priority=2)
     submit_job("mistral-7b", vram_needed_gb=8, priority=0)
     submit_job("codellama-34b", vram_needed_gb=20, priority=1)
-    submit_job("mega-model-200b", vram_needed_gb=160, priority=3)  # nothing can run this
 
-    print("\n=== JOB QUEUE ===")
-    for j in list_jobs():
-        print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | priority {j['priority']}")
-
-    # Process queue
+    print("\n=== PROCESS QUEUE (only alive hosts get jobs) ===")
     assigned = process_queue()
-
-    print("\n=== ASSIGNED ===")
     for job, host in assigned:
         print(f"  {job['name']} -> {host['host_id']} ({host['gpu_model']})")
 
