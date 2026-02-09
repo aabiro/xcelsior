@@ -14,6 +14,7 @@ from scheduler import (
     register_host, remove_host, list_hosts, check_hosts,
     submit_job, list_jobs, update_job_status, process_queue,
     bill_job, bill_all_completed, get_total_revenue, load_billing,
+    configure_alerts, ALERT_CONFIG,
     log,
 )
 
@@ -151,6 +152,37 @@ def dashboard():
     """The dashboard. HTML + JS. No React. No npm. No build step."""
     html = (TEMPLATES_DIR / "dashboard.html").read_text()
     return HTMLResponse(content=html)
+
+
+# ── Phase 12: Alerts config ───────────────────────────────────────────
+
+class AlertConfig(BaseModel):
+    email_enabled: bool | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_user: str | None = None
+    smtp_pass: str | None = None
+    email_from: str | None = None
+    email_to: str | None = None
+    telegram_enabled: bool | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
+
+@app.get("/alerts/config")
+def api_get_alert_config():
+    """Get current alert config (passwords redacted)."""
+    safe = {k: ("***" if "pass" in k or "token" in k else v)
+            for k, v in ALERT_CONFIG.items()}
+    return {"config": safe}
+
+
+@app.put("/alerts/config")
+def api_set_alert_config(cfg: AlertConfig):
+    """Update alert config at runtime."""
+    updates = {k: v for k, v in cfg.model_dump().items() if v is not None}
+    configure_alerts(**updates)
+    return {"ok": True, "updated": list(updates.keys())}
 
 
 # ── Health ────────────────────────────────────────────────────────────

@@ -4,10 +4,13 @@
 import json
 import logging
 import os
+import smtplib
 import subprocess
 import threading
 import time
+import urllib.request
 import uuid
+from email.mime.text import MIMEText
 
 HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
 JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
@@ -170,6 +173,7 @@ def check_hosts():
         else:
             if h.get("status") != "dead":
                 log.warning("HOST DEAD %s (%s)", h["host_id"], h["ip"])
+                alert_host_dead(h["host_id"], h["ip"])
             h["status"] = "dead"
             results[h["host_id"]] = "dead"
 
@@ -274,6 +278,13 @@ def update_job_status(job_id, status, host_id=None):
             lvl = logging.WARNING if status == "failed" else logging.INFO
             log.log(lvl, "JOB %s %s -> %s | %s | host=%s",
                     status.upper(), old_status, status, job_id, host_id or j.get("host_id", "—"))
+            if status == "failed":
+                alert_job_failed(job_id, j.get("name", "?"), j.get("host_id"))
+            elif status == "completed":
+                dur = None
+                if j.get("started_at") and j.get("completed_at"):
+                    dur = j["completed_at"] - j["started_at"]
+                alert_job_completed(job_id, j.get("name", "?"), dur)
             break
     save_jobs(jobs)
 
@@ -559,6 +570,123 @@ def get_total_revenue():
     """How much money did we make?"""
     records = load_billing()
     return round(sum(r["cost"] for r in records), 4)
+
+
+# ── Phase 12: Alerts ─────────────────────────────────────────────────
+
+ALERT_CONFIG = {
+    "email_enabled": False,
+    "smtp_host": os.environ.get("XCELSIOR_SMTP_HOST", ""),
+    "smtp_port": int(os.environ.get("XCELSIOR_SMTP_PORT", "587")),
+    "smtp_user": os.environ.get("XCELSIOR_SMTP_USER", ""),
+    "smtp_pass": os.environ.get("XCELSIOR_SMTP_PASS", ""),
+    "email_from": os.environ.get("XCELSIOR_EMAIL_FROM", ""),
+    "email_to": os.environ.get("XCELSIOR_EMAIL_TO", ""),
+
+    "telegram_enabled": False,
+    "telegram_bot_token": os.environ.get("XCELSIOR_TG_TOKEN", ""),
+    "telegram_chat_id": os.environ.get("XCELSIOR_TG_CHAT_ID", ""),
+}
+
+
+def configure_alerts(**kwargs):
+    """Update alert config at runtime."""
+    ALERT_CONFIG.update(kwargs)
+
+
+def send_email(subject, body):
+    """Send an email alert. SMTP. No dependencies."""
+    cfg = ALERT_CONFIG
+    if not cfg["email_enabled"]:
+        return False
+
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = f"[Xcelsior] {subject}"
+        msg["From"] = cfg["email_from"]
+        msg["To"] = cfg["email_to"]
+
+        with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
+            server.starttls()
+            server.login(cfg["smtp_user"], cfg["smtp_pass"])
+            server.send_message(msg)
+
+        log.info("EMAIL SENT: %s -> %s", subject, cfg["email_to"])
+        return True
+    except Exception as e:
+        log.error("EMAIL FAILED: %s | %s", subject, e)
+        return False
+
+
+def send_telegram(message):
+    """Send a Telegram alert. HTTP POST. No dependencies."""
+    cfg = ALERT_CONFIG
+    if not cfg["telegram_enabled"]:
+        return False
+
+    try:
+        url = f"https://api.telegram.org/bot{cfg['telegram_bot_token']}/sendMessage"
+        payload = json.dumps({
+            "chat_id": cfg["telegram_chat_id"],
+            "text": f"[Xcelsior] {message}",
+            "parse_mode": "HTML",
+        }).encode()
+
+        req = urllib.request.Request(url, data=payload,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10)
+
+        log.info("TELEGRAM SENT: %s", message)
+        return True
+    except Exception as e:
+        log.error("TELEGRAM FAILED: %s | %s", message, e)
+        return False
+
+
+def alert(subject, body=None):
+    """
+    Send an alert through all enabled channels.
+    Fire and forget. Non-blocking.
+    """
+    body = body or subject
+    sent = []
+
+    if ALERT_CONFIG["email_enabled"]:
+        threading.Thread(target=send_email, args=(subject, body), daemon=True).start()
+        sent.append("email")
+
+    if ALERT_CONFIG["telegram_enabled"]:
+        threading.Thread(target=send_telegram, args=(f"<b>{subject}</b>\n{body}",), daemon=True).start()
+        sent.append("telegram")
+
+    if not sent:
+        log.debug("ALERT (no channels): %s", subject)
+    return sent
+
+
+def alert_host_dead(host_id, ip):
+    """Host died. Sound the alarm."""
+    alert(
+        f"HOST DOWN: {host_id}",
+        f"Host {host_id} ({ip}) is not responding to ping.",
+    )
+
+
+def alert_job_failed(job_id, job_name, host_id=None):
+    """Job failed. Notify."""
+    alert(
+        f"JOB FAILED: {job_name}",
+        f"Job {job_id} ({job_name}) failed on host {host_id or 'unknown'}.",
+    )
+
+
+def alert_job_completed(job_id, job_name, duration_sec=None):
+    """Job completed. Good news for once."""
+    dur = f" in {duration_sec:.1f}s" if duration_sec else ""
+    alert(
+        f"JOB COMPLETE: {job_name}",
+        f"Job {job_id} ({job_name}) completed{dur}.",
+    )
 
 
 # ── Run it ────────────────────────────────────────────────────────────
