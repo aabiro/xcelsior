@@ -13,6 +13,7 @@ from scheduler import (
     bill_job, bill_all_completed, get_total_revenue, load_billing,
     start_health_monitor,
     generate_ssh_keypair, get_public_key,
+    failover_and_reassign, requeue_job,
 )
 
 
@@ -121,6 +122,32 @@ def cmd_revenue(args):
     print(f"Total revenue:     ${total}")
 
 
+def cmd_failover(args):
+    """Run failover: check hosts, requeue orphaned jobs, reassign."""
+    requeued, assigned = failover_and_reassign()
+    if requeued:
+        print(f"Requeued {len(requeued)} jobs:")
+        for j in requeued:
+            print(f"  {j['job_id']} | {j['name']} | retry {j.get('retries', 0)}")
+    else:
+        print("No jobs to failover.")
+
+    if assigned:
+        print(f"\nReassigned {len(assigned)} jobs:")
+        for j, h in assigned:
+            print(f"  {j['name']} -> {h['host_id']}")
+
+
+def cmd_requeue(args):
+    """Manually requeue a job."""
+    result = requeue_job(args.job_id)
+    if result:
+        print(f"Job {args.job_id} requeued (retry {result.get('retries', 0)})")
+    else:
+        print(f"Failed to requeue {args.job_id} (max retries exceeded or not found)", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_ssh_keygen(args):
     """Generate SSH keypair."""
     path = generate_ssh_keypair()
@@ -224,6 +251,15 @@ def main():
     # xcelsior revenue
     p_rev = sub.add_parser("revenue", help="Show total revenue")
     p_rev.set_defaults(func=cmd_revenue)
+
+    # xcelsior failover
+    p_fo = sub.add_parser("failover", help="Run failover: requeue jobs from dead hosts")
+    p_fo.set_defaults(func=cmd_failover)
+
+    # xcelsior requeue
+    p_rq = sub.add_parser("requeue", help="Manually requeue a job")
+    p_rq.add_argument("job_id", help="Job ID to requeue")
+    p_rq.set_defaults(func=cmd_requeue)
 
     # xcelsior ssh-keygen
     p_sshkg = sub.add_parser("ssh-keygen", help="Generate SSH keypair for host access")

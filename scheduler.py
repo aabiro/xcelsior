@@ -245,6 +245,8 @@ def submit_job(name, vram_needed_gb, priority=0):
         "submitted_at": time.time(),
         "started_at": None,
         "completed_at": None,
+        "retries": 0,
+        "max_retries": 3,
     }
 
     jobs.append(job)
@@ -733,6 +735,106 @@ def alert_job_completed(job_id, job_name, duration_sec=None):
         f"JOB COMPLETE: {job_name}",
         f"Job {job_id} ({job_name}) completed{dur}.",
     )
+
+
+# ── Phase 14: Failover ────────────────────────────────────────────────
+
+def requeue_job(job_id):
+    """
+    Reset a failed/running job back to queued.
+    Increment retry counter. Clear host assignment.
+    If max retries exceeded, mark permanently failed.
+    """
+    jobs = load_jobs()
+    for j in jobs:
+        if j["job_id"] == job_id:
+            retries = j.get("retries", 0) + 1
+            max_retries = j.get("max_retries", 3)
+
+            if retries > max_retries:
+                j["status"] = "failed"
+                j["completed_at"] = time.time()
+                save_jobs(jobs)
+                log.error("FAILOVER EXHAUSTED job=%s retries=%d/%d — permanently failed",
+                          job_id, retries, max_retries)
+                alert_job_failed(job_id, j.get("name", "?"), j.get("host_id"))
+                return None
+
+            old_host = j.get("host_id", "—")
+            j["status"] = "queued"
+            j["host_id"] = None
+            j["started_at"] = None
+            j["completed_at"] = None
+            j["retries"] = retries
+            save_jobs(jobs)
+
+            log.warning("FAILOVER REQUEUE job=%s retry=%d/%d old_host=%s",
+                        job_id, retries, max_retries, old_host)
+            return j
+    return None
+
+
+def failover_dead_hosts():
+    """
+    Find all running jobs on dead hosts. Requeue them.
+    This is the core failover loop — call it after check_hosts().
+    Returns list of requeued jobs.
+    """
+    dead_host_ids = {h["host_id"] for h in list_hosts(active_only=False)
+                     if h.get("status") == "dead"}
+
+    if not dead_host_ids:
+        return []
+
+    jobs = load_jobs()
+    requeued = []
+
+    for j in jobs:
+        if j["status"] == "running" and j.get("host_id") in dead_host_ids:
+            log.warning("FAILOVER DETECTED job=%s on dead host=%s",
+                        j["job_id"], j["host_id"])
+            result = requeue_job(j["job_id"])
+            if result:
+                requeued.append(result)
+
+    return requeued
+
+
+def failover_and_reassign():
+    """
+    Full failover cycle:
+    1. Check hosts (ping)
+    2. Requeue jobs on dead hosts
+    3. Process queue (assign requeued jobs to alive hosts)
+    Returns (requeued_jobs, newly_assigned).
+    """
+    check_hosts()
+    requeued = failover_dead_hosts()
+
+    assigned = []
+    if requeued:
+        assigned = process_queue()
+        for j, h in assigned:
+            log.info("FAILOVER REASSIGNED job=%s -> host=%s", j["job_id"], h["host_id"])
+
+    return requeued, assigned
+
+
+def start_failover_monitor(interval=10, callback=None):
+    """
+    Run failover checks in a background thread.
+    Ping hosts, requeue orphaned jobs, reassign.
+    """
+    def loop():
+        while True:
+            requeued, assigned = failover_and_reassign()
+            if callback and (requeued or assigned):
+                callback(requeued, assigned)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
 
 
 # ── Run it ────────────────────────────────────────────────────────────

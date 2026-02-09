@@ -19,6 +19,7 @@ from scheduler import (
     bill_job, bill_all_completed, get_total_revenue, load_billing,
     configure_alerts, ALERT_CONFIG,
     generate_ssh_keypair, get_public_key, API_TOKEN,
+    failover_and_reassign, requeue_job,
     log,
 )
 
@@ -156,6 +157,27 @@ def api_process_queue():
             for j, h in assigned
         ]
     }
+
+
+# ── Phase 14: Failover endpoints ──────────────────────────────────────
+
+@app.post("/failover")
+def api_failover():
+    """Run a full failover cycle: check hosts, requeue orphaned jobs, reassign."""
+    requeued, assigned = failover_and_reassign()
+    return {
+        "requeued": [{"job_id": j["job_id"], "name": j["name"], "retries": j.get("retries", 0)} for j in requeued],
+        "assigned": [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned],
+    }
+
+
+@app.post("/job/{job_id}/requeue")
+def api_requeue_job(job_id: str):
+    """Manually requeue a failed or stuck job."""
+    result = requeue_job(job_id)
+    if not result:
+        raise HTTPException(status_code=400, detail=f"Could not requeue job {job_id} (max retries exceeded or not found)")
+    return {"ok": True, "job": result}
 
 
 # ── Billing endpoints ────────────────────────────────────────────────
