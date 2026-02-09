@@ -1,4 +1,4 @@
-# Excelsior: distributed GPU scheduler for Canadians who refuse to wait.
+# Xcelsior: distributed GPU scheduler for Canadians who refuse to wait.
 # Ever upward. No limits. Pure power.
 
 import json
@@ -11,7 +11,7 @@ import uuid
 
 HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
 JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
-LOG_FILE = os.path.join(os.path.dirname(__file__), "excelsior.log")
+LOG_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.log")
 
 
 # ── Phase 7: Logging ─────────────────────────────────────────────────
@@ -22,7 +22,7 @@ def setup_logging(log_file=None, level=logging.INFO):
     Console + file. No silent failures.
     """
     log_file = log_file or LOG_FILE
-    logger = logging.getLogger("excelsior")
+    logger = logging.getLogger("xcelsior")
 
     if logger.handlers:
         return logger
@@ -332,7 +332,7 @@ def run_job(job, host, docker_image=None):
     SSH into the host. docker run the model. Log the container ID.
     Returns the container ID or None on failure.
     """
-    image = docker_image or f"excelsior/{job['name']}:latest"
+    image = docker_image or f"xcelsior/{job['name']}:latest"
     container_name = f"xcl-{job['job_id']}"
 
     cmd = (
@@ -428,7 +428,7 @@ def run_job_local(job, docker_image=None):
     Run a job locally (no SSH). For testing or single-machine setups.
     Returns (container_id, container_name) or (None, None) on failure.
     """
-    image = docker_image or f"excelsior/{job['name']}:latest"
+    image = docker_image or f"xcelsior/{job['name']}:latest"
     container_name = f"xcl-{job['job_id']}"
 
     try:
@@ -463,6 +463,102 @@ def kill_job_local(container_name):
                    capture_output=True, timeout=10)
     subprocess.run(["docker", "rm", "-f", container_name],
                    capture_output=True, timeout=10)
+
+
+# ── Phase 8: Billing ─────────────────────────────────────────────────
+
+BILLING_FILE = os.path.join(os.path.dirname(__file__), "billing.json")
+DEFAULT_RATE = 0.20  # $/hr
+
+
+def load_billing():
+    """Load billing records."""
+    if not os.path.exists(BILLING_FILE):
+        return []
+    with open(BILLING_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_billing(records):
+    """Write billing records."""
+    with open(BILLING_FILE, "w") as f:
+        json.dump(records, f, indent=2)
+
+
+def bill_job(job_id):
+    """
+    Bill a completed job. Multiply time by rate. Charge.
+    start_time, end_time, duration, cost. That's it.
+    """
+    jobs = load_jobs()
+    job = None
+    for j in jobs:
+        if j["job_id"] == job_id:
+            job = j
+            break
+
+    if not job:
+        log.error("BILLING FAILED job=%s not found", job_id)
+        return None
+
+    if not job.get("started_at") or not job.get("completed_at"):
+        log.error("BILLING FAILED job=%s missing timestamps", job_id)
+        return None
+
+    # Get the host's rate
+    rate = DEFAULT_RATE
+    if job.get("host_id"):
+        hosts = load_hosts(active_only=False)
+        for h in hosts:
+            if h["host_id"] == job["host_id"]:
+                rate = h.get("cost_per_hour", DEFAULT_RATE)
+                break
+
+    duration_sec = job["completed_at"] - job["started_at"]
+    duration_hr = duration_sec / 3600
+    cost = round(duration_hr * rate, 4)
+
+    record = {
+        "job_id": job_id,
+        "job_name": job["name"],
+        "host_id": job.get("host_id"),
+        "started_at": job["started_at"],
+        "completed_at": job["completed_at"],
+        "duration_sec": round(duration_sec, 2),
+        "rate_per_hour": rate,
+        "cost": cost,
+        "billed_at": time.time(),
+    }
+
+    records = load_billing()
+    records.append(record)
+    save_billing(records)
+
+    log.info("BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr",
+             job_id, job["name"], duration_sec, cost, rate)
+    return record
+
+
+def bill_all_completed():
+    """Bill every completed job that hasn't been billed yet."""
+    jobs = load_jobs()
+    records = load_billing()
+    billed_ids = {r["job_id"] for r in records}
+    new_bills = []
+
+    for j in jobs:
+        if j["status"] == "completed" and j["job_id"] not in billed_ids:
+            bill = bill_job(j["job_id"])
+            if bill:
+                new_bills.append(bill)
+
+    return new_bills
+
+
+def get_total_revenue():
+    """How much money did we make?"""
+    records = load_billing()
+    return round(sum(r["cost"] for r in records), 4)
 
 
 # ── Run it ────────────────────────────────────────────────────────────
@@ -540,13 +636,14 @@ if __name__ == "__main__":
         host = j['host_id'] or "—"
         print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | host: {host}")
 
-    # Show the log file
-    print("\n=== LOG FILE CONTENTS ===")
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE) as lf:
-            print(lf.read())
+    # Phase 8: Bill completed jobs
+    print("\n=== BILLING ===")
+    bills = bill_all_completed()
+    for b in bills:
+        print(f"  {b['job_name']} | {b['duration_sec']}s | ${b['cost']} @ ${b['rate_per_hour']}/hr")
+    print(f"\n  TOTAL REVENUE: ${get_total_revenue()}")
 
     # Cleanup
-    for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE):
+    for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE, BILLING_FILE):
         if os.path.exists(f):
             os.remove(f)
