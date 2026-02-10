@@ -175,3 +175,13 @@ class TestAutoscaleEndpoints:
         })
         r = client.get("/autoscale/pool")
         assert len(r.json()["pool"]) == 1
+
+
+class TestJobStatusApiValidation:
+    def test_invalid_status_returns_400(self):
+        """PATCH /job/{id} with invalid status should return 400, not 200."""
+        resp = client.post("/job", json={"name": "test", "vram_needed_gb": 8})
+        job_id = resp.json()["job"]["job_id"]
+        r = client.patch(f"/job/{job_id}", json={"status": "cancelled"})
+        assert r.status_code == 400
+        assert "Invalid status" in r.json()["detail"]

@@ -86,13 +86,26 @@ def _load_json(path):
 
 
 def _save_json(path, data):
-    """Write a JSON file with exclusive file locking."""
-    with open(path, "w") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
+    """Write a JSON file with exclusive file locking.
+
+    Opens in append mode to avoid truncating before the lock is held,
+    then seeks to the beginning, truncates, and writes the new data.
+    """
+    fd = os.open(path, os.O_RDWR | os.O_CREAT)
+    try:
+        with os.fdopen(fd, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.seek(0)
+            f.truncate()
             json.dump(data, f, indent=2)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+    except Exception:
+        # fd is already closed by os.fdopen/context-manager on success;
+        # only close manually if os.fdopen itself failed.
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
 
 
 # ── Phase 1: Allocate ────────────────────────────────────────────────
@@ -350,8 +363,7 @@ def get_next_job():
 def update_job_status(job_id, status, host_id=None):
     """Mark a job. queued -> running -> completed/failed. That's the lifecycle."""
     if status not in VALID_STATUSES:
-        log.error("INVALID STATUS '%s' for job %s — must be one of %s", status, job_id, VALID_STATUSES)
-        return
+        raise ValueError(f"Invalid status '{status}' for job {job_id} — must be one of {VALID_STATUSES}")
     jobs = load_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
@@ -637,6 +649,9 @@ def bill_job(job_id):
     """
     Bill a completed job. Multiply time by rate. Charge.
     start_time, end_time, duration, cost. That's it.
+
+    The duplicate check and write are performed under an exclusive
+    file lock so concurrent calls cannot both slip past the check.
     """
     jobs = load_jobs()
     job = None
@@ -651,12 +666,6 @@ def bill_job(job_id):
 
     if not job.get("started_at") or not job.get("completed_at"):
         log.error("BILLING FAILED job=%s missing timestamps", job_id)
-        return None
-
-    # Prevent duplicate billing
-    records = load_billing()
-    if any(r["job_id"] == job_id for r in records):
-        log.warning("BILLING SKIPPED job=%s already billed", job_id)
         return None
 
     # Get the host's rate
@@ -692,8 +701,28 @@ def bill_job(job_id):
         "billed_at": time.time(),
     }
 
-    records.append(record)
-    save_billing(records)
+    # ── Atomic check-and-write under exclusive lock ──────────────
+    fd = os.open(BILLING_FILE, os.O_RDWR | os.O_CREAT)
+    try:
+        with os.fdopen(fd, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            content = f.read()
+            records = json.loads(content) if content.strip() else []
+
+            if any(r["job_id"] == job_id for r in records):
+                log.warning("BILLING SKIPPED job=%s already billed", job_id)
+                return None
+
+            records.append(record)
+            f.seek(0)
+            f.truncate()
+            json.dump(records, f, indent=2)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
 
     log.info("BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr x%.1f (%s)",
              job_id, job["name"], duration_sec, cost, rate, multiplier, tier)
@@ -1261,8 +1290,15 @@ def marketplace_stats():
     active = [l for l in listings if l.get("active", True)]
     total_earned = sum(l.get("total_earned", 0) for l in listings)
     total_jobs = sum(l.get("total_jobs", 0) for l in listings)
-    # host_payout = total_cost * (1 - cut), so platform_revenue = host_payout * cut / (1 - cut)
-    platform_revenue = round(total_earned * PLATFORM_CUT / (1 - PLATFORM_CUT), 4) if PLATFORM_CUT < 1 else 0
+    # Compute platform revenue per listing using each listing's own cut.
+    # host_payout = total_cost * (1 - cut), so platform_revenue = payout * cut / (1 - cut)
+    platform_revenue = 0.0
+    for l in listings:
+        payout = l.get("total_earned", 0)
+        cut = l.get("platform_cut", PLATFORM_CUT)
+        if payout > 0 and 0 < cut < 1:
+            platform_revenue += payout * cut / (1 - cut)
+    platform_revenue = round(platform_revenue, 4)
 
     return {
         "total_listings": len(listings),

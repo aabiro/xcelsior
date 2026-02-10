@@ -154,7 +154,10 @@ def api_get_job(job_id: str):
 @app.patch("/job/{job_id}")
 def api_update_job(job_id: str, update: StatusUpdate):
     """Update a job's status."""
-    update_job_status(job_id, update.status, host_id=update.host_id)
+    try:
+        update_job_status(job_id, update.status, host_id=update.host_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "job_id": job_id, "status": update.status}
 
 

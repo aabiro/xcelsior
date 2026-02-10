@@ -176,7 +176,8 @@ class TestJobStatus:
 
     def test_update_invalid_status_rejected(self):
         job = scheduler.submit_job("test", 8)
-        scheduler.update_job_status(job["job_id"], "invalid_status")
+        with pytest.raises(ValueError):
+            scheduler.update_job_status(job["job_id"], "invalid_status")
         jobs = scheduler.list_jobs()
         assert jobs[0]["status"] == "queued"
 
@@ -434,3 +435,91 @@ class TestDockerBuilder:
 
     def test_list_builds_empty(self):
         assert scheduler.list_builds() == []
+
+
+# ── Concurrency and Locking ─────────────────────────────────────────
+
+class TestSaveJsonLocking:
+    def test_save_json_creates_file(self):
+        """_save_json should create the file if it doesn't exist."""
+        path = os.path.join(_tmpdir, "lock_test.json")
+        if os.path.exists(path):
+            os.remove(path)
+        scheduler._save_json(path, [{"a": 1}])
+        assert os.path.exists(path)
+        data = scheduler._load_json(path)
+        assert data == [{"a": 1}]
+
+    def test_save_json_overwrites(self):
+        """_save_json should fully replace the file contents."""
+        path = os.path.join(_tmpdir, "lock_test2.json")
+        scheduler._save_json(path, [{"a": 1}])
+        scheduler._save_json(path, [{"b": 2}])
+        data = scheduler._load_json(path)
+        assert data == [{"b": 2}]
+
+    def test_save_json_no_leftover_bytes(self):
+        """Writing shorter data should not leave old bytes behind."""
+        path = os.path.join(_tmpdir, "lock_test3.json")
+        scheduler._save_json(path, list(range(1000)))
+        scheduler._save_json(path, [1])
+        data = scheduler._load_json(path)
+        assert data == [1]
+
+
+class TestBillJobAtomic:
+    def test_bill_job_atomic_dedup(self):
+        """bill_job should not produce duplicate records on sequential calls."""
+        job = scheduler.submit_job("test", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        time.sleep(0.01)
+        scheduler.update_job_status(job["job_id"], "completed")
+
+        first = scheduler.bill_job(job["job_id"])
+        assert first is not None
+        second = scheduler.bill_job(job["job_id"])
+        assert second is None
+        records = scheduler.load_billing()
+        assert sum(1 for r in records if r["job_id"] == job["job_id"]) == 1
+
+
+class TestMarketplaceStatsPerListingCut:
+    def test_per_listing_platform_revenue(self):
+        """marketplace_stats should use each listing's own platform_cut."""
+        # Create two listings with different platform_cut values
+        listings = scheduler.load_marketplace()
+        listings.append({
+            "host_id": "h-low",
+            "gpu_model": "RTX 3060",
+            "vram_gb": 12,
+            "price_per_hour": 0.10,
+            "description": "",
+            "owner": "alice",
+            "platform_cut": 0.10,   # 10%
+            "listed_at": time.time(),
+            "updated_at": time.time(),
+            "active": True,
+            "total_jobs": 1,
+            "total_earned": 9.0,    # host payout
+        })
+        listings.append({
+            "host_id": "h-high",
+            "gpu_model": "A100",
+            "vram_gb": 80,
+            "price_per_hour": 1.00,
+            "description": "",
+            "owner": "bob",
+            "platform_cut": 0.30,   # 30%
+            "listed_at": time.time(),
+            "updated_at": time.time(),
+            "active": True,
+            "total_jobs": 2,
+            "total_earned": 7.0,    # host payout
+        })
+        scheduler.save_marketplace(listings)
+
+        stats = scheduler.marketplace_stats()
+        # h-low: 9.0 * 0.10 / 0.90 = 1.0
+        # h-high: 7.0 * 0.30 / 0.70 = 3.0
+        assert stats["platform_revenue"] == 4.0
+        assert stats["total_host_payouts"] == 16.0
