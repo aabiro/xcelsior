@@ -100,8 +100,8 @@ def _load_json(path):
 def _save_json(path, data):
     """Write a JSON file with exclusive file locking.
 
-    Opens in append mode to avoid truncating before the lock is held,
-    then seeks to the beginning, truncates, and writes the new data.
+    Opens with O_RDWR|O_CREAT to avoid truncating before the lock is held,
+    acquires LOCK_EX, then seeks to the beginning, truncates, and writes.
     """
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
@@ -1324,7 +1324,7 @@ def marketplace_stats():
         "total_jobs_completed": total_jobs,
         "total_host_payouts": round(total_earned, 4),
         "platform_revenue": platform_revenue,
-        "platform_cut_pct": PLATFORM_CUT,
+        "default_platform_cut_pct": PLATFORM_CUT,
     }
 
 

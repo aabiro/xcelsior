@@ -1,11 +1,14 @@
 """Tests for Xcelsior API endpoints."""
 
+import logging
 import os
 import tempfile
 
 import pytest
 
-_tmpdir = tempfile.mkdtemp(prefix="xcelsior_api_test_")
+# Use a TemporaryDirectory (auto-cleaned) for all scheduler data files
+_tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_api_test_")
+_tmpdir = _tmp_ctx.name
 os.environ["XCELSIOR_API_TOKEN"] = ""
 
 import scheduler
@@ -17,6 +20,16 @@ scheduler.BILLING_FILE = os.path.join(_tmpdir, "billing.json")
 scheduler.MARKETPLACE_FILE = os.path.join(_tmpdir, "marketplace.json")
 scheduler.AUTOSCALE_POOL_FILE = os.path.join(_tmpdir, "autoscale_pool.json")
 scheduler.LOG_FILE = os.path.join(_tmpdir, "xcelsior.log")
+
+# Reconfigure the logger so the FileHandler writes to the temp dir, not the repo
+for _h in scheduler.log.handlers[:]:
+    if isinstance(_h, logging.FileHandler):
+        scheduler.log.removeHandler(_h)
+        _h.close()
+_fh = logging.FileHandler(scheduler.LOG_FILE)
+_fh.setLevel(logging.INFO)
+_fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+scheduler.log.addHandler(_fh)
 
 from fastapi.testclient import TestClient
 from api import app

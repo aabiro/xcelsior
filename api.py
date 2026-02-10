@@ -24,7 +24,7 @@ from scheduler import (
     build_and_push, list_builds, generate_dockerfile,
     list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
     register_host_ca, list_hosts_filtered, process_queue_filtered,
-    set_canada_only, CANADA_ONLY,
+    set_canada_only,
     add_to_pool, remove_from_pool, load_autoscale_pool,
     autoscale_cycle, autoscale_up, autoscale_down,
     log,
