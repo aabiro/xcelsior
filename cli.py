@@ -15,6 +15,7 @@ from scheduler import (
     generate_ssh_keypair, get_public_key,
     failover_and_reassign, requeue_job,
     list_tiers, PRIORITY_TIERS,
+    build_and_push, list_builds, generate_dockerfile,
 )
 
 
@@ -179,6 +180,39 @@ def cmd_token_gen(args):
     print(f"  XCELSIOR_API_TOKEN={token}")
 
 
+def cmd_build(args):
+    """Build a Docker image for a model."""
+    print(f"Building image for {args.model}...")
+    if args.dockerfile_only:
+        content = generate_dockerfile(args.model, base_image=args.base, quantize=args.quantize)
+        print(content)
+        return
+
+    result = build_and_push(args.model, context_dir=args.context,
+                             quantize=args.quantize, base_image=args.base,
+                             push=args.push)
+    if result["built"]:
+        print(f"  Built: {result['tag']}")
+        if result["pushed"]:
+            print(f"  Pushed: {result['remote_tag']}")
+        elif args.push:
+            print("  Push failed. Check registry config.")
+    else:
+        print("  Build failed.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_builds(args):
+    """List local builds."""
+    builds = list_builds()
+    if not builds:
+        print("No builds.")
+        return
+    for b in builds:
+        df = "Dockerfile" if b["has_dockerfile"] else "no Dockerfile"
+        print(f"  {b['model']} | {b['path']} | {df}")
+
+
 def cmd_tiers(args):
     """List available priority tiers."""
     tiers = list_tiers()
@@ -284,6 +318,21 @@ def main():
     # xcelsior token-gen
     p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
     p_tgen.set_defaults(func=cmd_token_gen)
+
+    # xcelsior build
+    p_build = sub.add_parser("build", help="Build a Docker image for a model")
+    p_build.add_argument("model", help="Model name")
+    p_build.add_argument("--base", default="python:3.11-slim", help="Base Docker image")
+    p_build.add_argument("--quantize", choices=["gguf", "gptq", "awq"], default=None,
+                         help="Quantization method")
+    p_build.add_argument("--context", default=None, help="Build context directory")
+    p_build.add_argument("--push", action="store_true", help="Push to registry after build")
+    p_build.add_argument("--dockerfile-only", action="store_true", help="Print Dockerfile, don't build")
+    p_build.set_defaults(func=cmd_build)
+
+    # xcelsior builds
+    p_builds = sub.add_parser("builds", help="List local builds")
+    p_builds.set_defaults(func=cmd_builds)
 
     # xcelsior tiers
     p_tiers = sub.add_parser("tiers", help="List priority tiers and billing multipliers")

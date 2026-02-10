@@ -887,6 +887,173 @@ def start_failover_monitor(interval=10, callback=None):
     return t
 
 
+# ── Phase 16: Docker Image Builder ───────────────────────────────────
+
+BUILDS_DIR = os.path.join(os.path.dirname(__file__), "builds")
+REGISTRY = os.environ.get("XCELSIOR_REGISTRY", "")
+
+
+def generate_dockerfile(model_name, base_image="python:3.11-slim", quantize=None):
+    """
+    Generate a Dockerfile for a model.
+    Supports optional quantization step (gguf, gptq, awq).
+    Returns Dockerfile contents as a string.
+    """
+    quant_step = ""
+    if quantize == "gguf":
+        quant_step = (
+            "RUN pip install --no-cache-dir llama-cpp-python && \\\n"
+            "    python -c \"print('GGUF quantize ready')\"\n"
+        )
+    elif quantize == "gptq":
+        quant_step = (
+            "RUN pip install --no-cache-dir auto-gptq && \\\n"
+            "    python -c \"print('GPTQ quantize ready')\"\n"
+        )
+    elif quantize == "awq":
+        quant_step = (
+            "RUN pip install --no-cache-dir autoawq && \\\n"
+            "    python -c \"print('AWQ quantize ready')\"\n"
+        )
+
+    dockerfile = f"""FROM {base_image}
+
+LABEL maintainer="xcelsior"
+LABEL model="{model_name}"
+
+WORKDIR /app
+
+# Install model dependencies
+RUN pip install --no-cache-dir torch transformers accelerate
+
+{quant_step}# Copy model files
+COPY . /app/
+
+# Default: run the model server
+CMD ["python", "-m", "http.server", "8080"]
+"""
+    return dockerfile
+
+
+def build_image(model_name, context_dir=None, tag=None, quantize=None, base_image="python:3.11-slim"):
+    """
+    Build a Docker image for a model.
+    1. Generate Dockerfile
+    2. Write to build dir
+    3. docker build
+    Returns (image_tag, success).
+    """
+    build_dir = context_dir or os.path.join(BUILDS_DIR, model_name)
+    os.makedirs(build_dir, exist_ok=True)
+
+    # Generate and write Dockerfile
+    dockerfile = generate_dockerfile(model_name, base_image=base_image, quantize=quantize)
+    dockerfile_path = os.path.join(build_dir, "Dockerfile")
+    with open(dockerfile_path, "w") as f:
+        f.write(dockerfile)
+
+    tag = tag or f"xcelsior/{model_name}:latest"
+
+    log.info("BUILD START model=%s tag=%s dir=%s quantize=%s",
+             model_name, tag, build_dir, quantize or "none")
+
+    try:
+        result = subprocess.run(
+            ["docker", "build", "-t", tag, build_dir],
+            capture_output=True, text=True, timeout=600,
+        )
+        if result.returncode != 0:
+            log.error("BUILD FAILED model=%s err=%s", model_name, result.stderr.strip())
+            return tag, False
+
+        log.info("BUILD SUCCESS model=%s tag=%s", model_name, tag)
+        return tag, True
+
+    except subprocess.TimeoutExpired:
+        log.error("BUILD TIMEOUT model=%s (600s)", model_name)
+        return tag, False
+    except Exception as e:
+        log.error("BUILD ERROR model=%s err=%s", model_name, e)
+        return tag, False
+
+
+def push_image(tag, registry=None):
+    """
+    Push an image to a registry.
+    If no registry configured, just tag locally.
+    Returns (remote_tag, success).
+    """
+    registry = registry or REGISTRY
+    if not registry:
+        log.warning("PUSH SKIP — no registry configured. Set XCELSIOR_REGISTRY.")
+        return tag, False
+
+    remote_tag = f"{registry}/{tag}" if "/" not in tag[:tag.index(":")] else f"{registry}/{tag.split('/')[-1]}"
+
+    try:
+        # Tag for remote
+        subprocess.run(["docker", "tag", tag, remote_tag],
+                       capture_output=True, text=True, timeout=30)
+
+        # Push
+        result = subprocess.run(
+            ["docker", "push", remote_tag],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode != 0:
+            log.error("PUSH FAILED tag=%s err=%s", remote_tag, result.stderr.strip())
+            return remote_tag, False
+
+        log.info("PUSH SUCCESS tag=%s", remote_tag)
+        return remote_tag, True
+
+    except Exception as e:
+        log.error("PUSH ERROR tag=%s err=%s", remote_tag, e)
+        return remote_tag, False
+
+
+def build_and_push(model_name, context_dir=None, quantize=None, base_image="python:3.11-slim", push=True):
+    """
+    Full pipeline: generate Dockerfile, build image, optionally push.
+    Returns dict with build results.
+    """
+    tag, built = build_image(model_name, context_dir=context_dir,
+                              quantize=quantize, base_image=base_image)
+
+    result = {
+        "model": model_name,
+        "tag": tag,
+        "quantize": quantize,
+        "built": built,
+        "pushed": False,
+        "remote_tag": None,
+    }
+
+    if built and push:
+        remote_tag, pushed = push_image(tag)
+        result["pushed"] = pushed
+        result["remote_tag"] = remote_tag
+
+    return result
+
+
+def list_builds():
+    """List all local build directories."""
+    if not os.path.exists(BUILDS_DIR):
+        return []
+    builds = []
+    for name in sorted(os.listdir(BUILDS_DIR)):
+        build_dir = os.path.join(BUILDS_DIR, name)
+        if os.path.isdir(build_dir):
+            has_dockerfile = os.path.exists(os.path.join(build_dir, "Dockerfile"))
+            builds.append({
+                "model": name,
+                "path": build_dir,
+                "has_dockerfile": has_dockerfile,
+            })
+    return builds
+
+
 # ── Run it ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

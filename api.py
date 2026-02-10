@@ -21,6 +21,7 @@ from scheduler import (
     generate_ssh_keypair, get_public_key, API_TOKEN,
     failover_and_reassign, requeue_job,
     list_tiers, PRIORITY_TIERS,
+    build_and_push, list_builds, generate_dockerfile,
     log,
 )
 
@@ -282,6 +283,39 @@ def api_generate_token():
 def api_list_tiers():
     """List all priority tiers with their multipliers."""
     return {"tiers": list_tiers()}
+
+
+# ── Phase 16: Docker Image Builder ───────────────────────────────────
+
+class BuildIn(BaseModel):
+    model: str
+    base_image: str = "python:3.11-slim"
+    quantize: str | None = None
+    push: bool = False
+
+
+@app.post("/build")
+def api_build_image(b: BuildIn):
+    """Build a Docker image for a model. Optionally quantize and push."""
+    result = build_and_push(b.model, quantize=b.quantize,
+                             base_image=b.base_image, push=b.push)
+    if not result["built"]:
+        raise HTTPException(status_code=500, detail=f"Build failed for {b.model}")
+    return {"ok": True, "build": result}
+
+
+@app.get("/builds")
+def api_list_builds():
+    """List all local build directories."""
+    return {"builds": list_builds()}
+
+
+@app.post("/build/{model}/dockerfile")
+def api_generate_dockerfile(model: str, base_image: str = "python:3.11-slim",
+                             quantize: str | None = None):
+    """Preview the generated Dockerfile without building."""
+    content = generate_dockerfile(model, base_image=base_image, quantize=quantize)
+    return {"model": model, "dockerfile": content}
 
 
 # ── Health ────────────────────────────────────────────────────────────
