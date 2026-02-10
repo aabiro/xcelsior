@@ -6,6 +6,7 @@ import argparse
 import json
 import secrets
 import sys
+import time
 
 from scheduler import (
     register_host, remove_host, list_hosts, check_hosts,
@@ -346,6 +347,17 @@ def cmd_serve(args):
     uvicorn.run(app, host=args.bind, port=args.port)
 
 
+def cmd_health_start(args):
+    """Start continuous host health monitoring."""
+    print(f"Starting health monitor (interval: {args.interval}s)...")
+    start_health_monitor(interval=args.interval)
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        print("\nHealth monitor stopped.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="xcelsior",
@@ -529,6 +541,11 @@ def main():
     p_serve.add_argument("--port", type=int, default=8000, help="Port (default 8000)")
     p_serve.add_argument("--bind", default="0.0.0.0", help="Bind address")
     p_serve.set_defaults(func=cmd_serve)
+
+    # xcelsior health-start
+    p_health = sub.add_parser("health-start", help="Start host health monitor loop")
+    p_health.add_argument("--interval", type=int, default=5, help="Check interval in seconds")
+    p_health.set_defaults(func=cmd_health_start)
 
     args = parser.parse_args()
     if not args.command:

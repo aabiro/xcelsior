@@ -337,7 +337,7 @@ configure_environment() {
     
     # Generate API token
     print_info "Generating API token..."
-    API_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    API_TOKEN=$($PYTHON_CMD -c "import secrets; print(secrets.token_urlsafe(32))")
     sed -i "s/^XCELSIOR_API_TOKEN=.*/XCELSIOR_API_TOKEN=$API_TOKEN/" .env
     print_success "API token generated and saved."
     
@@ -592,7 +592,8 @@ run_tests() {
     source venv/bin/activate
     
     print_info "Running unit tests..."
-    if python -m pytest test_scheduler.py test_api.py -v --tb=short 2>&1 | tail -20; then
+    python -m pytest test_scheduler.py test_api.py -v --tb=short 2>&1 | tail -20
+    if [ ${PIPESTATUS[0]} -eq 0 ]; then
         print_success "All tests passed!"
     else
         print_warning "Some tests failed. This may be normal if you haven't configured all features."
@@ -619,7 +620,7 @@ show_next_steps() {
             echo -e "   ${YELLOW}python worker_agent.py${NC}"
             echo ""
             echo -e "3. ${BOLD}Submit your first job:${NC}"
-            echo -e "   ${YELLOW}python cli.py run bert-base-uncased 4.0${NC}"
+            echo -e "   ${YELLOW}python cli.py run --model bert-base-uncased --vram 4.0${NC}"
             echo ""
             echo -e "4. ${BOLD}Check job status:${NC}"
             echo -e "   ${YELLOW}python cli.py jobs${NC}"
