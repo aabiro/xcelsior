@@ -62,14 +62,14 @@ log = setup_logging()
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
-# Safe name pattern: alphanumeric, hyphens, underscores, dots, slashes
+# Safe name pattern: alphanumeric, hyphens, underscores, dots, colons, slashes, and @
 _SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9._:/@-]+$')
 
 
 def _validate_name(value, label="value"):
     """Reject shell-unsafe characters in names used in commands."""
     if not value or not _SAFE_NAME_RE.match(str(value)):
-        raise ValueError(f"Invalid {label}: {value!r} — only alphanumeric, hyphens, underscores, dots, colons, slashes allowed")
+        raise ValueError(f"Invalid {label}: {value!r} — only alphanumeric, hyphens, underscores, dots, colons, slashes, and @ allowed")
     return str(value)
 
 
@@ -77,12 +77,24 @@ def _load_json(path):
     """Load a JSON file with file locking. Returns [] if missing."""
     if not os.path.exists(path):
         return []
-    with open(path, "r") as f:
-        fcntl.flock(f, fcntl.LOCK_SH)
-        try:
-            return json.load(f)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+    try:
+        with open(path, "r") as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    # If the file is truly empty (e.g., truncated by a concurrent writer),
+                    # treat it as an empty list to match the "missing file" behavior.
+                    f.seek(0, os.SEEK_END)
+                    if f.tell() == 0:
+                        return []
+                    raise
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        # File was removed between the exists() check and open(); treat as missing.
+        return []
 
 
 def _save_json(path, data):
@@ -104,6 +116,8 @@ def _save_json(path, data):
         try:
             os.close(fd)
         except OSError:
+            # Best-effort close; ignore failures since we're already handling
+            # the original exception from os.fdopen/json.dump above.
             pass
         raise
 
@@ -455,9 +469,12 @@ def generate_ssh_keypair(path=None):
     # Resolve to absolute and ensure it's under home directory
     path = os.path.realpath(os.path.expanduser(path))
     home = os.path.realpath(os.path.expanduser("~"))
-    if not path.startswith(home + os.sep) and path != home:
+    if not path.startswith(home + os.sep):
         log.error("SSH KEYGEN REJECTED: path %s is outside home directory", path)
         raise ValueError(f"SSH key path must be under home directory: {path}")
+    if os.path.isdir(path):
+        log.error("SSH KEYGEN REJECTED: path %s is a directory, expected file", path)
+        raise ValueError(f"SSH key path must be a file, not a directory: {path}")
     if os.path.exists(path):
         log.info("SSH key already exists: %s", path)
         return path
@@ -721,6 +738,7 @@ def bill_job(job_id):
         try:
             os.close(fd)
         except OSError:
+            # Best-effort cleanup: ignore errors while closing since we're re-raising the original exception.
             pass
         raise
 
