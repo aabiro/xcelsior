@@ -26,8 +26,8 @@ SCHEDULER_URL = os.environ.get("XCELSIOR_SCHEDULER_URL")
 API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN")
 
 # Optional environment variables
-COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
-REPORT_INTERVAL = int(os.environ.get("XCELSIOR_REPORT_INTERVAL", "5"))
+COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR") or "0.50")
+REPORT_INTERVAL = int(os.environ.get("XCELSIOR_REPORT_INTERVAL") or "5")
 
 # ── Logging ───────────────────────────────────────────────────────────
 
