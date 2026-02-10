@@ -1,5 +1,5 @@
-# Xcelsior API — Phase 9 + 11
-# FastAPI. POST /job. GET /status. PUT /host. Dashboard. No fluff.
+# Xcelsior API v1.0.0
+# FastAPI. Every endpoint. Dashboard. Marketplace. Autoscale. No fluff.
 
 import hmac
 import os
@@ -30,7 +30,7 @@ from scheduler import (
     log,
 )
 
-app = FastAPI(title="Xcelsior", version="0.1.0")
+app = FastAPI(title="Xcelsior", version="1.0.0")
 
 
 # ── Phase 13: API Token Auth ─────────────────────────────────────────

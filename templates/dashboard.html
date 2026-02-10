@@ -21,26 +21,34 @@
   .status-dead, .status-failed { background: #2e0a0a; color: #f44336; }
   .status-queued { background: #2e2e0a; color: #ff9800; }
   .status-completed { background: #0a1a2e; color: #2196f3; }
-  .stat-row { display: flex; gap: 16px; margin-bottom: 16px; }
-  .stat { background: #111; border: 1px solid #222; border-radius: 6px; padding: 16px; flex: 1; text-align: center; }
+  .tier { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+  .tier-free { background: #1a1a1a; color: #666; }
+  .tier-standard { background: #1a1a2e; color: #90caf9; }
+  .tier-premium { background: #2e2e0a; color: #ffd700; }
+  .tier-urgent { background: #2e0a0a; color: #ff3333; }
+  .stat-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat { background: #111; border: 1px solid #222; border-radius: 6px; padding: 16px; flex: 1; text-align: center; min-width: 120px; }
   .stat .num { font-size: 32px; font-weight: bold; color: #ff3333; }
   .stat .label { font-size: 11px; color: #666; text-transform: uppercase; margin-top: 4px; }
   .btn { background: #ff3333; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
   .btn:hover { background: #cc2222; }
-  .btn-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .btn-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
   .refresh-note { color: #444; font-size: 11px; margin-top: 8px; }
+  .canada-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; background: #1a0a0a; color: #ff3333; }
 </style>
 </head>
 <body>
 
 <h1>XCELSIOR</h1>
-<p class="subtitle">Distributed GPU scheduler. Ever upward.</p>
+<p class="subtitle">Distributed GPU scheduler. Ever upward. v1.0.0</p>
 
 <div class="btn-row">
   <button class="btn" onclick="refresh()">Refresh</button>
   <button class="btn" onclick="processQueue()">Process Queue</button>
   <button class="btn" onclick="billAll()">Bill All</button>
   <button class="btn" onclick="pingHosts()">Ping Hosts</button>
+  <button class="btn" onclick="runFailover()">Failover</button>
+  <button class="btn" onclick="runAutoscale()">Autoscale</button>
 </div>
 
 <div class="stat-row">
@@ -49,13 +57,15 @@
   <div class="stat"><div class="num" id="stat-running">-</div><div class="label">Running</div></div>
   <div class="stat"><div class="num" id="stat-queued">-</div><div class="label">Queued</div></div>
   <div class="stat"><div class="num" id="stat-revenue">-</div><div class="label">Revenue</div></div>
+  <div class="stat"><div class="num" id="stat-market">-</div><div class="label">Marketplace</div></div>
+  <div class="stat"><div class="num" id="stat-pool">-</div><div class="label">Pool</div></div>
 </div>
 
 <div class="grid">
   <div class="card">
     <h2>Hosts</h2>
     <table>
-      <thead><tr><th>ID</th><th>IP</th><th>GPU</th><th>VRAM Free</th><th>$/hr</th><th>Status</th></tr></thead>
+      <thead><tr><th>ID</th><th>IP</th><th>GPU</th><th>VRAM Free</th><th>$/hr</th><th>Country</th><th>Status</th></tr></thead>
       <tbody id="hosts-table"></tbody>
     </table>
   </div>
@@ -66,10 +76,24 @@
       <tbody id="jobs-table"></tbody>
     </table>
   </div>
+  <div class="card">
+    <h2>Marketplace</h2>
+    <table>
+      <thead><tr><th>Host</th><th>GPU</th><th>VRAM</th><th>$/hr</th><th>Owner</th><th>Jobs</th><th>Earned</th></tr></thead>
+      <tbody id="market-table"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Autoscale Pool</h2>
+    <table>
+      <thead><tr><th>Host</th><th>GPU</th><th>VRAM</th><th>$/hr</th><th>Country</th><th>Status</th></tr></thead>
+      <tbody id="pool-table"></tbody>
+    </table>
+  </div>
   <div class="card full">
     <h2>Billing</h2>
     <table>
-      <thead><tr><th>Job</th><th>Name</th><th>Host</th><th>Duration</th><th>Rate</th><th>Cost</th></tr></thead>
+      <thead><tr><th>Job</th><th>Name</th><th>Host</th><th>Tier</th><th>Duration</th><th>Rate</th><th>Cost</th></tr></thead>
       <tbody id="billing-table"></tbody>
     </table>
   </div>
@@ -84,13 +108,17 @@ function s(status) {
   return `<span class="status status-${status}">${status}</span>`;
 }
 
+function t(tier) {
+  return `<span class="tier tier-${tier || 'free'}">${tier || 'free'}</span>`;
+}
+
 async function fetchHosts() {
   const r = await fetch(`${API}/hosts?active_only=false`);
   const d = await r.json();
   const active = d.hosts.filter(h => h.status === 'active').length;
   document.getElementById('stat-hosts').textContent = active;
   document.getElementById('hosts-table').innerHTML = d.hosts.map(h =>
-    `<tr><td>${h.host_id}</td><td>${h.ip}</td><td>${h.gpu_model}</td><td>${h.free_vram_gb}GB</td><td>$${h.cost_per_hour}</td><td>${s(h.status)}</td></tr>`
+    `<tr><td>${h.host_id}</td><td>${h.ip}</td><td>${h.gpu_model}</td><td>${h.free_vram_gb}GB</td><td>$${h.cost_per_hour}</td><td>${h.country || '—'}</td><td>${s(h.status)}</td></tr>`
   ).join('');
 }
 
@@ -103,7 +131,7 @@ async function fetchJobs() {
   document.getElementById('stat-running').textContent = running;
   document.getElementById('stat-queued').textContent = queued;
   document.getElementById('jobs-table').innerHTML = d.jobs.map(j =>
-    `<tr><td>${j.job_id}</td><td>${j.name}</td><td>${j.vram_needed_gb}GB</td><td>${j.tier || 'free'}</td><td>${j.host_id || '—'}</td><td>${s(j.status)}</td></tr>`
+    `<tr><td>${j.job_id}</td><td>${j.name}</td><td>${j.vram_needed_gb}GB</td><td>${t(j.tier)}</td><td>${j.host_id || '—'}</td><td>${s(j.status)}</td></tr>`
   ).join('');
 }
 
@@ -112,12 +140,30 @@ async function fetchBilling() {
   const d = await r.json();
   document.getElementById('stat-revenue').textContent = `$${d.total_revenue}`;
   document.getElementById('billing-table').innerHTML = d.records.map(b =>
-    `<tr><td>${b.job_id}</td><td>${b.job_name}</td><td>${b.host_id || '—'}</td><td>${b.duration_sec}s</td><td>$${b.rate_per_hour}/hr</td><td>$${b.cost}</td></tr>`
+    `<tr><td>${b.job_id}</td><td>${b.job_name}</td><td>${b.host_id || '—'}</td><td>${t(b.tier)}</td><td>${b.duration_sec}s</td><td>$${b.rate_per_hour}/hr</td><td>$${b.cost}</td></tr>`
+  ).join('');
+}
+
+async function fetchMarketplace() {
+  const r = await fetch(`${API}/marketplace`);
+  const d = await r.json();
+  document.getElementById('stat-market').textContent = d.listings.length;
+  document.getElementById('market-table').innerHTML = d.listings.map(l =>
+    `<tr><td>${l.host_id}</td><td>${l.gpu_model}</td><td>${l.vram_gb}GB</td><td>$${l.price_per_hour}</td><td>${l.owner}</td><td>${l.total_jobs || 0}</td><td>$${l.total_earned || 0}</td></tr>`
+  ).join('');
+}
+
+async function fetchPool() {
+  const r = await fetch(`${API}/autoscale/pool`);
+  const d = await r.json();
+  document.getElementById('stat-pool').textContent = d.pool.length;
+  document.getElementById('pool-table').innerHTML = d.pool.map(p =>
+    `<tr><td>${p.host_id}</td><td>${p.gpu_model}</td><td>${p.vram_gb}GB</td><td>$${p.cost_per_hour}</td><td>${p.country || '—'}</td><td>${p.provisioned ? s('active') : s('queued')}</td></tr>`
   ).join('');
 }
 
 async function refresh() {
-  await Promise.all([fetchHosts(), fetchJobs(), fetchBilling()]);
+  await Promise.all([fetchHosts(), fetchJobs(), fetchBilling(), fetchMarketplace(), fetchPool()]);
 }
 
 async function processQueue() {
@@ -132,6 +178,16 @@ async function billAll() {
 
 async function pingHosts() {
   await fetch(`${API}/hosts/check`, { method: 'POST' });
+  refresh();
+}
+
+async function runFailover() {
+  await fetch(`${API}/failover`, { method: 'POST' });
+  refresh();
+}
+
+async function runAutoscale() {
+  await fetch(`${API}/autoscale/cycle`, { method: 'POST' });
   refresh();
 }
 

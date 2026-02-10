@@ -1,5 +1,5 @@
-# Xcelsior: distributed GPU scheduler for Canadians who refuse to wait.
-# Ever upward. No limits. Pure power.
+# Xcelsior v1.0.0 — distributed GPU scheduler for Canadians who refuse to wait.
+# 20 phases. No shortcuts. Ever upward.
 
 import json
 import logging

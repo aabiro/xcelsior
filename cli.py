@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Xcelsior CLI — Phase 10
+# Xcelsior CLI v1.0.0
 # argparse. No npm. No node. Just Python.
 
 import argparse
