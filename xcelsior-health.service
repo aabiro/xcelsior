@@ -1,0 +1,36 @@
+[Unit]
+Description=Xcelsior Health Monitor
+Documentation=https://github.com/aabiro/xcelsior
+After=network.target xcelsior-api.service
+Requires=xcelsior-api.service
+
+[Service]
+Type=simple
+User=xcelsior
+Group=xcelsior
+WorkingDirectory=/opt/xcelsior
+Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/xcelsior/.env
+
+# Run health monitor with 30-second check interval
+ExecStart=/opt/xcelsior/venv/bin/python3 cli.py health-start --interval 30
+
+# Restart policy
+Restart=always
+RestartSec=15
+StartLimitInterval=0
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/xcelsior
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xcelsior-health
+
+[Install]
+WantedBy=multi-user.target
