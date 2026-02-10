@@ -1,0 +1,44 @@
+[Unit]
+Description=Xcelsior Worker Agent
+Documentation=https://github.com/aabiro/xcelsior
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xcelsior
+Group=xcelsior
+WorkingDirectory=/opt/xcelsior
+
+# Environment variables - CUSTOMIZE THESE
+Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="XCELSIOR_HOST_ID=gpu-worker-01"
+Environment="XCELSIOR_SCHEDULER_URL=http://scheduler:8000"
+Environment="XCELSIOR_API_TOKEN=your_api_token_here"
+Environment="XCELSIOR_COST_PER_HOUR=0.50"
+Environment="XCELSIOR_REPORT_INTERVAL=5"
+
+# Optionally load from file instead (create /opt/xcelsior/worker.env)
+# EnvironmentFile=/opt/xcelsior/worker.env
+
+ExecStart=/opt/xcelsior/venv/bin/python3 worker_agent.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=0
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/xcelsior
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xcelsior-worker
+
+[Install]
+WantedBy=multi-user.target
