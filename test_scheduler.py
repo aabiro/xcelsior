@@ -279,7 +279,7 @@ class TestFailover:
     def test_max_retries_exceeded(self):
         job = scheduler.submit_job("test", 8)
         # Exhaust retries (max_retries=3)
-        for i in range(4):
+        for _ in range(4):
             scheduler.update_job_status(job["job_id"], "running")
             result = scheduler.requeue_job(job["job_id"])
             if result is None:

@@ -442,6 +442,10 @@ def generate_ssh_keypair(path=None):
     path = path or SSH_KEY_PATH
     # Resolve to absolute and ensure it's under home directory
     path = os.path.realpath(os.path.expanduser(path))
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not path.startswith(home + os.sep) and path != home:
+        log.error("SSH KEYGEN REJECTED: path %s is outside home directory", path)
+        raise ValueError(f"SSH key path must be under home directory: {path}")
     if os.path.exists(path):
         log.info("SSH key already exists: %s", path)
         return path
