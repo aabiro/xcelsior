@@ -10,7 +10,7 @@ import pytest
 # Redirect data files to temp directory before importing scheduler
 _tmpdir = tempfile.mkdtemp(prefix="xcelsior_test_")
 
-os.environ.setdefault("XCELSIOR_API_TOKEN", "")
+os.environ["XCELSIOR_API_TOKEN"] = ""
 
 import scheduler
 
