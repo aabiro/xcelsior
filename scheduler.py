@@ -91,7 +91,7 @@ def _save_json(path, data):
     Opens in append mode to avoid truncating before the lock is held,
     then seeks to the beginning, truncates, and writes the new data.
     """
-    fd = os.open(path, os.O_RDWR | os.O_CREAT)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         with os.fdopen(fd, "r+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
@@ -702,7 +702,7 @@ def bill_job(job_id):
     }
 
     # ── Atomic check-and-write under exclusive lock ──────────────
-    fd = os.open(BILLING_FILE, os.O_RDWR | os.O_CREAT)
+    fd = os.open(BILLING_FILE, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         with os.fdopen(fd, "r+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
