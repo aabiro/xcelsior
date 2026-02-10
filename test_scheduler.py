@@ -1,6 +1,5 @@
 """Tests for Xcelsior scheduler — core logic, all phases."""
 
-import json
 import os
 import tempfile
 import time
