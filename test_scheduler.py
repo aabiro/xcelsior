@@ -1,13 +1,15 @@
 """Tests for Xcelsior scheduler — core logic, all phases."""
 
+import logging
 import os
 import tempfile
 import time
 
 import pytest
 
-# Redirect data files to temp directory before importing scheduler
-_tmpdir = tempfile.mkdtemp(prefix="xcelsior_test_")
+# Use a TemporaryDirectory (auto-cleaned) for all scheduler data files
+_tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_test_")
+_tmpdir = _tmp_ctx.name
 
 os.environ["XCELSIOR_API_TOKEN"] = ""
 
@@ -20,6 +22,16 @@ scheduler.BILLING_FILE = os.path.join(_tmpdir, "billing.json")
 scheduler.MARKETPLACE_FILE = os.path.join(_tmpdir, "marketplace.json")
 scheduler.AUTOSCALE_POOL_FILE = os.path.join(_tmpdir, "autoscale_pool.json")
 scheduler.LOG_FILE = os.path.join(_tmpdir, "xcelsior.log")
+
+# Reconfigure the logger so the FileHandler writes to the temp dir, not the repo
+for h in scheduler.log.handlers[:]:
+    if isinstance(h, logging.FileHandler):
+        scheduler.log.removeHandler(h)
+        h.close()
+_fh = logging.FileHandler(scheduler.LOG_FILE)
+_fh.setLevel(logging.INFO)
+_fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+scheduler.log.addHandler(_fh)
 
 
 @pytest.fixture(autouse=True)
@@ -328,7 +340,7 @@ class TestMarketplace:
         scheduler.list_rig("h1", "RTX 4090", 24, 0.30, owner="alice")
         stats = scheduler.marketplace_stats()
         assert "platform_revenue" in stats
-        assert stats["platform_cut_pct"] == scheduler.PLATFORM_CUT
+        assert stats["default_platform_cut_pct"] == scheduler.PLATFORM_CUT
 
 
 # ── Phase 18: Canada-Only Toggle ────────────────────────────────────
