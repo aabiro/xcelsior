@@ -110,7 +110,7 @@ def get_host_ip():
             ips = result.stdout.strip().split()
             if ips:
                 return ips[0]
-    except:
+    except Exception:
         pass
     
     # Fallback: try to get from ip route
@@ -125,7 +125,7 @@ def get_host_ip():
             match = re.search(r"src (\S+)", result.stdout)
             if match:
                 return match.group(1)
-    except:
+    except Exception:
         pass
     
     return "unknown"
