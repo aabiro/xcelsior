@@ -1,0 +1,33 @@
+[Unit]
+Description=Xcelsior API Server
+Documentation=https://github.com/aabiro/xcelsior
+After=network.target
+
+[Service]
+Type=simple
+User=xcelsior
+Group=xcelsior
+WorkingDirectory=/opt/xcelsior
+Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/xcelsior/.env
+ExecStart=/opt/xcelsior/venv/bin/gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --access-logfile - --error-logfile -
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=0
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/xcelsior
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xcelsior-api
+
+[Install]
+WantedBy=multi-user.target
