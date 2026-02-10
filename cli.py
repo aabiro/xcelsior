@@ -19,6 +19,8 @@ from scheduler import (
     list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
     register_host_ca, list_hosts_filtered, process_queue_filtered,
     set_canada_only,
+    add_to_pool, remove_from_pool, load_autoscale_pool,
+    autoscale_cycle,
 )
 
 
@@ -211,6 +213,51 @@ def cmd_canada(args):
     else:
         from scheduler import CANADA_ONLY
         print(f"Canada-only mode: {'ON' if CANADA_ONLY else 'OFF'}")
+
+
+def cmd_pool(args):
+    """List the autoscale pool."""
+    pool = load_autoscale_pool()
+    if not pool:
+        print("Autoscale pool is empty.")
+        return
+    for p in pool:
+        status = "provisioned" if p.get("provisioned") else "available"
+        print(f"  [{status:>12}] {p['host_id']} | {p['ip']} | {p['gpu_model']} | {p['vram_gb']}GB | ${p['cost_per_hour']}/hr | {p.get('country', '?')}")
+
+
+def cmd_pool_add(args):
+    """Add a host to the autoscale pool."""
+    entry = add_to_pool(args.host_id, args.ip, args.gpu, args.vram,
+                         args.rate, args.country)
+    print(f"Added to pool: {entry['host_id']} | {entry['gpu_model']} | {entry['vram_gb']}GB")
+
+
+def cmd_pool_rm(args):
+    """Remove a host from the autoscale pool."""
+    remove_from_pool(args.host_id)
+    print(f"Removed from pool: {args.host_id}")
+
+
+def cmd_autoscale(args):
+    """Run an autoscale cycle."""
+    provisioned, assigned, deprovisioned = autoscale_cycle()
+    if provisioned:
+        print(f"Provisioned {len(provisioned)} hosts:")
+        for h in provisioned:
+            print(f"  {h['host_id']} | {h['gpu_model']}")
+    else:
+        print("No hosts provisioned.")
+
+    if assigned:
+        print(f"\nAssigned {len(assigned)} jobs:")
+        for j, h in assigned:
+            print(f"  {j['name']} -> {h['host_id']}")
+
+    if deprovisioned:
+        print(f"\nDeprovisioned {len(deprovisioned)} idle hosts:")
+        for hid in deprovisioned:
+            print(f"  {hid}")
 
 
 def cmd_market(args):
@@ -409,6 +456,29 @@ def main():
     p_canada.add_argument("--on", action="store_true", help="Enable Canada-only")
     p_canada.add_argument("--off", action="store_true", help="Disable Canada-only")
     p_canada.set_defaults(func=cmd_canada)
+
+    # xcelsior pool
+    p_pool = sub.add_parser("pool", help="List autoscale pool")
+    p_pool.set_defaults(func=cmd_pool)
+
+    # xcelsior pool-add
+    p_pooladd = sub.add_parser("pool-add", help="Add host to autoscale pool")
+    p_pooladd.add_argument("host_id", help="Host ID")
+    p_pooladd.add_argument("--ip", required=True, help="Host IP")
+    p_pooladd.add_argument("--gpu", required=True, help="GPU model")
+    p_pooladd.add_argument("--vram", type=float, required=True, help="VRAM (GB)")
+    p_pooladd.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
+    p_pooladd.add_argument("--country", default="CA", help="Country code")
+    p_pooladd.set_defaults(func=cmd_pool_add)
+
+    # xcelsior pool-rm
+    p_poolrm = sub.add_parser("pool-rm", help="Remove host from autoscale pool")
+    p_poolrm.add_argument("host_id", help="Host ID")
+    p_poolrm.set_defaults(func=cmd_pool_rm)
+
+    # xcelsior autoscale
+    p_autoscale = sub.add_parser("autoscale", help="Run an autoscale cycle")
+    p_autoscale.set_defaults(func=cmd_autoscale)
 
     # xcelsior market
     p_market = sub.add_parser("market", help="Browse marketplace listings")

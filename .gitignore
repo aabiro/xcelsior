@@ -18,6 +18,7 @@ hosts.json
 jobs.json
 billing.json
 marketplace.json
+autoscale_pool.json
 
 # Builds
 builds/

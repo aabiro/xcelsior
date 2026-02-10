@@ -1290,6 +1290,211 @@ def process_queue_filtered(canada_only=None):
     return assigned
 
 
+# ── Phase 19: Auto-Scaling ───────────────────────────────────────────
+
+AUTOSCALE_ENABLED = os.environ.get("XCELSIOR_AUTOSCALE", "").lower() in ("1", "true", "yes")
+AUTOSCALE_MAX_HOSTS = int(os.environ.get("XCELSIOR_AUTOSCALE_MAX", "20"))
+AUTOSCALE_PROVIDER = os.environ.get("XCELSIOR_AUTOSCALE_PROVIDER", "")  # e.g. "ssh", "api"
+AUTOSCALE_POOL_FILE = os.path.join(os.path.dirname(__file__), "autoscale_pool.json")
+
+
+def load_autoscale_pool():
+    """Load the pool of available-on-demand hosts."""
+    if not os.path.exists(AUTOSCALE_POOL_FILE):
+        return []
+    with open(AUTOSCALE_POOL_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_autoscale_pool(pool):
+    """Write the autoscale pool."""
+    with open(AUTOSCALE_POOL_FILE, "w") as f:
+        json.dump(pool, f, indent=2)
+
+
+def add_to_pool(host_id, ip, gpu_model, vram_gb, cost_per_hour=0.20, country="CA"):
+    """Add a host to the autoscale pool (available but not yet active)."""
+    pool = load_autoscale_pool()
+
+    for p in pool:
+        if p["host_id"] == host_id:
+            p.update({"ip": ip, "gpu_model": gpu_model, "vram_gb": vram_gb,
+                       "cost_per_hour": cost_per_hour, "country": country})
+            save_autoscale_pool(pool)
+            return p
+
+    entry = {
+        "host_id": host_id,
+        "ip": ip,
+        "gpu_model": gpu_model,
+        "vram_gb": vram_gb,
+        "cost_per_hour": cost_per_hour,
+        "country": country,
+        "provisioned": False,
+    }
+    pool.append(entry)
+    save_autoscale_pool(pool)
+    log.info("AUTOSCALE POOL ADD %s | %s | %sGB", host_id, gpu_model, vram_gb)
+    return entry
+
+
+def remove_from_pool(host_id):
+    """Remove a host from the autoscale pool."""
+    pool = load_autoscale_pool()
+    pool = [p for p in pool if p["host_id"] != host_id]
+    save_autoscale_pool(pool)
+    log.info("AUTOSCALE POOL REMOVE %s", host_id)
+
+
+def provision_host(pool_entry):
+    """
+    Provision a host from the pool — make it active.
+    In a real setup, this would spin up a cloud VM or wake a bare-metal node.
+    For now: register it as active.
+    """
+    entry = register_host(
+        pool_entry["host_id"],
+        pool_entry["ip"],
+        pool_entry["gpu_model"],
+        pool_entry["vram_gb"],
+        pool_entry["vram_gb"],  # starts fully free
+        pool_entry.get("cost_per_hour", 0.20),
+    )
+
+    # Tag country
+    hosts = load_hosts(active_only=False)
+    for h in hosts:
+        if h["host_id"] == pool_entry["host_id"]:
+            h["country"] = pool_entry.get("country", "CA")
+            h["autoscaled"] = True
+            break
+    save_hosts(hosts)
+
+    # Mark as provisioned in pool
+    pool = load_autoscale_pool()
+    for p in pool:
+        if p["host_id"] == pool_entry["host_id"]:
+            p["provisioned"] = True
+            break
+    save_autoscale_pool(pool)
+
+    log.info("AUTOSCALE PROVISIONED %s | %s | %sGB",
+             pool_entry["host_id"], pool_entry["gpu_model"], pool_entry["vram_gb"])
+    return entry
+
+
+def deprovision_host(host_id):
+    """
+    Deprovision: remove from active hosts, mark pool entry as unprovisioned.
+    Called when scaling down.
+    """
+    remove_host(host_id)
+
+    pool = load_autoscale_pool()
+    for p in pool:
+        if p["host_id"] == host_id:
+            p["provisioned"] = False
+            break
+    save_autoscale_pool(pool)
+
+    log.info("AUTOSCALE DEPROVISIONED %s", host_id)
+
+
+def autoscale_up():
+    """
+    Scale up: check queued jobs, provision hosts from pool to match demand.
+    Returns list of newly provisioned hosts.
+    """
+    jobs = load_jobs()
+    queued = [j for j in jobs if j["status"] == "queued"]
+
+    if not queued:
+        return []
+
+    active_hosts = list_hosts(active_only=True)
+    active_count = len(active_hosts)
+
+    pool = load_autoscale_pool()
+    available = [p for p in pool if not p.get("provisioned", False)]
+
+    if not available:
+        log.info("AUTOSCALE UP — no hosts available in pool")
+        return []
+
+    # How many more hosts do we need?
+    needed = len(queued)
+    can_add = min(needed, len(available), AUTOSCALE_MAX_HOSTS - active_count)
+
+    if can_add <= 0:
+        return []
+
+    # Sort by VRAM descending — provision biggest first
+    available.sort(key=lambda p: -p.get("vram_gb", 0))
+
+    provisioned = []
+    for i in range(can_add):
+        entry = provision_host(available[i])
+        provisioned.append(entry)
+
+    log.info("AUTOSCALE UP — provisioned %d hosts for %d queued jobs",
+             len(provisioned), len(queued))
+    return provisioned
+
+
+def autoscale_down():
+    """
+    Scale down: deprovision idle autoscaled hosts with no running jobs.
+    Returns list of deprovisioned host IDs.
+    """
+    hosts = load_hosts(active_only=True)
+    jobs = load_jobs()
+    busy_host_ids = {j["host_id"] for j in jobs if j["status"] == "running" and j.get("host_id")}
+
+    deprovisioned = []
+    for h in hosts:
+        if h.get("autoscaled") and h["host_id"] not in busy_host_ids:
+            deprovision_host(h["host_id"])
+            deprovisioned.append(h["host_id"])
+
+    if deprovisioned:
+        log.info("AUTOSCALE DOWN — deprovisioned %d idle hosts", len(deprovisioned))
+    return deprovisioned
+
+
+def autoscale_cycle():
+    """
+    Full autoscale cycle:
+    1. Scale up if jobs are queued
+    2. Process queue with new hosts
+    3. Scale down idle autoscaled hosts
+    Returns (provisioned, assigned, deprovisioned).
+    """
+    provisioned = autoscale_up()
+
+    assigned = []
+    if provisioned:
+        assigned = process_queue()
+
+    deprovisioned = autoscale_down()
+
+    return provisioned, assigned, deprovisioned
+
+
+def start_autoscale_monitor(interval=15, callback=None):
+    """Run autoscale checks in a background thread."""
+    def loop():
+        while True:
+            if AUTOSCALE_ENABLED:
+                provisioned, assigned, deprovisioned = autoscale_cycle()
+                if callback and (provisioned or assigned or deprovisioned):
+                    callback(provisioned, assigned, deprovisioned)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
 # ── Run it ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

@@ -25,6 +25,8 @@ from scheduler import (
     list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
     register_host_ca, list_hosts_filtered, process_queue_filtered,
     set_canada_only, CANADA_ONLY,
+    add_to_pool, remove_from_pool, load_autoscale_pool,
+    autoscale_cycle, autoscale_up, autoscale_down,
     log,
 )
 
@@ -406,6 +408,63 @@ def api_process_queue_ca():
             for j, h in assigned
         ],
     }
+
+
+# ── Phase 19: Auto-Scaling ───────────────────────────────────────────
+
+class PoolHost(BaseModel):
+    host_id: str
+    ip: str
+    gpu_model: str
+    vram_gb: float
+    cost_per_hour: float = 0.20
+    country: str = "CA"
+
+
+@app.post("/autoscale/pool")
+def api_add_to_pool(h: PoolHost):
+    """Add a host to the autoscale pool."""
+    entry = add_to_pool(h.host_id, h.ip, h.gpu_model, h.vram_gb,
+                         h.cost_per_hour, h.country)
+    return {"ok": True, "pool_entry": entry}
+
+
+@app.delete("/autoscale/pool/{host_id}")
+def api_remove_from_pool(host_id: str):
+    """Remove a host from the autoscale pool."""
+    remove_from_pool(host_id)
+    return {"ok": True, "removed": host_id}
+
+
+@app.get("/autoscale/pool")
+def api_get_pool():
+    """List the autoscale pool."""
+    return {"pool": load_autoscale_pool()}
+
+
+@app.post("/autoscale/cycle")
+def api_autoscale_cycle():
+    """Run a full autoscale cycle: scale up, process queue, scale down."""
+    provisioned, assigned, deprovisioned = autoscale_cycle()
+    return {
+        "provisioned": [{"host_id": h["host_id"], "gpu": h["gpu_model"]} for h in provisioned],
+        "assigned": [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned],
+        "deprovisioned": deprovisioned,
+    }
+
+
+@app.post("/autoscale/up")
+def api_autoscale_up():
+    """Scale up: provision hosts for queued jobs."""
+    provisioned = autoscale_up()
+    return {"provisioned": [{"host_id": h["host_id"], "gpu": h["gpu_model"]} for h in provisioned]}
+
+
+@app.post("/autoscale/down")
+def api_autoscale_down():
+    """Scale down: deprovision idle autoscaled hosts."""
+    deprovisioned = autoscale_down()
+    return {"deprovisioned": deprovisioned}
 
 
 # ── Health ────────────────────────────────────────────────────────────
