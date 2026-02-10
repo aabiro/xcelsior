@@ -378,10 +378,45 @@ def update_job_status(job_id, status, host_id=None):
     """Mark a job. queued -> running -> completed/failed. That's the lifecycle."""
     if status not in VALID_STATUSES:
         raise ValueError(f"Invalid status '{status}' for job {job_id} — must be one of {VALID_STATUSES}")
+
+    def _apply_host_vram_delta(target_host_id, delta_gb):
+        """Adjust host free VRAM with clamping: [0, total_vram_gb]."""
+        if not target_host_id or not delta_gb:
+            return
+        hosts = load_hosts(active_only=False)
+        changed = False
+        for h in hosts:
+            if h.get("host_id") != target_host_id:
+                continue
+            total = float(h.get("total_vram_gb", 0) or 0)
+            free = float(h.get("free_vram_gb", 0) or 0)
+            next_free = max(0.0, min(total, free + delta_gb))
+            h["free_vram_gb"] = round(next_free, 4)
+            changed = True
+            break
+        if changed:
+            save_hosts(hosts)
+
     jobs = load_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
             old_status = j["status"]
+
+            # Reserve GPU memory when job starts running.
+            if status == "running" and old_status != "running":
+                target_host = host_id or j.get("host_id")
+                reserved = float(j.get("vram_needed_gb", 0) or 0)
+                if target_host and reserved > 0:
+                    _apply_host_vram_delta(target_host, -reserved)
+                    j["vram_reserved_gb"] = reserved
+
+            # Release GPU memory when a running job reaches terminal state.
+            if status in ("completed", "failed") and old_status == "running":
+                reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
+                if reserved > 0:
+                    _apply_host_vram_delta(j.get("host_id"), reserved)
+                j["vram_reserved_gb"] = 0
+
             j["status"] = status
             if host_id:
                 j["host_id"] = host_id
@@ -417,7 +452,6 @@ def process_queue():
     If no host fits a job, skip it — try the next one.
     If no hosts left, stop.
     """
-    hosts = list_hosts()
     assigned = []
 
     jobs = load_jobs()
@@ -425,6 +459,7 @@ def process_queue():
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:
+        hosts = list_hosts()
         if not hosts:
             break
 
@@ -433,7 +468,6 @@ def process_queue():
             continue  # no host for THIS job, but maybe smaller jobs fit
 
         update_job_status(job["job_id"], "running", host_id=host["host_id"])
-        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
         assigned.append((job, host))
 
     return assigned

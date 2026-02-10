@@ -173,6 +173,17 @@ class TestProcessQueue:
         assigned = scheduler.process_queue()
         assert len(assigned) == 2
 
+    def test_process_multiple_jobs_on_same_host_uses_vram_tracking(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        scheduler.submit_job("job-a", 10)
+        scheduler.submit_job("job-b", 8)
+
+        assigned = scheduler.process_queue()
+        assert len(assigned) == 2
+
+        host = scheduler.list_hosts()[0]
+        assert host["free_vram_gb"] == 6
+
 
 # ── Phase 7: Job status updates ──────────────────────────────────────
 
@@ -199,6 +210,18 @@ class TestJobStatus:
         jobs = scheduler.list_jobs(status="completed")
         assert len(jobs) == 1
         assert jobs[0]["completed_at"] is not None
+
+    def test_vram_is_released_when_job_completes(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        job = scheduler.submit_job("test", 8)
+
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        host_after_start = scheduler.list_hosts()[0]
+        assert host_after_start["free_vram_gb"] == 16
+
+        scheduler.update_job_status(job["job_id"], "completed")
+        host_after_done = scheduler.list_hosts()[0]
+        assert host_after_done["free_vram_gb"] == 24
 
 
 # ── Phase 8: Billing ────────────────────────────────────────────────
