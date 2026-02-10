@@ -1218,6 +1218,78 @@ def marketplace_stats():
     }
 
 
+# ── Phase 18: Canada-Only Toggle ─────────────────────────────────────
+
+CANADA_ONLY = os.environ.get("XCELSIOR_CANADA_ONLY", "").lower() in ("1", "true", "yes")
+
+# Canadian IP ranges (major blocks). Not exhaustive — a real GeoIP DB would be better.
+# For now we use a simple approach: tag hosts with a country on registration.
+
+def set_canada_only(enabled):
+    """Toggle Canada-only mode at runtime."""
+    global CANADA_ONLY
+    CANADA_ONLY = enabled
+    log.info("CANADA-ONLY MODE %s", "ENABLED" if enabled else "DISABLED")
+
+
+def register_host_ca(host_id, ip, gpu_model, total_vram_gb, free_vram_gb,
+                      cost_per_hour=0.20, country="CA"):
+    """Register a host with country tag. Defaults to Canada because why wouldn't it."""
+    entry = register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour)
+
+    # Add country tag
+    hosts = load_hosts(active_only=False)
+    for h in hosts:
+        if h["host_id"] == host_id:
+            h["country"] = country.upper()
+            break
+    save_hosts(hosts)
+
+    log.info("HOST REGISTERED (country=%s) %s | %s", country.upper(), host_id, ip)
+    entry["country"] = country.upper()
+    return entry
+
+
+def list_hosts_filtered(active_only=True, canada_only=None):
+    """
+    List hosts with optional Canada filter.
+    If canada_only is None, uses the global CANADA_ONLY setting.
+    """
+    canada = canada_only if canada_only is not None else CANADA_ONLY
+    hosts = list_hosts(active_only=active_only)
+    if canada:
+        return [h for h in hosts if h.get("country", "").upper() == "CA"]
+    return hosts
+
+
+def process_queue_filtered(canada_only=None):
+    """
+    Process queue respecting Canada-only mode.
+    Only assigns to Canadian hosts when the toggle is on.
+    """
+    canada = canada_only if canada_only is not None else CANADA_ONLY
+    hosts = list_hosts_filtered(active_only=True, canada_only=canada)
+    assigned = []
+
+    jobs = load_jobs()
+    queued = [j for j in jobs if j["status"] == "queued"]
+    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
+
+    for job in queued:
+        if not hosts:
+            break
+
+        host = allocate(job, hosts)
+        if not host:
+            continue
+
+        update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
+        assigned.append((job, host))
+
+    return assigned
+
+
 # ── Run it ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

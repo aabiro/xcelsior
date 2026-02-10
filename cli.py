@@ -17,6 +17,8 @@ from scheduler import (
     list_tiers, PRIORITY_TIERS,
     build_and_push, list_builds, generate_dockerfile,
     list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
+    register_host_ca, list_hosts_filtered, process_queue_filtered,
+    set_canada_only,
 )
 
 
@@ -179,6 +181,36 @@ def cmd_token_gen(args):
     print(f"Token: {token}")
     print(f"\nAdd to .env:")
     print(f"  XCELSIOR_API_TOKEN={token}")
+
+
+def cmd_host_add_ca(args):
+    """Register a host with country tag."""
+    entry = register_host_ca(args.id, args.ip, args.gpu, args.vram, args.free_vram,
+                              args.rate, country=args.country)
+    print(f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', '?')} | ${entry['cost_per_hour']}/hr")
+
+
+def cmd_hosts_ca(args):
+    """List Canadian hosts only."""
+    hosts = list_hosts_filtered(canada_only=True, active_only=not args.all)
+    if not hosts:
+        print("No Canadian hosts.")
+        return
+    for h in hosts:
+        print(f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h.get('country', '?')} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr")
+
+
+def cmd_canada(args):
+    """Toggle or check Canada-only mode."""
+    if args.on:
+        set_canada_only(True)
+        print("Canada-only mode: ON")
+    elif args.off:
+        set_canada_only(False)
+        print("Canada-only mode: OFF")
+    else:
+        from scheduler import CANADA_ONLY
+        print(f"Canada-only mode: {'ON' if CANADA_ONLY else 'OFF'}")
 
 
 def cmd_market(args):
@@ -356,6 +388,28 @@ def main():
     p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
     p_tgen.set_defaults(func=cmd_token_gen)
 
+    # xcelsior host-add-ca
+    p_haddca = sub.add_parser("host-add-ca", help="Register a host with country tag")
+    p_haddca.add_argument("--id", required=True, help="Host ID")
+    p_haddca.add_argument("--ip", required=True, help="Host IP")
+    p_haddca.add_argument("--gpu", required=True, help="GPU model")
+    p_haddca.add_argument("--vram", type=float, required=True, help="Total VRAM (GB)")
+    p_haddca.add_argument("--free-vram", type=float, default=None, help="Free VRAM (GB)")
+    p_haddca.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
+    p_haddca.add_argument("--country", default="CA", help="Country code (default CA)")
+    p_haddca.set_defaults(func=cmd_host_add_ca)
+
+    # xcelsior hosts-ca
+    p_hostsca = sub.add_parser("hosts-ca", help="List Canadian hosts only")
+    p_hostsca.add_argument("--all", action="store_true", help="Include dead hosts")
+    p_hostsca.set_defaults(func=cmd_hosts_ca)
+
+    # xcelsior canada
+    p_canada = sub.add_parser("canada", help="Toggle or check Canada-only mode")
+    p_canada.add_argument("--on", action="store_true", help="Enable Canada-only")
+    p_canada.add_argument("--off", action="store_true", help="Disable Canada-only")
+    p_canada.set_defaults(func=cmd_canada)
+
     # xcelsior market
     p_market = sub.add_parser("market", help="Browse marketplace listings")
     p_market.add_argument("--all", action="store_true", help="Include inactive listings")
@@ -410,8 +464,8 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    # Default free_vram to total vram for host-add
-    if args.command == "host-add" and args.free_vram is None:
+    # Default free_vram to total vram for host-add commands
+    if args.command in ("host-add", "host-add-ca") and args.free_vram is None:
         args.free_vram = args.vram
 
     args.func(args)

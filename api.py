@@ -23,6 +23,8 @@ from scheduler import (
     list_tiers, PRIORITY_TIERS,
     build_and_push, list_builds, generate_dockerfile,
     list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
+    register_host_ca, list_hosts_filtered, process_queue_filtered,
+    set_canada_only, CANADA_ONLY,
     log,
 )
 
@@ -365,6 +367,45 @@ def api_marketplace_bill(job_id: str):
 def api_marketplace_stats():
     """Marketplace aggregate stats."""
     return {"stats": marketplace_stats()}
+
+
+# ── Phase 18: Canada-Only Toggle ─────────────────────────────────────
+
+class CanadaToggle(BaseModel):
+    enabled: bool
+
+
+@app.get("/canada")
+def api_canada_status():
+    """Check if Canada-only mode is active."""
+    from scheduler import CANADA_ONLY as ca
+    return {"canada_only": ca}
+
+
+@app.put("/canada")
+def api_set_canada(toggle: CanadaToggle):
+    """Toggle Canada-only mode."""
+    set_canada_only(toggle.enabled)
+    return {"ok": True, "canada_only": toggle.enabled}
+
+
+@app.get("/hosts/ca")
+def api_list_canadian_hosts():
+    """List only Canadian hosts."""
+    return {"hosts": list_hosts_filtered(canada_only=True)}
+
+
+@app.post("/queue/process/ca")
+def api_process_queue_ca():
+    """Process queue with Canada-only hosts."""
+    assigned = process_queue_filtered(canada_only=True)
+    return {
+        "canada_only": True,
+        "assigned": [
+            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"], "country": h.get("country", "?")}
+            for j, h in assigned
+        ],
+    }
 
 
 # ── Health ────────────────────────────────────────────────────────────
