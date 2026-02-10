@@ -140,7 +140,9 @@ def register_or_update_host(gpu_info, host_ip):
     Returns True on success, False on failure.
     """
     url = f"{SCHEDULER_URL.rstrip('/')}/host"
-    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    headers = {}
+    if API_TOKEN:
+        headers["Authorization"] = f"Bearer {API_TOKEN}"
     
     data = {
         "host_id": HOST_ID,
@@ -186,8 +188,6 @@ def validate_config():
         errors.append("XCELSIOR_HOST_ID is not set")
     if not SCHEDULER_URL:
         errors.append("XCELSIOR_SCHEDULER_URL is not set")
-    if not API_TOKEN:
-        errors.append("XCELSIOR_API_TOKEN is not set")
     
     if errors:
         log.error("Configuration error:")
