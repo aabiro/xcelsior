@@ -6,6 +6,10 @@
 !.env.example
 !**/.env.example
 
+# Python
+__pycache__/
+*.pyc
+
 # Logs
 *.log
 
