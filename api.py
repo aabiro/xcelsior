@@ -22,6 +22,7 @@ from scheduler import (
     failover_and_reassign, requeue_job,
     list_tiers, PRIORITY_TIERS,
     build_and_push, list_builds, generate_dockerfile,
+    list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
     log,
 )
 
@@ -316,6 +317,54 @@ def api_generate_dockerfile(model: str, base_image: str = "python:3.11-slim",
     """Preview the generated Dockerfile without building."""
     content = generate_dockerfile(model, base_image=base_image, quantize=quantize)
     return {"model": model, "dockerfile": content}
+
+
+# ── Phase 17: Marketplace ────────────────────────────────────────────
+
+class RigListing(BaseModel):
+    host_id: str
+    gpu_model: str
+    vram_gb: float
+    price_per_hour: float
+    description: str = ""
+    owner: str = "anonymous"
+
+
+@app.post("/marketplace/list")
+def api_list_rig(rig: RigListing):
+    """List a rig on the marketplace."""
+    listing = list_rig(rig.host_id, rig.gpu_model, rig.vram_gb,
+                        rig.price_per_hour, rig.description, rig.owner)
+    return {"ok": True, "listing": listing}
+
+
+@app.delete("/marketplace/{host_id}")
+def api_unlist_rig(host_id: str):
+    """Remove a rig from the marketplace."""
+    if not unlist_rig(host_id):
+        raise HTTPException(status_code=404, detail=f"Listing {host_id} not found")
+    return {"ok": True, "unlisted": host_id}
+
+
+@app.get("/marketplace")
+def api_get_marketplace(active_only: bool = True):
+    """Browse marketplace listings."""
+    return {"listings": get_marketplace(active_only=active_only)}
+
+
+@app.post("/marketplace/bill/{job_id}")
+def api_marketplace_bill(job_id: str):
+    """Bill a marketplace job — split between host and platform."""
+    result = marketplace_bill(job_id)
+    if not result:
+        raise HTTPException(status_code=400, detail=f"Could not bill marketplace job {job_id}")
+    return {"ok": True, "bill": result}
+
+
+@app.get("/marketplace/stats")
+def api_marketplace_stats():
+    """Marketplace aggregate stats."""
+    return {"stats": marketplace_stats()}
 
 
 # ── Health ────────────────────────────────────────────────────────────

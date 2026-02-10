@@ -1054,6 +1054,170 @@ def list_builds():
     return builds
 
 
+# ── Phase 17: Marketplace ────────────────────────────────────────────
+
+MARKETPLACE_FILE = os.path.join(os.path.dirname(__file__), "marketplace.json")
+PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.20"))  # 20%
+
+
+def load_marketplace():
+    """Load marketplace listings."""
+    if not os.path.exists(MARKETPLACE_FILE):
+        return []
+    with open(MARKETPLACE_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_marketplace(listings):
+    """Write marketplace listings."""
+    with open(MARKETPLACE_FILE, "w") as f:
+        json.dump(listings, f, indent=2)
+
+
+def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner="anonymous"):
+    """
+    List a rig on the marketplace.
+    Hosts set their price. Xcelsior takes its cut on every job.
+    """
+    listings = load_marketplace()
+
+    # Update if exists
+    for i, l in enumerate(listings):
+        if l["host_id"] == host_id:
+            listings[i].update({
+                "gpu_model": gpu_model,
+                "vram_gb": vram_gb,
+                "price_per_hour": price_per_hour,
+                "description": description,
+                "owner": owner,
+                "updated_at": time.time(),
+                "active": True,
+            })
+            save_marketplace(listings)
+            log.info("MARKETPLACE UPDATED listing=%s | %s | $%s/hr",
+                     host_id, gpu_model, price_per_hour)
+            return listings[i]
+
+    listing = {
+        "host_id": host_id,
+        "gpu_model": gpu_model,
+        "vram_gb": vram_gb,
+        "price_per_hour": price_per_hour,
+        "description": description,
+        "owner": owner,
+        "platform_cut": PLATFORM_CUT,
+        "listed_at": time.time(),
+        "updated_at": time.time(),
+        "active": True,
+        "total_jobs": 0,
+        "total_earned": 0.0,
+    }
+
+    listings.append(listing)
+    save_marketplace(listings)
+    log.info("MARKETPLACE LISTED %s | %s | %sGB | $%s/hr | owner=%s",
+             host_id, gpu_model, vram_gb, price_per_hour, owner)
+    return listing
+
+
+def unlist_rig(host_id):
+    """Remove a rig from the marketplace."""
+    listings = load_marketplace()
+    for l in listings:
+        if l["host_id"] == host_id:
+            l["active"] = False
+            save_marketplace(listings)
+            log.info("MARKETPLACE UNLISTED %s", host_id)
+            return True
+    return False
+
+
+def get_marketplace(active_only=True):
+    """Get all marketplace listings."""
+    listings = load_marketplace()
+    if active_only:
+        return [l for l in listings if l.get("active", True)]
+    return listings
+
+
+def marketplace_bill(job_id):
+    """
+    Bill a marketplace job. Host gets paid, Xcelsior takes its cut.
+    Returns (host_payout, platform_fee, total_cost) or None.
+    """
+    jobs = load_jobs()
+    job = None
+    for j in jobs:
+        if j["job_id"] == job_id:
+            job = j
+            break
+
+    if not job or not job.get("host_id"):
+        return None
+
+    if not job.get("started_at") or not job.get("completed_at"):
+        return None
+
+    # Find marketplace listing for this host
+    listings = load_marketplace()
+    listing = None
+    for l in listings:
+        if l["host_id"] == job["host_id"]:
+            listing = l
+            break
+
+    if not listing:
+        return None
+
+    duration_sec = job["completed_at"] - job["started_at"]
+    duration_hr = duration_sec / 3600
+    total_cost = round(duration_hr * listing["price_per_hour"], 4)
+
+    # Tier multiplier
+    tier = job.get("tier", "free")
+    tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
+    total_cost = round(total_cost * tier_info["multiplier"], 4)
+
+    platform_fee = round(total_cost * listing.get("platform_cut", PLATFORM_CUT), 4)
+    host_payout = round(total_cost - platform_fee, 4)
+
+    # Update listing stats
+    listing["total_jobs"] = listing.get("total_jobs", 0) + 1
+    listing["total_earned"] = round(listing.get("total_earned", 0) + host_payout, 4)
+    save_marketplace(listings)
+
+    log.info("MARKETPLACE BILLED job=%s | total=$%s | host_payout=$%s | platform_fee=$%s",
+             job_id, total_cost, host_payout, platform_fee)
+
+    return {
+        "job_id": job_id,
+        "host_id": job["host_id"],
+        "total_cost": total_cost,
+        "platform_fee": platform_fee,
+        "host_payout": host_payout,
+        "platform_cut_pct": listing.get("platform_cut", PLATFORM_CUT),
+        "duration_sec": round(duration_sec, 2),
+        "tier": tier,
+    }
+
+
+def marketplace_stats():
+    """Aggregate marketplace stats."""
+    listings = load_marketplace()
+    active = [l for l in listings if l.get("active", True)]
+    total_earned = sum(l.get("total_earned", 0) for l in listings)
+    total_jobs = sum(l.get("total_jobs", 0) for l in listings)
+    platform_revenue = round(total_earned * PLATFORM_CUT / (1 - PLATFORM_CUT), 4) if PLATFORM_CUT < 1 else 0
+
+    return {
+        "total_listings": len(listings),
+        "active_listings": len(active),
+        "total_jobs_completed": total_jobs,
+        "total_host_payouts": round(total_earned, 4),
+        "platform_cut_pct": PLATFORM_CUT,
+    }
+
+
 # ── Run it ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

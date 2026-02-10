@@ -16,6 +16,7 @@ from scheduler import (
     failover_and_reassign, requeue_job,
     list_tiers, PRIORITY_TIERS,
     build_and_push, list_builds, generate_dockerfile,
+    list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
 )
 
 
@@ -180,6 +181,42 @@ def cmd_token_gen(args):
     print(f"  XCELSIOR_API_TOKEN={token}")
 
 
+def cmd_market(args):
+    """Browse the marketplace."""
+    listings = get_marketplace(active_only=not args.all)
+    if not listings:
+        print("No listings.")
+        return
+    for l in listings:
+        print(f"  {l['host_id']} | {l['gpu_model']} | {l['vram_gb']}GB | ${l['price_per_hour']}/hr | {l['owner']} | jobs: {l.get('total_jobs', 0)} | earned: ${l.get('total_earned', 0)}")
+
+
+def cmd_market_list(args):
+    """List a rig on the marketplace."""
+    listing = list_rig(args.host_id, args.gpu, args.vram, args.price,
+                        description=args.desc, owner=args.owner)
+    print(f"Listed: {listing['host_id']} | {listing['gpu_model']} | ${listing['price_per_hour']}/hr | owner={listing['owner']}")
+
+
+def cmd_market_unlist(args):
+    """Unlist a rig."""
+    if unlist_rig(args.host_id):
+        print(f"Unlisted: {args.host_id}")
+    else:
+        print(f"Listing {args.host_id} not found.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_market_stats(args):
+    """Marketplace stats."""
+    stats = marketplace_stats()
+    print(f"  Active listings:   {stats['active_listings']}")
+    print(f"  Total listings:    {stats['total_listings']}")
+    print(f"  Jobs completed:    {stats['total_jobs_completed']}")
+    print(f"  Host payouts:      ${stats['total_host_payouts']}")
+    print(f"  Platform cut:      {stats['platform_cut_pct'] * 100:.0f}%")
+
+
 def cmd_build(args):
     """Build a Docker image for a model."""
     print(f"Building image for {args.model}...")
@@ -318,6 +355,30 @@ def main():
     # xcelsior token-gen
     p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
     p_tgen.set_defaults(func=cmd_token_gen)
+
+    # xcelsior market
+    p_market = sub.add_parser("market", help="Browse marketplace listings")
+    p_market.add_argument("--all", action="store_true", help="Include inactive listings")
+    p_market.set_defaults(func=cmd_market)
+
+    # xcelsior market-list
+    p_mlist = sub.add_parser("market-list", help="List a rig on the marketplace")
+    p_mlist.add_argument("host_id", help="Host ID")
+    p_mlist.add_argument("--gpu", required=True, help="GPU model")
+    p_mlist.add_argument("--vram", type=float, required=True, help="VRAM (GB)")
+    p_mlist.add_argument("--price", type=float, required=True, help="Price per hour")
+    p_mlist.add_argument("--desc", default="", help="Description")
+    p_mlist.add_argument("--owner", default="anonymous", help="Owner name")
+    p_mlist.set_defaults(func=cmd_market_list)
+
+    # xcelsior market-unlist
+    p_munlist = sub.add_parser("market-unlist", help="Unlist a rig from the marketplace")
+    p_munlist.add_argument("host_id", help="Host ID to unlist")
+    p_munlist.set_defaults(func=cmd_market_unlist)
+
+    # xcelsior market-stats
+    p_mstats = sub.add_parser("market-stats", help="Marketplace aggregate stats")
+    p_mstats.set_defaults(func=cmd_market_stats)
 
     # xcelsior build
     p_build = sub.add_parser("build", help="Build a Docker image for a model")

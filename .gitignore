@@ -17,6 +17,7 @@ __pycache__/
 hosts.json
 jobs.json
 billing.json
+marketplace.json
 
 # Builds
 builds/
