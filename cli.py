@@ -14,13 +14,14 @@ from scheduler import (
     start_health_monitor,
     generate_ssh_keypair, get_public_key,
     failover_and_reassign, requeue_job,
+    list_tiers, PRIORITY_TIERS,
 )
 
 
 def cmd_run(args):
     """Submit a job and optionally process the queue."""
-    job = submit_job(args.model, args.vram, args.priority)
-    print(f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB | priority {job['priority']}")
+    job = submit_job(args.model, args.vram, args.priority, tier=args.tier)
+    print(f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB | tier={job['tier']} (priority {job['priority']})")
 
     if not args.no_assign:
         assigned = process_queue()
@@ -39,7 +40,8 @@ def cmd_jobs(args):
         return
     for j in jobs:
         host = j.get("host_id") or "—"
-        print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | host: {host}")
+        tier = j.get("tier", "free")
+        print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | {tier} | host: {host}")
 
 
 def cmd_job(args):
@@ -177,6 +179,14 @@ def cmd_token_gen(args):
     print(f"  XCELSIOR_API_TOKEN={token}")
 
 
+def cmd_tiers(args):
+    """List available priority tiers."""
+    tiers = list_tiers()
+    print("Priority tiers:")
+    for name, info in tiers.items():
+        print(f"  {name:>10} | priority {info['priority']} | {info['multiplier']}x billing | {info['label']}")
+
+
 def cmd_serve(args):
     """Start the API server."""
     import uvicorn
@@ -197,6 +207,8 @@ def main():
     p_run.add_argument("--model", required=True, help="Model name")
     p_run.add_argument("--vram", type=float, default=0, help="VRAM needed (GB)")
     p_run.add_argument("--priority", type=int, default=0, help="Job priority")
+    p_run.add_argument("--tier", choices=list(PRIORITY_TIERS.keys()), default=None,
+                       help="Priority tier (overrides --priority)")
     p_run.add_argument("--no-assign", action="store_true", help="Submit only, don't assign")
     p_run.set_defaults(func=cmd_run)
 
@@ -272,6 +284,10 @@ def main():
     # xcelsior token-gen
     p_tgen = sub.add_parser("token-gen", help="Generate a secure API token")
     p_tgen.set_defaults(func=cmd_token_gen)
+
+    # xcelsior tiers
+    p_tiers = sub.add_parser("tiers", help="List priority tiers and billing multipliers")
+    p_tiers.set_defaults(func=cmd_tiers)
 
     # xcelsior serve
     p_serve = sub.add_parser("serve", help="Start the API server")

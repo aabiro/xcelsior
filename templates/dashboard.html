@@ -62,7 +62,7 @@
   <div class="card">
     <h2>Jobs</h2>
     <table>
-      <thead><tr><th>ID</th><th>Name</th><th>VRAM</th><th>Priority</th><th>Host</th><th>Status</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>VRAM</th><th>Tier</th><th>Host</th><th>Status</th></tr></thead>
       <tbody id="jobs-table"></tbody>
     </table>
   </div>
@@ -103,7 +103,7 @@ async function fetchJobs() {
   document.getElementById('stat-running').textContent = running;
   document.getElementById('stat-queued').textContent = queued;
   document.getElementById('jobs-table').innerHTML = d.jobs.map(j =>
-    `<tr><td>${j.job_id}</td><td>${j.name}</td><td>${j.vram_needed_gb}GB</td><td>${j.priority}</td><td>${j.host_id || '—'}</td><td>${s(j.status)}</td></tr>`
+    `<tr><td>${j.job_id}</td><td>${j.name}</td><td>${j.vram_needed_gb}GB</td><td>${j.tier || 'free'}</td><td>${j.host_id || '—'}</td><td>${s(j.status)}</td></tr>`
   ).join('');
 }
 

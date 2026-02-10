@@ -20,6 +20,7 @@ from scheduler import (
     configure_alerts, ALERT_CONFIG,
     generate_ssh_keypair, get_public_key, API_TOKEN,
     failover_and_reassign, requeue_job,
+    list_tiers, PRIORITY_TIERS,
     log,
 )
 
@@ -78,6 +79,7 @@ class JobIn(BaseModel):
     name: str
     vram_needed_gb: float
     priority: int = 0
+    tier: str | None = None
 
 
 class StatusUpdate(BaseModel):
@@ -119,8 +121,8 @@ def api_check_hosts():
 
 @app.post("/job")
 def api_submit_job(j: JobIn):
-    """Submit a job to the queue."""
-    job = submit_job(j.name, j.vram_needed_gb, j.priority)
+    """Submit a job to the queue. Tier overrides priority."""
+    job = submit_job(j.name, j.vram_needed_gb, j.priority, tier=j.tier)
     return {"ok": True, "job": job}
 
 
@@ -272,6 +274,14 @@ def api_generate_token():
     """Generate a secure random API token. User must set it in .env themselves."""
     token = secrets.token_urlsafe(32)
     return {"token": token, "note": "Set XCELSIOR_API_TOKEN in your .env to enable auth."}
+
+
+# ── Phase 15: Priority Tiers ─────────────────────────────────────────
+
+@app.get("/tiers")
+def api_list_tiers():
+    """List all priority tiers with their multipliers."""
+    return {"tiers": list_tiers()}
 
 
 # ── Health ────────────────────────────────────────────────────────────

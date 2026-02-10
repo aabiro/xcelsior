@@ -208,6 +208,34 @@ def start_health_monitor(interval=5, callback=None):
     return t
 
 
+# ── Phase 15: Priority Tiers ─────────────────────────────────────────
+
+PRIORITY_TIERS = {
+    "free":     {"priority": 0, "multiplier": 1.0,  "label": "Free"},
+    "standard": {"priority": 1, "multiplier": 1.0,  "label": "Standard"},
+    "premium":  {"priority": 2, "multiplier": 1.5,  "label": "Premium"},
+    "urgent":   {"priority": 3, "multiplier": 2.0,  "label": "Urgent"},
+}
+
+
+def get_tier_info(tier_name):
+    """Look up a tier. Returns dict or None."""
+    return PRIORITY_TIERS.get(tier_name)
+
+
+def get_tier_by_priority(priority):
+    """Reverse lookup: priority int -> tier name."""
+    for name, info in PRIORITY_TIERS.items():
+        if info["priority"] == priority:
+            return name
+    return "free"
+
+
+def list_tiers():
+    """Return all tiers with their details."""
+    return {name: dict(info) for name, info in PRIORITY_TIERS.items()}
+
+
 # ── Phase 3: Job Queue ────────────────────────────────────────────────
 
 VALID_STATUSES = ("queued", "running", "completed", "failed")
@@ -227,12 +255,24 @@ def save_jobs(jobs):
         json.dump(jobs, f, indent=2)
 
 
-def submit_job(name, vram_needed_gb, priority=0):
+def submit_job(name, vram_needed_gb, priority=0, tier=None):
     """
     Submit a job to the queue.
-    Each job has: model name, VRAM needed, priority.
+    Each job has: model name, VRAM needed, priority, tier.
+    Tier overrides priority. Pay more = jump the queue.
     FIFO within the same priority. Higher priority goes first.
     """
+    # Tier overrides raw priority
+    if tier and tier in PRIORITY_TIERS:
+        tier_info = PRIORITY_TIERS[tier]
+        priority = tier_info["priority"]
+    elif tier:
+        log.warning("UNKNOWN TIER '%s' — defaulting to free", tier)
+        tier = "free"
+        priority = 0
+    else:
+        tier = get_tier_by_priority(priority)
+
     jobs = load_jobs()
 
     job = {
@@ -240,6 +280,7 @@ def submit_job(name, vram_needed_gb, priority=0):
         "name": name,
         "vram_needed_gb": vram_needed_gb,
         "priority": priority,
+        "tier": tier,
         "status": "queued",
         "host_id": None,
         "submitted_at": time.time(),
@@ -251,7 +292,8 @@ def submit_job(name, vram_needed_gb, priority=0):
 
     jobs.append(job)
     save_jobs(jobs)
-    log.info("JOB SUBMITTED %s | %s | %sGB VRAM | priority %s", job["job_id"], name, vram_needed_gb, priority)
+    log.info("JOB SUBMITTED %s | %s | %sGB VRAM | tier=%s (priority %s)",
+             job["job_id"], name, vram_needed_gb, tier, priority)
     return job
 
 
@@ -573,14 +615,22 @@ def bill_job(job_id):
                 rate = h.get("cost_per_hour", DEFAULT_RATE)
                 break
 
+    # Tier multiplier — premium and urgent pay more
+    tier = job.get("tier", "free")
+    tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
+    multiplier = tier_info["multiplier"]
+
     duration_sec = job["completed_at"] - job["started_at"]
     duration_hr = duration_sec / 3600
-    cost = round(duration_hr * rate, 4)
+    base_cost = duration_hr * rate
+    cost = round(base_cost * multiplier, 4)
 
     record = {
         "job_id": job_id,
         "job_name": job["name"],
         "host_id": job.get("host_id"),
+        "tier": tier,
+        "tier_multiplier": multiplier,
         "started_at": job["started_at"],
         "completed_at": job["completed_at"],
         "duration_sec": round(duration_sec, 2),
@@ -593,8 +643,8 @@ def bill_job(job_id):
     records.append(record)
     save_billing(records)
 
-    log.info("BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr",
-             job_id, job["name"], duration_sec, cost, rate)
+    log.info("BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr x%.1f (%s)",
+             job_id, job["name"], duration_sec, cost, rate, multiplier, tier)
     return record
 
 
