@@ -24,7 +24,7 @@ from scheduler import (
     build_and_push, list_builds, generate_dockerfile,
     list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
     register_host_ca, list_hosts_filtered, process_queue_filtered,
-    set_canada_only, CANADA_ONLY,
+    set_canada_only,
     add_to_pool, remove_from_pool, load_autoscale_pool,
     autoscale_cycle, autoscale_up, autoscale_down,
     log,
@@ -112,6 +112,9 @@ def api_list_hosts(active_only: bool = True):
 @app.delete("/host/{host_id}")
 def api_remove_host(host_id: str):
     """Remove a host."""
+    hosts = list_hosts(active_only=False)
+    if not any(h["host_id"] == host_id for h in hosts):
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     remove_host(host_id)
     return {"ok": True, "removed": host_id}
 
@@ -151,7 +154,10 @@ def api_get_job(job_id: str):
 @app.patch("/job/{job_id}")
 def api_update_job(job_id: str, update: StatusUpdate):
     """Update a job's status."""
-    update_job_status(job_id, update.status, host_id=update.host_id)
+    try:
+        update_job_status(job_id, update.status, host_id=update.host_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "job_id": job_id, "status": update.status}
 
 
@@ -380,8 +386,8 @@ class CanadaToggle(BaseModel):
 @app.get("/canada")
 def api_canada_status():
     """Check if Canada-only mode is active."""
-    from scheduler import CANADA_ONLY as ca
-    return {"canada_only": ca}
+    import scheduler
+    return {"canada_only": scheduler.CANADA_ONLY}
 
 
 @app.put("/canada")

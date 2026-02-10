@@ -1,9 +1,12 @@
 # Xcelsior v1.0.0 — distributed GPU scheduler for Canadians who refuse to wait.
 # 20 phases. No shortcuts. Ever upward.
 
+import fcntl
 import json
 import logging
 import os
+import re
+import shlex
 import smtplib
 import subprocess
 import threading
@@ -57,6 +60,68 @@ def setup_logging(log_file=None, level=logging.INFO):
 log = setup_logging()
 
 
+# ── Helpers ───────────────────────────────────────────────────────────
+
+# Safe name pattern: alphanumeric, hyphens, underscores, dots, colons, slashes, and @
+_SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9._:/@-]+$')
+
+
+def _validate_name(value, label="value"):
+    """Reject shell-unsafe characters in names used in commands."""
+    if not value or not _SAFE_NAME_RE.match(str(value)):
+        raise ValueError(f"Invalid {label}: {value!r} — only alphanumeric, hyphens, underscores, dots, colons, slashes, and @ allowed")
+    return str(value)
+
+
+def _load_json(path):
+    """Load a JSON file with file locking. Returns [] if missing."""
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r") as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    # If the file is truly empty (e.g., truncated by a concurrent writer),
+                    # treat it as an empty list to match the "missing file" behavior.
+                    f.seek(0, os.SEEK_END)
+                    if f.tell() == 0:
+                        return []
+                    raise
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        # File was removed between the exists() check and open(); treat as missing.
+        return []
+
+
+def _save_json(path, data):
+    """Write a JSON file with exclusive file locking.
+
+    Opens with O_RDWR|O_CREAT to avoid truncating before the lock is held,
+    acquires LOCK_EX, then seeks to the beginning, truncates, and writes.
+    """
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        with os.fdopen(fd, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f, indent=2)
+    except Exception:
+        # fd is already closed by os.fdopen/context-manager on success;
+        # only close manually if os.fdopen itself failed.
+        try:
+            os.close(fd)
+        except OSError:
+            # Best-effort close; ignore failures since we're already handling
+            # the original exception from os.fdopen/json.dump above.
+            pass
+        raise
+
+
 # ── Phase 1: Allocate ────────────────────────────────────────────────
 
 def allocate(job, hosts):
@@ -72,7 +137,12 @@ def allocate(job, hosts):
     if not candidates:
         return None
 
-    best = max(candidates, key=lambda h: (h.get("free_vram_gb", 0), -h.get("latency_ms", 999)))
+    # Prioritize: available VRAM > speed (low latency) > lowest cost
+    best = max(candidates, key=lambda h: (
+        h.get("free_vram_gb", 0),
+        -h.get("latency_ms", 999),
+        -h.get("cost_per_hour", 999),
+    ))
     log.info("ALLOCATE job=%s -> host=%s (%s, %sGB free)",
              job.get("name", "?"), best["host_id"], best.get("gpu_model"), best.get("free_vram_gb"))
     return best
@@ -82,19 +152,15 @@ def allocate(job, hosts):
 
 def load_hosts(active_only=False):
     """Load hosts from JSON. No file? Empty list. Simple."""
-    if not os.path.exists(HOSTS_FILE):
-        return []
-    with open(HOSTS_FILE, "r") as f:
-        hosts = json.load(f)
+    hosts = _load_json(HOSTS_FILE)
     if active_only:
         return [h for h in hosts if h.get("status") == "active"]
     return hosts
 
 
 def save_hosts(hosts):
-    """Write hosts to JSON. Atomic enough for now."""
-    with open(HOSTS_FILE, "w") as f:
-        json.dump(hosts, f, indent=2)
+    """Write hosts to JSON. File-locked."""
+    _save_json(HOSTS_FILE, hosts)
 
 
 def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20):
@@ -243,16 +309,12 @@ VALID_STATUSES = ("queued", "running", "completed", "failed")
 
 def load_jobs():
     """Load jobs from JSON. No file? Empty list."""
-    if not os.path.exists(JOBS_FILE):
-        return []
-    with open(JOBS_FILE, "r") as f:
-        return json.load(f)
+    return _load_json(JOBS_FILE)
 
 
 def save_jobs(jobs):
     """Write jobs to JSON."""
-    with open(JOBS_FILE, "w") as f:
-        json.dump(jobs, f, indent=2)
+    _save_json(JOBS_FILE, jobs)
 
 
 def submit_job(name, vram_needed_gb, priority=0, tier=None):
@@ -314,6 +376,8 @@ def get_next_job():
 
 def update_job_status(job_id, status, host_id=None):
     """Mark a job. queued -> running -> completed/failed. That's the lifecycle."""
+    if status not in VALID_STATUSES:
+        raise ValueError(f"Invalid status '{status}' for job {job_id} — must be one of {VALID_STATUSES}")
     jobs = load_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
@@ -402,6 +466,15 @@ def ssh_exec(ip, cmd):
 def generate_ssh_keypair(path=None):
     """Generate an Ed25519 SSH keypair. No passphrase. Fast. Secure."""
     path = path or SSH_KEY_PATH
+    # Resolve to absolute and ensure it's under home directory
+    path = os.path.realpath(os.path.expanduser(path))
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not path.startswith(home + os.sep):
+        log.error("SSH KEYGEN REJECTED: path %s is outside home directory", path)
+        raise ValueError(f"SSH key path must be under home directory: {path}")
+    if os.path.isdir(path):
+        log.error("SSH KEYGEN REJECTED: path %s is a directory, expected file", path)
+        raise ValueError(f"SSH key path must be a file, not a directory: {path}")
     if os.path.exists(path):
         log.info("SSH key already exists: %s", path)
         return path
@@ -436,10 +509,14 @@ def run_job(job, host, docker_image=None):
     image = docker_image or f"xcelsior/{job['name']}:latest"
     container_name = f"xcl-{job['job_id']}"
 
+    # Validate names to prevent shell injection
+    _validate_name(image, "docker image")
+    _validate_name(container_name, "container name")
+
     cmd = (
         f"docker run -d --gpus all "
-        f"--name {container_name} "
-        f"{image}"
+        f"--name {shlex.quote(container_name)} "
+        f"{shlex.quote(image)}"
     )
 
     rc, stdout, stderr = ssh_exec(host["ip"], cmd)
@@ -468,7 +545,8 @@ def run_job(job, host, docker_image=None):
 def check_job_running(job, host):
     """Check if a job's container is still running. Returns True/False."""
     container_name = job.get("container_name", f"xcl-{job['job_id']}")
-    cmd = f"docker inspect -f '{{{{.State.Running}}}}' {container_name}"
+    _validate_name(container_name, "container name")
+    cmd = f"docker inspect -f '{{{{.State.Running}}}}' {shlex.quote(container_name)}"
     rc, stdout, _ = ssh_exec(host["ip"], cmd)
     return rc == 0 and stdout == "true"
 
@@ -479,11 +557,12 @@ def kill_job(job, host):
     No lingering processes. No orphaned containers.
     """
     container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
 
     # Kill it
-    ssh_exec(host["ip"], f"docker kill {container_name}")
+    ssh_exec(host["ip"], f"docker kill {shlex.quote(container_name)}")
     # Remove it
-    ssh_exec(host["ip"], f"docker rm -f {container_name}")
+    ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
     # Mark done
     update_job_status(job["job_id"], "completed")
     log.info("JOB KILLED job=%s host=%s container=%s", job["job_id"], host["host_id"], container_name)
@@ -496,10 +575,11 @@ def wait_for_job(job, host, poll_interval=5):
     Returns final status: "completed" or "failed".
     """
     container_name = job.get("container_name", f"xcl-{job['job_id']}")
+    _validate_name(container_name, "container name")
 
     while True:
         # Check if container still exists
-        cmd = f"docker inspect -f '{{{{.State.Status}}}}' {container_name}"
+        cmd = f"docker inspect -f '{{{{.State.Status}}}}' {shlex.quote(container_name)}"
         rc, stdout, _ = ssh_exec(host["ip"], cmd)
 
         if rc != 0:
@@ -509,10 +589,10 @@ def wait_for_job(job, host, poll_interval=5):
 
         if stdout == "exited":
             # Check exit code
-            cmd_exit = f"docker inspect -f '{{{{.State.ExitCode}}}}' {container_name}"
+            cmd_exit = f"docker inspect -f '{{{{.State.ExitCode}}}}' {shlex.quote(container_name)}"
             _, exit_code, _ = ssh_exec(host["ip"], cmd_exit)
             # Clean up
-            ssh_exec(host["ip"], f"docker rm -f {container_name}")
+            ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
 
             if exit_code == "0":
                 update_job_status(job["job_id"], "completed")
@@ -574,22 +654,21 @@ DEFAULT_RATE = 0.20  # $/hr
 
 def load_billing():
     """Load billing records."""
-    if not os.path.exists(BILLING_FILE):
-        return []
-    with open(BILLING_FILE, "r") as f:
-        return json.load(f)
+    return _load_json(BILLING_FILE)
 
 
 def save_billing(records):
     """Write billing records."""
-    with open(BILLING_FILE, "w") as f:
-        json.dump(records, f, indent=2)
+    _save_json(BILLING_FILE, records)
 
 
 def bill_job(job_id):
     """
     Bill a completed job. Multiply time by rate. Charge.
     start_time, end_time, duration, cost. That's it.
+
+    The duplicate check and write are performed under an exclusive
+    file lock so concurrent calls cannot both slip past the check.
     """
     jobs = load_jobs()
     job = None
@@ -639,9 +718,29 @@ def bill_job(job_id):
         "billed_at": time.time(),
     }
 
-    records = load_billing()
-    records.append(record)
-    save_billing(records)
+    # ── Atomic check-and-write under exclusive lock ──────────────
+    fd = os.open(BILLING_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        with os.fdopen(fd, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            content = f.read()
+            records = json.loads(content) if content.strip() else []
+
+            if any(r["job_id"] == job_id for r in records):
+                log.warning("BILLING SKIPPED job=%s already billed", job_id)
+                return None
+
+            records.append(record)
+            f.seek(0)
+            f.truncate()
+            json.dump(records, f, indent=2)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            # Best-effort cleanup: ignore errors while closing since we're re-raising the original exception.
+            pass
+        raise
 
     log.info("BILLED job=%s | %s | %.1fs | $%.4f @ $%s/hr x%.1f (%s)",
              job_id, job["name"], duration_sec, cost, rate, multiplier, tier)
@@ -798,6 +897,12 @@ def requeue_job(job_id):
     jobs = load_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
+            # Only requeue running or failed jobs
+            if j["status"] not in ("running", "failed"):
+                log.warning("REQUEUE REJECTED job=%s status=%s — not requeuable",
+                            job_id, j["status"])
+                return None
+
             retries = j.get("retries", 0) + 1
             max_retries = j.get("max_retries", 3)
 
@@ -1062,16 +1167,12 @@ PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.20"))  # 20%
 
 def load_marketplace():
     """Load marketplace listings."""
-    if not os.path.exists(MARKETPLACE_FILE):
-        return []
-    with open(MARKETPLACE_FILE, "r") as f:
-        return json.load(f)
+    return _load_json(MARKETPLACE_FILE)
 
 
 def save_marketplace(listings):
     """Write marketplace listings."""
-    with open(MARKETPLACE_FILE, "w") as f:
-        json.dump(listings, f, indent=2)
+    _save_json(MARKETPLACE_FILE, listings)
 
 
 def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner="anonymous"):
@@ -1207,14 +1308,23 @@ def marketplace_stats():
     active = [l for l in listings if l.get("active", True)]
     total_earned = sum(l.get("total_earned", 0) for l in listings)
     total_jobs = sum(l.get("total_jobs", 0) for l in listings)
-    platform_revenue = round(total_earned * PLATFORM_CUT / (1 - PLATFORM_CUT), 4) if PLATFORM_CUT < 1 else 0
+    # Compute platform revenue per listing using each listing's own cut.
+    # host_payout = total_cost * (1 - cut), so platform_revenue = payout * cut / (1 - cut)
+    platform_revenue = 0.0
+    for l in listings:
+        payout = l.get("total_earned", 0)
+        cut = l.get("platform_cut", PLATFORM_CUT)
+        if payout > 0 and 0 < cut < 1:
+            platform_revenue += payout * cut / (1 - cut)
+    platform_revenue = round(platform_revenue, 4)
 
     return {
         "total_listings": len(listings),
         "active_listings": len(active),
         "total_jobs_completed": total_jobs,
         "total_host_payouts": round(total_earned, 4),
-        "platform_cut_pct": PLATFORM_CUT,
+        "platform_revenue": platform_revenue,
+        "default_platform_cut_pct": PLATFORM_CUT,
     }
 
 
@@ -1300,16 +1410,12 @@ AUTOSCALE_POOL_FILE = os.path.join(os.path.dirname(__file__), "autoscale_pool.js
 
 def load_autoscale_pool():
     """Load the pool of available-on-demand hosts."""
-    if not os.path.exists(AUTOSCALE_POOL_FILE):
-        return []
-    with open(AUTOSCALE_POOL_FILE, "r") as f:
-        return json.load(f)
+    return _load_json(AUTOSCALE_POOL_FILE)
 
 
 def save_autoscale_pool(pool):
     """Write the autoscale pool."""
-    with open(AUTOSCALE_POOL_FILE, "w") as f:
-        json.dump(pool, f, indent=2)
+    _save_json(AUTOSCALE_POOL_FILE, pool)
 
 
 def add_to_pool(host_id, ip, gpu_model, vram_gb, cost_per_hour=0.20, country="CA"):
