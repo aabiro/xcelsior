@@ -293,6 +293,7 @@ def cmd_market_stats(args):
     print(f"  Total listings:    {stats['total_listings']}")
     print(f"  Jobs completed:    {stats['total_jobs_completed']}")
     print(f"  Host payouts:      ${stats['total_host_payouts']}")
+    print(f"  Platform revenue:  ${stats.get('platform_revenue', 0)}")
     print(f"  Platform cut:      {stats['platform_cut_pct'] * 100:.0f}%")
 
 
