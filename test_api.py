@@ -10,6 +10,8 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_api_test_")
 _tmpdir = _tmp_ctx.name
 os.environ["XCELSIOR_API_TOKEN"] = ""
+os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
+os.environ["XCELSIOR_ENV"] = "test"
 
 import scheduler
 
@@ -28,7 +30,9 @@ for _h in scheduler.log.handlers[:]:
         _h.close()
 _fh = logging.FileHandler(scheduler.LOG_FILE)
 _fh.setLevel(logging.INFO)
-_fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+)
 scheduler.log.addHandler(_fh)
 
 from fastapi.testclient import TestClient
@@ -39,8 +43,14 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clean_data():
-    for f in (scheduler.HOSTS_FILE, scheduler.JOBS_FILE, scheduler.BILLING_FILE,
-              scheduler.MARKETPLACE_FILE, scheduler.AUTOSCALE_POOL_FILE):
+    for f in (
+        scheduler.HOSTS_FILE,
+        scheduler.JOBS_FILE,
+        scheduler.BILLING_FILE,
+        scheduler.MARKETPLACE_FILE,
+        scheduler.AUTOSCALE_POOL_FILE,
+        os.environ["XCELSIOR_DB_PATH"],
+    ):
         if os.path.exists(f):
             os.remove(f)
     yield
@@ -52,30 +62,59 @@ class TestHealthEndpoint:
         assert r.status_code == 200
         assert r.json()["name"] == "Xcelsior"
 
+    def test_readyz(self):
+        r = client.get("/readyz")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
+        assert r.json()["storage"]["ok"] is True
+
+    def test_metrics(self):
+        r = client.get("/metrics")
+        assert r.status_code == 200
+        assert "queue_depth" in r.json()["metrics"]
+
 
 class TestHostEndpoints:
     def test_register_host(self):
-        r = client.put("/host", json={
-            "host_id": "h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090",
-            "total_vram_gb": 24, "free_vram_gb": 24
-        })
+        r = client.put(
+            "/host",
+            json={
+                "host_id": "h1",
+                "ip": "10.0.0.1",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+            },
+        )
         assert r.status_code == 200
         assert r.json()["ok"]
 
     def test_list_hosts(self):
-        client.put("/host", json={
-            "host_id": "h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090",
-            "total_vram_gb": 24, "free_vram_gb": 24
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "h1",
+                "ip": "10.0.0.1",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+            },
+        )
         r = client.get("/hosts")
         assert r.status_code == 200
         assert len(r.json()["hosts"]) == 1
 
     def test_remove_host(self):
-        client.put("/host", json={
-            "host_id": "h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090",
-            "total_vram_gb": 24, "free_vram_gb": 24
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "h1",
+                "ip": "10.0.0.1",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+            },
+        )
         r = client.delete("/host/h1")
         assert r.status_code == 200
 
@@ -108,10 +147,16 @@ class TestJobEndpoints:
         assert r.status_code == 404
 
     def test_process_queue(self):
-        client.put("/host", json={
-            "host_id": "h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090",
-            "total_vram_gb": 24, "free_vram_gb": 24
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "h1",
+                "ip": "10.0.0.1",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+            },
+        )
         client.post("/job", json={"name": "llama3", "vram_needed_gb": 16})
         r = client.post("/queue/process")
         assert r.status_code == 200
@@ -151,18 +196,18 @@ class TestCanadaEndpoint:
 
 class TestMarketplaceEndpoints:
     def test_list_rig(self):
-        r = client.post("/marketplace/list", json={
-            "host_id": "h1", "gpu_model": "RTX 4090",
-            "vram_gb": 24, "price_per_hour": 0.30
-        })
+        r = client.post(
+            "/marketplace/list",
+            json={"host_id": "h1", "gpu_model": "RTX 4090", "vram_gb": 24, "price_per_hour": 0.30},
+        )
         assert r.status_code == 200
         assert r.json()["ok"]
 
     def test_get_marketplace(self):
-        client.post("/marketplace/list", json={
-            "host_id": "h1", "gpu_model": "RTX 4090",
-            "vram_gb": 24, "price_per_hour": 0.30
-        })
+        client.post(
+            "/marketplace/list",
+            json={"host_id": "h1", "gpu_model": "RTX 4090", "vram_gb": 24, "price_per_hour": 0.30},
+        )
         r = client.get("/marketplace")
         assert len(r.json()["listings"]) == 1
 
@@ -174,18 +219,18 @@ class TestMarketplaceEndpoints:
 
 class TestAutoscaleEndpoints:
     def test_add_to_pool(self):
-        r = client.post("/autoscale/pool", json={
-            "host_id": "h1", "ip": "10.0.0.1",
-            "gpu_model": "RTX 4090", "vram_gb": 24
-        })
+        r = client.post(
+            "/autoscale/pool",
+            json={"host_id": "h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090", "vram_gb": 24},
+        )
         assert r.status_code == 200
         assert r.json()["ok"]
 
     def test_get_pool(self):
-        client.post("/autoscale/pool", json={
-            "host_id": "h1", "ip": "10.0.0.1",
-            "gpu_model": "RTX 4090", "vram_gb": 24
-        })
+        client.post(
+            "/autoscale/pool",
+            json={"host_id": "h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090", "vram_gb": 24},
+        )
         r = client.get("/autoscale/pool")
         assert len(r.json()["pool"]) == 1
 
@@ -197,4 +242,4 @@ class TestJobStatusApiValidation:
         job_id = resp.json()["job"]["job_id"]
         r = client.patch(f"/job/{job_id}", json={"status": "cancelled"})
         assert r.status_code == 400
-        assert "Invalid status" in r.json()["detail"]
+        assert "Invalid status" in r.json()["error"]["message"]
