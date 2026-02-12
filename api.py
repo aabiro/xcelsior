@@ -2,41 +2,79 @@
 # FastAPI. Every endpoint. Dashboard. Marketplace. Autoscale. No fluff.
 
 import hmac
+import json
 import os
 import secrets
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
 from scheduler import (
-    register_host, remove_host, list_hosts, check_hosts,
-    submit_job, list_jobs, update_job_status, process_queue,
-    bill_job, bill_all_completed, get_total_revenue, load_billing,
-    configure_alerts, ALERT_CONFIG,
-    generate_ssh_keypair, get_public_key, API_TOKEN,
-    failover_and_reassign, requeue_job,
-    list_tiers, PRIORITY_TIERS,
-    build_and_push, list_builds, generate_dockerfile,
-    list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
-    register_host_ca, list_hosts_filtered, process_queue_filtered,
+    register_host,
+    remove_host,
+    list_hosts,
+    check_hosts,
+    submit_job,
+    list_jobs,
+    update_job_status,
+    process_queue,
+    bill_job,
+    bill_all_completed,
+    get_total_revenue,
+    load_billing,
+    configure_alerts,
+    ALERT_CONFIG,
+    generate_ssh_keypair,
+    get_public_key,
+    API_TOKEN,
+    failover_and_reassign,
+    requeue_job,
+    list_tiers,
+    PRIORITY_TIERS,
+    build_and_push,
+    list_builds,
+    generate_dockerfile,
+    list_rig,
+    unlist_rig,
+    get_marketplace,
+    marketplace_bill,
+    marketplace_stats,
+    register_host_ca,
+    list_hosts_filtered,
+    process_queue_filtered,
     set_canada_only,
-    add_to_pool, remove_from_pool, load_autoscale_pool,
-    autoscale_cycle, autoscale_up, autoscale_down,
+    add_to_pool,
+    remove_from_pool,
+    load_autoscale_pool,
+    autoscale_cycle,
+    autoscale_up,
+    autoscale_down,
+    get_metrics_snapshot,
+    storage_healthcheck,
     log,
 )
 
 app = FastAPI(title="Xcelsior", version="1.0.0")
 
+XCELSIOR_ENV = os.environ.get("XCELSIOR_ENV", "dev").lower()
+AUTH_REQUIRED = XCELSIOR_ENV not in {"dev", "development", "test"}
+RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "120"))
+RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
+_RATE_BUCKETS = defaultdict(deque)
+
 
 # ── Phase 13: API Token Auth ─────────────────────────────────────────
 
 # Public routes — no token required
-PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/dashboard"}
+PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/dashboard", "/healthz", "/readyz", "/metrics"}
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -44,9 +82,23 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     Bearer token auth. If XCELSIOR_API_TOKEN is set, every request
     (except public routes) must include it. No token set = open access.
     """
+
     async def dispatch(self, request: Request, call_next):
-        if not API_TOKEN:
+        if not AUTH_REQUIRED:
             return await call_next(request)
+
+        api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+        if not api_token:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "ok": False,
+                    "error": {
+                        "code": "auth_config_error",
+                        "message": "XCELSIOR_API_TOKEN must be set in non-dev environments",
+                    },
+                },
+            )
 
         if request.url.path in PUBLIC_PATHS:
             return await call_next(request)
@@ -57,11 +109,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         else:
             token = request.query_params.get("token", "")
 
-        if not token or not hmac.compare_digest(token, API_TOKEN):
-            return HTMLResponse(
-                content='{"detail":"Unauthorized"}',
+        if not token or not hmac.compare_digest(token, api_token):
+            return JSONResponse(
                 status_code=401,
-                media_type="application/json",
+                content={"ok": False, "error": {"code": "unauthorized", "message": "Unauthorized"}},
             )
 
         return await call_next(request)
@@ -70,7 +121,82 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(TokenAuthMiddleware)
 
 
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    """Emit structured access logs for observability."""
+
+    async def dispatch(self, request: Request, call_next):
+        started = time.time()
+        response = await call_next(request)
+        duration_ms = round((time.time() - started) * 1000, 2)
+        entry = {
+            "event": "api_request",
+            "path": request.url.path,
+            "method": request.method,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+            "client_ip": request.client.host if request.client else "unknown",
+        }
+        log.info(json.dumps(entry, sort_keys=True))
+        return response
+
+
+app.add_middleware(RequestLogMiddleware)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple in-memory IP rate limiting for API safety."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+
+        now = time.time()
+        client_ip = request.client.host if request.client else "unknown"
+        bucket = _RATE_BUCKETS[client_ip]
+        while bucket and bucket[0] <= now - RATE_LIMIT_WINDOW_SEC:
+            bucket.popleft()
+
+        if len(bucket) >= RATE_LIMIT_REQUESTS:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "ok": False,
+                    "error": {"code": "rate_limited", "message": "Too many requests"},
+                },
+            )
+
+        bucket.append(now)
+        return await call_next(request)
+
+
+app.add_middleware(RateLimitMiddleware)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"ok": False, "error": {"code": "http_error", "message": str(exc.detail)}},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(_: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "ok": False,
+            "error": {
+                "code": "validation_error",
+                "message": "Request validation failed",
+                "details": exc.errors(),
+            },
+        },
+    )
+
+
 # ── Request models ────────────────────────────────────────────────────
+
 
 class HostIn(BaseModel):
     host_id: str
@@ -82,9 +208,9 @@ class HostIn(BaseModel):
 
 
 class JobIn(BaseModel):
-    name: str
-    vram_needed_gb: float
-    priority: int = 0
+    name: str = Field(min_length=1, max_length=128)
+    vram_needed_gb: float = Field(gt=0)
+    priority: int = Field(default=0, ge=0, le=10)
     tier: str | None = None
 
 
@@ -95,11 +221,13 @@ class StatusUpdate(BaseModel):
 
 # ── Host endpoints ────────────────────────────────────────────────────
 
+
 @app.put("/host")
 def api_register_host(h: HostIn):
     """Register or update a host."""
-    entry = register_host(h.host_id, h.ip, h.gpu_model,
-                          h.total_vram_gb, h.free_vram_gb, h.cost_per_hour)
+    entry = register_host(
+        h.host_id, h.ip, h.gpu_model, h.total_vram_gb, h.free_vram_gb, h.cost_per_hour
+    )
     return {"ok": True, "host": entry}
 
 
@@ -127,6 +255,7 @@ def api_check_hosts():
 
 
 # ── Job endpoints ─────────────────────────────────────────────────────
+
 
 @app.post("/job")
 def api_submit_job(j: JobIn):
@@ -167,21 +296,26 @@ def api_process_queue():
     assigned = process_queue()
     return {
         "assigned": [
-            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]}
-            for j, h in assigned
+            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
         ]
     }
 
 
 # ── Phase 14: Failover endpoints ──────────────────────────────────────
 
+
 @app.post("/failover")
 def api_failover():
     """Run a full failover cycle: check hosts, requeue orphaned jobs, reassign."""
     requeued, assigned = failover_and_reassign()
     return {
-        "requeued": [{"job_id": j["job_id"], "name": j["name"], "retries": j.get("retries", 0)} for j in requeued],
-        "assigned": [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned],
+        "requeued": [
+            {"job_id": j["job_id"], "name": j["name"], "retries": j.get("retries", 0)}
+            for j in requeued
+        ],
+        "assigned": [
+            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
+        ],
     }
 
 
@@ -190,11 +324,15 @@ def api_requeue_job(job_id: str):
     """Manually requeue a failed or stuck job."""
     result = requeue_job(job_id)
     if not result:
-        raise HTTPException(status_code=400, detail=f"Could not requeue job {job_id} (max retries exceeded or not found)")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not requeue job {job_id} (max retries exceeded or not found)",
+        )
     return {"ok": True, "job": result}
 
 
 # ── Billing endpoints ────────────────────────────────────────────────
+
 
 @app.post("/billing/bill/{job_id}")
 def api_bill_job(job_id: str):
@@ -224,6 +362,7 @@ def api_billing():
 
 # ── Phase 11: Dashboard ───────────────────────────────────────────────
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
     """The dashboard. HTML + JS. No React. No npm. No build step."""
@@ -232,6 +371,7 @@ def dashboard():
 
 
 # ── Phase 12: Alerts config ───────────────────────────────────────────
+
 
 class AlertConfig(BaseModel):
     email_enabled: bool | None = None
@@ -249,8 +389,7 @@ class AlertConfig(BaseModel):
 @app.get("/alerts/config")
 def api_get_alert_config():
     """Get current alert config (passwords redacted)."""
-    safe = {k: ("***" if "pass" in k or "token" in k else v)
-            for k, v in ALERT_CONFIG.items()}
+    safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
     return {"config": safe}
 
 
@@ -263,6 +402,7 @@ def api_set_alert_config(cfg: AlertConfig):
 
 
 # ── Phase 13: SSH key management ──────────────────────────────────────
+
 
 @app.post("/ssh/keygen")
 def api_generate_ssh_key():
@@ -290,6 +430,7 @@ def api_generate_token():
 
 # ── Phase 15: Priority Tiers ─────────────────────────────────────────
 
+
 @app.get("/tiers")
 def api_list_tiers():
     """List all priority tiers with their multipliers."""
@@ -297,6 +438,7 @@ def api_list_tiers():
 
 
 # ── Phase 16: Docker Image Builder ───────────────────────────────────
+
 
 class BuildIn(BaseModel):
     model: str
@@ -308,8 +450,7 @@ class BuildIn(BaseModel):
 @app.post("/build")
 def api_build_image(b: BuildIn):
     """Build a Docker image for a model. Optionally quantize and push."""
-    result = build_and_push(b.model, quantize=b.quantize,
-                             base_image=b.base_image, push=b.push)
+    result = build_and_push(b.model, quantize=b.quantize, base_image=b.base_image, push=b.push)
     if not result["built"]:
         raise HTTPException(status_code=500, detail=f"Build failed for {b.model}")
     return {"ok": True, "build": result}
@@ -322,14 +463,16 @@ def api_list_builds():
 
 
 @app.post("/build/{model}/dockerfile")
-def api_generate_dockerfile(model: str, base_image: str = "python:3.11-slim",
-                             quantize: str | None = None):
+def api_generate_dockerfile(
+    model: str, base_image: str = "python:3.11-slim", quantize: str | None = None
+):
     """Preview the generated Dockerfile without building."""
     content = generate_dockerfile(model, base_image=base_image, quantize=quantize)
     return {"model": model, "dockerfile": content}
 
 
 # ── Phase 17: Marketplace ────────────────────────────────────────────
+
 
 class RigListing(BaseModel):
     host_id: str
@@ -343,8 +486,9 @@ class RigListing(BaseModel):
 @app.post("/marketplace/list")
 def api_list_rig(rig: RigListing):
     """List a rig on the marketplace."""
-    listing = list_rig(rig.host_id, rig.gpu_model, rig.vram_gb,
-                        rig.price_per_hour, rig.description, rig.owner)
+    listing = list_rig(
+        rig.host_id, rig.gpu_model, rig.vram_gb, rig.price_per_hour, rig.description, rig.owner
+    )
     return {"ok": True, "listing": listing}
 
 
@@ -379,6 +523,7 @@ def api_marketplace_stats():
 
 # ── Phase 18: Canada-Only Toggle ─────────────────────────────────────
 
+
 class CanadaToggle(BaseModel):
     enabled: bool
 
@@ -387,6 +532,7 @@ class CanadaToggle(BaseModel):
 def api_canada_status():
     """Check if Canada-only mode is active."""
     import scheduler
+
     return {"canada_only": scheduler.CANADA_ONLY}
 
 
@@ -410,13 +556,19 @@ def api_process_queue_ca():
     return {
         "canada_only": True,
         "assigned": [
-            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"], "country": h.get("country", "?")}
+            {
+                "job": j["name"],
+                "job_id": j["job_id"],
+                "host": h["host_id"],
+                "country": h.get("country", "?"),
+            }
             for j, h in assigned
         ],
     }
 
 
 # ── Phase 19: Auto-Scaling ───────────────────────────────────────────
+
 
 class PoolHost(BaseModel):
     host_id: str
@@ -430,8 +582,7 @@ class PoolHost(BaseModel):
 @app.post("/autoscale/pool")
 def api_add_to_pool(h: PoolHost):
     """Add a host to the autoscale pool."""
-    entry = add_to_pool(h.host_id, h.ip, h.gpu_model, h.vram_gb,
-                         h.cost_per_hour, h.country)
+    entry = add_to_pool(h.host_id, h.ip, h.gpu_model, h.vram_gb, h.cost_per_hour, h.country)
     return {"ok": True, "pool_entry": entry}
 
 
@@ -454,7 +605,9 @@ def api_autoscale_cycle():
     provisioned, assigned, deprovisioned = autoscale_cycle()
     return {
         "provisioned": [{"host_id": h["host_id"], "gpu": h["gpu_model"]} for h in provisioned],
-        "assigned": [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned],
+        "assigned": [
+            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
+        ],
         "deprovisioned": deprovisioned,
     }
 
@@ -475,6 +628,34 @@ def api_autoscale_down():
 
 # ── Health ────────────────────────────────────────────────────────────
 
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True, "status": "healthy", "env": XCELSIOR_ENV}
+
+
+@app.get("/readyz")
+def readyz():
+    token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    if AUTH_REQUIRED and not token:
+        raise HTTPException(
+            status_code=503, detail="API token not configured for non-dev environment"
+        )
+
+    storage = storage_healthcheck()
+    if not storage.get("ok"):
+        raise HTTPException(
+            status_code=503, detail=f"Storage not ready: {storage.get('error', 'unknown')}"
+        )
+
+    return {"ok": True, "status": "ready", "storage": storage}
+
+
+@app.get("/metrics")
+def metrics():
+    return {"ok": True, "metrics": get_metrics_snapshot()}
+
+
 @app.get("/")
 def root():
     return {"name": "Xcelsior", "status": "running"}
@@ -482,5 +663,6 @@ def root():
 
 if __name__ == "__main__":
     import uvicorn
+
     log.info("API STARTING on port 8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
