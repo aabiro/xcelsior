@@ -1,0 +1,44 @@
+version: '3.9'
+services:
+  api:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    environment:
+      XCELSIOR_ENV: production
+      XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
+      XCELSIOR_DB_PATH: /data/xcelsior.db
+    volumes:
+      - xcelsior-data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - worker
+      - db
+
+  worker:
+    build: .
+    command: python -c "import time,scheduler; [scheduler.process_queue() or time.sleep(2) for _ in iter(int,1)]"
+    environment:
+      XCELSIOR_DB_PATH: /data/xcelsior.db
+    volumes:
+      - xcelsior-data:/data
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${XCELSIOR_POSTGRES_DB:-xcelsior}
+      POSTGRES_USER: ${XCELSIOR_POSTGRES_USER:-xcelsior}
+      POSTGRES_PASSWORD: ${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}
+    volumes:
+      - xcelsior-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${XCELSIOR_POSTGRES_USER:-xcelsior} -d ${XCELSIOR_POSTGRES_DB:-xcelsior}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  xcelsior-data:
+  xcelsior-postgres:

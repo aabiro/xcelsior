@@ -12,6 +12,8 @@ _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_test_")
 _tmpdir = _tmp_ctx.name
 
 os.environ["XCELSIOR_API_TOKEN"] = ""
+os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
+os.environ["XCELSIOR_ENV"] = "test"
 
 import scheduler
 
@@ -30,21 +32,30 @@ for h in scheduler.log.handlers[:]:
         h.close()
 _fh = logging.FileHandler(scheduler.LOG_FILE)
 _fh.setLevel(logging.INFO)
-_fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+)
 scheduler.log.addHandler(_fh)
 
 
 @pytest.fixture(autouse=True)
 def clean_data():
     """Remove data files before each test for isolation."""
-    for f in (scheduler.HOSTS_FILE, scheduler.JOBS_FILE, scheduler.BILLING_FILE,
-              scheduler.MARKETPLACE_FILE, scheduler.AUTOSCALE_POOL_FILE):
+    for f in (
+        scheduler.HOSTS_FILE,
+        scheduler.JOBS_FILE,
+        scheduler.BILLING_FILE,
+        scheduler.MARKETPLACE_FILE,
+        scheduler.AUTOSCALE_POOL_FILE,
+        os.environ["XCELSIOR_DB_PATH"],
+    ):
         if os.path.exists(f):
             os.remove(f)
     yield
 
 
 # ── Phase 1: allocate ────────────────────────────────────────────────
+
 
 class TestAllocate:
     def test_no_hosts_returns_none(self):
@@ -56,30 +67,67 @@ class TestAllocate:
 
     def test_picks_best_by_vram(self):
         hosts = [
-            {"host_id": "h1", "free_vram_gb": 16, "latency_ms": 10, "gpu_model": "A", "cost_per_hour": 0.20},
-            {"host_id": "h2", "free_vram_gb": 24, "latency_ms": 10, "gpu_model": "B", "cost_per_hour": 0.20},
+            {
+                "host_id": "h1",
+                "free_vram_gb": 16,
+                "latency_ms": 10,
+                "gpu_model": "A",
+                "cost_per_hour": 0.20,
+            },
+            {
+                "host_id": "h2",
+                "free_vram_gb": 24,
+                "latency_ms": 10,
+                "gpu_model": "B",
+                "cost_per_hour": 0.20,
+            },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
         assert result["host_id"] == "h2"
 
     def test_picks_lower_latency_when_vram_equal(self):
         hosts = [
-            {"host_id": "h1", "free_vram_gb": 24, "latency_ms": 50, "gpu_model": "A", "cost_per_hour": 0.20},
-            {"host_id": "h2", "free_vram_gb": 24, "latency_ms": 5, "gpu_model": "B", "cost_per_hour": 0.20},
+            {
+                "host_id": "h1",
+                "free_vram_gb": 24,
+                "latency_ms": 50,
+                "gpu_model": "A",
+                "cost_per_hour": 0.20,
+            },
+            {
+                "host_id": "h2",
+                "free_vram_gb": 24,
+                "latency_ms": 5,
+                "gpu_model": "B",
+                "cost_per_hour": 0.20,
+            },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
         assert result["host_id"] == "h2"
 
     def test_picks_lower_cost_when_vram_and_latency_equal(self):
         hosts = [
-            {"host_id": "h1", "free_vram_gb": 24, "latency_ms": 10, "gpu_model": "A", "cost_per_hour": 0.50},
-            {"host_id": "h2", "free_vram_gb": 24, "latency_ms": 10, "gpu_model": "B", "cost_per_hour": 0.20},
+            {
+                "host_id": "h1",
+                "free_vram_gb": 24,
+                "latency_ms": 10,
+                "gpu_model": "A",
+                "cost_per_hour": 0.50,
+            },
+            {
+                "host_id": "h2",
+                "free_vram_gb": 24,
+                "latency_ms": 10,
+                "gpu_model": "B",
+                "cost_per_hour": 0.20,
+            },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
         assert result["host_id"] == "h2"
 
 
 # ── Phase 2: Host Registry ──────────────────────────────────────────
+
 
 class TestHostRegistry:
     def test_register_and_list(self):
@@ -115,6 +163,7 @@ class TestHostRegistry:
 
 # ── Phase 3: Job Queue ──────────────────────────────────────────────
 
+
 class TestJobQueue:
     def test_submit_and_list(self):
         job = scheduler.submit_job("llama3", 16, priority=1)
@@ -149,6 +198,7 @@ class TestJobQueue:
 
 
 # ── Phase 3+1: Process Queue ────────────────────────────────────────
+
 
 class TestProcessQueue:
     def test_process_assigns_job(self):
@@ -186,6 +236,7 @@ class TestProcessQueue:
 
 
 # ── Phase 7: Job status updates ──────────────────────────────────────
+
 
 class TestJobStatus:
     def test_update_status(self):
@@ -225,6 +276,7 @@ class TestJobStatus:
 
 
 # ── Phase 8: Billing ────────────────────────────────────────────────
+
 
 class TestBilling:
     def test_bill_completed_job(self):
@@ -282,6 +334,7 @@ class TestBilling:
 
 # ── Phase 14: Failover ───────────────────────────────────────────────
 
+
 class TestFailover:
     def test_requeue_running_job(self):
         job = scheduler.submit_job("test", 8)
@@ -327,6 +380,7 @@ class TestFailover:
 
 # ── Phase 15: Priority Tiers ────────────────────────────────────────
 
+
 class TestPriorityTiers:
     def test_list_tiers(self):
         tiers = scheduler.list_tiers()
@@ -346,6 +400,7 @@ class TestPriorityTiers:
 
 
 # ── Phase 17: Marketplace ───────────────────────────────────────────
+
 
 class TestMarketplace:
     def test_list_rig(self):
@@ -368,6 +423,7 @@ class TestMarketplace:
 
 # ── Phase 18: Canada-Only Toggle ────────────────────────────────────
 
+
 class TestCanadaOnly:
     def test_toggle(self):
         scheduler.set_canada_only(True)
@@ -388,6 +444,7 @@ class TestCanadaOnly:
 
 
 # ── Phase 19: Auto-Scaling ──────────────────────────────────────────
+
 
 class TestAutoscale:
     def test_add_to_pool(self):
@@ -440,6 +497,7 @@ class TestAutoscale:
 
 # ── Input Validation ─────────────────────────────────────────────────
 
+
 class TestValidation:
     def test_validate_name_accepts_valid(self):
         scheduler._validate_name("xcelsior/llama3:latest", "image")
@@ -457,6 +515,7 @@ class TestValidation:
 
 # ── Docker Image Builder (Phase 16) ─────────────────────────────────
 
+
 class TestDockerBuilder:
     def test_generate_dockerfile(self):
         df = scheduler.generate_dockerfile("llama3")
@@ -472,6 +531,7 @@ class TestDockerBuilder:
 
 
 # ── Concurrency and Locking ─────────────────────────────────────────
+
 
 class TestSaveJsonLocking:
     def test_save_json_creates_file(self):
@@ -522,34 +582,38 @@ class TestMarketplaceStatsPerListingCut:
         """marketplace_stats should use each listing's own platform_cut."""
         # Create two listings with different platform_cut values
         listings = scheduler.load_marketplace()
-        listings.append({
-            "host_id": "h-low",
-            "gpu_model": "RTX 3060",
-            "vram_gb": 12,
-            "price_per_hour": 0.10,
-            "description": "",
-            "owner": "alice",
-            "platform_cut": 0.10,   # 10%
-            "listed_at": time.time(),
-            "updated_at": time.time(),
-            "active": True,
-            "total_jobs": 1,
-            "total_earned": 9.0,    # host payout
-        })
-        listings.append({
-            "host_id": "h-high",
-            "gpu_model": "A100",
-            "vram_gb": 80,
-            "price_per_hour": 1.00,
-            "description": "",
-            "owner": "bob",
-            "platform_cut": 0.30,   # 30%
-            "listed_at": time.time(),
-            "updated_at": time.time(),
-            "active": True,
-            "total_jobs": 2,
-            "total_earned": 7.0,    # host payout
-        })
+        listings.append(
+            {
+                "host_id": "h-low",
+                "gpu_model": "RTX 3060",
+                "vram_gb": 12,
+                "price_per_hour": 0.10,
+                "description": "",
+                "owner": "alice",
+                "platform_cut": 0.10,  # 10%
+                "listed_at": time.time(),
+                "updated_at": time.time(),
+                "active": True,
+                "total_jobs": 1,
+                "total_earned": 9.0,  # host payout
+            }
+        )
+        listings.append(
+            {
+                "host_id": "h-high",
+                "gpu_model": "A100",
+                "vram_gb": 80,
+                "price_per_hour": 1.00,
+                "description": "",
+                "owner": "bob",
+                "platform_cut": 0.30,  # 30%
+                "listed_at": time.time(),
+                "updated_at": time.time(),
+                "active": True,
+                "total_jobs": 2,
+                "total_earned": 7.0,  # host payout
+            }
+        )
         scheduler.save_marketplace(listings)
 
         stats = scheduler.marketplace_stats()

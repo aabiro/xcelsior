@@ -1589,3 +1589,47 @@ For enterprise support, training, or consulting:
 **Built with determination in Canada. 🇨🇦**
 
 **Ever upward. Xcelsior.**
+
+---
+
+## Reliability + Deployment Baseline (New)
+
+### Architecture (current)
+- **API service** (`api.py`) handles control-plane endpoints.
+- **Scheduler core** (`scheduler.py`) owns host/job/billing logic.
+- **Worker loop** can continuously call queue processing (see `docker-compose.yml`).
+- **Persistence** is SQLite via `XCELSIOR_DB_PATH` (current), with Postgres service included in compose as deployment baseline for later migration.
+
+### Quickstart
+```bash
+cp .env.example .env
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn api:app --reload
+```
+
+### Health/metrics endpoints
+- `GET /healthz`
+- `GET /readyz`
+- `GET /metrics`
+
+### Production path (container-based)
+```bash
+docker compose up --build -d
+```
+
+### Env vars added
+- `XCELSIOR_ENV`
+- `XCELSIOR_DB_PATH`
+- `XCELSIOR_RATE_LIMIT_REQUESTS`
+- `XCELSIOR_RATE_LIMIT_WINDOW_SEC`
+- `XCELSIOR_POSTGRES_DB`
+- `XCELSIOR_POSTGRES_USER`
+- `XCELSIOR_POSTGRES_PASSWORD`
+
+### Runbooks and phased rollout
+- Phased plan: `docs_phase_plan.md`
+- Ops runbook: `runbooks/operations.md`
+
+
+TODO: Wire scheduler persistence to Postgres once SQLite stabilization is complete.
