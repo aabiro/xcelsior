@@ -1,4 +1,4 @@
-# Xcelsior — dependencies
+# Xcelsior v2.0.0 — dependencies
 
 # Web Framework
 fastapi>=0.109.0
@@ -11,6 +11,17 @@ pydantic>=2.5.0
 # HTTP Client
 requests>=2.31.0
 httpx>=0.26.0
+
+# Database — PostgreSQL (production)
+psycopg[binary]>=3.1.0
+psycopg_pool>=3.1.0
+
+# Database — Migrations
+alembic>=1.13.0
+sqlalchemy>=2.0.0
+
+# Environment
+python-dotenv>=1.0.0
 
 # Testing
 pytest>=7.4.0

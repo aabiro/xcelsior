@@ -22,6 +22,9 @@ jobs.json
 billing.json
 marketplace.json
 autoscale_pool.json
+xcelsior.db*
 
 # Builds
 builds/
+
+REPORT_*.md

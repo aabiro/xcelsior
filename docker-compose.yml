@@ -6,33 +6,44 @@ services:
     environment:
       XCELSIOR_ENV: production
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
+      XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@db:5432/xcelsior
+      XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-sqlite}
     volumes:
       - xcelsior-data:/data
     ports:
       - "8000:8000"
     depends_on:
-      - worker
-      - db
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
-  worker:
+  scheduler-worker:
     build: .
     command: python -c "import time,scheduler; [scheduler.process_queue() or time.sleep(2) for _ in iter(int,1)]"
     environment:
+      XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@db:5432/xcelsior
     volumes:
       - xcelsior-data:/data
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${XCELSIOR_POSTGRES_DB:-xcelsior}
       POSTGRES_USER: ${XCELSIOR_POSTGRES_USER:-xcelsior}
-      POSTGRES_PASSWORD: ${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}
+      POSTGRES_PASSWORD: ${XCELSIOR_POSTGRES_PASSWORD}
     volumes:
       - xcelsior-postgres:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sh:/docker-entrypoint-initdb.d/10-init-test-db.sh:ro
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${XCELSIOR_POSTGRES_USER:-xcelsior} -d ${XCELSIOR_POSTGRES_DB:-xcelsior}"]
       interval: 10s
