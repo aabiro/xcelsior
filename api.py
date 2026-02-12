@@ -1,6 +1,7 @@
-# Xcelsior API v1.0.0
-# FastAPI. Every endpoint. Dashboard. Marketplace. Autoscale. No fluff.
+# Xcelsior API v2.0.0
+# FastAPI. Every endpoint. Dashboard. Marketplace. Autoscale. SSE. Spot pricing. No fluff.
 
+import asyncio
 import hmac
 import json
 import os
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -60,9 +61,48 @@ from scheduler import (
     get_metrics_snapshot,
     storage_healthcheck,
     log,
+    # v2.0.0 additions
+    get_current_spot_prices,
+    update_spot_prices,
+    submit_spot_job,
+    preemption_cycle,
+    estimate_compute_score,
+    register_compute_score,
+    get_compute_score,
+    allocate_compute_aware,
 )
 
-app = FastAPI(title="Xcelsior", version="1.0.0")
+from security import admit_node, check_node_versions
+
+app = FastAPI(title="Xcelsior", version="2.0.0")
+
+# ── SSE Infrastructure ───────────────────────────────────────────────
+# In-memory event bus for server-sent events.
+# Listeners register an asyncio.Queue per connection.
+
+import threading as _threading
+
+_sse_subscribers: list[asyncio.Queue] = []
+_sse_lock = _threading.Lock()
+
+# Track pending work and preemption commands for agents
+_agent_work: dict[str, list[dict]] = defaultdict(list)  # host_id -> [job, ...]
+_agent_preempt: dict[str, list[str]] = defaultdict(list)  # host_id -> [job_id, ...]
+_agent_lock = _threading.Lock()
+
+
+def broadcast_sse(event_type: str, data: dict):
+    """Push an event to all connected SSE clients."""
+    message = {"event": event_type, "data": data, "timestamp": time.time()}
+    with _sse_lock:
+        dead = []
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(message)
+            except asyncio.QueueFull:
+                dead.append(q)
+        for q in dead:
+            _sse_subscribers.remove(q)
 
 XCELSIOR_ENV = os.environ.get("XCELSIOR_ENV", "dev").lower()
 AUTH_REQUIRED = XCELSIOR_ENV not in {"dev", "development", "test"}
@@ -74,7 +114,10 @@ _RATE_BUCKETS = defaultdict(deque)
 # ── Phase 13: API Token Auth ─────────────────────────────────────────
 
 # Public routes — no token required
-PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/dashboard", "/healthz", "/readyz", "/metrics"}
+PUBLIC_PATHS = {
+    "/", "/docs", "/openapi.json", "/dashboard", "/healthz", "/readyz",
+    "/metrics", "/api/stream",
+}
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -228,6 +271,7 @@ def api_register_host(h: HostIn):
     entry = register_host(
         h.host_id, h.ip, h.gpu_model, h.total_vram_gb, h.free_vram_gb, h.cost_per_hour
     )
+    broadcast_sse("host_update", {"host_id": h.host_id, "gpu_model": h.gpu_model})
     return {"ok": True, "host": entry}
 
 
@@ -244,6 +288,7 @@ def api_remove_host(host_id: str):
     if not any(h["host_id"] == host_id for h in hosts):
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     remove_host(host_id)
+    broadcast_sse("host_removed", {"host_id": host_id})
     return {"ok": True, "removed": host_id}
 
 
@@ -261,6 +306,7 @@ def api_check_hosts():
 def api_submit_job(j: JobIn):
     """Submit a job to the queue. Tier overrides priority."""
     job = submit_job(j.name, j.vram_needed_gb, j.priority, tier=j.tier)
+    broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
     return {"ok": True, "job": job}
 
 
@@ -287,6 +333,7 @@ def api_update_job(job_id: str, update: StatusUpdate):
         update_job_status(job_id, update.status, host_id=update.host_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
     return {"ok": True, "job_id": job_id, "status": update.status}
 
 
@@ -294,11 +341,12 @@ def api_update_job(job_id: str, update: StatusUpdate):
 def api_process_queue():
     """Process the job queue — assign jobs to hosts."""
     assigned = process_queue()
-    return {
-        "assigned": [
-            {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
-        ]
-    }
+    result = [
+        {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
+    ]
+    if result:
+        broadcast_sse("queue_processed", {"assigned_count": len(result)})
+    return {"assigned": result}
 
 
 # ── Phase 14: Failover endpoints ──────────────────────────────────────
@@ -624,6 +672,225 @@ def api_autoscale_down():
     """Scale down: deprovision idle autoscaled hosts."""
     deprovisioned = autoscale_down()
     return {"deprovisioned": deprovisioned}
+
+
+# ── SSE Streaming ─────────────────────────────────────────────────────
+
+
+async def _sse_generator(request: Request):
+    """Async generator that yields SSE events until the client disconnects."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    with _sse_lock:
+        _sse_subscribers.append(queue)
+    try:
+        yield f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
+
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=30)
+                event_type = msg.get("event", "message")
+                data = json.dumps(msg.get("data", {}))
+                yield f"event: {event_type}\ndata: {data}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+    finally:
+        with _sse_lock:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
+
+
+@app.get("/api/stream")
+async def sse_stream(request: Request):
+    """Server-Sent Events stream for real-time dashboard updates."""
+    return StreamingResponse(
+        _sse_generator(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── Agent Endpoints (Pull-Based Architecture) ────────────────────────
+
+
+class VersionReport(BaseModel):
+    host_id: str
+    versions: dict
+
+
+class MiningAlert(BaseModel):
+    host_id: str
+    gpu_index: int
+    confidence: float
+    reason: str
+    timestamp: float | None = None
+
+
+class BenchmarkReport(BaseModel):
+    host_id: str
+    gpu_model: str
+    score: float
+    tflops: float
+    details: dict | None = None
+
+
+@app.get("/agent/work/{host_id}")
+def api_agent_work(host_id: str):
+    """Pull pending work for an agent. Returns assigned jobs."""
+    all_jobs = list_jobs()
+    pending = [
+        j for j in all_jobs
+        if j.get("host_id") == host_id and j.get("status") in ("assigned",)
+    ]
+    with _agent_lock:
+        queued_work = _agent_work.pop(host_id, [])
+
+    jobs = pending + queued_work
+    if not jobs:
+        return JSONResponse(status_code=204, content=None)
+    return {"ok": True, "jobs": jobs}
+
+
+@app.get("/agent/preempt/{host_id}")
+def api_agent_preempt(host_id: str):
+    """Check if any jobs on this host should be preempted."""
+    with _agent_lock:
+        preempt_list = _agent_preempt.pop(host_id, [])
+    return {"ok": True, "preempt_jobs": preempt_list}
+
+
+@app.post("/agent/preempt/{host_id}/{job_id}")
+def api_schedule_preemption(host_id: str, job_id: str):
+    """Schedule a job for preemption on a host."""
+    with _agent_lock:
+        _agent_preempt[host_id].append(job_id)
+    broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
+    return {"ok": True, "host_id": host_id, "job_id": job_id}
+
+
+@app.post("/agent/versions")
+def api_agent_versions(report: VersionReport):
+    """Receive and validate node component versions for admission control."""
+    admitted, reasons = check_node_versions(report.versions)
+    broadcast_sse("node_admission", {
+        "host_id": report.host_id,
+        "admitted": admitted,
+        "versions": report.versions,
+    })
+    return {
+        "ok": True,
+        "admitted": admitted,
+        "details": {
+            "host_id": report.host_id,
+            "versions": report.versions,
+            "rejection_reasons": reasons,
+        },
+    }
+
+
+@app.post("/agent/mining-alert")
+def api_mining_alert(alert: MiningAlert):
+    """Receive mining detection alert from an agent."""
+    log.warning(
+        "MINING ALERT host=%s gpu=%d confidence=%.0f%% — %s",
+        alert.host_id, alert.gpu_index, alert.confidence * 100, alert.reason,
+    )
+    broadcast_sse("mining_alert", {
+        "host_id": alert.host_id,
+        "gpu_index": alert.gpu_index,
+        "confidence": alert.confidence,
+        "reason": alert.reason,
+    })
+    return {"ok": True, "received": True}
+
+
+@app.post("/agent/benchmark")
+def api_agent_benchmark(report: BenchmarkReport):
+    """Receive compute benchmark results from an agent."""
+    register_compute_score(
+        report.host_id, report.gpu_model, report.score, report.details,
+    )
+    broadcast_sse("benchmark_result", {
+        "host_id": report.host_id,
+        "gpu_model": report.gpu_model,
+        "xcu": report.score,
+        "tflops": report.tflops,
+    })
+    return {"ok": True, "xcu": report.score}
+
+
+# ── Spot Pricing Endpoints ───────────────────────────────────────────
+
+
+class SpotJobIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    vram_needed_gb: float = Field(gt=0)
+    max_bid: float = Field(gt=0)
+    priority: int = Field(default=0, ge=0, le=10)
+    tier: str | None = None
+
+
+@app.get("/spot-prices")
+def api_spot_prices():
+    """Get current spot prices for all GPU models."""
+    return {"ok": True, "prices": get_current_spot_prices()}
+
+
+@app.post("/spot-prices/update")
+def api_update_spot_prices():
+    """Trigger spot price recalculation."""
+    prices = update_spot_prices()
+    broadcast_sse("spot_prices_updated", {"prices": prices})
+    return {"ok": True, "prices": prices}
+
+
+@app.post("/spot/job")
+def api_submit_spot_job(j: SpotJobIn):
+    """Submit a spot job with a maximum bid price."""
+    job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier)
+    broadcast_sse("spot_job_submitted", {
+        "job_id": job["job_id"], "name": job["name"], "max_bid": j.max_bid,
+    })
+    return {"ok": True, "job": job}
+
+
+@app.post("/spot/preemption-cycle")
+def api_preemption_cycle():
+    """Run a preemption cycle — reclaim resources from underbidding spot jobs."""
+    preempted = preemption_cycle()
+    return {"ok": True, "preempted": preempted}
+
+
+# ── Compute Score Endpoints ──────────────────────────────────────────
+
+
+@app.get("/compute-score/{host_id}")
+def api_get_compute_score(host_id: str):
+    """Get the compute score (XCU) for a host."""
+    score = get_compute_score(host_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail=f"No compute score for host {host_id}")
+    return {"ok": True, "host_id": host_id, "score": score}
+
+
+@app.get("/compute-scores")
+def api_list_compute_scores():
+    """List compute scores for all hosts."""
+    hosts = list_hosts(active_only=False)
+    scores = {}
+    for h in hosts:
+        score = get_compute_score(h["host_id"])
+        if score is not None:
+            scores[h["host_id"]] = {
+                "score": score,
+                "gpu_model": h.get("gpu_model", "unknown"),
+            }
+    return {"ok": True, "scores": scores}
 
 
 # ── Health ────────────────────────────────────────────────────────────

@@ -1,9 +1,11 @@
-# Xcelsior v1.0.0 — distributed GPU scheduler for Canadians who refuse to wait.
-# 20 phases. No shortcuts. Ever upward.
+# Xcelsior v2.0.0 — distributed GPU scheduler for Canadians who refuse to wait.
+# Pull-based architecture. PostgreSQL + JSONB. Defense in depth. SSE dashboards.
+# 20 phases + production hardening. No shortcuts. Ever upward.
 
 import fcntl
 import json
 import logging
+import math
 import os
 import re
 import shlex
@@ -14,7 +16,17 @@ import threading
 import time
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from email.mime.text import MIMEText
+
+from db import (
+    get_engine,
+    DatabaseOps,
+    sqlite_connection,
+    sqlite_transaction,
+    emit_event,
+    DB_BACKEND,
+)
 
 HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
 JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
@@ -85,30 +97,294 @@ def _validate_name(value, label="value"):
     return str(value)
 
 
-def _load_json(path):
-    """Load persisted list data from SQLite, with one-time migration from JSON files."""
-    namespace = os.path.realpath(path)
-    with sqlite3.connect(_db_path(), timeout=30) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS state (namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
-        )
-        row = conn.execute("SELECT payload FROM state WHERE namespace = ?", (namespace,)).fetchone()
-        if row:
-            return json.loads(row[0])
+def _coerce_list(value):
+    """Normalize deserialized payloads to a list shape."""
+    return value if isinstance(value, list) else []
 
+
+def _read_legacy_json_file(path):
+    """Best-effort read from legacy JSON files."""
     if not os.path.exists(path):
         return []
-
-    # one-time migration support from legacy JSON files
     try:
         with open(path, "r") as f:
             fcntl.flock(f, fcntl.LOCK_SH)
             try:
-                payload = json.load(f)
+                return _coerce_list(json.load(f))
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
     except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _ensure_storage_tables(conn):
+    """Ensure all scheduler persistence tables and indexes exist."""
+    conn.execute("CREATE TABLE IF NOT EXISTS state (namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            job_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            priority INTEGER NOT NULL,
+            submitted_at REAL NOT NULL,
+            host_id TEXT,
+            payload TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS hosts (
+            host_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            registered_at REAL NOT NULL,
+            payload TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, priority DESC, submitted_at ASC)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hosts_status ON hosts(status, registered_at ASC)")
+
+
+@contextmanager
+def _db_connection():
+    """Shared DB connection wrapper with WAL enabled."""
+    conn = sqlite3.connect(_db_path(), timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    _ensure_storage_tables(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextmanager
+def _atomic_mutation():
+    """Execute a mutation in a single SQLite write transaction."""
+    with _db_connection() as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+def _namespace_key(path):
+    return os.path.realpath(path)
+
+
+def _load_legacy_namespace(conn, path):
+    """Read namespace data from state table first, then fallback JSON."""
+    row = conn.execute("SELECT payload FROM state WHERE namespace = ?", (_namespace_key(path),)).fetchone()
+    if row:
+        try:
+            return _coerce_list(json.loads(row["payload"]))
+        except json.JSONDecodeError:
+            pass
+    return _read_legacy_json_file(path)
+
+
+def _decode_payload(payload):
+    try:
+        return json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def _upsert_job_row(conn, job):
+    job_id = str(job.get("job_id", "")).strip()
+    if not job_id:
+        return
+    status = str(job.get("status") or "queued")
+    priority = int(job.get("priority", 0) or 0)
+    submitted_at = float(job.get("submitted_at", time.time()) or time.time())
+    conn.execute(
+        """
+        INSERT INTO jobs(job_id, status, priority, submitted_at, host_id, payload)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+            status = excluded.status,
+            priority = excluded.priority,
+            submitted_at = excluded.submitted_at,
+            host_id = excluded.host_id,
+            payload = excluded.payload
+        """,
+        (
+            job_id,
+            status,
+            priority,
+            submitted_at,
+            job.get("host_id"),
+            json.dumps(job),
+        ),
+    )
+
+
+def _upsert_host_row(conn, host):
+    host_id = str(host.get("host_id", "")).strip()
+    if not host_id:
+        return
+    status = str(host.get("status") or "active")
+    registered_at = float(host.get("registered_at", time.time()) or time.time())
+    conn.execute(
+        """
+        INSERT INTO hosts(host_id, status, registered_at, payload)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(host_id) DO UPDATE SET
+            status = excluded.status,
+            registered_at = excluded.registered_at,
+            payload = excluded.payload
+        """,
+        (
+            host_id,
+            status,
+            registered_at,
+            json.dumps(host),
+        ),
+    )
+
+
+def _get_job_by_id_conn(conn, job_id):
+    row = conn.execute("SELECT payload FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    if not row:
+        return None
+    return _decode_payload(row["payload"])
+
+
+def _get_host_by_id_conn(conn, host_id):
+    row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
+    if not row:
+        return None
+    return _decode_payload(row["payload"])
+
+
+def _replace_jobs_in_conn(conn, jobs):
+    conn.execute("DELETE FROM jobs")
+    for job in jobs:
+        if isinstance(job, dict):
+            _upsert_job_row(conn, job)
+
+
+def _replace_hosts_in_conn(conn, hosts):
+    conn.execute("DELETE FROM hosts")
+    for host in hosts:
+        if isinstance(host, dict):
+            _upsert_host_row(conn, host)
+
+
+def _load_jobs_from_conn(conn, status=None):
+    if status:
+        rows = conn.execute(
+            """
+            SELECT payload
+            FROM jobs
+            WHERE status = ?
+            ORDER BY submitted_at ASC, job_id ASC
+            """,
+            (status,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT payload
+            FROM jobs
+            ORDER BY submitted_at ASC, job_id ASC
+            """
+        ).fetchall()
+    jobs = []
+    for row in rows:
+        item = _decode_payload(row["payload"])
+        if isinstance(item, dict):
+            jobs.append(item)
+    return jobs
+
+
+def _load_hosts_from_conn(conn, active_only=False):
+    if active_only:
+        rows = conn.execute(
+            """
+            SELECT payload
+            FROM hosts
+            WHERE status = 'active'
+            ORDER BY registered_at ASC, host_id ASC
+            """
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT payload
+            FROM hosts
+            ORDER BY registered_at ASC, host_id ASC
+            """
+        ).fetchall()
+    hosts = []
+    for row in rows:
+        item = _decode_payload(row["payload"])
+        if isinstance(item, dict):
+            hosts.append(item)
+    return hosts
+
+
+def _migrate_jobs_if_needed(conn):
+    row = conn.execute("SELECT 1 FROM jobs LIMIT 1").fetchone()
+    if row:
+        return
+    for job in _load_legacy_namespace(conn, JOBS_FILE):
+        if isinstance(job, dict):
+            _upsert_job_row(conn, job)
+
+
+def _migrate_hosts_if_needed(conn):
+    row = conn.execute("SELECT 1 FROM hosts LIMIT 1").fetchone()
+    if row:
+        return
+    for host in _load_legacy_namespace(conn, HOSTS_FILE):
+        if isinstance(host, dict):
+            _upsert_host_row(conn, host)
+
+
+def _set_job_fields(job_id, **updates):
+    """Patch fields for one job atomically."""
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        job = _get_job_by_id_conn(conn, job_id)
+        if not job:
+            return None
+        job.update(updates)
+        _upsert_job_row(conn, job)
+        return job
+
+
+def _set_host_fields(host_id, **updates):
+    """Patch fields for one host atomically."""
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        host = _get_host_by_id_conn(conn, host_id)
+        if not host:
+            return None
+        host.update(updates)
+        _upsert_host_row(conn, host)
+        return host
+
+
+def _load_json(path):
+    """Load persisted list data from SQLite, with one-time migration from JSON files."""
+    namespace = _namespace_key(path)
+    with _db_connection() as conn:
+        row = conn.execute("SELECT payload FROM state WHERE namespace = ?", (namespace,)).fetchone()
+        if row:
+            try:
+                return _coerce_list(json.loads(row["payload"]))
+            except json.JSONDecodeError:
+                return []
+
+    payload = _read_legacy_json_file(path)
+    if not payload:
         return []
 
     _save_json(path, payload)
@@ -117,19 +393,14 @@ def _load_json(path):
 
 def _save_json(path, data):
     """Persist list data to SQLite while preserving JSON-compatible interfaces."""
-    namespace = os.path.realpath(path)
+    namespace = _namespace_key(path)
     payload = json.dumps(data)
-    with sqlite3.connect(_db_path(), timeout=30) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS state (namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
-        )
+    with _atomic_mutation() as conn:
         conn.execute(
             "INSERT INTO state(namespace, payload) VALUES (?, ?) "
             "ON CONFLICT(namespace) DO UPDATE SET payload = excluded.payload",
             (namespace, payload),
         )
-        conn.commit()
 
     # Keep a legacy JSON mirror for backward compatibility/tests.
     dirpath = os.path.dirname(path)
@@ -178,16 +449,16 @@ def allocate(job, hosts):
 
 
 def load_hosts(active_only=False):
-    """Load hosts from JSON. No file? Empty list. Simple."""
-    hosts = _load_json(HOSTS_FILE)
-    if active_only:
-        return [h for h in hosts if h.get("status") == "active"]
-    return hosts
+    """Load hosts from SQLite-backed storage."""
+    with _db_connection() as conn:
+        _migrate_hosts_if_needed(conn)
+        return _load_hosts_from_conn(conn, active_only=active_only)
 
 
 def save_hosts(hosts):
-    """Write hosts to JSON. File-locked."""
-    _save_json(HOSTS_FILE, hosts)
+    """Replace all hosts (compatibility helper)."""
+    with _atomic_mutation() as conn:
+        _replace_hosts_in_conn(conn, hosts)
 
 
 def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20):
@@ -196,30 +467,38 @@ def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_
     Every host sends: GPU model, VRAM, IP, uptime.
     You store it.
     """
-    hosts = load_hosts()
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        existing = _get_host_by_id_conn(conn, host_id)
+        entry = {
+            "host_id": host_id,
+            "ip": ip,
+            "gpu_model": gpu_model,
+            "total_vram_gb": total_vram_gb,
+            "free_vram_gb": free_vram_gb,
+            "cost_per_hour": cost_per_hour,
+            "registered_at": time.time(),
+            "last_seen": time.time(),
+            "status": "active",
+        }
+        if existing:
+            # Preserve host metadata set by other flows (country/autoscaled tags).
+            for field in ("country", "autoscaled", "compute_score", "admitted"):
+                if field in existing and field not in entry:
+                    entry[field] = existing[field]
+        _upsert_host_row(conn, entry)
 
-    entry = {
-        "host_id": host_id,
-        "ip": ip,
-        "gpu_model": gpu_model,
-        "total_vram_gb": total_vram_gb,
-        "free_vram_gb": free_vram_gb,
-        "cost_per_hour": cost_per_hour,
-        "registered_at": time.time(),
-        "last_seen": time.time(),
-        "status": "active",
-    }
+    # Mirror to secondary DB in dual-write mode
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_host, entry)
 
-    # Update if exists, else append
-    for i, h in enumerate(hosts):
-        if h["host_id"] == host_id:
-            hosts[i] = entry
-            save_hosts(hosts)
-            log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
-            return entry
+    # Emit SSE event
+    emit_event("host_update", {"host_id": host_id, "status": "active"})
 
-    hosts.append(entry)
-    save_hosts(hosts)
+    if existing:
+        log.info("HOST UPDATED %s | %s | %s | %sGB", host_id, ip, gpu_model, total_vram_gb)
+        return entry
+
     log.info(
         "HOST REGISTERED %s | %s | %s | %sGB | $%s/hr",
         host_id,
@@ -233,9 +512,13 @@ def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_
 
 def remove_host(host_id):
     """Host is dead. Remove it. No funeral."""
-    hosts = load_hosts()
-    hosts = [h for h in hosts if h["host_id"] != host_id]
-    save_hosts(hosts)
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        conn.execute("DELETE FROM hosts WHERE host_id = ?", (host_id,))
+
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.delete_host, host_id)
+    emit_event("host_removed", {"host_id": host_id})
     log.warning("HOST REMOVED %s", host_id)
 
 
@@ -268,23 +551,38 @@ def check_hosts():
     """
     hosts = load_hosts(active_only=False)
     results = {}
+    updates = []
+    alerts = []
+    revivals = []
 
     for h in hosts:
         alive = ping_host(h["ip"])
-        if alive:
-            h["last_seen"] = time.time()
-            if h.get("status") == "dead":
-                log.info("HOST REVIVED %s (%s)", h["host_id"], h["ip"])
-            h["status"] = "active"
-            results[h["host_id"]] = "alive"
-        else:
-            if h.get("status") != "dead":
-                log.warning("HOST DEAD %s (%s)", h["host_id"], h["ip"])
-                alert_host_dead(h["host_id"], h["ip"])
-            h["status"] = "dead"
-            results[h["host_id"]] = "dead"
+        updates.append((h["host_id"], h["ip"], alive))
+        results[h["host_id"]] = "alive" if alive else "dead"
 
-    save_hosts(hosts)
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        for host_id, ip, alive in updates:
+            current = _get_host_by_id_conn(conn, host_id)
+            if not current:
+                continue
+            if alive:
+                current["last_seen"] = time.time()
+                if current.get("status") == "dead":
+                    revivals.append((host_id, ip))
+                current["status"] = "active"
+            else:
+                if current.get("status") != "dead":
+                    alerts.append((host_id, ip))
+                current["status"] = "dead"
+            _upsert_host_row(conn, current)
+
+    for host_id, ip in revivals:
+        log.info("HOST REVIVED %s (%s)", host_id, ip)
+    for host_id, ip in alerts:
+        log.warning("HOST DEAD %s (%s)", host_id, ip)
+        alert_host_dead(host_id, ip)
+
     return results
 
 
@@ -343,13 +641,16 @@ VALID_STATUSES = ("queued", "running", "completed", "failed")
 
 
 def load_jobs():
-    """Load jobs from JSON. No file? Empty list."""
-    return _load_json(JOBS_FILE)
+    """Load jobs from SQLite-backed storage."""
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        return _load_jobs_from_conn(conn)
 
 
 def save_jobs(jobs):
-    """Write jobs to JSON."""
-    _save_json(JOBS_FILE, jobs)
+    """Replace all jobs (compatibility helper)."""
+    with _atomic_mutation() as conn:
+        _replace_jobs_in_conn(conn, jobs)
 
 
 def submit_job(name, vram_needed_gb, priority=0, tier=None):
@@ -370,8 +671,6 @@ def submit_job(name, vram_needed_gb, priority=0, tier=None):
     else:
         tier = get_tier_by_priority(priority)
 
-    jobs = load_jobs()
-
     job = {
         "job_id": str(uuid.uuid4())[:8],
         "name": name,
@@ -387,8 +686,17 @@ def submit_job(name, vram_needed_gb, priority=0, tier=None):
         "max_retries": 3,
     }
 
-    jobs.append(job)
-    save_jobs(jobs)
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        _upsert_job_row(conn, job)
+
+    # Mirror to secondary DB
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_job, job)
+
+    # Emit SSE event
+    emit_event("job_submitted", {"job_id": job["job_id"], "name": name, "tier": tier})
+
     log.info(
         "JOB SUBMITTED %s | %s | %sGB VRAM | tier=%s (priority %s)",
         job["job_id"],
@@ -405,14 +713,56 @@ def get_next_job():
     Pull the next job off the queue.
     Highest priority first. Within same priority: FIFO. No mercy.
     """
-    jobs = load_jobs()
-    queued = [j for j in jobs if j["status"] == "queued"]
-    if not queued:
-        return None
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        row = conn.execute(
+            """
+            SELECT payload
+            FROM jobs
+            WHERE status = 'queued'
+            ORDER BY priority DESC, submitted_at ASC, job_id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not row:
+            return None
+        return _decode_payload(row["payload"])
 
-    # Sort: highest priority first, then earliest submission
-    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
-    return queued[0]
+
+def _reserve_host_vram(conn, host_id, amount_gb):
+    """Reserve VRAM on a host.
+
+    Returns:
+      True: reservation applied.
+      False: host exists but has insufficient free VRAM.
+      None: host not found.
+    """
+    if amount_gb <= 0:
+        return True
+    host = _get_host_by_id_conn(conn, host_id)
+    if not host:
+        return None
+    total = float(host.get("total_vram_gb", 0) or 0)
+    free = float(host.get("free_vram_gb", 0) or 0)
+    if free + 1e-9 < amount_gb:
+        return False
+    host["free_vram_gb"] = round(max(0.0, min(total, free - amount_gb)), 4)
+    _upsert_host_row(conn, host)
+    return True
+
+
+def _release_host_vram(conn, host_id, amount_gb):
+    """Release VRAM on a host with clamping to [0, total_vram_gb]."""
+    if not host_id or amount_gb <= 0:
+        return False
+    host = _get_host_by_id_conn(conn, host_id)
+    if not host:
+        return False
+    total = float(host.get("total_vram_gb", 0) or 0)
+    free = float(host.get("free_vram_gb", 0) or 0)
+    host["free_vram_gb"] = round(max(0.0, min(total, free + amount_gb)), 4)
+    _upsert_host_row(conn, host)
+    return True
 
 
 def update_job_status(job_id, status, host_id=None):
@@ -421,79 +771,86 @@ def update_job_status(job_id, status, host_id=None):
         raise ValueError(
             f"Invalid status '{status}' for job {job_id} — must be one of {VALID_STATUSES}"
         )
+    alert_failed = None
+    alert_completed = None
 
-    def _apply_host_vram_delta(target_host_id, delta_gb):
-        """Adjust host free VRAM with clamping: [0, total_vram_gb]."""
-        if not target_host_id or not delta_gb:
-            return
-        hosts = load_hosts(active_only=False)
-        changed = False
-        for h in hosts:
-            if h.get("host_id") != target_host_id:
-                continue
-            total = float(h.get("total_vram_gb", 0) or 0)
-            free = float(h.get("free_vram_gb", 0) or 0)
-            next_free = max(0.0, min(total, free + delta_gb))
-            h["free_vram_gb"] = round(next_free, 4)
-            changed = True
-            break
-        if changed:
-            save_hosts(hosts)
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        _migrate_hosts_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j:
+            return None
 
-    jobs = load_jobs()
-    for j in jobs:
-        if j["job_id"] == job_id:
-            old_status = j["status"]
+        old_status = j.get("status")
+        old_host_id = j.get("host_id")
 
-            # Reserve GPU memory when job starts running.
-            if status == "running" and old_status != "running":
-                target_host = host_id or j.get("host_id")
-                reserved = float(j.get("vram_needed_gb", 0) or 0)
-                if target_host and reserved > 0:
-                    _apply_host_vram_delta(target_host, -reserved)
-                    j["vram_reserved_gb"] = reserved
+        # Idempotency: if already running, don't allow accidental reassignment.
+        if status == "running" and old_status == "running":
+            return j
 
-            # Release GPU memory when a running job reaches terminal state.
-            if status in ("completed", "failed") and old_status == "running":
-                reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
-                if reserved > 0:
-                    _apply_host_vram_delta(j.get("host_id"), reserved)
-                j["vram_reserved_gb"] = 0
+        # Reserve GPU memory when job starts running.
+        if status == "running" and old_status != "running":
+            target_host = host_id or j.get("host_id")
+            reserved = float(j.get("vram_needed_gb", 0) or 0)
+            if target_host and reserved > 0:
+                reserve_result = _reserve_host_vram(conn, target_host, reserved)
+                if reserve_result is False:
+                    return None
+                j["vram_reserved_gb"] = reserved
 
-            j["status"] = status
-            if host_id:
-                j["host_id"] = host_id
-            if status == "running":
-                j["started_at"] = time.time()
-            if status in ("completed", "failed"):
-                j["completed_at"] = time.time()
-            lvl = logging.WARNING if status == "failed" else logging.INFO
-            log.log(
-                lvl,
-                "JOB %s %s -> %s | %s | host=%s",
-                status.upper(),
-                old_status,
-                status,
-                job_id,
-                host_id or j.get("host_id", "—"),
-            )
-            if status == "failed":
-                alert_job_failed(job_id, j.get("name", "?"), j.get("host_id"))
-            elif status == "completed":
-                dur = None
-                if j.get("started_at") and j.get("completed_at"):
-                    dur = j["completed_at"] - j["started_at"]
-                alert_job_completed(job_id, j.get("name", "?"), dur)
-            break
-    save_jobs(jobs)
+        # Release GPU memory when a running job reaches terminal state.
+        if status in ("completed", "failed") and old_status == "running":
+            reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
+            if reserved > 0:
+                _release_host_vram(conn, j.get("host_id"), reserved)
+            j["vram_reserved_gb"] = 0
+
+        j["status"] = status
+        if host_id and not (status == "running" and old_status == "running"):
+            j["host_id"] = host_id
+        if status == "running":
+            j["started_at"] = time.time()
+        if status in ("completed", "failed"):
+            j["completed_at"] = time.time()
+
+        _upsert_job_row(conn, j)
+
+        if status == "failed":
+            alert_failed = (job_id, j.get("name", "?"), j.get("host_id"))
+        elif status == "completed":
+            dur = None
+            if j.get("started_at") and j.get("completed_at"):
+                dur = j["completed_at"] - j["started_at"]
+            alert_completed = (job_id, j.get("name", "?"), dur)
+
+    lvl = logging.WARNING if status == "failed" else logging.INFO
+    log.log(
+        lvl,
+        "JOB %s %s -> %s | %s | host=%s",
+        status.upper(),
+        old_status,
+        status,
+        job_id,
+        host_id or old_host_id or "—",
+    )
+
+    # Mirror to secondary DB + emit SSE event
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_job, j)
+    emit_event("job_status", {"job_id": job_id, "status": status, "host_id": host_id or old_host_id})
+
+    if alert_failed:
+        alert_job_failed(*alert_failed)
+    elif alert_completed:
+        alert_job_completed(*alert_completed)
+    return j
 
 
 def list_jobs(status=None):
     """List jobs. Filter by status or get everything."""
-    jobs = load_jobs()
-    if status:
-        return [j for j in jobs if j["status"] == status]
-    return jobs
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        return _load_jobs_from_conn(conn, status=status)
 
 
 def process_queue():
@@ -504,8 +861,7 @@ def process_queue():
     """
     assigned = []
 
-    jobs = load_jobs()
-    queued = [j for j in jobs if j["status"] == "queued"]
+    queued = list_jobs(status="queued")
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:
@@ -517,8 +873,10 @@ def process_queue():
         if not host:
             continue  # no host for THIS job, but maybe smaller jobs fit
 
-        update_job_status(job["job_id"], "running", host_id=host["host_id"])
-        assigned.append((job, host))
+        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        if not updated or updated.get("status") != "running":
+            continue
+        assigned.append((updated, host))
 
     return assigned
 
@@ -631,14 +989,8 @@ def run_job(job, host, docker_image=None):
         image,
     )
 
-    # Store container info on the job
-    jobs = load_jobs()
-    for j in jobs:
-        if j["job_id"] == job["job_id"]:
-            j["container_id"] = container_id
-            j["container_name"] = container_name
-            break
-    save_jobs(jobs)
+    # Store container info on the job atomically.
+    _set_job_fields(job["job_id"], container_id=container_id, container_name=container_name)
 
     update_job_status(job["job_id"], "running", host_id=host["host_id"])
     return container_id
@@ -733,13 +1085,7 @@ def run_job_local(job, docker_image=None):
 
     container_id = result.stdout.strip()[:12]
 
-    jobs = load_jobs()
-    for j in jobs:
-        if j["job_id"] == job["job_id"]:
-            j["container_id"] = container_id
-            j["container_name"] = container_name
-            break
-    save_jobs(jobs)
+    _set_job_fields(job["job_id"], container_id=container_id, container_name=container_name)
 
     return container_id, container_name
 
@@ -771,8 +1117,8 @@ def bill_job(job_id):
     Bill a completed job. Multiply time by rate. Charge.
     start_time, end_time, duration, cost. That's it.
 
-    The duplicate check and write are performed under an exclusive
-    file lock so concurrent calls cannot both slip past the check.
+    Duplicate check + write are serialized through SQLite-backed state
+    persistence to prevent double billing across concurrent callers.
     """
     jobs = load_jobs()
     job = None
@@ -994,48 +1340,62 @@ def requeue_job(job_id):
     Increment retry counter. Clear host assignment.
     If max retries exceeded, mark permanently failed.
     """
-    jobs = load_jobs()
-    for j in jobs:
-        if j["job_id"] == job_id:
-            # Only requeue running or failed jobs
-            if j["status"] not in ("running", "failed"):
-                log.warning(
-                    "REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"]
-                )
-                return None
+    exhausted = None
+    requeued = None
 
-            retries = j.get("retries", 0) + 1
-            max_retries = j.get("max_retries", 3)
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j:
+            return None
 
-            if retries > max_retries:
-                j["status"] = "failed"
-                j["completed_at"] = time.time()
-                save_jobs(jobs)
-                log.error(
-                    "FAILOVER EXHAUSTED job=%s retries=%d/%d — permanently failed",
-                    job_id,
-                    retries,
-                    max_retries,
-                )
-                alert_job_failed(job_id, j.get("name", "?"), j.get("host_id"))
-                return None
+        # Only requeue running or failed jobs
+        if j["status"] not in ("running", "failed"):
+            log.warning(
+                "REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"]
+            )
+            return None
 
+        retries = j.get("retries", 0) + 1
+        max_retries = j.get("max_retries", 3)
+
+        if retries > max_retries:
+            j["status"] = "failed"
+            j["completed_at"] = time.time()
+            _upsert_job_row(conn, j)
+            exhausted = (retries, max_retries, j.get("name", "?"), j.get("host_id"))
+        else:
             old_host = j.get("host_id", "—")
             j["status"] = "queued"
             j["host_id"] = None
             j["started_at"] = None
             j["completed_at"] = None
             j["retries"] = retries
-            save_jobs(jobs)
+            _upsert_job_row(conn, j)
+            requeued = (j, retries, max_retries, old_host)
 
-            log.warning(
-                "FAILOVER REQUEUE job=%s retry=%d/%d old_host=%s",
-                job_id,
-                retries,
-                max_retries,
-                old_host,
-            )
-            return j
+    if exhausted:
+        retries, max_retries, name, host_id = exhausted
+        log.error(
+            "FAILOVER EXHAUSTED job=%s retries=%d/%d — permanently failed",
+            job_id,
+            retries,
+            max_retries,
+        )
+        alert_job_failed(job_id, name, host_id)
+        return None
+
+    if requeued:
+        j, retries, max_retries, old_host = requeued
+        log.warning(
+            "FAILOVER REQUEUE job=%s retry=%d/%d old_host=%s",
+            job_id,
+            retries,
+            max_retries,
+            old_host,
+        )
+        return j
+
     return None
 
 
@@ -1494,14 +1854,7 @@ def register_host_ca(
 ):
     """Register a host with country tag. Defaults to Canada because why wouldn't it."""
     entry = register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour)
-
-    # Add country tag
-    hosts = load_hosts(active_only=False)
-    for h in hosts:
-        if h["host_id"] == host_id:
-            h["country"] = country.upper()
-            break
-    save_hosts(hosts)
+    _set_host_fields(host_id, country=country.upper())
 
     log.info("HOST REGISTERED (country=%s) %s | %s", country.upper(), host_id, ip)
     entry["country"] = country.upper()
@@ -1529,8 +1882,7 @@ def process_queue_filtered(canada_only=None):
     hosts = list_hosts_filtered(active_only=True, canada_only=canada)
     assigned = []
 
-    jobs = load_jobs()
-    queued = [j for j in jobs if j["status"] == "queued"]
+    queued = list_jobs(status="queued")
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:
@@ -1541,9 +1893,11 @@ def process_queue_filtered(canada_only=None):
         if not host:
             continue
 
-        update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        if not updated or updated.get("status") != "running":
+            continue
         hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
-        assigned.append((job, host))
+        assigned.append((updated, host))
 
     return assigned
 
@@ -1622,14 +1976,11 @@ def provision_host(pool_entry):
         pool_entry.get("cost_per_hour", 0.20),
     )
 
-    # Tag country
-    hosts = load_hosts(active_only=False)
-    for h in hosts:
-        if h["host_id"] == pool_entry["host_id"]:
-            h["country"] = pool_entry.get("country", "CA")
-            h["autoscaled"] = True
-            break
-    save_hosts(hosts)
+    _set_host_fields(
+        pool_entry["host_id"],
+        country=pool_entry.get("country", "CA"),
+        autoscaled=True,
+    )
 
     # Mark as provisioned in pool
     pool = load_autoscale_pool()
@@ -1798,6 +2149,406 @@ def get_metrics_snapshot():
             "records": len(load_billing()),
         },
     }
+
+
+# ── Spot Pricing & Preemption ─────────────────────────────────────────
+# Supply/demand multiplier curve per REPORT_EXCELSIOR_TECHNICAL_2.md §3.3
+# SpotPrice = BasePrice * e^(k * (D/S - threshold))
+
+SPOT_SENSITIVITY = float(os.environ.get("XCELSIOR_SPOT_SENSITIVITY", "0.5"))
+SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
+SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
+PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
+
+SPOT_PRICES_FILE = os.path.join(os.path.dirname(__file__), "spot_prices.json")
+
+
+def load_spot_prices():
+    """Load spot price history."""
+    return _load_json(SPOT_PRICES_FILE)
+
+
+def save_spot_prices(prices):
+    """Write spot price history."""
+    _save_json(SPOT_PRICES_FILE, prices)
+
+
+def compute_spot_price(base_price, demand, supply, k=None, threshold=None):
+    """Compute spot price using supply/demand multiplier curve.
+
+    Formula: spot = base_price * e^(k * max(0, D/S - threshold))
+
+    Where:
+      - base_price: host's minimum ask price
+      - demand: active + queued jobs for this GPU type
+      - supply: total available GPUs of that type
+      - k: sensitivity coefficient (default 0.5)
+      - threshold: utilization threshold (default 0.8)
+    """
+    k = k if k is not None else SPOT_SENSITIVITY
+    threshold = threshold if threshold is not None else SPOT_THRESHOLD
+
+    if supply <= 0:
+        return base_price * 3.0  # Max surge when no supply
+
+    utilization = demand / supply
+    surge = max(0.0, utilization - threshold)
+    multiplier = math.exp(k * surge)
+
+    return round(base_price * multiplier, 4)
+
+
+def update_spot_prices():
+    """Recalculate spot prices for all GPU types.
+
+    Prices update periodically (every 10 minutes by default).
+    Returns dict of {gpu_model: current_spot_price}.
+    """
+    hosts = load_hosts(active_only=True)
+    jobs = load_jobs()
+
+    active_jobs = [j for j in jobs if j["status"] in ("running", "queued")]
+
+    # Group by GPU model
+    supply_by_gpu = {}
+    base_price_by_gpu = {}
+    for h in hosts:
+        gpu = h.get("gpu_model", "unknown")
+        supply_by_gpu[gpu] = supply_by_gpu.get(gpu, 0) + 1
+        # Track lowest base price per GPU type
+        cost = h.get("cost_per_hour", 0.20)
+        if gpu not in base_price_by_gpu or cost < base_price_by_gpu[gpu]:
+            base_price_by_gpu[gpu] = cost
+
+    demand_by_gpu = {}
+    for j in active_jobs:
+        host_id = j.get("host_id")
+        if host_id:
+            for h in hosts:
+                if h["host_id"] == host_id:
+                    gpu = h.get("gpu_model", "unknown")
+                    demand_by_gpu[gpu] = demand_by_gpu.get(gpu, 0) + 1
+                    break
+        else:
+            # Queued job: count as demand for any GPU type
+            for gpu in supply_by_gpu:
+                demand_by_gpu[gpu] = demand_by_gpu.get(gpu, 0) + 1
+
+    spot_prices = {}
+    now = time.time()
+    history = load_spot_prices()
+
+    for gpu in supply_by_gpu:
+        base = base_price_by_gpu.get(gpu, 0.20)
+        demand = demand_by_gpu.get(gpu, 0)
+        supply = supply_by_gpu[gpu]
+
+        price = compute_spot_price(base, demand, supply)
+        spot_prices[gpu] = price
+
+        history.append({
+            "gpu_model": gpu,
+            "price": price,
+            "supply": supply,
+            "demand": demand,
+            "computed_at": now,
+        })
+
+    # Keep last 1000 records
+    if len(history) > 1000:
+        history = history[-1000:]
+    save_spot_prices(history)
+
+    emit_event("spot_prices", spot_prices)
+    log.info("SPOT PRICES UPDATED: %s", json.dumps(spot_prices))
+    return spot_prices
+
+
+def get_current_spot_prices():
+    """Get the latest spot prices per GPU model."""
+    history = load_spot_prices()
+    if not history:
+        return {}
+
+    latest = {}
+    for entry in reversed(history):
+        gpu = entry.get("gpu_model")
+        if gpu and gpu not in latest:
+            latest[gpu] = entry["price"]
+
+    return latest
+
+
+def identify_preemptible_jobs(spot_prices=None):
+    """Find jobs whose max_bid is below current spot price.
+
+    Returns list of (job, reason) tuples.
+    """
+    if spot_prices is None:
+        spot_prices = get_current_spot_prices()
+
+    jobs = load_jobs()
+    hosts = load_hosts(active_only=False)
+    host_map = {h["host_id"]: h for h in hosts}
+
+    preemptible = []
+    for j in jobs:
+        if j["status"] != "running":
+            continue
+
+        max_bid = j.get("max_bid")
+        if max_bid is None:
+            continue  # No bid = on-demand, not preemptible
+
+        host = host_map.get(j.get("host_id"))
+        if not host:
+            continue
+
+        gpu = host.get("gpu_model", "unknown")
+        current_price = spot_prices.get(gpu)
+        if current_price is None:
+            continue
+
+        if max_bid < current_price:
+            preemptible.append((
+                j,
+                f"bid ${max_bid} < spot ${current_price} for {gpu}",
+            ))
+
+    return preemptible
+
+
+def preempt_job(job_id):
+    """Preempt a running spot job.
+
+    1. Mark job as 'preempted' (terminal state)
+    2. Signal the agent to send SIGTERM (grace period for checkpoint)
+    3. After grace period, force kill
+    4. Requeue if user chose auto-requeue
+
+    Returns the updated job or None.
+    """
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if not j or j["status"] != "running":
+            return None
+
+        j["status"] = "queued"
+        j["preempted_at"] = time.time()
+        j["host_id"] = None
+        j["started_at"] = None
+        j["retries"] = j.get("retries", 0)  # Don't count preemption as retry
+        _upsert_job_row(conn, j)
+
+    emit_event("job_preempted", {"job_id": job_id, "name": j.get("name")})
+    log.warning("JOB PREEMPTED %s | %s | requeued for lower-price host", job_id, j.get("name"))
+    return j
+
+
+def preemption_cycle():
+    """Run a full preemption cycle.
+
+    1. Update spot prices
+    2. Find jobs below spot
+    3. Preempt them
+    Returns (spot_prices, preempted_jobs).
+    """
+    prices = update_spot_prices()
+    preemptible = identify_preemptible_jobs(prices)
+    preempted = []
+
+    for job, reason in preemptible:
+        result = preempt_job(job["job_id"])
+        if result:
+            preempted.append(result)
+            log.info("PREEMPTION: %s — %s", job["job_id"], reason)
+
+    return prices, preempted
+
+
+def start_spot_price_monitor(interval=None, callback=None):
+    """Run spot price updates and preemption in a background thread."""
+    interval = interval or SPOT_UPDATE_INTERVAL
+
+    def loop():
+        while True:
+            try:
+                prices, preempted = preemption_cycle()
+                if callback and (prices or preempted):
+                    callback(prices, preempted)
+            except Exception as e:
+                log.error("Spot price monitor error: %s", e)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+# ── Compute Score (XCU) ──────────────────────────────────────────────
+# Xcelsior Compute Unit: normalize GPU performance across consumer cards.
+# RTX 3090 and 4090 both have 24GB VRAM but 4090 has ~2x TFLOPS.
+
+COMPUTE_SCORES_FILE = os.path.join(os.path.dirname(__file__), "compute_scores.json")
+
+# Reference TFLOPS for common GPUs (FP16 tensor core)
+GPU_REFERENCE_TFLOPS = {
+    "RTX 2060": 13.0,
+    "RTX 2070": 14.9,
+    "RTX 2080": 20.3,
+    "RTX 2080 Ti": 26.9,
+    "RTX 3060": 12.7,
+    "RTX 3060 Ti": 16.2,
+    "RTX 3070": 20.3,
+    "RTX 3070 Ti": 21.7,
+    "RTX 3080": 29.8,
+    "RTX 3080 Ti": 34.1,
+    "RTX 3090": 35.6,
+    "RTX 3090 Ti": 40.0,
+    "RTX 4060": 15.1,
+    "RTX 4060 Ti": 22.1,
+    "RTX 4070": 29.1,
+    "RTX 4070 Ti": 40.1,
+    "RTX 4080": 48.7,
+    "RTX 4090": 82.6,
+    "A100": 312.0,
+    "A10G": 31.2,
+    "H100": 989.5,
+    "L4": 30.3,
+    "T4": 8.1,
+}
+
+
+def load_compute_scores():
+    """Load compute score records."""
+    return _load_json(COMPUTE_SCORES_FILE)
+
+
+def save_compute_scores(scores):
+    """Write compute score records."""
+    _save_json(COMPUTE_SCORES_FILE, scores)
+
+
+def estimate_compute_score(gpu_model, benchmark_result=None):
+    """Estimate compute score (XCU) for a GPU.
+
+    If benchmark_result is provided, use actual measurement.
+    Otherwise, use reference TFLOPS table.
+
+    XCU = TFLOPS / 10 (normalized so RTX 4090 ≈ 8.3 XCU)
+    """
+    if benchmark_result and "tflops" in benchmark_result:
+        return round(benchmark_result["tflops"] / 10.0, 2)
+
+    # Fuzzy match GPU model to reference table
+    for ref_name, tflops in GPU_REFERENCE_TFLOPS.items():
+        if ref_name.lower() in gpu_model.lower():
+            return round(tflops / 10.0, 2)
+
+    # Unknown GPU — conservative estimate
+    return 1.0
+
+
+def register_compute_score(host_id, gpu_model, score, benchmark_details=None):
+    """Register a compute score for a host."""
+    scores = load_compute_scores()
+
+    entry = {
+        "host_id": host_id,
+        "gpu_model": gpu_model,
+        "score": score,
+        "details": benchmark_details,
+        "run_at": time.time(),
+    }
+
+    # Update existing or append
+    for i, s in enumerate(scores):
+        if s["host_id"] == host_id:
+            scores[i] = entry
+            break
+    else:
+        scores.append(entry)
+
+    save_compute_scores(scores)
+    _set_host_fields(host_id, compute_score=score)
+
+    log.info("COMPUTE SCORE host=%s gpu=%s score=%.2f XCU", host_id, gpu_model, score)
+    return entry
+
+
+def get_compute_score(host_id):
+    """Get the compute score for a host."""
+    scores = load_compute_scores()
+    for s in scores:
+        if s["host_id"] == host_id:
+            return s["score"]
+    return None
+
+
+# ── Enhanced Allocation (Compute-Aware) ───────────────────────────────
+
+
+def allocate_compute_aware(job, hosts):
+    """Enhanced allocation: filter by VRAM, sort by (ComputeScore / Price).
+
+    This replaces the simple VRAM > latency > cost algorithm with one
+    that considers actual GPU performance per dollar.
+    """
+    if not hosts:
+        return None
+
+    candidates = [h for h in hosts if h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)]
+    if not candidates:
+        return None
+
+    def compute_efficiency(h):
+        score = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
+        price = h.get("cost_per_hour", 0.20) or 0.20
+        return score / price
+
+    best = max(candidates, key=compute_efficiency)
+    log.info(
+        "ALLOCATE (compute-aware) job=%s -> host=%s (%s, %sGB free, %.2f XCU/$/hr)",
+        job.get("name", "?"),
+        best["host_id"],
+        best.get("gpu_model"),
+        best.get("free_vram_gb"),
+        compute_efficiency(best),
+    )
+    return best
+
+
+# ── Spot Job Submission ───────────────────────────────────────────────
+
+
+def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None):
+    """Submit a spot/interruptible job with a maximum bid price.
+
+    Spot jobs are:
+    - Cheaper (run when spot price < max_bid)
+    - Preemptible (evicted when demand exceeds bid)
+    - Automatically requeued on preemption
+    """
+    job = submit_job(name, vram_needed_gb, priority, tier=tier)
+
+    _set_job_fields(
+        job["job_id"],
+        max_bid=max_bid,
+        spot=True,
+        preemptible=True,
+    )
+    job["max_bid"] = max_bid
+    job["spot"] = True
+    job["preemptible"] = True
+
+    log.info(
+        "SPOT JOB SUBMITTED %s | %s | max_bid=$%s/hr",
+        job["job_id"],
+        name,
+        max_bid,
+    )
+    return job
 
 
 if __name__ == "__main__":

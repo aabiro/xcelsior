@@ -40,7 +40,7 @@
 <body>
 
 <h1>XCELSIOR</h1>
-<p class="subtitle">Distributed GPU scheduler. Ever upward. v1.0.0</p>
+<p class="subtitle">Distributed GPU scheduler. Ever upward. v2.0.0 <span id="sse-status" style="color:#666">⚪ connecting...</span></p>
 
 <div class="btn-row">
   <button class="btn" onclick="refresh()">Refresh</button>
@@ -59,6 +59,7 @@
   <div class="stat"><div class="num" id="stat-revenue">-</div><div class="label">Revenue</div></div>
   <div class="stat"><div class="num" id="stat-market">-</div><div class="label">Marketplace</div></div>
   <div class="stat"><div class="num" id="stat-pool">-</div><div class="label">Pool</div></div>
+  <div class="stat"><div class="num" id="stat-spot">-</div><div class="label">Spot Listings</div></div>
 </div>
 
 <div class="grid">
@@ -97,9 +98,27 @@
       <tbody id="billing-table"></tbody>
     </table>
   </div>
+  <div class="card">
+    <h2>Spot Prices</h2>
+    <table>
+      <thead><tr><th>GPU Model</th><th>Spot $/hr</th><th>Supply</th><th>Demand</th></tr></thead>
+      <tbody id="spot-table"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Compute Scores (XCU)</h2>
+    <table>
+      <thead><tr><th>Host</th><th>GPU</th><th>XCU</th></tr></thead>
+      <tbody id="score-table"></tbody>
+    </table>
+  </div>
+  <div class="card full">
+    <h2>Event Log <span style="font-size:11px;color:#666">(SSE live stream)</span></h2>
+    <div id="event-log" style="max-height:200px;overflow-y:auto;font-size:12px;color:#888;"></div>
+  </div>
 </div>
 
-<p class="refresh-note">Auto-refreshes every 5 seconds.</p>
+<p class="refresh-note">Real-time updates via SSE. Falls back to polling every 10s.</p>
 
 <script>
 const API = '';
@@ -162,8 +181,35 @@ async function fetchPool() {
   ).join('');
 }
 
+async function fetchSpotPrices() {
+  try {
+    const r = await fetch(`${API}/spot-prices`);
+    const d = await r.json();
+    const prices = d.prices || {};
+    const keys = Object.keys(prices);
+    document.getElementById('stat-spot').textContent = keys.length;
+    document.getElementById('spot-table').innerHTML = keys.map(k => {
+      const p = prices[k];
+      return `<tr><td>${k}</td><td>$${(p.spot_price || 0).toFixed(3)}</td><td>${p.supply || 0}</td><td>${p.demand || 0}</td></tr>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('stat-spot').textContent = '?';
+  }
+}
+
+async function fetchComputeScores() {
+  try {
+    const r = await fetch(`${API}/compute-scores`);
+    const d = await r.json();
+    const scores = d.scores || {};
+    document.getElementById('score-table').innerHTML = Object.entries(scores).map(([hid, s]) =>
+      `<tr><td>${hid}</td><td>${s.gpu_model}</td><td>${s.score.toFixed(1)}</td></tr>`
+    ).join('');
+  } catch(e) {}
+}
+
 async function refresh() {
-  await Promise.all([fetchHosts(), fetchJobs(), fetchBilling(), fetchMarketplace(), fetchPool()]);
+  await Promise.all([fetchHosts(), fetchJobs(), fetchBilling(), fetchMarketplace(), fetchPool(), fetchSpotPrices(), fetchComputeScores()]);
 }
 
 async function processQueue() {
@@ -191,8 +237,85 @@ async function runAutoscale() {
   refresh();
 }
 
+// ── SSE (Server-Sent Events) ─────────────────────────────────────────
+let evtSource = null;
+const eventLog = document.getElementById('event-log');
+const sseStatus = document.getElementById('sse-status');
+const MAX_LOG_ENTRIES = 100;
+
+function addLogEntry(event, data) {
+  const time = new Date().toLocaleTimeString();
+  const el = document.createElement('div');
+  el.style.borderBottom = '1px solid #1a1a1a';
+  el.style.padding = '2px 0';
+  el.innerHTML = `<span style="color:#444">${time}</span> <span style="color:#ff3333">${event}</span> ${JSON.stringify(data).substring(0, 200)}`;
+  eventLog.prepend(el);
+  // Trim old entries
+  while (eventLog.children.length > MAX_LOG_ENTRIES) {
+    eventLog.removeChild(eventLog.lastChild);
+  }
+}
+
+function connectSSE() {
+  if (evtSource) { evtSource.close(); }
+
+  evtSource = new EventSource(`${API}/api/stream`);
+
+  evtSource.addEventListener('connected', function(e) {
+    sseStatus.textContent = '🟢 live';
+    sseStatus.style.color = '#4caf50';
+    addLogEntry('connected', JSON.parse(e.data));
+  });
+
+  // Refresh on data-changing events
+  const refreshEvents = [
+    'host_update', 'host_removed', 'job_submitted', 'job_status',
+    'queue_processed', 'spot_prices_updated', 'spot_job_submitted',
+    'benchmark_result', 'node_admission',
+  ];
+  refreshEvents.forEach(evt => {
+    evtSource.addEventListener(evt, function(e) {
+      const data = JSON.parse(e.data);
+      addLogEntry(evt, data);
+      refresh();  // Update all panels on any event
+    });
+  });
+
+  // Alert events (don't refresh, just log)
+  evtSource.addEventListener('mining_alert', function(e) {
+    const data = JSON.parse(e.data);
+    addLogEntry('⚠️ MINING ALERT', data);
+  });
+
+  evtSource.addEventListener('preemption_scheduled', function(e) {
+    const data = JSON.parse(e.data);
+    addLogEntry('⚠️ PREEMPTION', data);
+    refresh();
+  });
+
+  evtSource.onerror = function() {
+    sseStatus.textContent = '🔴 disconnected';
+    sseStatus.style.color = '#f44336';
+    // EventSource auto-reconnects, but let's update status
+    setTimeout(() => {
+      if (evtSource.readyState === EventSource.CONNECTING) {
+        sseStatus.textContent = '🟡 reconnecting...';
+        sseStatus.style.color = '#ff9800';
+      }
+    }, 1000);
+  };
+}
+
+// Initial load
 refresh();
-setInterval(refresh, 5000);
+connectSSE();
+
+// Fallback polling (in case SSE is not available or disconnected)
+setInterval(() => {
+  if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
+    refresh();
+  }
+}, 10000);
 </script>
 </body>
 </html>

@@ -1614,6 +1614,8 @@ uvicorn api:app --reload
 - `GET /metrics`
 
 ### Production path (container-based)
+Set `XCELSIOR_API_TOKEN` in `.env` before starting compose (required when `XCELSIOR_ENV=production`).
+
 ```bash
 docker compose up --build -d
 ```
