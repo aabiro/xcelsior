@@ -1,0 +1,81 @@
+# OpenAPI overrides for Fern SDK generation
+# These supplement the auto-generated FastAPI OpenAPI spec with
+# better descriptions, grouping, and SDK-friendly names.
+
+paths:
+  /host:
+    put:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: register
+      x-fern-audiences:
+        - provider
+
+  /hosts:
+    get:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: list
+      x-fern-audiences:
+        - public
+
+  /job:
+    post:
+      x-fern-sdk-group-name: jobs
+      x-fern-sdk-method-name: submit
+      x-fern-audiences:
+        - public
+
+  /jobs:
+    get:
+      x-fern-sdk-group-name: jobs
+      x-fern-sdk-method-name: list
+      x-fern-audiences:
+        - public
+
+  /api/billing/wallet/{customer_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getWallet
+      x-fern-audiences:
+        - public
+
+  /api/billing/wallet/{customer_id}/deposit:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: deposit
+      x-fern-audiences:
+        - public
+
+  /api/artifacts/upload:
+    post:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: requestUpload
+      x-fern-audiences:
+        - public
+
+  /api/artifacts/download:
+    post:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: requestDownload
+      x-fern-audiences:
+        - public
+
+  /api/reputation/{entity_id}:
+    get:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: getScore
+      x-fern-audiences:
+        - public
+
+  /api/providers/register:
+    post:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: register
+      x-fern-audiences:
+        - provider
+
+  /api/sla/enforce:
+    post:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: enforce
+      x-fern-audiences:
+        - admin

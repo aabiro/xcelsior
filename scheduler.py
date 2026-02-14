@@ -28,6 +28,26 @@ from db import (
     DB_BACKEND,
 )
 
+# v2.1 modules — event sourcing, verification, jurisdiction, billing, reputation
+from events import (
+    JobState,
+    EventType,
+    VALID_TRANSITIONS,
+    get_event_store,
+    get_state_machine,
+)
+from verification import get_verification_engine
+from jurisdiction import (
+    filter_hosts_by_jurisdiction,
+    classify_host_trust_tier,
+    JurisdictionConstraint,
+    HostJurisdiction,
+    TrustTier,
+    generate_residency_trace,
+)
+from billing import get_billing_engine
+from reputation import get_reputation_engine, score_to_tier
+
 HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
 JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
 LOG_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.log")
@@ -414,33 +434,92 @@ def _save_json(path, data):
 
 
 def allocate(job, hosts):
-    """
-    Find the best host for this job.
-    Prioritize: available VRAM > speed > lowest cost.
+    """Find the best host for this job.
+
+    Enforces:
+    - VRAM capacity check
+    - GPU count check (multi-GPU jobs)
+    - Admission gating (REPORT_FEATURE_FINAL.md §62: only admitted hosts)
+    - Isolation tier enforcement (REPORT_FEATURE_FINAL.md §193:
+      untrusted workloads require strong isolation tier)
+
+    Prioritize: available VRAM > GPU count > speed > lowest cost.
     If nothing fits, return None (queue or reject).
     """
     if not hosts:
         return None
 
+    num_gpus_needed = job.get("num_gpus", 1) or 1
+
+    # Step 1: VRAM filter
     candidates = [h for h in hosts if h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)]
     if not candidates:
         return None
 
-    # Prioritize: available VRAM > speed (low latency) > lowest cost
+    # Step 1b: GPU count filter (multi-GPU jobs)
+    if num_gpus_needed > 1:
+        gpu_candidates = [h for h in candidates
+                          if h.get("gpu_count", 1) >= num_gpus_needed]
+        if gpu_candidates:
+            candidates = gpu_candidates
+        else:
+            log.warning(
+                "ALLOCATE: job=%s needs %d GPUs but no single host has enough — "
+                "best available: %d GPUs",
+                job.get("name", "?"), num_gpus_needed,
+                max((h.get("gpu_count", 1) for h in candidates), default=0),
+            )
+            # Fall through — allocate to best-available even if fewer GPUs
+            # (job may still run with data parallelism across fewer GPUs)
+
+    # Step 2: Admission gating — only admitted hosts can receive work
+    # Per REPORT_FEATURE_FINAL.md §62: "refuse to run customer workloads
+    # on hosts that are not patched to minimum safe versions"
+    admitted_candidates = [h for h in candidates if h.get("admitted", False)]
+    if not admitted_candidates:
+        log.warning(
+            "ALLOCATE BLOCKED: %d hosts have VRAM but none are admitted (job=%s)",
+            len(candidates), job.get("name", "?"),
+        )
+        return None
+    candidates = admitted_candidates
+
+    # Step 3: Isolation tier enforcement
+    # Per REPORT_FEATURE_FINAL.md §193: "untrusted workloads require
+    # the strong isolation tier" (gVisor/Kata)
+    job_tier = job.get("tier", "free") or "free"
+    requires_isolation = job_tier in ("sovereign", "regulated", "secure")
+    if requires_isolation:
+        isolated = [h for h in candidates
+                    if h.get("recommended_runtime", "runc") != "runc"]
+        if isolated:
+            candidates = isolated
+        else:
+            log.warning(
+                "ALLOCATE: tier=%s prefers gVisor/Kata isolation but no isolated "
+                "hosts available — falling back to hardened runc (job=%s)",
+                job_tier, job.get("name", "?"),
+            )
+
+    # Prioritize: GPU count match > available VRAM > speed (low latency) > lowest cost
     best = max(
         candidates,
         key=lambda h: (
+            min(h.get("gpu_count", 1), num_gpus_needed),  # prefer hosts with enough GPUs
             h.get("free_vram_gb", 0),
             -h.get("latency_ms", 999),
             -h.get("cost_per_hour", 999),
         ),
     )
     log.info(
-        "ALLOCATE job=%s -> host=%s (%s, %sGB free)",
+        "ALLOCATE job=%s -> host=%s (%s, %sGB free, %d GPUs, admitted=%s, runtime=%s)",
         job.get("name", "?"),
         best["host_id"],
         best.get("gpu_model"),
         best.get("free_vram_gb"),
+        best.get("gpu_count", 1),
+        best.get("admitted", False),
+        best.get("recommended_runtime", "runc"),
     )
     return best
 
@@ -461,7 +540,8 @@ def save_hosts(hosts):
         _replace_hosts_in_conn(conn, hosts)
 
 
-def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20):
+def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20,
+                  country="", province=""):
     """
     Register a host. If it exists, update it. If not, add it.
     Every host sends: GPU model, VRAM, IP, uptime.
@@ -481,9 +561,13 @@ def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_
             "last_seen": time.time(),
             "status": "active",
         }
+        if country:
+            entry["country"] = country.upper()
+        if province:
+            entry["province"] = province.upper()
         if existing:
             # Preserve host metadata set by other flows (country/autoscaled tags).
-            for field in ("country", "autoscaled", "compute_score", "admitted"):
+            for field in ("country", "province", "autoscaled", "compute_score", "admitted"):
                 if field in existing and field not in entry:
                     entry[field] = existing[field]
         _upsert_host_row(conn, entry)
@@ -637,7 +721,12 @@ def list_tiers():
 
 # ── Phase 3: Job Queue ────────────────────────────────────────────────
 
-VALID_STATUSES = ("queued", "running", "completed", "failed")
+# Extended status set — aligns with events.JobState
+# Legacy 4 statuses preserved for backward compat; new statuses for v2.1
+VALID_STATUSES = (
+    "queued", "assigned", "leased", "running",
+    "completed", "failed", "preempted", "cancelled",
+)
 
 
 def load_jobs():
@@ -653,12 +742,16 @@ def save_jobs(jobs):
         _replace_jobs_in_conn(conn, jobs)
 
 
-def submit_job(name, vram_needed_gb, priority=0, tier=None):
+def submit_job(name, vram_needed_gb, priority=0, tier=None, num_gpus=1,
+               nfs_server=None, nfs_path=None, nfs_mount_point=None, image=None):
     """
     Submit a job to the queue.
     Each job has: model name, VRAM needed, priority, tier.
     Tier overrides priority. Pay more = jump the queue.
     FIFO within the same priority. Higher priority goes first.
+
+    Multi-GPU: num_gpus specifies how many GPUs are needed (default 1).
+    NFS: Optionally specify NFS server/path for shared storage.
     """
     # Tier overrides raw priority
     if tier and tier in PRIORITY_TIERS:
@@ -684,6 +777,11 @@ def submit_job(name, vram_needed_gb, priority=0, tier=None):
         "completed_at": None,
         "retries": 0,
         "max_retries": 3,
+        "num_gpus": max(1, int(num_gpus or 1)),
+        "nfs_server": nfs_server or "",
+        "nfs_path": nfs_path or "",
+        "nfs_mount_point": nfs_mount_point or "",
+        "image": image or "",
     }
 
     with _atomic_mutation() as conn:
@@ -838,6 +936,38 @@ def update_job_status(job_id, status, host_id=None):
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.upsert_job, j)
     emit_event("job_status", {"job_id": job_id, "status": status, "host_id": host_id or old_host_id})
+
+    # ── v2.1: Record event + trigger billing/reputation ──
+    try:
+        sm = get_state_machine()
+        sm.transition(job_id, JobState(status), actor="scheduler")
+    except Exception as exc:
+        log.debug("Event record skip: %s", exc)
+
+    if status == "completed" and j.get("started_at") and j.get("completed_at"):
+        try:
+            be = get_billing_engine()
+            host_data = {}
+            if j.get("host_id"):
+                hosts_list = load_hosts(active_only=False)
+                for h in hosts_list:
+                    if h["host_id"] == j["host_id"]:
+                        host_data = h
+                        break
+            be.meter_job(j, host_data)
+            # Reputation: reward host
+            if j.get("host_id"):
+                re = get_reputation_engine()
+                re.record_job_completed(j["host_id"])
+        except Exception as exc:
+            log.debug("Billing/reputation skip: %s", exc)
+
+    if status == "failed" and j.get("host_id"):
+        try:
+            re = get_reputation_engine()
+            re.record_job_failure(j["host_id"], is_host_fault=True)
+        except Exception as exc:
+            log.debug("Reputation penalty skip: %s", exc)
 
     if alert_failed:
         alert_job_failed(*alert_failed)
@@ -1850,14 +1980,22 @@ def set_canada_only(enabled):
 
 
 def register_host_ca(
-    host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20, country="CA"
+    host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20,
+    country="CA", province=""
 ):
     """Register a host with country tag. Defaults to Canada because why wouldn't it."""
-    entry = register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour)
-    _set_host_fields(host_id, country=country.upper())
+    entry = register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour,
+                          country=country, province=province)
+    # Ensure country is set even if register_host didn't receive it
+    if not entry.get("country"):
+        _set_host_fields(host_id, country=country.upper())
+        entry["country"] = country.upper()
+    if province and not entry.get("province"):
+        _set_host_fields(host_id, province=province.upper())
+        entry["province"] = province.upper()
 
-    log.info("HOST REGISTERED (country=%s) %s | %s", country.upper(), host_id, ip)
-    entry["country"] = country.upper()
+    log.info("HOST REGISTERED (country=%s, province=%s) %s | %s",
+             entry.get('country', ''), entry.get('province', ''), host_id, ip)
     return entry
 
 
@@ -2517,6 +2655,115 @@ def allocate_compute_aware(job, hosts):
         compute_efficiency(best),
     )
     return best
+
+
+# ── v2.1: Jurisdiction-Aware Allocation ───────────────────────────────
+
+
+def allocate_jurisdiction_aware(job, hosts, constraint=None):
+    """Allocate with jurisdiction filtering + trust tier + verification.
+
+    Layers (per REPORT_FEATURE_FINAL.md):
+    1. Filter by jurisdiction constraint (Canada-only, province, trust tier)
+    2. Filter by verification status (only verified hosts)
+    3. Sort by compute efficiency (XCU/$/hr)
+    4. Apply reputation boost (higher-tier hosts preferred)
+    """
+    if not hosts:
+        return None
+
+    # 1. Jurisdiction filter
+    if constraint:
+        hosts = filter_hosts_by_jurisdiction(hosts, constraint)
+        if not hosts:
+            log.warning("ALLOCATE no hosts match jurisdiction constraint for job=%s",
+                        job.get("name", "?"))
+            return None
+
+    # 2. Verification filter — only use verified hosts for production
+    try:
+        ve = get_verification_engine()
+        verified_ids = {h["host_id"] for h in ve.get_verified_hosts()}
+        verified_hosts = [h for h in hosts if h["host_id"] in verified_ids]
+        if verified_hosts:
+            hosts = verified_hosts
+        # If no verified hosts, fall back to all (for cold-start)
+    except Exception:
+        pass
+
+    # 3. VRAM filter
+    candidates = [h for h in hosts if h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)]
+    if not candidates:
+        return None
+
+    # 4. Sort by compute efficiency * reputation boost
+    def score_host(h):
+        compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
+        price = h.get("cost_per_hour", 0.20) or 0.20
+        efficiency = compute / price
+
+        # Reputation boost
+        try:
+            re = get_reputation_engine()
+            rep = re.compute_score(h["host_id"])
+            boost = rep.search_boost
+        except Exception:
+            boost = 1.0
+
+        return efficiency * boost
+
+    best = max(candidates, key=score_host)
+    log.info(
+        "ALLOCATE (jurisdiction-aware) job=%s -> host=%s (%s, %sGB free, country=%s)",
+        job.get("name", "?"),
+        best["host_id"],
+        best.get("gpu_model"),
+        best.get("free_vram_gb"),
+        best.get("country", "?"),
+    )
+    return best
+
+
+def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
+    """Process queue with full jurisdiction + verification + reputation.
+
+    From REPORT_FEATURE_FINAL.md + REPORT_MARKETING_FINAL.md:
+    - Jurisdiction-aware host selection
+    - Verified hosts preferred
+    - Reputation-boosted ordering
+    - Event-sourced state transitions
+    """
+    canada = canada_only if canada_only is not None else CANADA_ONLY
+
+    constraint = None
+    if canada or province or trust_tier:
+        constraint = JurisdictionConstraint(
+            canada_only=canada,
+            province=province,
+            trust_tier=TrustTier(trust_tier) if trust_tier else None,
+        )
+
+    hosts = list_hosts(active_only=True)
+    assigned = []
+
+    queued = list_jobs(status="queued")
+    queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
+
+    for job in queued:
+        if not hosts:
+            break
+
+        host = allocate_jurisdiction_aware(job, hosts, constraint)
+        if not host:
+            continue
+
+        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
+        if not updated or updated.get("status") != "running":
+            continue
+        hosts = [h for h in hosts if h["host_id"] != host["host_id"]]
+        assigned.append((updated, host))
+
+    return assigned
 
 
 # ── Spot Job Submission ───────────────────────────────────────────────

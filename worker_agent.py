@@ -41,8 +41,33 @@ from security import (
     check_mining_heuristic,
     get_gpu_telemetry,
     get_local_versions,
+    install_gvisor,
     recommend_runtime,
 )
+
+# ── NVML Telemetry (REPORT_FEATURE_1.md §Lightweight Monitoring) ─────
+# Use pynvml bindings when available; security.py's get_gpu_telemetry()
+# already delegates to nvml_telemetry when NVML is initialized.
+
+try:
+    from nvml_telemetry import (
+        nvml_init,
+        nvml_shutdown,
+        is_nvml_available,
+        collect_all_gpus,
+        get_gpu_info_nvml,
+        build_verification_report,
+    )
+    _nvml_imported = True
+except ImportError:
+    _nvml_imported = False
+
+    def nvml_init(): return False
+    def nvml_shutdown(): pass
+    def is_nvml_available(): return False
+    def collect_all_gpus(): return []
+    def get_gpu_info_nvml(): return None
+    def build_verification_report(gpu_index=0): return None
 
 # ── Configuration ─────────────────────────────────────────────────────
 
@@ -100,11 +125,23 @@ signal.signal(signal.SIGINT, _signal_handler)
 # ── GPU Queries ──────────────────────────────────────────────────────
 
 def get_gpu_info():
-    """Query nvidia-smi for GPU name, total VRAM, free VRAM.
+    """Query GPU name, total VRAM, free VRAM.
 
+    Prefers NVML (pynvml) when available per REPORT_FEATURE_1.md:
+    "avoid calling the nvidia-smi binary... use Python bindings to
+    interact with libnvidia-ml.so directly."
+
+    Falls back to nvidia-smi subprocess if NVML is not initialized.
     Returns dict with gpu_model, total_vram_gb, free_vram_gb.
     Raises RuntimeError on failure.
     """
+    # Try NVML first
+    if is_nvml_available():
+        info = get_gpu_info_nvml()
+        if info:
+            return info
+
+    # Fallback: nvidia-smi subprocess
     try:
         result = subprocess.run(
             [
@@ -175,43 +212,123 @@ def get_host_ip():
 # ── Compute Score Benchmark ──────────────────────────────────────────
 
 def run_compute_benchmark():
-    """Run a quick FP16 matmul benchmark to measure actual TFLOPS.
+    """Run comprehensive benchmark suite for all 6 verification checks.
 
-    Uses PyTorch if available; returns score dict or None.
+    Collects: TFLOPS (FP16 matmul), CUDA/driver versions, compute capability,
+    PCIe bandwidth, sustained thermal readings, and GPU identity data.
+    Returns a full report dict that verification.py can consume, or None.
     """
     try:
         result = subprocess.run(
             [
                 sys.executable, "-c",
                 """
-import time, json
+import time, json, subprocess, re
+report = {}
+
 try:
     import torch
     if not torch.cuda.is_available():
         print(json.dumps({"error": "no_cuda"}))
         raise SystemExit
+
     device = torch.device("cuda:0")
-    # Warm up
+    props = torch.cuda.get_device_properties(device)
+
+    # ── GPU Identity ──
+    report["gpu_model"] = props.name
+    report["total_vram_gb"] = round(props.total_mem / (1024**3), 2)
+    report["compute_capability"] = f"{props.major}.{props.minor}"
+
+    # ── CUDA / Driver Versions ──
+    report["cuda_version"] = torch.version.cuda or ""
+    try:
+        smi = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        report["driver_version"] = smi.stdout.strip().split("\\n")[0].strip() if smi.returncode == 0 else ""
+    except Exception:
+        report["driver_version"] = ""
+
+    # ── FP16 Matmul Benchmark (TFLOPS) ──
     a = torch.randn(4096, 4096, dtype=torch.float16, device=device)
     b = torch.randn(4096, 4096, dtype=torch.float16, device=device)
     for _ in range(5):
         torch.mm(a, b)
     torch.cuda.synchronize()
-    # Benchmark
     iters = 50
     start = time.perf_counter()
     for _ in range(iters):
         torch.mm(a, b)
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
-    flops_per_iter = 2 * 4096**3  # 2*N^3 for matmul
-    tflops = (flops_per_iter * iters) / elapsed / 1e12
-    print(json.dumps({"tflops": round(tflops, 2), "elapsed_s": round(elapsed, 3), "iters": iters}))
+    flops_per_iter = 2 * 4096**3
+    report["tflops"] = round((flops_per_iter * iters) / elapsed / 1e12, 2)
+    report["elapsed_s"] = round(elapsed, 3)
+    report["iters"] = iters
+
+    # ── PCIe Bandwidth (Host→Device→Host round-trip) ──
+    try:
+        size_mb = 256
+        data_h = torch.randn(size_mb * 1024 * 256, dtype=torch.float32)  # 256 MB
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        data_d = data_h.to(device)
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        _ = data_d.to("cpu")
+        torch.cuda.synchronize()
+        t2 = time.perf_counter()
+        h2d_gbps = round(size_mb / 1024 / (t1 - t0), 2)
+        d2h_gbps = round(size_mb / 1024 / (t2 - t1), 2)
+        report["pcie_bandwidth_gbps"] = round((h2d_gbps + d2h_gbps) / 2, 2)
+        report["pcie_h2d_gbps"] = h2d_gbps
+        report["pcie_d2h_gbps"] = d2h_gbps
+        del data_h, data_d
+    except Exception as e:
+        report["pcie_bandwidth_gbps"] = 0
+        report["pcie_error"] = str(e)
+
+    # ── Thermal Stability (sustained load for 15s, sample temp) ──
+    try:
+        temps = []
+        stress_start = time.perf_counter()
+        while time.perf_counter() - stress_start < 15:
+            torch.mm(a, b)
+            torch.cuda.synchronize()
+            try:
+                tsmi = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=temperature.gpu",
+                     "--format=csv,noheader,nounits", "--id=0"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if tsmi.returncode == 0:
+                    temps.append(float(tsmi.stdout.strip()))
+            except Exception:
+                pass
+            time.sleep(0.5)
+        if temps:
+            report["gpu_temp_celsius"] = max(temps)
+            report["gpu_temp_avg_celsius"] = round(sum(temps) / len(temps), 1)
+            report["gpu_temp_samples"] = len(temps)
+        else:
+            report["gpu_temp_celsius"] = 0
+    except Exception as e:
+        report["gpu_temp_celsius"] = 0
+        report["thermal_error"] = str(e)
+
+    # Clean up GPU memory
+    del a, b
+    torch.cuda.empty_cache()
+
+    print(json.dumps(report))
+
 except ImportError:
     print(json.dumps({"error": "no_torch"}))
 """,
             ],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=300,  # Longer timeout for thermal test
         )
         if result.returncode == 0 and result.stdout.strip():
             data = json.loads(result.stdout.strip())
@@ -222,6 +339,73 @@ except ImportError:
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
         log.warning("Benchmark failed: %s", e)
     return None
+
+
+def run_network_benchmark(scheduler_url: str = None):
+    """Benchmark network quality to the scheduler (throughput, jitter, loss).
+
+    Returns dict with throughput_mbps, jitter_ms, packet_loss_pct.
+    """
+    target = scheduler_url or SCHEDULER_URL
+    if not target:
+        return {}
+
+    from urllib.parse import urlparse
+    parsed = urlparse(target)
+    host = parsed.hostname or "127.0.0.1"
+
+    report = {}
+
+    # ── Latency + Jitter + Loss via ping ──
+    try:
+        r = subprocess.run(
+            ["ping", "-c", "20", "-i", "0.2", "-W", "2", host],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            # Parse packet loss
+            loss_match = re.search(r"(\d+(?:\.\d+)?)% packet loss", r.stdout)
+            if loss_match:
+                report["packet_loss_pct"] = float(loss_match.group(1))
+
+            # Parse rtt min/avg/max/mdev
+            rtt_match = re.search(
+                r"rtt min/avg/max/mdev = ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)",
+                r.stdout,
+            )
+            if rtt_match:
+                report["latency_min_ms"] = float(rtt_match.group(1))
+                report["latency_avg_ms"] = float(rtt_match.group(2))
+                report["latency_max_ms"] = float(rtt_match.group(3))
+                report["jitter_ms"] = float(rtt_match.group(4))  # mdev ≈ jitter
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # ── Throughput estimate via HTTP download (scheduler /metrics endpoint) ──
+    try:
+        import requests as req
+        # Download a known endpoint multiple times to estimate throughput
+        sizes = []
+        times = []
+        for _ in range(5):
+            t0 = time.perf_counter()
+            resp = req.get(f"{target}/metrics", timeout=5, headers=_api_headers())
+            t1 = time.perf_counter()
+            sizes.append(len(resp.content))
+            times.append(t1 - t0)
+        total_bytes = sum(sizes)
+        total_time = sum(times)
+        if total_time > 0:
+            report["throughput_mbps"] = round(total_bytes * 8 / total_time / 1_000_000, 2)
+    except Exception:
+        pass
+
+    # Defaults for missing values
+    report.setdefault("packet_loss_pct", 0)
+    report.setdefault("jitter_ms", 0)
+    report.setdefault("throughput_mbps", 0)
+
+    return report
 
 
 # ── Tailscale / Headscale Integration ────────────────────────────────
@@ -384,6 +568,73 @@ def report_job_status(job_id, status, host_id=None):
         return False
 
 
+# ── Lease Protocol ────────────────────────────────────────────────────
+# Per REPORT_FEATURE_FINAL.md: clean "lease/claim" protocol instead of
+# conflating "assigned" with "running."
+#   assign → lease claim → lease renewal → completion/release
+
+def claim_lease(job_id):
+    """Claim a lease for a job (assigned → leased).
+
+    POST /agent/lease/claim
+    Returns lease details or None on failure.
+    """
+    data = {"host_id": HOST_ID, "job_id": job_id}
+    try:
+        resp = requests.post(
+            _api_url("/agent/lease/claim"),
+            json=data, headers=_api_headers(), timeout=10,
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            log.info("Lease claimed: job=%s lease=%s expires=%.0f",
+                     job_id, result.get("lease_id"), result.get("expires_at", 0))
+            return result
+        else:
+            log.warning("Lease claim failed for job %s: HTTP %d", job_id, resp.status_code)
+            return None
+    except requests.RequestException as e:
+        log.error("Lease claim error for job %s: %s", job_id, e)
+        return None
+
+
+def renew_lease(job_id):
+    """Renew a lease on a job.
+
+    POST /agent/lease/renew
+    Returns lease details or None if expired.
+    """
+    data = {"host_id": HOST_ID, "job_id": job_id}
+    try:
+        resp = requests.post(
+            _api_url("/agent/lease/renew"),
+            json=data, headers=_api_headers(), timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            log.warning("Lease renewal failed for job %s: HTTP %d", job_id, resp.status_code)
+            return None
+    except requests.RequestException as e:
+        log.debug("Lease renewal error for job %s: %s", job_id, e)
+        return None
+
+
+def release_lease(job_id, reason="completed"):
+    """Release a lease (job done/failed/preempted).
+
+    POST /agent/lease/release
+    """
+    data = {"job_id": job_id, "reason": reason}
+    try:
+        requests.post(
+            _api_url("/agent/lease/release"),
+            json=data, headers=_api_headers(), timeout=10,
+        )
+    except requests.RequestException:
+        pass  # Best-effort
+
+
 def report_mining_alert(gpu_index, confidence, reason):
     """Alert the scheduler about a mining detection.
 
@@ -426,18 +677,318 @@ def report_benchmark(score_data, gpu_model):
         pass
 
 
+def report_verification(full_report):
+    """Submit full verification report to scheduler.
+
+    POST /agent/verify — feeds verification.py's run_verification().
+    """
+    payload = {
+        "host_id": HOST_ID,
+        "report": full_report,
+    }
+    try:
+        r = requests.post(
+            _api_url("/agent/verify"),
+            json=payload, headers=_api_headers(), timeout=15,
+        )
+        if r.ok:
+            result = r.json()
+            log.info("Verification result: state=%s score=%.0f",
+                     result.get("state", "?"), result.get("score", 0))
+        else:
+            log.warning("Verification submission failed: %s", r.status_code)
+    except requests.RequestException as e:
+        log.warning("Verification report failed: %s", e)
+
+
+def report_telemetry(metrics):
+    """Push periodic GPU telemetry to scheduler.
+
+    POST /agent/telemetry — stores metrics for monitoring and SLA.
+    """
+    payload = {
+        "host_id": HOST_ID,
+        "timestamp": time.time(),
+        "metrics": metrics,
+    }
+    try:
+        requests.post(
+            _api_url("/agent/telemetry"),
+            json=payload, headers=_api_headers(), timeout=5,
+        )
+    except requests.RequestException:
+        pass  # Best-effort; don't log every failure
+
+
+# ── Container Image Cache Manager ─────────────────────────────────────
+# Per REPORT_XCELSIOR_TECHNICAL_FINAL.md: pull-based agent enables
+# "local image caching" (REPORT_EXCELSIOR_TECHNICAL_2.md §3.4).
+# LRU tracking, cache eviction, and idle-time pre-pulling.
+
+IMAGE_CACHE_MAX_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_MAX_GB", "50"))
+IMAGE_CACHE_EVICT_LOW_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_EVICT_LOW_GB", "40"))
+
+_image_cache_lock = threading.Lock()
+# {image_tag: {"last_used": timestamp, "size_mb": float, "pull_count": int}}
+_image_cache_index: dict[str, dict] = {}
+
+
+def _get_local_images():
+    """List locally cached Docker images with sizes."""
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}} {{.Size}}"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return {}
+
+        images = {}
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.rsplit(" ", 1)
+            if len(parts) != 2:
+                continue
+            tag, size_str = parts
+            # Parse size string (e.g., "2.5GB", "850MB")
+            size_mb = _parse_docker_size(size_str)
+            images[tag] = size_mb
+        return images
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {}
+
+
+def _parse_docker_size(size_str):
+    """Parse Docker size string to MB."""
+    size_str = size_str.strip().upper()
+    try:
+        if "GB" in size_str:
+            return float(size_str.replace("GB", "")) * 1024
+        elif "MB" in size_str:
+            return float(size_str.replace("MB", ""))
+        elif "KB" in size_str:
+            return float(size_str.replace("KB", "")) / 1024
+        elif "B" in size_str:
+            return float(size_str.replace("B", "")) / (1024 * 1024)
+        return 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def _total_cache_size_mb():
+    """Get total size of cached images in MB."""
+    with _image_cache_lock:
+        return sum(entry.get("size_mb", 0) for entry in _image_cache_index.values())
+
+
+def cache_track_pull(image_tag, size_mb=0):
+    """Record that an image was pulled/used. Update LRU tracking."""
+    with _image_cache_lock:
+        if image_tag in _image_cache_index:
+            _image_cache_index[image_tag]["last_used"] = time.time()
+            _image_cache_index[image_tag]["pull_count"] += 1
+            if size_mb > 0:
+                _image_cache_index[image_tag]["size_mb"] = size_mb
+        else:
+            _image_cache_index[image_tag] = {
+                "last_used": time.time(),
+                "size_mb": size_mb,
+                "pull_count": 1,
+            }
+
+
+def cache_evict_lru():
+    """Evict least-recently-used images when cache exceeds limit.
+
+    Evicts until cache is below IMAGE_CACHE_EVICT_LOW_GB.
+    Never evicts currently-running container images.
+    """
+    total_mb = _total_cache_size_mb()
+    limit_mb = IMAGE_CACHE_MAX_GB * 1024
+
+    if total_mb <= limit_mb:
+        return 0
+
+    target_mb = IMAGE_CACHE_EVICT_LOW_GB * 1024
+    evicted = 0
+
+    # Get currently running images (do not evict)
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Image}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        running_images = set(result.stdout.strip().split("\n")) if result.returncode == 0 else set()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        running_images = set()
+
+    # Sort by last_used ascending (oldest first)
+    with _image_cache_lock:
+        sorted_images = sorted(
+            _image_cache_index.items(),
+            key=lambda x: x[1].get("last_used", 0),
+        )
+
+    for image_tag, entry in sorted_images:
+        if total_mb <= target_mb:
+            break
+        if image_tag in running_images:
+            continue
+
+        # Remove image
+        try:
+            rm = subprocess.run(
+                ["docker", "rmi", image_tag],
+                capture_output=True, text=True, timeout=30,
+            )
+            if rm.returncode == 0:
+                size = entry.get("size_mb", 0)
+                total_mb -= size
+                evicted += 1
+                with _image_cache_lock:
+                    _image_cache_index.pop(image_tag, None)
+                log.info("Cache evicted: %s (%.0f MB freed)", image_tag, size)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    return evicted
+
+
+def cache_init():
+    """Initialize cache index from locally available Docker images."""
+    images = _get_local_images()
+    with _image_cache_lock:
+        for tag, size_mb in images.items():
+            if tag not in _image_cache_index:
+                _image_cache_index[tag] = {
+                    "last_used": time.time(),
+                    "size_mb": size_mb,
+                    "pull_count": 0,
+                }
+
+
+def cache_prepull_popular(popular_images):
+    """Pre-pull popular images during idle time.
+
+    Called from the main loop when the agent has no active work.
+    Only pulls images not already cached, respecting cache limits.
+
+    Args:
+        popular_images: List of image tags ordered by popularity.
+    """
+    for image_tag in popular_images:
+        with _image_cache_lock:
+            if image_tag in _image_cache_index:
+                continue  # Already cached
+
+        total_mb = _total_cache_size_mb()
+        if total_mb >= IMAGE_CACHE_MAX_GB * 1024:
+            log.debug("Cache full — skipping pre-pull of %s", image_tag)
+            break
+
+        log.info("Pre-pulling popular image: %s", image_tag)
+        try:
+            pull = subprocess.run(
+                ["docker", "pull", image_tag],
+                capture_output=True, text=True, timeout=600,
+            )
+            if pull.returncode == 0:
+                # Get size of pulled image
+                images = _get_local_images()
+                size_mb = images.get(image_tag, 0)
+                cache_track_pull(image_tag, size_mb)
+                log.info("Pre-pulled %s (%.0f MB)", image_tag, size_mb)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+
+def fetch_popular_images():
+    """Ask the scheduler for popular/frequently-used images.
+
+    GET /agent/popular-images
+    Returns list of image tags.
+    """
+    try:
+        resp = requests.get(
+            _api_url("/agent/popular-images"),
+            headers=_api_headers(), timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("images", [])
+        return []
+    except requests.RequestException:
+        return []
+
+
+# ── NFS Support ──────────────────────────────────────────────────────
+
+
+def _mount_nfs(server, path, mount_point):
+    """Mount an NFS share for shared model/data storage.
+
+    Args:
+        server: NFS server hostname or IP
+        path: NFS export path (e.g., /exports/models)
+        mount_point: Local mount point (e.g., /mnt/xcelsior-nfs)
+
+    Returns:
+        True if mounted successfully, False otherwise.
+    """
+    try:
+        os.makedirs(mount_point, exist_ok=True)
+
+        # Check if already mounted
+        r = subprocess.run(
+            ["mountpoint", "-q", mount_point],
+            capture_output=True, timeout=5,
+        )
+        if r.returncode == 0:
+            return True  # Already mounted
+
+        # Mount NFS
+        mount_cmd = [
+            "mount", "-t", "nfs",
+            "-o", "noatime,nodiratime,rsize=65536,wsize=65536,hard,intr,timeo=600",
+            f"{server}:{path}", mount_point,
+        ]
+        r = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            log.warning("NFS mount failed: %s", r.stderr.strip())
+            return False
+
+        return True
+    except Exception as e:
+        log.warning("NFS mount error: %s", e)
+        return False
+
+
+def _unmount_nfs(mount_point):
+    """Unmount an NFS share (best-effort, lazy unmount)."""
+    try:
+        subprocess.run(
+            ["umount", "-l", mount_point],
+            capture_output=True, timeout=10,
+        )
+        log.info("NFS unmounted: %s", mount_point)
+    except Exception as e:
+        log.debug("NFS unmount failed (non-fatal): %s", e)
+
+
 # ── Container Lifecycle ──────────────────────────────────────────────
 
 def run_job(job):
     """Execute a job in a hardened Docker container.
 
     Lifecycle:
-      1. Pull/verify image
-      2. Build secure Docker args (from security.py)
-      3. Start container
-      4. Apply egress rules
-      5. Monitor until completion
-      6. Report final status
+      1. Mount NFS volume (if configured)
+      2. Pull/verify image
+      3. Build secure Docker args (from security.py)
+      4. Start container
+      5. Apply egress rules
+      6. Monitor until completion
+      7. Report final status
+      8. Unmount NFS (if mounted)
     """
     job_id = job.get("job_id", "unknown")
     job_name = job.get("name", "unnamed")
@@ -445,6 +996,12 @@ def run_job(job):
     command = job.get("command")
     env_vars = job.get("environment", {})
     volumes = job.get("volumes", [])
+
+    # NFS configuration — from job dict or env vars
+    nfs_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
+    nfs_path = job.get("nfs_path") or os.environ.get("XCELSIOR_NFS_PATH", "")
+    nfs_mount_point = job.get("nfs_mount_point") or os.environ.get("XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs")
+    nfs_mounted = False
 
     if not image:
         log.error("Job %s has no image specified — skipping", job_id)
@@ -454,14 +1011,46 @@ def run_job(job):
     container_name = f"xcelsior-{job_id[:12]}"
     log.info("Starting job %s (%s) — image=%s", job_id, job_name, image)
 
-    # Report running status
+    # ── Lease Protocol: claim lease before starting work ──
+    # Job arrives as "assigned"; agent claims lease → "leased" → then "running"
+    lease_info = claim_lease(job_id)
+    lease_interval = (lease_info or {}).get("duration_sec", 300) // 2  # Renew at half-life
+
+    # Report running status (leased → running)
     report_job_status(job_id, "running", host_id=HOST_ID)
 
     with _active_lock:
         _active_containers[job_id] = container_name
 
+    # Start lease renewal thread
+    _lease_stop = threading.Event()
+
+    def _lease_renewal_loop():
+        while not _lease_stop.is_set() and not _shutdown.is_set():
+            _lease_stop.wait(lease_interval)
+            if _lease_stop.is_set() or _shutdown.is_set():
+                break
+            result = renew_lease(job_id)
+            if not result:
+                log.warning("Lease renewal failed for job %s — lease may have expired", job_id)
+
+    lease_thread = threading.Thread(
+        target=_lease_renewal_loop, name=f"lease-{job_id[:8]}", daemon=True,
+    )
+    lease_thread.start()
+
     try:
-        # 1. Pull image
+        # 0. Mount NFS volume (if configured)
+        if nfs_server and nfs_path:
+            nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
+            if nfs_mounted:
+                log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
+                volumes = list(volumes) + [f"{nfs_mount_point}:/data/nfs:rw"]
+            else:
+                log.warning("NFS mount failed — continuing without shared storage")
+
+        # 1. Pull image (with cache tracking + LRU eviction)
+        cache_evict_lru()  # Evict before pulling if needed
         log.info("Pulling image %s...", image)
         pull = subprocess.run(
             ["docker", "pull", image],
@@ -472,6 +1061,10 @@ def run_job(job):
             report_job_status(job_id, "failed")
             return
 
+        # Track in LRU cache index
+        local_images = _get_local_images()
+        cache_track_pull(image, local_images.get(image, 0))
+
         # 2. Determine runtime
         gpu_info = get_gpu_info()
         runtime_name = "runc"
@@ -479,11 +1072,17 @@ def run_job(job):
             runtime_name, reason = recommend_runtime(gpu_info["gpu_model"])
             log.info("Runtime: %s (%s)", runtime_name, reason)
 
+        # Multi-GPU: get requested GPU count from job
+        num_gpus = job.get("num_gpus", 1) or 1
+        if num_gpus > 1:
+            log.info("Multi-GPU job: requesting %d GPUs", num_gpus)
+
         # 3. Build secure Docker args
         docker_args = build_secure_docker_args(
             image=image,
             container_name=container_name,
             gpu=True,
+            num_gpus=num_gpus,
             runtime=runtime_name,
             environment=env_vars,
             volumes=volumes,
@@ -520,13 +1119,21 @@ def run_job(job):
         log.error("Job %s timed out during execution", job_id)
         _kill_container(container_name)
         report_job_status(job_id, "failed")
+        release_lease(job_id, "failed")
     except Exception as e:
         log.error("Job %s failed: %s", job_id, e, exc_info=True)
         _kill_container(container_name)
         report_job_status(job_id, "failed")
+        release_lease(job_id, "failed")
     finally:
+        # Stop lease renewal thread
+        _lease_stop.set()
         with _active_lock:
             _active_containers.pop(job_id, None)
+
+        # Unmount NFS if we mounted it
+        if nfs_mounted:
+            _unmount_nfs(nfs_mount_point)
 
 
 def _monitor_container(job_id, container_name):
@@ -552,6 +1159,7 @@ def _monitor_container(job_id, container_name):
                 if exit_code == 0:
                     log.info("Job %s completed successfully", job_id)
                     report_job_status(job_id, "completed")
+                    release_lease(job_id, "completed")
                 else:
                     log.warning("Job %s exited with code %d", job_id, exit_code)
                     # Collect logs for debugging
@@ -565,6 +1173,7 @@ def _monitor_container(job_id, container_name):
                     except Exception:
                         pass
                     report_job_status(job_id, "failed")
+                    release_lease(job_id, "failed")
 
                 # Cleanup container
                 _remove_container(container_name)
@@ -573,6 +1182,7 @@ def _monitor_container(job_id, container_name):
             elif status not in ("running", "created"):
                 log.warning("Container %s in unexpected state: %s", container_name, status)
                 report_job_status(job_id, "failed")
+                release_lease(job_id, "failed")
                 _remove_container(container_name)
                 return
 
@@ -634,6 +1244,67 @@ def handle_preemptions(preempt_job_ids):
             _active_containers.pop(job_id, None)
 
         log.info("Job %s preempted and cleaned up", job_id)
+
+
+# ── Telemetry Push Thread ─────────────────────────────────────────────
+# Per REPORT_FEATURE_2.md §3: "Enhance agent to report GPU metrics every 5s."
+# Reuses security.py's get_gpu_telemetry() which delegates to NVML when available.
+# Per REPORT_FEATURE_1.md: collect metrics at 10-15 second intervals.
+
+TELEMETRY_INTERVAL = int(os.environ.get("XCELSIOR_TELEMETRY_INTERVAL", "10"))
+
+
+def telemetry_loop():
+    """Background thread: push GPU metrics to scheduler every TELEMETRY_INTERVAL seconds.
+
+    Per REPORT_FEATURE_1.md §Lightweight Monitoring with NVML:
+    Collects GPU utilization, memory utilization (allocated + reserved for
+    fragmentation detection), thermal data (current + rolling average),
+    power consumption, and PCIe bandwidth at 10-15 second intervals.
+    """
+    while not _shutdown.is_set():
+        try:
+            telemetry = get_gpu_telemetry()
+            if telemetry:
+                # Build compact metrics payload from first GPU (multi-GPU: aggregate)
+                gpu = telemetry[0]
+                metrics = {
+                    "utilization": gpu.get("utilization", 0),
+                    "memory_util": gpu.get("memory_util", 0),
+                    "temp": gpu.get("temperature_c", 0),
+                    "temp_avg": gpu.get("temperature_avg_c", gpu.get("temperature_c", 0)),
+                    "power_draw_w": gpu.get("power_draw_w", 0),
+                    "power_limit_w": gpu.get("power_limit_w", 0),
+                    "pcie_gen": gpu.get("pcie_gen", ""),
+                    "pcie_width": gpu.get("pcie_width", ""),
+                    "pcie_tx_mb_s": gpu.get("pcie_tx_mb_s", 0),
+                    "pcie_rx_mb_s": gpu.get("pcie_rx_mb_s", 0),
+                    "gpu_count": len(telemetry),
+                    # Memory fragmentation detection (REPORT_FEATURE_1.md)
+                    "memory_total_gb": gpu.get("memory_total_gb", 0),
+                    "memory_used_gb": gpu.get("memory_used_gb", 0),
+                    "memory_free_gb": gpu.get("memory_free_gb", 0),
+                    "torch_memory_allocated_bytes": gpu.get("torch_memory_allocated_bytes", 0),
+                    "torch_memory_reserved_bytes": gpu.get("torch_memory_reserved_bytes", 0),
+                    "memory_fragmentation_pct": gpu.get("memory_fragmentation_pct", 0.0),
+                }
+
+                # ECC memory errors
+                metrics["memory_errors"] = gpu.get("memory_errors", 0)
+
+                # Active container count
+                with _active_lock:
+                    metrics["active_jobs"] = len(_active_containers)
+
+                report_telemetry(metrics)
+        except Exception as e:
+            log.debug("Telemetry loop error: %s", e)
+
+        # Interruptible sleep
+        for _ in range(TELEMETRY_INTERVAL):
+            if _shutdown.is_set():
+                return
+            time.sleep(1)
 
 
 # ── Mining Detection Thread ──────────────────────────────────────────
@@ -773,6 +1444,13 @@ def main():
     """Main entry point — pull-based worker agent."""
     validate_config()
 
+    # ── Step 0: Initialize NVML (REPORT_FEATURE_1.md §Lightweight Monitoring) ──
+    nvml_ok = nvml_init()
+    if nvml_ok:
+        log.info("NVML telemetry active — using pynvml bindings (no nvidia-smi overhead)")
+    else:
+        log.info("NVML not available — falling back to nvidia-smi subprocess")
+
     # ── Step 1: Tailscale / Headscale setup ──
     if TAILSCALE_ENABLED:
         setup_tailscale()
@@ -783,9 +1461,23 @@ def main():
     except RuntimeError as e:
         log.error("GPU detection failed: %s", e)
         log.error("Make sure nvidia-smi is installed and NVIDIA drivers are loaded.")
+        nvml_shutdown()
         sys.exit(1)
 
     host_ip = get_host_ip()
+
+    # ── Step 2b: gVisor auto-install ──
+    if PREFER_GVISOR:
+        from security import is_gvisor_available
+        if not is_gvisor_available():
+            log.info("gVisor preferred but not installed — attempting auto-install...")
+            success, msg = install_gvisor(enable_nvproxy=True)
+            if success:
+                log.info("gVisor auto-install: %s", msg)
+            else:
+                log.warning("gVisor auto-install failed: %s — falling back to runc", msg)
+        else:
+            log.info("gVisor (runsc) already available")
 
     # ── Step 3: Node admission control ──
     versions = get_local_versions()
@@ -803,14 +1495,40 @@ def main():
         log.warning("Agent will continue heartbeats but will NOT accept work.")
         log.warning("Upgrade vulnerable components to become eligible.")
 
-    # ── Step 4: Compute benchmark ──
+    # ── Step 4: Comprehensive benchmark ──
     compute_score = None
-    log.info("Running compute benchmark (this may take ~30 seconds)...")
+    log.info("Running comprehensive benchmark (GPU + network, ~60 seconds)...")
     bench = run_compute_benchmark()
     if bench:
         compute_score = bench.get("tflops", 0) / 10  # XCU
-        log.info("Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
+        log.info("GPU Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
+        log.info("  CUDA %s | Driver %s | CC %s",
+                 bench.get("cuda_version", "?"),
+                 bench.get("driver_version", "?"),
+                 bench.get("compute_capability", "?"))
+        log.info("  PCIe: %.2f GB/s | Peak Temp: %s°C",
+                 bench.get("pcie_bandwidth_gbps", 0),
+                 bench.get("gpu_temp_celsius", "?"))
         report_benchmark(bench, gpu_info["gpu_model"])
+
+        # Network benchmark (ping + throughput to scheduler)
+        log.info("Running network quality benchmark...")
+        net_bench = run_network_benchmark()
+        if net_bench:
+            log.info("  Latency: %.1fms avg | Jitter: %.1fms | Loss: %.1f%% | Throughput: %.1f Mbps",
+                     net_bench.get("latency_avg_ms", 0),
+                     net_bench.get("jitter_ms", 0),
+                     net_bench.get("packet_loss_pct", 0),
+                     net_bench.get("throughput_mbps", 0))
+            bench.update(net_bench)
+
+        # Build full verification report and submit
+        # Merge benchmark data with security versions for complete check
+        full_report = {**bench}
+        full_report["claimed_gpu_model"] = gpu_info["gpu_model"]
+        full_report["claimed_vram_gb"] = gpu_info["total_vram_gb"]
+        full_report["versions"] = versions
+        report_verification(full_report)
     else:
         log.info("Benchmark skipped (PyTorch/CUDA not available)")
 
@@ -820,7 +1538,12 @@ def main():
     # ── Banner ──
     print_startup_banner(gpu_info, host_ip, admitted, runtime_name)
 
-    # ── Step 6: Start background threads ──
+    # ── Step 6: Initialize image cache ──
+    cache_init()
+    log.info("Image cache initialized (%d images, %.0f MB)",
+             len(_image_cache_index), _total_cache_size_mb())
+
+    # ── Step 7: Start background threads ──
     threads = []
 
     # Heartbeat thread
@@ -831,6 +1554,15 @@ def main():
     hb_thread.start()
     threads.append(hb_thread)
 
+    # Telemetry push thread (GPU metrics every 5s)
+    telem_thread = threading.Thread(
+        target=telemetry_loop,
+        name="telemetry", daemon=True,
+    )
+    telem_thread.start()
+    threads.append(telem_thread)
+    log.info("Telemetry push started (every %ds)", TELEMETRY_INTERVAL)
+
     # Mining detection thread
     mining_thread = threading.Thread(
         target=mining_detection_loop,
@@ -839,9 +1571,11 @@ def main():
     mining_thread.start()
     threads.append(mining_thread)
 
-    # ── Step 7: Main polling loop ──
+    # ── Step 8: Main polling loop ──
     log.info("Entering main polling loop...")
     consecutive_poll_failures = 0
+    _last_prepull_time = 0
+    PREPULL_INTERVAL = 600  # Pre-pull popular images every 10 min when idle
 
     while not _shutdown.is_set():
         try:
@@ -864,6 +1598,17 @@ def main():
                     )
                     job_thread.start()
                     threads.append(job_thread)
+
+                # Idle-time pre-pulling: if no active containers and enough
+                # time has passed, pre-pull popular images for faster cold starts
+                if not jobs and len(_active_containers) == 0:
+                    now = time.time()
+                    if now - _last_prepull_time >= PREPULL_INTERVAL:
+                        _last_prepull_time = now
+                        popular = fetch_popular_images()
+                        if popular:
+                            log.info("Idle — pre-pulling %d popular images", len(popular))
+                            cache_prepull_popular(popular[:5])  # Max 5 per cycle
 
             consecutive_poll_failures = 0
 
@@ -893,6 +1638,7 @@ def main():
 
     # ── Shutdown ──
     graceful_shutdown()
+    nvml_shutdown()
     log.info("Worker agent stopped.")
 
 

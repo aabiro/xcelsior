@@ -23,6 +23,8 @@ scheduler.JOBS_FILE = os.path.join(_tmpdir, "jobs.json")
 scheduler.BILLING_FILE = os.path.join(_tmpdir, "billing.json")
 scheduler.MARKETPLACE_FILE = os.path.join(_tmpdir, "marketplace.json")
 scheduler.AUTOSCALE_POOL_FILE = os.path.join(_tmpdir, "autoscale_pool.json")
+scheduler.SPOT_PRICES_FILE = os.path.join(_tmpdir, "spot_prices.json")
+scheduler.COMPUTE_SCORES_FILE = os.path.join(_tmpdir, "compute_scores.json")
 scheduler.LOG_FILE = os.path.join(_tmpdir, "xcelsior.log")
 
 # Reconfigure the logger so the FileHandler writes to the temp dir, not the repo
@@ -38,6 +40,18 @@ _fh.setFormatter(
 scheduler.log.addHandler(_fh)
 
 
+def _admit_host(host_id):
+    """Mark a registered host as admitted so allocate() will pick it."""
+    with scheduler._atomic_mutation() as conn:
+        row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
+        if row:
+            import json as _json
+            data = _json.loads(row["payload"])
+            data["admitted"] = True
+            conn.execute("UPDATE hosts SET payload = ? WHERE host_id = ?",
+                         (_json.dumps(data), host_id))
+
+
 @pytest.fixture(autouse=True)
 def clean_data():
     """Remove data files before each test for isolation."""
@@ -47,6 +61,8 @@ def clean_data():
         scheduler.BILLING_FILE,
         scheduler.MARKETPLACE_FILE,
         scheduler.AUTOSCALE_POOL_FILE,
+        scheduler.SPOT_PRICES_FILE,
+        scheduler.COMPUTE_SCORES_FILE,
         os.environ["XCELSIOR_DB_PATH"],
     ):
         if os.path.exists(f):
@@ -73,6 +89,7 @@ class TestAllocate:
                 "latency_ms": 10,
                 "gpu_model": "A",
                 "cost_per_hour": 0.20,
+                "admitted": True,
             },
             {
                 "host_id": "h2",
@@ -80,6 +97,7 @@ class TestAllocate:
                 "latency_ms": 10,
                 "gpu_model": "B",
                 "cost_per_hour": 0.20,
+                "admitted": True,
             },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
@@ -93,6 +111,7 @@ class TestAllocate:
                 "latency_ms": 50,
                 "gpu_model": "A",
                 "cost_per_hour": 0.20,
+                "admitted": True,
             },
             {
                 "host_id": "h2",
@@ -100,6 +119,7 @@ class TestAllocate:
                 "latency_ms": 5,
                 "gpu_model": "B",
                 "cost_per_hour": 0.20,
+                "admitted": True,
             },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
@@ -113,6 +133,7 @@ class TestAllocate:
                 "latency_ms": 10,
                 "gpu_model": "A",
                 "cost_per_hour": 0.50,
+                "admitted": True,
             },
             {
                 "host_id": "h2",
@@ -120,6 +141,7 @@ class TestAllocate:
                 "latency_ms": 10,
                 "gpu_model": "B",
                 "cost_per_hour": 0.20,
+                "admitted": True,
             },
         ]
         result = scheduler.allocate({"name": "job1", "vram_needed_gb": 8}, hosts)
@@ -203,6 +225,7 @@ class TestJobQueue:
 class TestProcessQueue:
     def test_process_assigns_job(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        _admit_host("h1")
         scheduler.submit_job("llama3", 16)
         assigned = scheduler.process_queue()
         assert len(assigned) == 1
@@ -218,6 +241,8 @@ class TestProcessQueue:
     def test_process_multiple_jobs(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
         scheduler.register_host("h2", "127.0.0.2", "A100", 80, 80)
+        _admit_host("h1")
+        _admit_host("h2")
         scheduler.submit_job("job-a", 16)
         scheduler.submit_job("job-b", 8)
         assigned = scheduler.process_queue()
@@ -225,6 +250,7 @@ class TestProcessQueue:
 
     def test_process_multiple_jobs_on_same_host_uses_vram_tracking(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        _admit_host("h1")
         scheduler.submit_job("job-a", 10)
         scheduler.submit_job("job-b", 8)
 
@@ -621,3 +647,157 @@ class TestMarketplaceStatsPerListingCut:
         # h-high: 7.0 * 0.30 / 0.70 = 3.0
         assert stats["platform_revenue"] == 4.0
         assert stats["total_host_payouts"] == 16.0
+
+
+# ── Spot Pricing ─────────────────────────────────────────────────────
+
+
+class TestSpotPricing:
+    """Verify supply/demand multiplier curve for spot pricing."""
+
+    def test_base_price_returned_when_low_utilization(self):
+        """When demand << supply, price should be near base."""
+        price = scheduler.compute_spot_price(
+            base_price=1.0, demand=1, supply=10, k=0.5, threshold=0.8,
+        )
+        # 1/10 = 0.1 utilization, well below 0.8 threshold → multiplier ≈ 1.0
+        assert 0.99 <= price <= 1.01
+
+    def test_price_increases_above_threshold(self):
+        """When D/S exceeds threshold, price should spike."""
+        price = scheduler.compute_spot_price(
+            base_price=1.0, demand=10, supply=10, k=0.5, threshold=0.8,
+        )
+        # 10/10 = 1.0 utilization, 0.2 above threshold → e^(0.5 * 0.2) ≈ 1.105
+        assert price > 1.0
+
+    def test_zero_supply_returns_max_surge(self):
+        price = scheduler.compute_spot_price(
+            base_price=1.0, demand=5, supply=0,
+        )
+        assert price == 3.0  # 3x max surge
+
+    def test_high_demand_high_price(self):
+        price_low = scheduler.compute_spot_price(1.0, 5, 10, k=0.5, threshold=0.8)
+        price_high = scheduler.compute_spot_price(1.0, 50, 10, k=0.5, threshold=0.8)
+        assert price_high > price_low
+
+    def test_sensitivity_affects_curve(self):
+        price_low_k = scheduler.compute_spot_price(1.0, 10, 10, k=0.1, threshold=0.8)
+        price_high_k = scheduler.compute_spot_price(1.0, 10, 10, k=2.0, threshold=0.8)
+        assert price_high_k > price_low_k
+
+    def test_update_spot_prices_returns_dict(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
+        scheduler.submit_job("test-model", 8)
+        prices = scheduler.update_spot_prices()
+        assert isinstance(prices, dict)
+
+    def test_get_current_spot_prices_empty(self):
+        prices = scheduler.get_current_spot_prices()
+        assert isinstance(prices, dict)
+
+    def test_spot_price_history_persisted(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        scheduler.update_spot_prices()
+        history = scheduler.load_spot_prices()
+        assert len(history) > 0
+        assert "gpu_model" in history[0]
+        assert "price" in history[0]
+
+
+# ── Preemption ───────────────────────────────────────────────────────
+
+
+class TestPreemption:
+    """Verify spot job preemption when bid < current spot price."""
+
+    def test_identify_preemptible_jobs(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
+        job = scheduler.submit_job("test", 8, tier="free")
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        # Set max_bid below any reasonable price
+        jobs = scheduler.load_jobs()
+        for j in jobs:
+            if j["job_id"] == job["job_id"]:
+                j["max_bid"] = 0.01
+        scheduler.save_jobs(jobs)
+
+        spot_prices = {"RTX 4090": 1.00}  # Way above bid
+        preemptible = scheduler.identify_preemptible_jobs(spot_prices)
+        assert len(preemptible) >= 1
+
+    def test_preempt_job_requeues(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        job = scheduler.submit_job("test-preempt", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+
+        result = scheduler.preempt_job(job["job_id"])
+        assert result is not None
+        assert result["status"] == "queued"
+        assert result["host_id"] is None
+        assert result.get("preempted_at") is not None
+
+    def test_preempt_non_running_returns_none(self):
+        job = scheduler.submit_job("test-queued", 8)
+        result = scheduler.preempt_job(job["job_id"])
+        assert result is None
+
+    def test_preemption_cycle_runs(self):
+        scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)
+        prices, preempted = scheduler.preemption_cycle()
+        assert isinstance(prices, dict)
+        assert isinstance(preempted, list)
+
+
+# ── Compute Scores (XCU) ─────────────────────────────────────────────
+
+
+class TestComputeScores:
+    """Verify XCU (Xcelsior Compute Unit) scoring system."""
+
+    def test_estimate_known_gpu(self):
+        score = scheduler.estimate_compute_score("RTX 4090")
+        assert score > 0
+        # RTX 4090 ≈ 82.6 TFLOPS / 10 ≈ 8.26 XCU
+        assert 7.0 <= score <= 9.0
+
+    def test_estimate_a100(self):
+        score = scheduler.estimate_compute_score("A100")
+        # A100 ≈ 312 TFLOPS / 10 ≈ 31.2 XCU
+        assert score > 20
+
+    def test_estimate_unknown_gpu_returns_default(self):
+        score = scheduler.estimate_compute_score("Unknown GPU XYZ")
+        assert score == 1.0
+
+    def test_estimate_with_benchmark_result(self):
+        score = scheduler.estimate_compute_score(
+            "RTX 4090", benchmark_result={"tflops": 100.0},
+        )
+        assert score == 10.0  # 100 / 10
+
+    def test_register_compute_score(self):
+        entry = scheduler.register_compute_score("h1", "RTX 4090", 8.26)
+        assert entry["host_id"] == "h1"
+        assert entry["score"] == 8.26
+        assert entry["gpu_model"] == "RTX 4090"
+
+    def test_get_compute_score(self):
+        scheduler.register_compute_score("h-score", "RTX 3090", 3.56)
+        score = scheduler.get_compute_score("h-score")
+        assert score == 3.56
+
+    def test_get_nonexistent_score(self):
+        assert scheduler.get_compute_score("no-such-host") is None
+
+    def test_register_overwrites_existing(self):
+        scheduler.register_compute_score("h2", "RTX 4090", 7.0)
+        scheduler.register_compute_score("h2", "RTX 4090", 8.5)
+        assert scheduler.get_compute_score("h2") == 8.5
+
+    def test_compute_scores_persisted(self):
+        scheduler.register_compute_score("h-persist", "T4", 0.81)
+        scores = scheduler.load_compute_scores()
+        h_ids = [s["host_id"] for s in scores]
+        assert "h-persist" in h_ids

@@ -1,30 +1,78 @@
-# Environment variables
+# ── Environment ───────────────────────────────────────────────────────
 .env
 .env.*
-**/.env
-**/.env.*
 !.env.example
-!**/.env.example
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
+htmlcov/
+.coverage
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ─────────────────────────────────────────────
 venv/
 .venv/
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────
 *.log
 
-# Runtime data
+# ── Databases (SQLite) ───────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+xcelsior.db*
+xcelsior_events.db*
+xcelsior_billing.db*
+xcelsior_reputation.db*
+xcelsior_privacy.db*
+xcelsior_sla.db*
+xcelsior_stripe.db*
+
+# ── Runtime data (legacy JSON files) ─────────────────────────────────
 hosts.json
 jobs.json
 billing.json
 marketplace.json
 autoscale_pool.json
-xcelsior.db*
 
-# Builds
+# ── Builds / artifacts ───────────────────────────────────────────────
 builds/
+artifacts/
+uploads/
 
-REPORT_*.md
+# ── Docker ────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── HPC / Slurm (requires cluster access) ─────────
+slurm/
+nibi/
+slurm*.py
+test_slurm*.py
+*.sbatch
+*.slurm
+slurm-*.out
+
+# ── Reports (generated, not tracked) ─────────────────────────────────
+docs/
+
+# ── Editor / OS ──────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Backups (temporary) ──────────────────────────────────────────────
+*.bak
+
+# ── Secrets ───────────────────────────────────────────────────────────
+*.pem
+*.key
+id_rsa*
