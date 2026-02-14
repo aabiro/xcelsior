@@ -194,6 +194,7 @@ def build_secure_docker_args(
     image,
     container_name,
     gpu=True,
+    num_gpus=0,
     runtime="runsc",
     egress_allowlist=None,
     extra_args=None,
@@ -213,6 +214,7 @@ def build_secure_docker_args(
     - Memory limits
     - Optional gVisor runtime (runsc)
     - Optional GPU access (--gpus, not --privileged)
+    - Multi-GPU support (specific device selection)
     """
     args = ["docker", "run", "-d"]
 
@@ -235,7 +237,12 @@ def build_secure_docker_args(
 
     # GPU access (via --gpus, NOT --privileged)
     if gpu:
-        args.extend(["--gpus", "all"])
+        if num_gpus > 1:
+            # Multi-GPU: specify exact device indices
+            devices = ",".join(str(i) for i in range(num_gpus))
+            args.extend(["--gpus", f'"device={devices}"'])
+        else:
+            args.extend(["--gpus", "all"])
 
     # Sandboxed runtime (gVisor)
     if runtime and runtime != "runc":
@@ -275,13 +282,23 @@ def build_secure_docker_args(
     return args
 
 
-def build_egress_iptables_rules(container_id, allowlist=None):
+def build_egress_iptables_rules(container_id, allowlist=None, strict=True):
     """Generate iptables rules for default-deny egress with allowlist.
+
+    Per REPORT_XCELSIOR_TECHNICAL_FINAL.md Step 8:
+    "Default-deny outbound networking with allowlists for common
+    package/model registries as needed."
 
     This creates network isolation to prevent:
     - Cryptomining pool connections (Stratum protocol)
     - Data exfiltration
     - C2 communication
+
+    Args:
+        container_id: Docker container name or ID.
+        allowlist: List of allowed domains (uses DEFAULT_EGRESS_ALLOWLIST if None).
+        strict: If True (default), set OUTPUT policy to DROP (default-deny).
+                Set to False for mining-port-block-only mode.
 
     Returns list of iptables command strings.
     """
@@ -310,8 +327,10 @@ def build_egress_iptables_rules(container_id, allowlist=None):
         "iptables -A OUTPUT -o lo -j ACCEPT"
     )
 
-    # Allow HTTPS to allowlisted domains (by resolved IP)
-    # Note: In practice, use Docker network policy or network=none + proxy
+    # Allow HTTPS/HTTP to allowlisted domains
+    # Note: iptables works on IPs; in practice use Docker network policy
+    # or DNS-based proxy. These rules permit ports 80/443 broadly —
+    # combine with mining pool port blocks for defense-in-depth.
     rules.append(
         f"docker exec {container_id} "
         "iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT"
@@ -321,18 +340,20 @@ def build_egress_iptables_rules(container_id, allowlist=None):
         "iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT"
     )
 
-    # Block common mining pool ports
+    # Block common mining pool ports (Stratum protocol)
     for port in [3333, 4444, 5555, 7777, 8888, 9999, 14444, 14433]:
         rules.append(
             f"docker exec {container_id} "
             f"iptables -A OUTPUT -p tcp --dport {port} -j DROP"
         )
 
-    # Default deny (uncomment for strict mode)
-    # rules.append(
-    #     f"docker exec {container_id} "
-    #     "iptables -P OUTPUT DROP"
-    # )
+    # Default-deny: drop all other outbound traffic
+    # This is the core of "default-deny egress with allowlists"
+    if strict:
+        rules.append(
+            f"docker exec {container_id} "
+            "iptables -P OUTPUT DROP"
+        )
 
     return rules
 
@@ -372,10 +393,23 @@ def check_mining_heuristic(gpu_stats):
 
 
 def get_gpu_telemetry():
-    """Query nvidia-smi for GPU telemetry used in mining detection.
+    """Query GPU telemetry used in mining detection.
 
+    Uses NVML (pynvml) when available per REPORT_FEATURE_1.md:
+    "avoid calling the nvidia-smi binary... use Python bindings to
+    interact with libnvidia-ml.so directly."
+
+    Falls back to nvidia-smi subprocess if NVML is not initialized.
     Returns list of dicts with utilization stats per GPU.
     """
+    try:
+        from nvml_telemetry import collect_all_gpus, is_nvml_available
+        if is_nvml_available():
+            return collect_all_gpus()
+    except ImportError:
+        pass
+
+    # Legacy fallback: nvidia-smi subprocess
     try:
         result = subprocess.run(
             [
@@ -402,7 +436,7 @@ def get_gpu_telemetry():
                     "pcie_width": parts[4],
                     "power_draw_w": float(parts[5]) if parts[5] != "[N/A]" else 0,
                     "temperature_c": float(parts[6]),
-                    "pcie_tx_mb_s": 0,  # Requires additional query
+                    "pcie_tx_mb_s": 0,
                 })
         return gpus
 
@@ -423,6 +457,103 @@ GVISOR_SUPPORTED_GPUS = {
     "RTX 4060", "RTX 4070", "RTX 4080", "RTX 4090",
     "RTX 2060", "RTX 2070", "RTX 2080",
 }
+
+GVISOR_RELEASE_URL = "https://storage.googleapis.com/gvisor/releases/release/latest/x86_64"
+
+
+def install_gvisor(enable_nvproxy=True):
+    """Auto-install gVisor (runsc) runtime with optional nvproxy for GPU passthrough.
+
+    Steps:
+    1. Download runsc + containerd-shim-runsc-v1 binaries
+    2. Install to /usr/local/bin
+    3. Configure Docker daemon to register runsc runtime
+    4. Restart Docker to pick up new runtime
+
+    Returns (success: bool, message: str).
+    """
+    if is_gvisor_available():
+        return True, "gVisor already installed"
+
+    log.info("Installing gVisor (runsc) runtime...")
+
+    # Require root for installation
+    if os.geteuid() != 0:
+        return False, "gVisor install requires root privileges (run with sudo)"
+
+    try:
+        # 1. Download runsc binary
+        log.info("Downloading runsc binary...")
+        dl_runsc = subprocess.run(
+            ["wget", "-q", f"{GVISOR_RELEASE_URL}/runsc", "-O", "/usr/local/bin/runsc"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if dl_runsc.returncode != 0:
+            return False, f"Failed to download runsc: {dl_runsc.stderr.strip()}"
+
+        # 2. Download containerd-shim-runsc-v1
+        log.info("Downloading containerd-shim-runsc-v1...")
+        dl_shim = subprocess.run(
+            ["wget", "-q", f"{GVISOR_RELEASE_URL}/containerd-shim-runsc-v1",
+             "-O", "/usr/local/bin/containerd-shim-runsc-v1"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if dl_shim.returncode != 0:
+            return False, f"Failed to download containerd-shim: {dl_shim.stderr.strip()}"
+
+        # 3. Make executable
+        os.chmod("/usr/local/bin/runsc", 0o755)
+        os.chmod("/usr/local/bin/containerd-shim-runsc-v1", 0o755)
+
+        # 4. Configure Docker daemon with runsc runtime
+        daemon_config_path = "/etc/docker/daemon.json"
+        daemon_config = {}
+        if os.path.exists(daemon_config_path):
+            with open(daemon_config_path) as f:
+                daemon_config = json.load(f)
+
+        runtimes = daemon_config.get("runtimes", {})
+        runsc_opts = ["--network=sandbox", "--debug-log=/var/log/runsc/"]
+
+        if enable_nvproxy:
+            runsc_opts.append("--nvproxy")
+            log.info("Enabling nvproxy for GPU passthrough")
+
+        runtimes["runsc"] = {
+            "path": "/usr/local/bin/runsc",
+            "runtimeArgs": runsc_opts,
+        }
+        daemon_config["runtimes"] = runtimes
+
+        os.makedirs(os.path.dirname(daemon_config_path), exist_ok=True)
+        with open(daemon_config_path, "w") as f:
+            json.dump(daemon_config, f, indent=2)
+
+        # 5. Create log directory for runsc
+        os.makedirs("/var/log/runsc", exist_ok=True)
+
+        # 6. Restart Docker to pick up new runtime
+        log.info("Restarting Docker to register runsc runtime...")
+        restart = subprocess.run(
+            ["systemctl", "restart", "docker"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if restart.returncode != 0:
+            log.warning("Docker restart failed: %s — runtime may not be active",
+                        restart.stderr.strip())
+
+        # 7. Verify installation
+        time.sleep(2)
+        if is_gvisor_available():
+            log.info("gVisor (runsc) installed and verified successfully")
+            return True, "gVisor installed successfully with nvproxy" if enable_nvproxy else "gVisor installed successfully"
+        else:
+            return False, "gVisor binaries installed but runsc not responding"
+
+    except subprocess.TimeoutExpired:
+        return False, "gVisor installation timed out"
+    except Exception as e:
+        return False, f"gVisor installation failed: {e}"
 
 
 def is_gvisor_available():

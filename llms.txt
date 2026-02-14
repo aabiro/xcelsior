@@ -1,0 +1,200 @@
+# Xcelsior — LLM-Optimized Documentation
+# https://xcelsior.ca
+# Per Report #1.B: "Standard llms.txt for AI agents"
+# See https://llmstxt.org for specification
+
+> Xcelsior is a distributed GPU orchestration platform for AI/ML workloads
+> with Canadian data sovereignty guarantees, PIPEDA compliance, and
+> Stripe Connect–powered marketplace billing.
+
+## Overview
+
+Xcelsior aggregates consumer and data-center GPUs into a managed compute
+marketplace. Providers register GPU hosts; submitters run inference and
+training jobs. The platform handles scheduling, billing, SLA enforcement,
+artifact storage, and trust/reputation scoring.
+
+**Stack**: Python 3.12, FastAPI, PostgreSQL 16 (primary), SQLite (auxiliary),
+Headscale (mesh networking), Docker + gVisor (container isolation).
+
+**Regions**: Canada-first (PIPEDA/Law 25 compliant). Supports CA-only
+data residency with province-level filtering.
+
+## API Base URL
+
+- Production: `https://xcelsior.ca/api`
+- Development: `http://localhost:8000`
+
+## Authentication
+
+All non-public endpoints require a Bearer token:
+
+```
+Authorization: Bearer <XCELSIOR_API_TOKEN>
+```
+
+Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
+`/healthz`, `/readyz`, `/metrics`, `/api/stream`, `/api/transparency/report`.
+
+## Core Endpoints
+
+### Hosts
+- `PUT /host` — Register/update a GPU host (admission-gated)
+- `GET /hosts` — List hosts (query: `active_only`)
+- `DELETE /host/{host_id}` — Remove a host
+
+### Jobs
+- `POST /job` — Submit a job (fields: name, vram_needed_gb, priority, tier)
+- `GET /jobs` — List all jobs
+- `GET /job/{job_id}` — Get job details
+- `PATCH /job/{job_id}` — Update job status
+- `POST /queue/process` — Trigger scheduler allocation
+
+### Spot Pricing
+- `GET /spot-prices` — Current spot pricing per GPU model
+- `POST /spot/job` — Submit interruptible spot job (fields: name, vram_needed_gb, max_bid)
+- `POST /spot/preemption-cycle` — Run preemption on underbid jobs
+
+### Marketplace
+- `POST /marketplace/list` — List a rig for rent
+- `GET /marketplace` — Browse available rigs
+- `DELETE /marketplace/{host_id}` — Unlist a rig
+
+### Billing (v2.1)
+- `GET /api/billing/wallet/{customer_id}` — Wallet balance
+- `POST /api/billing/wallet/{customer_id}/deposit` — Add credits (CAD)
+- `GET /api/billing/invoice/{customer_id}` — Generate invoice with tax
+- `GET /api/billing/export/caf/{customer_id}` — CAF rebate CSV export
+- `POST /api/billing/refund` — Process refund (host-side failures = full refund)
+
+### Artifacts
+- `POST /api/artifacts/upload` — Get presigned upload URL (B2/R2/local)
+- `POST /api/artifacts/download` — Get presigned download URL
+- `GET /api/artifacts/{job_id}` — List job artifacts
+
+### Reputation & Trust
+- `GET /api/reputation/{entity_id}` — Trust score and tier
+- `GET /api/reputation/leaderboard` — Top providers
+- `POST /api/reputation/verify` — Submit verification (email/phone/gov_id/incorporation)
+
+### Verification
+- `POST /api/verify/{host_id}` — Run hardware verification checks
+- `GET /api/verified-hosts` — List verified hosts with scores
+
+### SLA
+- `POST /api/sla/enforce` — Run monthly SLA enforcement for a host
+- `GET /api/sla/{host_id}` — Get SLA record and uptime percentage
+- `GET /api/sla/violations/{host_id}` — Violation history
+- `GET /api/sla/downtimes` — Active downtime periods
+
+### Provider Onboarding (Stripe Connect)
+- `POST /api/providers/register` — Create provider account (company name, BN, email)
+- `GET /api/providers/{provider_id}` — Provider details
+- `POST /api/providers/{provider_id}/incorporation` — Link incorporation file
+- `POST /api/providers/webhook` — Stripe webhook handler
+
+### Jurisdiction & Compliance
+- `POST /api/jurisdiction/hosts` — Filter hosts by jurisdiction constraints
+- `GET /api/compliance/provinces` — Province compliance matrix
+- `GET /api/compliance/tax-rates` — GST/HST rates by province
+- `POST /api/compliance/quebec-pia-check` — Quebec Law 25 PIA check
+
+### Privacy (PIPEDA)
+- `POST /api/privacy/config` — Set org privacy config (privacy officer, retention)
+- `POST /api/privacy/consent` — Record consent
+- `DELETE /api/privacy/consent/{entity_id}/{consent_type}` — Revoke consent
+- `GET /api/privacy/retention-policies` — View retention policies
+
+### Telemetry
+- `POST /agent/telemetry` — GPU telemetry push (utilization, temp, memory, power)
+- `GET /api/telemetry/all` — All hosts' latest telemetry
+- `GET /api/stream` — SSE event stream (real-time updates)
+
+### Health
+- `GET /healthz` — Liveness probe
+- `GET /readyz` — Readiness probe (checks DB + storage)
+- `GET /metrics` — Prometheus-style metrics snapshot
+
+## Data Models
+
+### HostIn (PUT /host)
+```json
+{
+  "host_id": "gpu-001",
+  "ip": "10.0.0.5",
+  "gpu_model": "RTX 4090",
+  "total_vram_gb": 24.0,
+  "free_vram_gb": 24.0,
+  "cost_per_hour": 0.45,
+  "country": "CA",
+  "province": "ON",
+  "versions": {"runc": "1.2.4", "nvidia_ctk": "1.17.8", "nvidia_driver": "570.0", "docker": "27.0.0"}
+}
+```
+
+### JobIn (POST /job)
+```json
+{
+  "name": "llama-finetune",
+  "vram_needed_gb": 20.0,
+  "priority": 5,
+  "tier": "sovereign"
+}
+```
+
+### Provider Registration (POST /api/providers/register)
+```json
+{
+  "provider_id": "provider-acme",
+  "email": "admin@acme.ca",
+  "provider_type": "company",
+  "corporation_name": "ACME Computing Inc.",
+  "business_number": "123456789RC0001",
+  "gst_hst_number": "123456789RT0001",
+  "province": "ON"
+}
+```
+
+## Trust Tiers
+
+| Tier | Uptime SLA | Use Case |
+|------|-----------|----------|
+| community | 99.0% | R&D, experimentation |
+| secure | 99.5% | Production inference |
+| sovereign | 99.9% | Government, regulated data |
+
+## Reputation Tiers
+
+| Tier | Score | Perks |
+|------|-------|-------|
+| Bronze | 0-299 | Baseline access |
+| Silver | 300-599 | Priority payouts, 1.1x visibility |
+| Gold | 600-899 | Verified badge, 1.25x visibility |
+| Platinum | 900+ | Reduced commission, 1.5x visibility |
+
+## Canadian Tax Rates (GST/HST)
+
+| Province | Rate |
+|----------|------|
+| ON | 13% HST |
+| QC | 14.975% (GST+QST) |
+| BC | 12% (GST+PST) |
+| AB | 5% GST |
+| Atlantic | 15% HST |
+
+## Error Format
+
+All errors follow a consistent envelope:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "unauthorized",
+    "message": "Unauthorized"
+  }
+}
+```
+
+Common codes: `unauthorized` (401), `rate_limited` (429), `validation_error` (422),
+`http_error` (4xx/5xx).

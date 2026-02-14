@@ -4,12 +4,25 @@ services:
     build: .
     command: uvicorn api:app --host 0.0.0.0 --port 8000
     environment:
-      XCELSIOR_ENV: production
+      XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
       XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@db:5432/xcelsior
       XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-sqlite}
+      XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
+      XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
+      XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
+      XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
+      XCELSIOR_CAD_USD_RATE: ${XCELSIOR_CAD_USD_RATE:-0.73}
+      XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
+      XCELSIOR_SMTP_PORT: ${XCELSIOR_SMTP_PORT:-587}
+      XCELSIOR_SMTP_USER: ${XCELSIOR_SMTP_USER:-}
+      XCELSIOR_SMTP_PASS: ${XCELSIOR_SMTP_PASS:-}
+      XCELSIOR_EMAIL_FROM: ${XCELSIOR_EMAIL_FROM:-}
+      XCELSIOR_EMAIL_TO: ${XCELSIOR_EMAIL_TO:-}
+      XCELSIOR_TG_TOKEN: ${XCELSIOR_TG_TOKEN:-}
+      XCELSIOR_TG_CHAT_ID: ${XCELSIOR_TG_CHAT_ID:-}
     volumes:
       - xcelsior-data:/data
     ports:
@@ -23,9 +36,13 @@ services:
     build: .
     command: python -c "import time,scheduler; [scheduler.process_queue() or time.sleep(2) for _ in iter(int,1)]"
     environment:
+      XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
+      XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
       XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@db:5432/xcelsior
+      XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
+      XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
     volumes:
       - xcelsior-data:/data
     depends_on:

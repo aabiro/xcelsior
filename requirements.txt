@@ -1,28 +1,45 @@
-# Xcelsior v2.0.0 — dependencies
+# Xcelsior v2.0.0 — Python dependencies
 
-# Web Framework
+# ── Web Framework ─────────────────────────────────────────────────────
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 gunicorn>=21.2.0
 
-# Data Validation
+# ── Data Validation ───────────────────────────────────────────────────
 pydantic>=2.5.0
 
-# HTTP Client
+# ── HTTP Client ───────────────────────────────────────────────────────
 requests>=2.31.0
 httpx>=0.26.0
 
-# Database — PostgreSQL (production)
+# ── Database — PostgreSQL (production) ────────────────────────────────
 psycopg[binary]>=3.1.0
 psycopg_pool>=3.1.0
 
-# Database — Migrations
+# ── Database — Migrations ─────────────────────────────────────────────
 alembic>=1.13.0
 sqlalchemy>=2.0.0
 
-# Environment
+# ── Environment ───────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 
-# Testing
+# ── Testing ───────────────────────────────────────────────────────────
 pytest>=7.4.0
 pytest-cov>=4.1.0
+pytest-asyncio>=0.23.0
+
+# ── Linting ───────────────────────────────────────────────────────────
+ruff>=0.2.0
+black>=24.0.0
+
+# ── GPU Telemetry — NVML (optional — only needed on GPU host nodes) ──
+# nvidia-ml-py binds directly to libnvidia-ml.so, avoiding nvidia-smi subprocess overhead
+# Per REPORT_FEATURE_1.md: "use Python bindings to interact with libnvidia-ml.so directly"
+nvidia-ml-py>=12.0.0
+
+# ── Payments — Stripe Connect (optional — only needed for provider payouts) ──
+# stripe>=8.0.0
+
+# ── ML/Inference (optional — only needed if using inference.py) ───────
+# torch>=2.1.0
+# transformers>=4.36.0

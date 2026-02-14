@@ -1,0 +1,74 @@
+name: api
+docs:
+  title: Xcelsior API Documentation
+  logo:
+    light: ./docs/logo-light.png
+    dark: ./docs/logo-dark.png
+  favicon: ./docs/favicon.ico
+  colors:
+    accent-primary: "#2563eb"
+    background: "#0f172a"
+  navigation:
+    - section: Getting Started
+      contents:
+        - page: Overview
+          path: ./docs/pages/overview.mdx
+        - page: Authentication
+          path: ./docs/pages/authentication.mdx
+        - page: Quick Start
+          path: ./docs/pages/quickstart.mdx
+
+    - section: Guides
+      contents:
+        - page: Provider Onboarding
+          path: ./docs/pages/provider-onboarding.mdx
+        - page: Submitting Jobs
+          path: ./docs/pages/submitting-jobs.mdx
+        - page: Canadian Compliance
+          path: ./docs/pages/canadian-compliance.mdx
+        - page: Artifact Management
+          path: ./docs/pages/artifacts.mdx
+        - page: SLA & Trust Tiers
+          path: ./docs/pages/sla-tiers.mdx
+
+    - section: API Reference
+      api: api-reference
+
+  playground:
+    environments:
+      - id: production
+        name: Production
+        url: https://xcelsior.ca
+      - id: development
+        name: Development
+        url: http://localhost:8000
+
+api:
+  # Fern reads the OpenAPI spec from the running FastAPI server
+  # Run: uvicorn api:app --port 8000, then: fern generate
+  path: openapi.json
+  origin: http://localhost:8000/openapi.json
+  overrides: ./fern/openapi-overrides.yml
+  # Audiences control which endpoints are visible in docs
+  audiences:
+    - public
+    - provider
+    - admin
+
+sdks:
+  # Per Report #1.B: "Fern for idiomatic Python/TS SDKs"
+  python:
+    package-name: xcelsior
+    github:
+      repository: xcelsior-io/xcelsior-python
+    extra-dependencies:
+      httpx: ">=0.26.0"
+    config:
+      pydantic_config:
+        version: v2
+  typescript:
+    package-name: "@xcelsior/sdk"
+    github:
+      repository: xcelsior-io/xcelsior-typescript
+    config:
+      bundle: true
