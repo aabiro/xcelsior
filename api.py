@@ -154,7 +154,7 @@ app = FastAPI(
     openapi_tags=OPENAPI_TAGS,
     servers=[
         {"url": "https://xcelsior.ca", "description": "Production"},
-        {"url": "http://localhost:8000", "description": "Development"},
+        {"url": "http://localhost:9500", "description": "Development"},
     ],
     docs_url="/docs",
     redoc_url="/redoc",
@@ -308,8 +308,48 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RateLimitMiddleware)
 
 
+class ReadOnlyScopeMiddleware(BaseHTTPMiddleware):
+    """Enforce read-only API key scopes — block mutating requests."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+            key_data = None
+            if _USE_PERSISTENT_AUTH:
+                key_data = UserStore.get_api_key(token)
+            else:
+                with _user_lock:
+                    key_data = _api_keys.get(token)
+            if key_data and key_data.get("scope") == "read-only":
+                return JSONResponse(
+                    status_code=403,
+                    content={"ok": False, "error": {"code": "read_only_key", "message": "This API key has read-only scope"}},
+                )
+        return await call_next(request)
+
+
+app.add_middleware(ReadOnlyScopeMiddleware)
+
+
 @app.exception_handler(HTTPException)
-async def http_exception_handler(_: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException):
+    accept = request.headers.get("accept", "")
+    if exc.status_code in (404, 403, 500) and "text/html" in accept:
+        title = {404: "Page Not Found", 403: "Forbidden", 500: "Server Error"}.get(exc.status_code, "Error")
+        html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{exc.status_code} — {title} | Xcelsior</title>
+<style>
+body{{margin:0;background:#0a0a0a;color:#e0e0e0;font-family:'Courier New',monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh}}
+.code{{font-size:120px;font-weight:bold;color:#ff3333;margin:0;line-height:1}}.title{{font-size:24px;margin:12px 0 8px;color:#fff}}
+.msg{{color:#888;margin-bottom:24px;text-align:center;max-width:480px}}.home{{color:#2196f3;text-decoration:none;padding:8px 24px;border:1px solid #2196f3;border-radius:4px}}.home:hover{{background:#2196f3;color:#000}}
+.maple{{font-size:64px;margin-bottom:16px}}</style></head>
+<body><div class="maple">🍁</div><p class="code">{exc.status_code}</p><p class="title">{title}</p>
+<p class="msg">{exc.detail}</p><a href="/dashboard" class="home">← Back to Dashboard</a></body></html>"""
+        return HTMLResponse(content=html, status_code=exc.status_code)
     return JSONResponse(
         status_code=exc.status_code,
         content={"ok": False, "error": {"code": "http_error", "message": str(exc.detail)}},
@@ -980,7 +1020,8 @@ def _get_current_user(request: Request) -> dict | None:
             api_key = UserStore.get_api_key(token)
             if api_key:
                 return {"email": api_key["email"], "user_id": api_key["user_id"],
-                        "role": api_key.get("role", "submitter"), "name": api_key.get("name", "")}
+                        "role": api_key.get("role", "submitter"), "name": api_key.get("name", ""),
+                        "scope": api_key.get("scope", "full-access")}
         else:
             with _user_lock:
                 session = _sessions.get(token)
@@ -991,8 +1032,17 @@ def _get_current_user(request: Request) -> dict | None:
             if api_key:
                 api_key["last_used"] = time.time()
                 return {"email": api_key["email"], "user_id": api_key["user_id"],
-                        "role": api_key.get("role", "submitter"), "name": api_key.get("name", "")}
+                        "role": api_key.get("role", "submitter"), "name": api_key.get("name", ""),
+                        "scope": api_key.get("scope", "full-access")}
     return None
+
+
+def _require_write_access(request: Request):
+    """Raise 403 if the current user is using a read-only API key on a mutating request."""
+    user = _get_current_user(request)
+    if user and user.get("scope") == "read-only" and request.method not in ("GET", "HEAD", "OPTIONS"):
+        raise HTTPException(403, "This API key has read-only scope")
+    return user
 
 
 class RegisterRequest(BaseModel):
@@ -1310,15 +1360,21 @@ def api_auth_delete_account(request: Request):
     return {"ok": True, "message": "Account deleted"}
 
 
+VALID_KEY_SCOPES = {"full-access", "read-only"}
+
+
 @app.post("/api/keys/generate", tags=["Auth"])
-def api_generate_api_key(request: Request, name: str = "default"):
+def api_generate_api_key(request: Request, name: str = "default", scope: str = "full-access"):
     """Generate a named API key for the authenticated user.
 
     API keys can be used as Bearer tokens for programmatic access.
+    Scope: 'full-access' (default) or 'read-only' (GET requests only).
     """
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    if scope not in VALID_KEY_SCOPES:
+        raise HTTPException(400, f"Invalid scope. Must be one of: {', '.join(sorted(VALID_KEY_SCOPES))}")
 
     key = f"xc-{secrets.token_urlsafe(32)}"
     key_data = {
@@ -1327,6 +1383,7 @@ def api_generate_api_key(request: Request, name: str = "default"):
         "email": user["email"],
         "user_id": user["user_id"],
         "role": user.get("role", "submitter"),
+        "scope": scope,
         "created_at": time.time(),
         "last_used": None,
     }
@@ -1339,6 +1396,7 @@ def api_generate_api_key(request: Request, name: str = "default"):
         "ok": True,
         "key": key,
         "name": name,
+        "scope": scope,
         "preview": key[:12] + "..." + key[-4:],
         "note": "Save this key — it will not be shown again.",
     }
@@ -1357,6 +1415,7 @@ def api_list_keys(request: Request):
             {
                 "name": v["name"],
                 "preview": v["key"][:12] + "..." + v["key"][-4:],
+                "scope": v.get("scope", "full-access"),
                 "created_at": v["created_at"],
                 "last_used": v["last_used"],
             }
@@ -1368,6 +1427,7 @@ def api_list_keys(request: Request):
                 {
                     "name": v["name"],
                     "preview": v["key"][:12] + "..." + v["key"][-4:],
+                    "scope": v.get("scope", "full-access"),
                     "created_at": v["created_at"],
                     "last_used": v["last_used"],
                 }
@@ -2733,6 +2793,93 @@ def api_list_invoices(customer_id: str, limit: int = 12):
     return {"ok": True, "invoices": invoices, "count": len(invoices)}
 
 
+@app.get("/api/billing/invoice/{customer_id}/download", tags=["Billing"])
+def api_download_invoice(customer_id: str, format: str = "csv",
+                         period_start: float = 0, period_end: float = 0,
+                         tax_rate: float = 0.13, customer_name: str = ""):
+    """Download an invoice as CSV or plain-text PDF-style document.
+
+    Formats: csv (spreadsheet-ready), txt (printable receipt).
+    """
+    import io
+    import csv as csv_mod
+    from datetime import datetime
+
+    if period_end == 0:
+        period_end = time.time()
+    if period_start == 0:
+        period_start = period_end - 30 * 86400
+
+    be = get_billing_engine()
+    inv = be.generate_invoice(customer_id, customer_name, period_start, period_end, tax_rate)
+    inv_dict = inv.to_dict()
+    date_str = datetime.utcfromtimestamp(period_end).strftime("%Y-%m-%d")
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv_mod.writer(output)
+        writer.writerow(["Xcelsior Invoice", f"INV-{customer_id[:8]}", date_str])
+        writer.writerow([])
+        writer.writerow(["Description", "GPU", "Duration (h)", "Rate (CAD/h)", "Amount (CAD)"])
+        for item in inv_dict.get("line_items", []):
+            writer.writerow([
+                item.get("description", "Compute"),
+                item.get("gpu_model", "—"),
+                round(item.get("duration_hours", 0), 2),
+                round(item.get("rate_cad_per_hour", 0), 2),
+                round(item.get("amount_cad", 0), 2),
+            ])
+        writer.writerow([])
+        writer.writerow(["Subtotal", "", "", "", round(inv_dict.get("total_compute_cad", 0), 2)])
+        writer.writerow(["Tax", "", "", "", round(inv_dict.get("tax_cad", 0), 2)])
+        writer.writerow(["Total (CAD)", "", "", "", round(inv_dict.get("total_with_tax_cad", 0), 2)])
+        writer.writerow(["CAF Eligible", "", "", "", round(inv_dict.get("caf_eligible_cad", 0), 2)])
+        csv_data = output.getvalue()
+        return StreamingResponse(
+            iter([csv_data]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.csv"},
+        )
+
+    # Plain-text receipt format
+    lines = [
+        "=" * 60,
+        "XCELSIOR — GPU COMPUTE INVOICE",
+        "=" * 60,
+        f"Invoice ID:  INV-{customer_id[:8]}",
+        f"Customer:    {customer_name or customer_id}",
+        f"Date:        {date_str}",
+        f"Period:      {datetime.utcfromtimestamp(period_start).strftime('%Y-%m-%d')} to {date_str}",
+        "-" * 60,
+        f"{'Description':<25} {'GPU':<12} {'Hours':>6} {'Rate':>8} {'Amount':>10}",
+        "-" * 60,
+    ]
+    for item in inv_dict.get("line_items", []):
+        lines.append(
+            f"{item.get('description', 'Compute')[:25]:<25} "
+            f"{item.get('gpu_model', '—')[:12]:<12} "
+            f"{item.get('duration_hours', 0):>6.2f} "
+            f"${item.get('rate_cad_per_hour', 0):>7.2f} "
+            f"${item.get('amount_cad', 0):>9.2f}"
+        )
+    lines += [
+        "-" * 60,
+        f"{'Subtotal':<55} ${inv_dict.get('total_compute_cad', 0):>8.2f}",
+        f"{'Tax (' + str(round(tax_rate*100, 1)) + '%)':<55} ${inv_dict.get('tax_cad', 0):>8.2f}",
+        f"{'TOTAL (CAD)':<55} ${inv_dict.get('total_with_tax_cad', 0):>8.2f}",
+        "",
+        f"AI Compute Access Fund Eligible: ${inv_dict.get('caf_eligible_cad', 0):.2f} CAD",
+        "=" * 60,
+        "Xcelsior Inc. | xcelsior.ca | Built in Canada 🍁",
+    ]
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content="\n".join(lines),
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.txt"},
+    )
+
+
 @app.get("/api/billing/attestation", tags=["Billing"])
 def api_provider_attestation():
     """Get Xcelsior supplier attestation bundle for Fund claims."""
@@ -4083,8 +4230,118 @@ def api_reputation_breakdown(entity_id: str):
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Inference API — Serverless GPU inference endpoints
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class InferenceRequest(BaseModel):
+    model: str = Field(..., description="Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')")
+    inputs: list[str] | str = Field(..., description="Text input(s) for inference")
+    gpu_model: str = Field("any", description="Preferred GPU model or 'any'")
+    max_tokens: int = Field(512, ge=1, le=8192)
+    temperature: float = Field(1.0, ge=0.0, le=2.0)
+    timeout_sec: int = Field(300, ge=10, le=3600)
+
+
+@app.post("/api/inference", tags=["Inference"])
+def api_inference_submit(req: InferenceRequest, request: Request):
+    """Submit a serverless inference request.
+
+    Schedules a short-lived GPU job that runs the specified model on the
+    provided inputs. Returns a job_id to poll for results.
+    """
+    user = _get_current_user(request)
+    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
+
+    job = submit_job(
+        image=f"xcelsior/inference:{req.model.replace('/', '--')}",
+        customer_id=customer_id,
+        gpu_model=req.gpu_model,
+        priority="normal",
+    )
+    job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
+    # Store inference metadata for the worker to pick up
+    _inference_metadata[job_id] = {
+        "model": req.model,
+        "inputs": inputs_list,
+        "max_tokens": req.max_tokens,
+        "temperature": req.temperature,
+        "timeout_sec": req.timeout_sec,
+        "submitted_at": time.time(),
+    }
+    broadcast_sse("inference_submitted", {"job_id": job_id, "model": req.model})
+    return {"ok": True, "job_id": job_id, "model": req.model, "status": "queued"}
+
+
+_inference_metadata: dict[str, dict] = {}
+_inference_results: dict[str, dict] = {}
+
+
+@app.get("/api/inference/{job_id}", tags=["Inference"])
+def api_inference_result(job_id: str):
+    """Get inference results for a submitted request."""
+    if job_id in _inference_results:
+        return {"ok": True, "status": "completed", **_inference_results[job_id]}
+    meta = _inference_metadata.get(job_id)
+    if meta:
+        elapsed = time.time() - meta["submitted_at"]
+        if elapsed > meta["timeout_sec"]:
+            return {"ok": False, "status": "timeout", "job_id": job_id}
+        return {"ok": True, "status": "running", "job_id": job_id, "model": meta["model"],
+                "elapsed_sec": round(elapsed, 1)}
+    # Check scheduler
+    jobs = list_jobs()
+    job = next((j for j in jobs if j.get("job_id") == job_id), None)
+    if job:
+        return {"ok": True, "status": job.get("status", "unknown"), "job_id": job_id}
+    raise HTTPException(404, f"Inference job {job_id} not found")
+
+
+@app.get("/api/inference/models/available", tags=["Inference"])
+def api_inference_models():
+    """List available inference models and their resource requirements."""
+    models = [
+        {"name": "distilbert-base-uncased-finetuned-sst-2-english", "task": "sentiment-analysis",
+         "min_vram_gb": 1, "avg_latency_ms": 50},
+        {"name": "meta-llama/Llama-2-7b-chat-hf", "task": "text-generation",
+         "min_vram_gb": 14, "avg_latency_ms": 2000},
+        {"name": "meta-llama/Llama-2-13b-chat-hf", "task": "text-generation",
+         "min_vram_gb": 26, "avg_latency_ms": 4000},
+        {"name": "stabilityai/stable-diffusion-xl-base-1.0", "task": "image-generation",
+         "min_vram_gb": 8, "avg_latency_ms": 5000},
+        {"name": "openai/whisper-large-v3", "task": "speech-to-text",
+         "min_vram_gb": 4, "avg_latency_ms": 3000},
+        {"name": "BAAI/bge-large-en-v1.5", "task": "embeddings",
+         "min_vram_gb": 2, "avg_latency_ms": 100},
+    ]
+    return {"ok": True, "models": models}
+
+
+@app.post("/api/inference/{job_id}/result", tags=["Inference"])
+def api_inference_post_result(job_id: str, request: Request):
+    """Worker callback: post inference results. Internal use."""
+    import asyncio
+    try:
+        body = asyncio.get_event_loop().run_until_complete(request.json())
+    except Exception:
+        body = {}
+    _inference_results[job_id] = {
+        "job_id": job_id,
+        "outputs": body.get("outputs", []),
+        "model": body.get("model", ""),
+        "completed_at": time.time(),
+        "latency_ms": body.get("latency_ms", 0),
+    }
+    if job_id in _inference_metadata:
+        del _inference_metadata[job_id]
+    broadcast_sse("inference_completed", {"job_id": job_id})
+    return {"ok": True}
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    log.info("API STARTING on port 8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    log.info("API STARTING on port 9500")
+    uvicorn.run(app, host="0.0.0.0", port=9500)

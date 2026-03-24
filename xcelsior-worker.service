@@ -18,8 +18,8 @@ Environment="XCELSIOR_API_TOKEN=your_api_token_here"
 Environment="XCELSIOR_COST_PER_HOUR=0.50"
 Environment="XCELSIOR_REPORT_INTERVAL=5"
 
-# Optionally load from file instead (create /opt/xcelsior/worker.env)
-# EnvironmentFile=/opt/xcelsior/worker.env
+# Or load from .env file:
+EnvironmentFile=-/opt/xcelsior/.env
 
 ExecStart=/opt/xcelsior/venv/bin/python3 worker_agent.py
 

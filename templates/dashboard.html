@@ -337,6 +337,20 @@
     .btn-row { flex-direction: column; }
     .btn { width: 100%; text-align: center; }
     .tab-btn { font-size: 10px; padding: 5px 8px; }
+    #cost-comparison-chart { min-height: 120px !important; }
+    #cost-comparison-chart > div { font-size: 9px; }
+  }
+  /* Viewport-aware charts */
+  @media (max-width: 768px) {
+    .chart-bar { height: 80px; }
+    .spot-chart { height: 40px; }
+    #cost-comparison-chart { min-height: 120px; }
+    #reserved-plans { grid-template-columns: 1fr !important; }
+    #active-commitments { grid-template-columns: 1fr !important; }
+  }
+  @media (min-width: 1400px) {
+    .chart-bar { height: 160px; }
+    .spot-chart { height: 80px; }
   }
 
   /* ── Loading Skeletons ────────────────────────────────────────────── */
@@ -836,6 +850,19 @@
     <div id="attestation-info" style="font-size:13px;color:#aaa;"></div>
   </div>
   <div class="card">
+    <h2>Cost Comparison: On-Demand vs Reserved</h2>
+    <div style="padding:8px">
+      <div id="cost-comparison-chart" style="display:flex;gap:12px;align-items:flex-end;min-height:180px;padding:12px 0">
+      </div>
+      <div style="display:flex;gap:16px;margin-top:8px;font-size:11px">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#ff3333;border-radius:2px;margin-right:4px"></span>On-Demand</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#4caf50;border-radius:2px;margin-right:4px"></span>Spot</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#2196f3;border-radius:2px;margin-right:4px"></span>1-Month Reserved</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#9c27b0;border-radius:2px;margin-right:4px"></span>Annual Reserved</span>
+      </div>
+    </div>
+  </div>
+  <div class="card">
     <h2>Reserved Pricing Plans</h2>
     <div id="reserved-plans" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:8px">
       <div class="pricing-card">
@@ -1131,9 +1158,13 @@
     <h2>API Keys</h2>
     <div style="padding:8px">
       <p style="font-size:12px;color:#888;margin-bottom:10px">Generate API keys for programmatic access to Xcelsior.</p>
-      <div style="margin-bottom:12px">
+      <div style="margin-bottom:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <input id="key-name" placeholder="Key name (e.g. my-training-script)" style="width:200px;padding:6px;background:#1a1a1a;border:1px solid #333;color:#eee;border-radius:4px;font-family:inherit;font-size:12px">
-        <button class="btn" onclick="generateApiKey()" style="margin-left:6px;background:#4caf50">Generate Key</button>
+        <select id="key-scope" style="padding:6px;background:#1a1a1a;border:1px solid #333;color:#eee;border-radius:4px;font-family:inherit;font-size:12px">
+          <option value="full-access">🔓 Full Access</option>
+          <option value="read-only">🔒 Read Only</option>
+        </select>
+        <button class="btn" onclick="generateApiKey()" style="background:#4caf50">Generate Key</button>
       </div>
       <div id="new-key-display" style="display:none;background:#0a1a0a;border:1px solid #1a3a1a;border-radius:4px;padding:10px;margin-bottom:12px">
         <p style="font-size:11px;color:#4caf50;margin-bottom:4px">🔑 New API key (copy now — shown only once):</p>
@@ -1141,8 +1172,8 @@
         <button class="btn btn-secondary" onclick="copyApiKey()" style="margin-left:8px;font-size:10px;padding:2px 8px">📋 Copy</button>
       </div>
       <table>
-        <thead><tr><th>Name</th><th>Created</th><th>Last Used</th><th>Key Preview</th><th>Actions</th></tr></thead>
-        <tbody id="api-keys-table"><tr><td colspan="5" style="color:#555;text-align:center">No API keys yet</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Scope</th><th>Rate Limit</th><th>Created</th><th>Last Used</th><th>Key Preview</th><th>Actions</th></tr></thead>
+        <tbody id="api-keys-table"><tr><td colspan="7" style="color:#555;text-align:center">No API keys yet</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -2232,6 +2263,31 @@ async function estimateCost() {
   }
 }
 
+function renderCostComparison() {
+  const gpus = [
+    {name: 'RTX 3090', base: 0.80},
+    {name: 'RTX 4090', base: 1.20},
+    {name: 'A100', base: 2.50},
+    {name: 'H100', base: 4.00},
+  ];
+  const chart = document.getElementById('cost-comparison-chart');
+  if (!chart) return;
+  const maxPrice = 4.0;
+  chart.innerHTML = gpus.map(g => {
+    const spot = g.base * 0.6;
+    const monthly = g.base * 0.8;
+    const annual = g.base * 0.55;
+    const bar = (val, color) => `<div style="width:18px;background:${color};height:${Math.round(val/maxPrice*140)}px;border-radius:2px 2px 0 0" title="$${val.toFixed(2)}/hr"></div>`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;flex:1">
+      <div style="display:flex;gap:2px;align-items:flex-end;height:140px">
+        ${bar(g.base, '#ff3333')}${bar(spot, '#4caf50')}${bar(monthly, '#2196f3')}${bar(annual, '#9c27b0')}
+      </div>
+      <div style="font-size:10px;margin-top:4px;color:#aaa;text-align:center">${g.name}</div>
+      <div style="font-size:9px;color:#666;margin-top:2px">Save ${Math.round((1 - annual/g.base)*100)}%</div>
+    </div>`;
+  }).join('');
+}
+
 // ── GPU Telemetry ────────────────────────────────────────────────────
 let telemetryInterval = null;
 
@@ -2602,8 +2658,10 @@ async function refresh() {
     fetchVerification(), fetchReputation(), fetchTrustTiers(), fetchJurisdiction(), fetchTransparency(),
     fetchPricing(), fetchFundStats(), fetchEventLog(), fetchEarnings(),
     fetchTransactionHistoryFiltered(), fetchAnalytics(), fetchMarketplaceStats(), fetchInvoices(),
-    fetchSlurmProfiles(), fetchSpotPriceHistory(), fetchActiveCommitments()
+    fetchSlurmProfiles(), fetchSpotPriceHistory(), fetchActiveCommitments(),
+    fetchApiKeys()
   ]);
+  renderCostComparison();
 }
 
 async function processQueue() {
@@ -3222,10 +3280,10 @@ function saveProfile() {
 
 async function generateApiKey() {
   const name = document.getElementById('key-name').value.trim() || 'default';
+  const scope = document.getElementById('key-scope').value;
   const token = sessionStorage.getItem('xcelsior_token') || '';
   try {
-    // Try auth-aware endpoint first, fallback to legacy
-    let r = await fetch(`${API}/api/keys/generate?name=${encodeURIComponent(name)}`, {
+    let r = await fetch(`${API}/api/keys/generate?name=${encodeURIComponent(name)}&scope=${encodeURIComponent(scope)}`, {
       method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`}
     });
     if (!r.ok) {
@@ -3237,11 +3295,62 @@ async function generateApiKey() {
       const keyDisplay = document.getElementById('new-key-display');
       document.getElementById('new-key-value').textContent = keyVal;
       keyDisplay.style.display = '';
-      showToast('API key generated — copy it now!', 'success');
+      showToast(`API key generated (${scope}) — copy it now!`, 'success');
+      localStorage.setItem('xcelsior_has_apikey', '1');
+      fetchApiKeys();
     } else {
       showToast('Key generation failed', 'error');
     }
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function fetchApiKeys() {
+  const token = sessionStorage.getItem('xcelsior_token') || '';
+  try {
+    const r = await fetch(`${API}/api/keys`, { headers: {'Authorization': `Bearer ${token}`} });
+    if (!r.ok) return;
+    const d = await r.json();
+    const keys = d.keys || [];
+    const tbody = document.getElementById('api-keys-table');
+    if (!keys.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#555;text-align:center">No API keys yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = keys.map(k => {
+      const scopeBadge = k.scope === 'read-only'
+        ? '<span style="background:#1a1a2a;color:#2196f3;padding:1px 6px;border-radius:3px;font-size:10px">🔒 Read Only</span>'
+        : '<span style="background:#1a2a1a;color:#4caf50;padding:1px 6px;border-radius:3px;font-size:10px">🔓 Full Access</span>';
+      const rateLimit = k.scope === 'read-only' ? '60/min' : '120/min';
+      const ratePct = k.scope === 'read-only' ? 50 : 100;
+      const rateColor = k.scope === 'read-only' ? '#2196f3' : '#4caf50';
+      return `<tr>
+        <td style="font-weight:bold">${k.name}</td>
+        <td>${scopeBadge}</td>
+        <td><div style="display:flex;align-items:center;gap:4px">
+          <div style="width:50px;height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden">
+            <div style="width:${ratePct}%;height:100%;background:${rateColor}"></div>
+          </div>
+          <span style="font-size:10px;color:#888">${rateLimit}</span>
+        </div></td>
+        <td style="font-size:11px;color:#888">${k.created_at ? new Date(k.created_at*1000).toLocaleDateString() : '—'}</td>
+        <td style="font-size:11px;color:#888">${k.last_used ? new Date(k.last_used*1000).toLocaleDateString() : 'Never'}</td>
+        <td style="font-family:monospace;font-size:10px;color:#666">${k.preview}</td>
+        <td><button class="btn btn-secondary" style="padding:1px 6px;font-size:10px;color:#ff3333" onclick="revokeKey('${k.preview}')">Revoke</button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('FetchApiKeys:', e); }
+}
+
+async function revokeKey(preview) {
+  if (!confirm('Revoke this API key? This cannot be undone.')) return;
+  const token = sessionStorage.getItem('xcelsior_token') || '';
+  try {
+    await fetch(`${API}/api/keys/${encodeURIComponent(preview)}`, {
+      method: 'DELETE', headers: {'Authorization': `Bearer ${token}`}
+    });
+    showToast('API key revoked', 'success');
+    fetchApiKeys();
+  } catch(e) { showToast('Error revoking key', 'error'); }
 }
 
 function copyApiKey() {
@@ -4081,7 +4190,14 @@ async function fetchInvoices() {
 }
 
 function downloadInvoice(invoiceId) {
-  showToast(`Invoice ${invoiceId} — PDF generation coming soon`, 'info');
+  const custId = localStorage.getItem('xcelsior_customer_id') || 'default';
+  const fmt = prompt('Download format: csv or txt?', 'csv') || 'csv';
+  const url = `${API}/api/billing/invoice/${encodeURIComponent(custId)}/download?format=${encodeURIComponent(fmt)}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `xcelsior-invoice-${invoiceId}.${fmt}`;
+  a.click();
+  showToast(`Downloading invoice ${invoiceId} as ${fmt.toUpperCase()}`, 'success');
 }
 
 // ── Transaction Type Filter ──────────────────────────────────────────
