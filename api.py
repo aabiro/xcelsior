@@ -212,6 +212,9 @@ PUBLIC_PATHS = {
     "/api/transparency/report",
 }
 
+# Agent/worker paths exempt from rate limiting (protected by token auth)
+AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
+
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
     """
@@ -279,15 +282,30 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RequestLogMiddleware)
 
 
+def _get_real_client_ip(request: Request) -> str:
+    """Extract real client IP, respecting X-Real-IP / X-Forwarded-For from trusted proxy."""
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Simple in-memory IP rate limiting for API safety."""
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in PUBLIC_PATHS:
+        path = request.url.path
+        if path in PUBLIC_PATHS:
+            return await call_next(request)
+        # Exempt authenticated agent/worker endpoints from rate limiting
+        if path.startswith(AGENT_RATE_LIMIT_EXEMPT_PREFIXES):
             return await call_next(request)
 
         now = time.time()
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _get_real_client_ip(request)
         bucket = _RATE_BUCKETS[client_ip]
         while bucket and bucket[0] <= now - RATE_LIMIT_WINDOW_SEC:
             bucket.popleft()
