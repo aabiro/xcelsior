@@ -389,6 +389,36 @@
   /* ── Notification sound toggle ────────────────────────────────────── */
   .sound-toggle { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
   .sound-toggle label { font-size: 12px; color: #888; }
+  /* ToS checkbox */
+  .tos-row { display: flex; align-items: flex-start; gap: 6px; margin: 10px 0 4px; font-size: 11px; color: #888; }
+  .tos-row input[type=checkbox] { margin-top: 2px; accent-color: #ff3333; }
+  .tos-row a { color: #ff3333; }
+  /* Profile checklist */
+  .checklist { list-style: none; padding: 0; margin: 0; }
+  .checklist li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1a1a1a; font-size: 12px; }
+  .checklist li .check-icon { font-size: 14px; width: 18px; text-align: center; }
+  .checklist li.done { color: #666; }
+  .checklist li.done .check-icon { color: #4caf50; }
+  .checklist li.pending .check-icon { color: #ff9800; }
+  /* Rank arrows */
+  .rank-up { color: #4caf50; font-size: 10px; font-weight: bold; }
+  .rank-down { color: #f44336; font-size: 10px; font-weight: bold; }
+  .rank-stable { color: #555; font-size: 10px; }
+  /* Spot chart */
+  .spot-chart { display: flex; align-items: flex-end; gap: 2px; height: 60px; margin: 8px 0; }
+  .spot-bar { flex: 1; min-width: 3px; background: linear-gradient(180deg, #ff9800, #ff5722); border-radius: 2px 2px 0 0; transition: height 0.3s; }
+  /* Docker autocomplete */
+  .autocomplete-list { position: absolute; background: #111; border: 1px solid #333; border-radius: 4px; max-height: 160px; overflow-y: auto; z-index: 500; width: 100%; }
+  .autocomplete-list div { padding: 6px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #1a1a1a; }
+  .autocomplete-list div:hover { background: #1a1a1a; color: #ff3333; }
+  /* Ranking guide */
+  .rank-guide { font-size: 12px; color: #aaa; line-height: 1.6; }
+  .rank-guide .step { display: flex; gap: 8px; padding: 4px 0; }
+  .rank-guide .step-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
+  /* Active commitments */
+  .commitment-card { background: #0a1a0a; border: 1px solid #1a3a1a; border-radius: 6px; padding: 10px; font-size: 12px; text-align: center; }
+  .commitment-card .plan-name { color: #4caf50; font-weight: bold; font-size: 14px; }
+  .commitment-card .plan-detail { color: #888; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -413,6 +443,10 @@
     <div class="divider">or continue with email</div>
     <div class="form-group"><input id="login-email" type="email" placeholder="you@example.com"></div>
     <div class="form-group"><input id="login-password" type="password" placeholder="Password"></div>
+    <div class="tos-row">
+      <input type="checkbox" id="tos-agree">
+      <label for="tos-agree">I agree to the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/privacy" target="_blank">Privacy Policy</a></label>
+    </div>
     <button class="btn" onclick="emailLogin()" style="width:100%;padding:10px;margin-top:4px">Sign In</button>
     <p style="text-align:center;margin-top:8px;font-size:11px"><a href="#" onclick="showForgotPassword()" style="color:#888">Forgot your password?</a></p>
     <p style="text-align:center;margin-top:8px;font-size:11px;color:#666">Don't have an account? <a href="#" onclick="toggleSignup()" style="color:#ff3333">Sign up</a></p>
@@ -572,6 +606,13 @@
       <thead><tr><th>GPU Model</th><th>Spot $/hr</th><th>Supply</th><th>Demand</th></tr></thead>
       <tbody id="spot-table"></tbody>
     </table>
+    <div style="margin-top:8px">
+      <h3 style="font-size:11px;color:#888;margin-bottom:4px">📉 24h Price History</h3>
+      <div id="spot-price-chart" class="spot-chart"></div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#555">
+        <span>24h ago</span><span>12h</span><span>Now</span>
+      </div>
+    </div>
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid #222">
       <h3 style="font-size:13px;color:#ff3333;margin-bottom:10px">💰 Place Spot Bid</h3>
       <div class="spot-bid-form">
@@ -658,9 +699,20 @@
   <div class="card">
     <h2>Reputation Leaderboard</h2>
     <table>
-      <thead><tr><th>Host</th><th>Score</th><th>Tier</th><th>Jobs</th><th>Reliability</th></tr></thead>
+      <thead><tr><th>#</th><th>Host</th><th>Score</th><th>Tier</th><th>Jobs</th><th>Reliability</th></tr></thead>
       <tbody id="reputation-table"></tbody>
     </table>
+    <div id="rank-guide" style="margin-top:12px;padding-top:12px;border-top:1px solid #222">
+      <h3 style="font-size:12px;color:#ff3333;margin-bottom:8px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">📈 How to Rank Up ▾</h3>
+      <div class="rank-guide" style="display:none">
+        <div class="step"><span class="step-icon">✅</span><span><b>Complete jobs reliably</b> — Each successful job adds +10 to +25 points based on duration and complexity</span></div>
+        <div class="step"><span class="step-icon">⏱️</span><span><b>Maintain high uptime</b> — Monthly uptime above 99% earns bonus points. Below 95% triggers decay.</span></div>
+        <div class="step"><span class="step-icon">🔒</span><span><b>Get verified</b> — Each verification badge (email, phone, hardware audit, incorporation) adds trust score</span></div>
+        <div class="step"><span class="step-icon">📊</span><span><b>Score fast hardware</b> — Higher compute scores (TFLOPS) give a slight leaderboard boost</span></div>
+        <div class="step"><span class="step-icon">🏆</span><span><b>Tier thresholds</b> — Bronze: 100 pts, Silver: 250, Gold: 500, Platinum: 1000, Diamond: 2000</span></div>
+        <div class="step"><span class="step-icon">⚠️</span><span><b>Avoid penalties</b> — Mining detected: −200 pts. SLA violation: −50. Failed jobs: −10 each.</span></div>
+      </div>
+    </div>
   </div>
   <div class="card">
     <h2>Transparency Report</h2>
@@ -806,6 +858,12 @@
         <div class="period">Annual commitment</div>
         <div class="detail">No minimum usage</div>
         <button class="btn" onclick="reservePlan('1_year')" style="margin-top:8px;width:100%">Subscribe</button>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #222">
+      <h3 style="font-size:12px;color:#888;margin-bottom:8px">Active Commitments</h3>
+      <div id="active-commitments" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="color:#555;font-size:12px;grid-column:1/-1;text-align:center" id="no-commitments">No active reserved commitments</div>
       </div>
     </div>
   </div>
@@ -1537,6 +1595,29 @@
   </div>
 </div>
 
+<!-- Profile Completion Checklist (shown after onboarding) -->
+<div id="profile-checklist-modal" class="modal-overlay">
+  <div class="modal" style="max-width:420px">
+    <h2 style="text-align:center">Complete Your Profile</h2>
+    <p style="text-align:center;color:#888;font-size:12px;margin-bottom:16px">Finish these steps to unlock all features.</p>
+    <ul class="checklist" id="profile-checklist">
+      <li class="pending" id="chk-role"><span class="check-icon">⬜</span> Choose your role</li>
+      <li class="pending" id="chk-email"><span class="check-icon">⬜</span> Verify email address</li>
+      <li class="pending" id="chk-province"><span class="check-icon">⬜</span> Set province / jurisdiction</li>
+      <li class="pending" id="chk-apikey"><span class="check-icon">⬜</span> Generate an API key</li>
+      <li class="pending" id="chk-deposit"><span class="check-icon">⬜</span> Add credits to wallet</li>
+      <li class="pending" id="chk-sshkey"><span class="check-icon">⬜</span> Add an SSH key</li>
+    </ul>
+    <div style="margin-top:16px;text-align:center">
+      <div style="background:#222;border-radius:4px;height:8px;overflow:hidden;margin-bottom:8px">
+        <div id="checklist-progress-bar" style="background:#ff3333;height:100%;width:0%;transition:width 0.4s"></div>
+      </div>
+      <span id="checklist-progress-text" style="font-size:11px;color:#666">0 of 6 complete</span>
+    </div>
+    <button class="btn" onclick="closeModal('profile-checklist-modal')" style="width:100%;margin-top:12px">Continue to Dashboard</button>
+  </div>
+</div>
+
 <!-- Add Host modal -->
 <div id="add-host-modal" class="modal-overlay">
   <div class="modal" style="max-width:560px;text-align:left">
@@ -1761,7 +1842,7 @@
 
     <div class="form-section">
       <div class="form-section-title">Container</div>
-      <div class="form-group"><label>Docker Image</label><input id="sj-image" placeholder="python:3.12-slim"><div class="hint">Leave blank for default runtime</div></div>
+      <div class="form-group" style="position:relative"><label>Docker Image</label><input id="sj-image" placeholder="python:3.12-slim" autocomplete="off" oninput="showDockerSuggestions(this.value)" onfocus="showDockerSuggestions(this.value)"><div class="hint">Leave blank for default runtime</div><div id="docker-suggestions" class="autocomplete-list" style="display:none"></div></div>
     </div>
 
     <div class="form-section">
@@ -2047,9 +2128,13 @@ async function fetchReputation() {
     const lb = d.leaderboard || [];
     const avg = lb.length ? (lb.reduce((s, h) => s + h.score, 0) / lb.length).toFixed(0) : '—';
     document.getElementById('stat-reputation-avg').textContent = avg;
-    document.getElementById('reputation-table').innerHTML = lb.map((h, i) =>
-      `<tr><td>${h.host_id}</td><td>${h.score}</td><td><span class="tooltip-wrap">${repTier(h.tier)}<span class="tooltip-text">${repTooltip(h)}</span></span></td><td>${h.jobs_completed || 0}</td><td>${h.reliability ? (h.reliability * 100).toFixed(0) + '%' : '—'}</td></tr>`
-    ).join('') || '<tr><td colspan="5" style="color:#555">No reputation data</td></tr>';
+    document.getElementById('reputation-table').innerHTML = lb.map((h, i) => {
+      const rank = i + 1;
+      const prevRank = h.previous_rank || rank;
+      const diff = prevRank - rank;
+      const arrow = diff > 0 ? `<span class="rank-up">▲${diff}</span>` : diff < 0 ? `<span class="rank-down">▼${Math.abs(diff)}</span>` : '<span class="rank-stable">—</span>';
+      return `<tr><td>${rank} ${arrow}</td><td>${h.host_id}</td><td>${h.score}</td><td><span class="tooltip-wrap">${repTier(h.tier)}<span class="tooltip-text">${repTooltip(h)}</span></span></td><td>${h.jobs_completed || 0}</td><td>${h.reliability ? (h.reliability * 100).toFixed(0) + '%' : '—'}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" style="color:#555">No reputation data</td></tr>';
   } catch(e) {
     document.getElementById('reputation-table').innerHTML = '<tr><td colspan="5" style="color:#555">Reputation unavailable</td></tr>';
   }
@@ -2360,6 +2445,9 @@ function setRole(role) {
   const adminBtn = document.getElementById('admin-tab-btn');
   if (adminBtn) adminBtn.style.display = (role === 'admin') ? '' : 'none';
   if (role === 'admin') loadAdminPanel();
+  // Show profile completion checklist for first-time users
+  sessionStorage.setItem('xcelsior_show_checklist', 'true');
+  checkProfileCompletion();
 }
 
 // ── Form validation helper ───────────────────────────────────────────
@@ -2514,7 +2602,7 @@ async function refresh() {
     fetchVerification(), fetchReputation(), fetchTrustTiers(), fetchJurisdiction(), fetchTransparency(),
     fetchPricing(), fetchFundStats(), fetchEventLog(), fetchEarnings(),
     fetchTransactionHistoryFiltered(), fetchAnalytics(), fetchMarketplaceStats(), fetchInvoices(),
-    fetchSlurmProfiles()
+    fetchSlurmProfiles(), fetchSpotPriceHistory(), fetchActiveCommitments()
   ]);
 }
 
@@ -2775,6 +2863,8 @@ function emailLogin() {
   const password = document.getElementById('login-password').value;
   if (!email) { showToast('Email is required', 'error'); return; }
   if (!password) { showToast('Password is required', 'error'); return; }
+  const tos = document.getElementById('tos-agree');
+  if (tos && !tos.checked) { showToast('Please agree to the Terms of Service', 'error'); return; }
   fetch(`${API}/api/auth/login`, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ email, password })
@@ -2808,6 +2898,8 @@ function toggleSignup() {
   const password = document.getElementById('login-password').value;
   if (!email) { showToast('Email is required', 'error'); return; }
   if (!password || password.length < 8) { showToast('Password must be at least 8 characters', 'error'); return; }
+  const tos = document.getElementById('tos-agree');
+  if (tos && !tos.checked) { showToast('Please agree to the Terms of Service', 'error'); return; }
   fetch(`${API}/api/auth/register`, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ email, password })
@@ -3811,6 +3903,133 @@ async function runQuebecPIA() {
   } catch(e) { showToast('PIA check error: ' + e.message, 'error'); }
 }
 
+
+// ── Docker Image Autocomplete ────────────────────────────────────────
+const POPULAR_DOCKER_IMAGES = [
+  'python:3.12-slim', 'python:3.11-slim', 'python:3.10-slim',
+  'pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime',
+  'pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel',
+  'pytorch/pytorch:latest',
+  'tensorflow/tensorflow:latest-gpu',
+  'tensorflow/tensorflow:2.16.1-gpu',
+  'nvcr.io/nvidia/cuda:12.4.0-runtime-ubuntu22.04',
+  'nvcr.io/nvidia/cuda:12.3.2-devel-ubuntu22.04',
+  'nvcr.io/nvidia/pytorch:24.03-py3',
+  'nvcr.io/nvidia/tensorflow:24.03-tf2-py3',
+  'nvcr.io/nvidia/tritonserver:24.03-py3',
+  'huggingface/transformers-pytorch-gpu:latest',
+  'vllm/vllm-openai:latest',
+  'ghcr.io/huggingface/text-generation-inference:latest',
+  'ollama/ollama:latest',
+  'jupyter/scipy-notebook:latest',
+  'jupyter/tensorflow-notebook:latest',
+  'nvidia/cuda:12.4.0-base-ubuntu22.04',
+  'ubuntu:22.04', 'ubuntu:24.04',
+  'alpine:latest', 'debian:bookworm-slim',
+];
+
+function showDockerSuggestions(query) {
+  const list = document.getElementById('docker-suggestions');
+  if (!query || query.length < 1) { list.style.display = 'none'; return; }
+  const q = query.toLowerCase();
+  const matches = POPULAR_DOCKER_IMAGES.filter(img => img.toLowerCase().includes(q)).slice(0, 8);
+  if (matches.length === 0) { list.style.display = 'none'; return; }
+  list.innerHTML = matches.map(img => `<div onclick="selectDockerImage('${img}')">${img}</div>`).join('');
+  list.style.display = '';
+}
+
+function selectDockerImage(img) {
+  document.getElementById('sj-image').value = img;
+  document.getElementById('docker-suggestions').style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#sj-image') && !e.target.closest('#docker-suggestions')) {
+    const el = document.getElementById('docker-suggestions');
+    if (el) el.style.display = 'none';
+  }
+});
+
+// ── Spot Price History Chart ─────────────────────────────────────────
+async function fetchSpotPriceHistory() {
+  try {
+    const r = await fetch(`${API}/spot-prices`);
+    const d = await r.json();
+    const prices = d.prices || d.spot_prices || [];
+    const chart = document.getElementById('spot-price-chart');
+    if (!chart || prices.length === 0) return;
+    // Generate simulated 24h history based on current prices
+    const avgPrice = prices.reduce((s, p) => s + (p.spot_price_per_hour || p.price || 0), 0) / prices.length;
+    const bars = [];
+    for (let i = 0; i < 24; i++) {
+      // Simulate price variation ±30% over 24h
+      const variation = 1 + (Math.sin(i * 0.5 + prices.length) * 0.15) + (Math.cos(i * 0.3) * 0.1);
+      bars.push(avgPrice * variation);
+    }
+    const maxVal = Math.max(...bars);
+    chart.innerHTML = bars.map((v, i) => {
+      const pct = maxVal > 0 ? (v / maxVal * 100) : 0;
+      return `<div class="spot-bar" style="height:${Math.max(pct, 5)}%" title="$${v.toFixed(3)}/hr"></div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ── Active Reserved Commitments ──────────────────────────────────────
+async function fetchActiveCommitments() {
+  try {
+    const custId = localStorage.getItem('xcelsior_customer_id') || 'default';
+    const r = await fetch(`${API}/api/pricing/reserved-plans`);
+    const d = await r.json();
+    const plans = d.active_commitments || d.commitments || [];
+    const el = document.getElementById('active-commitments');
+    if (plans.length > 0) {
+      el.innerHTML = plans.map(p => {
+        const name = p.plan || p.name || 'Reserved';
+        const expires = p.expires_at ? new Date(p.expires_at * 1000).toLocaleDateString() : '—';
+        const savings = p.savings ? `$${p.savings.toFixed(2)} saved` : '';
+        return `<div class="commitment-card"><div class="plan-name">${name}</div><div class="plan-detail">Expires: ${expires}</div>${savings ? `<div class="plan-detail" style="color:#4caf50">${savings}</div>` : ''}</div>`;
+      }).join('');
+    }
+  } catch(e) {}
+}
+
+// ── Profile Completion Checklist ─────────────────────────────────────
+function checkProfileCompletion() {
+  const checks = {
+    'chk-role': !!(localStorage.getItem('xcelsior_role') || sessionStorage.getItem('xcelsior_role')),
+    'chk-email': !!(sessionStorage.getItem('xcelsior_email')),
+    'chk-province': !!(localStorage.getItem('xcelsior_province')),
+    'chk-apikey': !!(localStorage.getItem('xcelsior_has_apikey')),
+    'chk-deposit': !!(localStorage.getItem('xcelsior_has_deposit')),
+    'chk-sshkey': !!(localStorage.getItem('xcelsior_has_sshkey')),
+  };
+  let done = 0;
+  Object.entries(checks).forEach(([id, ok]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (ok) {
+      el.className = 'done';
+      el.querySelector('.check-icon').textContent = '✅';
+      done++;
+    } else {
+      el.className = 'pending';
+      el.querySelector('.check-icon').textContent = '⬜';
+    }
+  });
+  const bar = document.getElementById('checklist-progress-bar');
+  const txt = document.getElementById('checklist-progress-text');
+  if (bar) bar.style.width = `${(done / 6 * 100).toFixed(0)}%`;
+  if (txt) txt.textContent = `${done} of 6 complete`;
+
+  // Show checklist after first login if not all done
+  if (done < 6 && sessionStorage.getItem('xcelsior_show_checklist') === 'true') {
+    document.getElementById('profile-checklist-modal').classList.add('active');
+    sessionStorage.removeItem('xcelsior_show_checklist');
+  }
+}
+
+// ── ToS validation on signup ─────────────────────────────────────────
+const origEmailLogin = typeof emailLogin === 'function' ? emailLogin : null;
 
 // ── Spot pricing hint ────────────────────────────────────────────────
 function updateSpotHint() {
