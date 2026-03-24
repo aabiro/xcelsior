@@ -220,9 +220,9 @@ class TestHostRegistrationFlow:
 
 class TestHealthEndpoint:
     def test_root(self):
-        r = client.get("/")
-        assert r.status_code == 200
-        assert r.json()["name"] == "Xcelsior"
+        r = client.get("/", follow_redirects=False)
+        assert r.status_code == 307
+        assert "/dashboard" in r.headers.get("location", "")
 
     def test_healthz(self):
         r = client.get("/healthz")

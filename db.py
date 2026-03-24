@@ -740,10 +740,16 @@ def _ensure_auth_tables(conn):
             email TEXT NOT NULL,
             user_id TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'submitter',
+            scope TEXT NOT NULL DEFAULT 'full-access',
             created_at REAL NOT NULL,
             last_used REAL
         )
     """)
+    # Migration: add scope column if missing
+    try:
+        conn.execute("SELECT scope FROM api_keys LIMIT 1")
+    except Exception:
+        conn.execute("ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'full-access'")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS teams (
             team_id TEXT PRIMARY KEY,
@@ -902,12 +908,13 @@ class UserStore:
     def create_api_key(key_data: dict) -> None:
         with auth_connection() as conn:
             conn.execute("""
-                INSERT INTO api_keys (key, name, email, user_id, role, created_at, last_used)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO api_keys (key, name, email, user_id, role, scope, created_at, last_used)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 key_data["key"], key_data.get("name", "default"),
                 key_data["email"], key_data["user_id"],
                 key_data.get("role", "submitter"),
+                key_data.get("scope", "full-access"),
                 key_data.get("created_at", time.time()), key_data.get("last_used"),
             ))
 
