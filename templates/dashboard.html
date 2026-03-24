@@ -464,19 +464,19 @@
 </div>
 
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
-  <button class="tab-btn" onclick="showTab('telemetry')">GPU Telemetry</button>
-  <button class="tab-btn" onclick="showTab('trust')">Trust & Verification</button>
-  <button class="tab-btn" onclick="showTab('billing-tab')">Billing & Fund</button>
-  <button class="tab-btn" onclick="showTab('earnings')">My Earnings</button>
-  <button class="tab-btn" onclick="showTab('reputation-tab')">Reputation</button>
-  <button class="tab-btn" onclick="showTab('job-logs')">Job Logs</button>
-  <button class="tab-btn" onclick="showTab('analytics')">📊 Analytics</button>
-  <button class="tab-btn" onclick="showTab('artifacts')">📦 Artifacts</button>
-  <button class="tab-btn" onclick="showTab('slurm')">🖥️ HPC/Slurm</button>
-  <button class="tab-btn" onclick="showTab('admin')" id="admin-tab-btn" style="display:none">🔧 Admin</button>
-  <button class="tab-btn" onclick="showTab('logs')">Event Log</button>
-  <button class="tab-btn" onclick="showTab('settings')">⚙️ Settings</button>
+  <button class="tab-btn active" onclick="showTab('overview', this)">Overview</button>
+  <button class="tab-btn" onclick="showTab('telemetry', this)">GPU Telemetry</button>
+  <button class="tab-btn" onclick="showTab('trust', this)">Trust & Verification</button>
+  <button class="tab-btn" onclick="showTab('billing-tab', this)">Billing & Fund</button>
+  <button class="tab-btn" onclick="showTab('earnings', this)">My Earnings</button>
+  <button class="tab-btn" onclick="showTab('reputation-tab', this)">Reputation</button>
+  <button class="tab-btn" onclick="showTab('job-logs', this)">Job Logs</button>
+  <button class="tab-btn" onclick="showTab('analytics', this)">📊 Analytics</button>
+  <button class="tab-btn" onclick="showTab('artifacts', this)">📦 Artifacts</button>
+  <button class="tab-btn" onclick="showTab('slurm', this)">🖥️ HPC/Slurm</button>
+  <button class="tab-btn" onclick="showTab('admin', this)" id="admin-tab-btn" style="display:none">🔧 Admin</button>
+  <button class="tab-btn" onclick="showTab('logs', this)">Event Log</button>
+  <button class="tab-btn" onclick="showTab('settings', this)">⚙️ Settings</button>
 </div>
 
 <div id="low-balance-banner" class="low-balance-banner">⚠️ Low balance! Your wallet is below $5.00. <a href="#" onclick="showDepositModal()" style="color:#ff9800;text-decoration:underline">Add credits now</a> to avoid job failures.</div>
@@ -1846,9 +1846,11 @@
 const API = '';
 
 // ── Tab switching ────────────────────────────────────────────────────
-function showTab(name) {
+function showTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  // Use the passed button element, or find it by tab name
+  const activeBtn = btn || document.querySelector(`.tab-btn[onclick*="'${name}'"]`);
+  if (activeBtn) activeBtn.classList.add('active');
   ['tab-overview', 'tab-telemetry', 'tab-trust', 'tab-billing-tab', 'tab-earnings', 'tab-reputation-tab', 'tab-job-logs', 'tab-analytics', 'tab-artifacts', 'tab-slurm', 'tab-admin', 'tab-logs', 'tab-settings'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = (id === `tab-${name}`) ? '' : 'none';
@@ -3788,6 +3790,8 @@ async function fetchComplianceData() {
   // Fetch GST registration threshold
   fetchGSTThreshold();
 }
+
+async function runQuebecPIA() {
   try {
     const r = await fetch(`${API}/api/compliance/quebec-pia-check`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -3804,7 +3808,7 @@ async function fetchComplianceData() {
       el.style.background = '#1a0a0a';
       el.innerHTML = `<span style="color:#f44336;font-weight:bold">⚠️ Quebec PIA: Issues Found</span><br><span style="color:#888;font-size:11px">${d.detail || d.message || d.issues?.join(', ') || 'Review required.'}</span>`;
     }
-  } catch(e) { showToast('PIA check error: ' + e.message, 'error'); 
+  } catch(e) { showToast('PIA check error: ' + e.message, 'error'); }
 }
 
 

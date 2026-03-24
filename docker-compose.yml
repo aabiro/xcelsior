@@ -2,13 +2,13 @@ version: '3.9'
 services:
   api:
     build: .
-    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    command: uvicorn api:app --host 0.0.0.0 --port 9500
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@db:5432/xcelsior
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/xcelsior
       XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-sqlite}
       XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
       XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
@@ -23,13 +23,12 @@ services:
       XCELSIOR_EMAIL_TO: ${XCELSIOR_EMAIL_TO:-}
       XCELSIOR_TG_TOKEN: ${XCELSIOR_TG_TOKEN:-}
       XCELSIOR_TG_CHAT_ID: ${XCELSIOR_TG_CHAT_ID:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - xcelsior-data:/data
     ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
+      - "9500:9500"
     restart: unless-stopped
 
   scheduler-worker:
@@ -40,33 +39,14 @@ services:
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@db:5432/xcelsior
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/xcelsior
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - xcelsior-data:/data
-    depends_on:
-      db:
-        condition: service_healthy
     restart: unless-stopped
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${XCELSIOR_POSTGRES_DB:-xcelsior}
-      POSTGRES_USER: ${XCELSIOR_POSTGRES_USER:-xcelsior}
-      POSTGRES_PASSWORD: ${XCELSIOR_POSTGRES_PASSWORD}
-    volumes:
-      - xcelsior-postgres:/var/lib/postgresql/data
-      - ./scripts/init-test-db.sh:/docker-entrypoint-initdb.d/10-init-test-db.sh:ro
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${XCELSIOR_POSTGRES_USER:-xcelsior} -d ${XCELSIOR_POSTGRES_DB:-xcelsior}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 volumes:
   xcelsior-data:
-  xcelsior-postgres:

@@ -10,7 +10,7 @@ Group=xcelsior
 WorkingDirectory=/opt/xcelsior
 Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
 EnvironmentFile=/opt/xcelsior/.env
-ExecStart=/opt/xcelsior/venv/bin/gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --access-logfile - --error-logfile -
+ExecStart=/opt/xcelsior/venv/bin/gunicorn api:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:9500 --access-logfile - --error-logfile -
 
 # Restart policy
 Restart=always

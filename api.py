@@ -2403,9 +2403,10 @@ def metrics():
     return {"ok": True, "metrics": get_metrics_snapshot()}
 
 
-@app.get("/", tags=["Infrastructure"])
+@app.get("/", tags=["Infrastructure"], include_in_schema=False)
 def root():
-    return {"name": "Xcelsior", "status": "running"}
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/dashboard")
 
 
 # ═══════════════════════════════════════════════════════════════════════
