@@ -252,6 +252,21 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             token = request.query_params.get("token", "")
 
         if not token or not hmac.compare_digest(token, api_token):
+            # Also accept valid user session tokens and API keys
+            if token:
+                if _USE_PERSISTENT_AUTH:
+                    session = UserStore.get_session(token)
+                    if session:
+                        return await call_next(request)
+                    api_key = UserStore.get_api_key(token)
+                    if api_key:
+                        return await call_next(request)
+                else:
+                    with _user_lock:
+                        if token in _sessions and _sessions[token]["expires_at"] > time.time():
+                            return await call_next(request)
+                        if token in _api_keys:
+                            return await call_next(request)
             return JSONResponse(
                 status_code=401,
                 content={"ok": False, "error": {"code": "unauthorized", "message": "Unauthorized"}},
