@@ -32,9 +32,7 @@ from reputation import (
 
 
 def _engine() -> ReputationEngine:
-    store = ReputationStore(
-        db_path=os.path.join(_tmpdir, f"rep_{os.urandom(4).hex()}.db")
-    )
+    store = ReputationStore(db_path=os.path.join(_tmpdir, f"rep_{os.urandom(4).hex()}.db"))
     return ReputationEngine(store=store)
 
 
@@ -90,7 +88,10 @@ class TestVerificationPoints:
         eng = _engine()
         eng.add_verification("host-v3", VerificationType.EMAIL)
         score = eng.add_verification("host-v3", VerificationType.PHONE)
-        expected = VERIFICATION_POINTS[VerificationType.EMAIL] + VERIFICATION_POINTS[VerificationType.PHONE]
+        expected = (
+            VERIFICATION_POINTS[VerificationType.EMAIL]
+            + VERIFICATION_POINTS[VerificationType.PHONE]
+        )
         assert score.verification_points == min(expected, MAX_VERIFICATION_POINTS)
 
     def test_capped_at_max(self):
@@ -172,15 +173,17 @@ class TestReliability:
 
     def test_perfect_reliability(self):
         eng = _engine()
-        score = eng.update_reliability("host-rel-1", uptime_pct=1.0,
-                                       job_success_rate=1.0, network_stability=1.0)
+        score = eng.update_reliability(
+            "host-rel-1", uptime_pct=1.0, job_success_rate=1.0, network_stability=1.0
+        )
         assert score.reliability_score == pytest.approx(1.0, abs=0.01)
 
     def test_zero_reliability_zeroes_score(self):
         eng = _engine()
         eng.add_verification("host-rel-2", VerificationType.EMAIL)
-        score = eng.update_reliability("host-rel-2", uptime_pct=0, job_success_rate=0,
-                                       network_stability=0)
+        score = eng.update_reliability(
+            "host-rel-2", uptime_pct=0, job_success_rate=0, network_stability=0
+        )
         assert score.reliability_score == 0.0
         assert score.final_score == 0
 

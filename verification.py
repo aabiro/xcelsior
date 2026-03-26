@@ -35,6 +35,7 @@ log = logging.getLogger("xcelsior")
 
 # ── Host Verification States ─────────────────────────────────────────
 
+
 class HostVerificationState(str, Enum):
     UNVERIFIED = "unverified"
     VERIFYING = "verifying"
@@ -45,23 +46,24 @@ class HostVerificationState(str, Enum):
 # ── Benchmark / Verification Thresholds ──────────────────────────────
 
 VERIFICATION_THRESHOLDS = {
-    "min_pcie_bandwidth_gbps": 8.0,       # Minimum PCIe bandwidth in GB/s
-    "max_gpu_temp_celsius": 90,           # Max sustained GPU temp
-    "min_vram_match_pct": 95.0,           # VRAM must be >= 95% of claimed
-    "min_cuda_compute_capability": 7.0,   # Minimum CUDA compute capability
-    "max_network_loss_pct": 2.0,          # Max acceptable packet loss
-    "max_network_jitter_ms": 50.0,        # Max acceptable jitter
+    "min_pcie_bandwidth_gbps": 8.0,  # Minimum PCIe bandwidth in GB/s
+    "max_gpu_temp_celsius": 90,  # Max sustained GPU temp
+    "min_vram_match_pct": 95.0,  # VRAM must be >= 95% of claimed
+    "min_cuda_compute_capability": 7.0,  # Minimum CUDA compute capability
+    "max_network_loss_pct": 2.0,  # Max acceptable packet loss
+    "max_network_jitter_ms": 50.0,  # Max acceptable jitter
     "min_network_throughput_mbps": 100.0,  # Min network throughput
-    "job_failure_window_sec": 3600,       # Window for counting failures
-    "job_failure_threshold": 3,           # Failures in window → deverify
-    "reverify_interval_sec": 86400,       # Re-verify every 24 hours
-    "deverify_cooldown_sec": 1800,        # 30 min cooldown before re-verify
+    "job_failure_window_sec": 3600,  # Window for counting failures
+    "job_failure_threshold": 3,  # Failures in window → deverify
+    "reverify_interval_sec": 86400,  # Re-verify every 24 hours
+    "deverify_cooldown_sec": 1800,  # 30 min cooldown before re-verify
 }
 
 
 @dataclass
 class VerificationResult:
     """Result of a host verification check."""
+
     check_name: str
     passed: bool
     expected: str = ""
@@ -76,6 +78,7 @@ class VerificationResult:
 @dataclass
 class HostVerification:
     """Complete verification record for a host."""
+
     verification_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     host_id: str = ""
     state: str = HostVerificationState.UNVERIFIED
@@ -86,8 +89,8 @@ class HostVerification:
     last_check_at: Optional[float] = None
     next_check_at: Optional[float] = None
     failure_count: int = 0
-    gpu_fingerprint: str = ""           # SHA256 of GPU identity for drift detection
-    overall_score: float = 0.0          # 0-100 verification score
+    gpu_fingerprint: str = ""  # SHA256 of GPU identity for drift detection
+    overall_score: float = 0.0  # 0-100 verification score
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -98,6 +101,7 @@ class HostVerification:
 # ── Verification Checks ──────────────────────────────────────────────
 # Each check takes a host_report dict (from agent telemetry) and returns
 # a VerificationResult.
+
 
 def check_gpu_identity(report: dict) -> VerificationResult:
     """Verify GPU identity, VRAM, and serial number match claimed values.
@@ -112,9 +116,10 @@ def check_gpu_identity(report: dict) -> VerificationResult:
     actual_vram = float(report.get("total_vram_gb", 0))
 
     model_match = (
-        claimed_model.lower().replace(" ", "") ==
-        actual_model.lower().replace(" ", "")
-    ) if claimed_model and actual_model else False
+        (claimed_model.lower().replace(" ", "") == actual_model.lower().replace(" ", ""))
+        if claimed_model and actual_model
+        else False
+    )
 
     vram_pct = (actual_vram / claimed_vram * 100) if claimed_vram > 0 else 0
     vram_ok = vram_pct >= VERIFICATION_THRESHOLDS["min_vram_match_pct"]
@@ -253,6 +258,7 @@ def check_memory_fragmentation(report: dict) -> VerificationResult:
 def check_security_posture(report: dict) -> VerificationResult:
     """Verify container runtime and security meet minimum requirements."""
     from security import check_node_versions
+
     versions = report.get("versions", {})
     admitted, reasons = check_node_versions(versions)
 
@@ -266,26 +272,26 @@ def check_security_posture(report: dict) -> VerificationResult:
 
 # All verification checks in order (7 checks per REPORT_FEATURE_1.md)
 VERIFICATION_CHECKS = [
-    check_gpu_identity,          # Model/serial/VRAM via NVML
-    check_cuda_readiness,        # CUDA + driver + compute capability
-    check_pcie_bandwidth,        # PCIe throughput sanity
-    check_thermal_stability,     # GPU temp within limits
-    check_network_quality,       # Loss, jitter, throughput
+    check_gpu_identity,  # Model/serial/VRAM via NVML
+    check_cuda_readiness,  # CUDA + driver + compute capability
+    check_pcie_bandwidth,  # PCIe throughput sanity
+    check_thermal_stability,  # GPU temp within limits
+    check_network_quality,  # Loss, jitter, throughput
     check_memory_fragmentation,  # PyTorch allocated vs reserved
-    check_security_posture,      # Container runtime + security
+    check_security_posture,  # Container runtime + security
 ]
 
 
 # ── Verification Store ────────────────────────────────────────────────
+
 
 class VerificationStore:
     """Persistent store for host verification state and history."""
 
     def __init__(self, db_path: Optional[str] = None):
         import os
-        self.db_path = db_path or os.path.join(
-            os.path.dirname(__file__), "xcelsior_events.db"
-        )
+
+        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_events.db")
         self._init_db()
 
     def _init_db(self):
@@ -395,10 +401,19 @@ class VerificationStore:
                     checks=excluded.checks,
                     updated_at=excluded.updated_at""",
                 (
-                    v.host_id, v.verification_id, v.state, v.verified_at,
-                    v.deverified_at, v.deverify_reason, v.last_check_at,
-                    v.next_check_at, v.failure_count, v.gpu_fingerprint,
-                    v.overall_score, json.dumps(v.checks), time.time(),
+                    v.host_id,
+                    v.verification_id,
+                    v.state,
+                    v.verified_at,
+                    v.deverified_at,
+                    v.deverify_reason,
+                    v.last_check_at,
+                    v.next_check_at,
+                    v.failure_count,
+                    v.gpu_fingerprint,
+                    v.overall_score,
+                    json.dumps(v.checks),
+                    time.time(),
                 ),
             )
             # History entry
@@ -407,9 +422,13 @@ class VerificationStore:
                    (host_id, verification_id, state, checks, score, reason, timestamp)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    v.host_id, v.verification_id, v.state,
-                    json.dumps(v.checks), v.overall_score,
-                    v.deverify_reason, time.time(),
+                    v.host_id,
+                    v.verification_id,
+                    v.state,
+                    json.dumps(v.checks),
+                    v.overall_score,
+                    v.deverify_reason,
+                    time.time(),
                 ),
             )
 
@@ -421,8 +440,7 @@ class VerificationStore:
                 (host_id, job_id, time.time(), reason),
             )
 
-    def get_recent_failures(self, host_id: str,
-                            window_sec: Optional[int] = None) -> int:
+    def get_recent_failures(self, host_id: str, window_sec: Optional[int] = None) -> int:
         """Count recent failures for a host within the window."""
         window = window_sec or VERIFICATION_THRESHOLDS["job_failure_window_sec"]
         cutoff = time.time() - window
@@ -465,6 +483,7 @@ class VerificationStore:
 
 # ── Verification Engine ──────────────────────────────────────────────
 
+
 class VerificationEngine:
     """Runs verification checks and manages host verification lifecycle.
 
@@ -500,10 +519,13 @@ class VerificationEngine:
         # Check cooldown for deverified hosts
         if existing and existing.state == HostVerificationState.DEVERIFIED:
             if existing.deverified_at:
-                cooldown_end = existing.deverified_at + VERIFICATION_THRESHOLDS["deverify_cooldown_sec"]
+                cooldown_end = (
+                    existing.deverified_at + VERIFICATION_THRESHOLDS["deverify_cooldown_sec"]
+                )
                 if now < cooldown_end:
-                    log.info("VERIFY COOLDOWN host=%s (%.0fs remaining)",
-                             host_id, cooldown_end - now)
+                    log.info(
+                        "VERIFY COOLDOWN host=%s (%.0fs remaining)", host_id, cooldown_end - now
+                    )
                     return existing
 
         # Run all checks
@@ -513,11 +535,13 @@ class VerificationEngine:
                 result = check_fn(report)
                 results.append(result.to_dict())
             except Exception as e:
-                results.append(VerificationResult(
-                    check_name=check_fn.__name__,
-                    passed=False,
-                    details=f"Check error: {e}",
-                ).to_dict())
+                results.append(
+                    VerificationResult(
+                        check_name=check_fn.__name__,
+                        passed=False,
+                        details=f"Check error: {e}",
+                    ).to_dict()
+                )
 
         # Calculate overall score
         passed_count = sum(1 for r in results if r.get("passed"))
@@ -526,6 +550,7 @@ class VerificationEngine:
 
         # Compute GPU fingerprint for drift detection (includes serial for anti-spoofing)
         import hashlib
+
         fingerprint = hashlib.sha256(
             f"{report.get('gpu_model', '')}:{report.get('total_vram_gb', '')}:"
             f"{report.get('driver_version', '')}:{report.get('cuda_version', '')}:"
@@ -539,8 +564,9 @@ class VerificationEngine:
         fingerprint_drift = False
         if existing and existing.gpu_fingerprint and existing.gpu_fingerprint != fingerprint:
             fingerprint_drift = True
-            log.warning("GPU DRIFT host=%s old=%s new=%s",
-                        host_id, existing.gpu_fingerprint, fingerprint)
+            log.warning(
+                "GPU DRIFT host=%s old=%s new=%s", host_id, existing.gpu_fingerprint, fingerprint
+            )
 
         if all_passed and not fingerprint_drift:
             new_state = HostVerificationState.VERIFIED
@@ -564,8 +590,7 @@ class VerificationEngine:
             v.verified_at = now
             v.deverified_at = None
             v.deverify_reason = ""
-            log.info("HOST VERIFIED host=%s score=%.0f fingerprint=%s",
-                     host_id, score, fingerprint)
+            log.info("HOST VERIFIED host=%s score=%.0f fingerprint=%s", host_id, score, fingerprint)
         else:
             v.deverified_at = now
             failed_checks = [r["check_name"] for r in results if not r.get("passed")]
@@ -573,14 +598,12 @@ class VerificationEngine:
             if fingerprint_drift:
                 reason += " + GPU fingerprint drift"
             v.deverify_reason = reason
-            log.warning("HOST DEVERIFIED host=%s reason=%s score=%.0f",
-                        host_id, reason, score)
+            log.warning("HOST DEVERIFIED host=%s reason=%s score=%.0f", host_id, reason, score)
 
         self.store.save_verification(v)
         return v
 
-    def check_failure_threshold(self, host_id: str, job_id: str,
-                                reason: str = "") -> bool:
+    def check_failure_threshold(self, host_id: str, job_id: str, reason: str = "") -> bool:
         """Record a job failure and check if host should be deverified.
 
         Returns True if host was deverified due to exceeding failure threshold.
@@ -600,8 +623,7 @@ class VerificationEngine:
                 )
                 existing.failure_count = recent
                 self.store.save_verification(existing)
-                log.warning("HOST AUTO-DEVERIFIED host=%s failures=%d",
-                            host_id, recent)
+                log.warning("HOST AUTO-DEVERIFIED host=%s failures=%d", host_id, recent)
                 return True
         return False
 

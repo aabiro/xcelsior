@@ -22,6 +22,11 @@ os.environ["XCELSIOR_AUTH_DB_PATH"] = os.path.join(_tmpdir, "auth.db")
 os.environ["XCELSIOR_ENV"] = "test"
 os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"  # Prevent 429s in tests
 
+# Fake OAuth credentials so /api/auth/oauth/{provider} returns 200 instead of 503
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
+os.environ.setdefault("GITHUB_CLIENT_ID", "test-github-client-id")
+os.environ.setdefault("HUGGINGFACE_CLIENT_ID", "test-hf-client-id")
+
 import scheduler
 
 # Patch file paths to use temp directory
@@ -49,6 +54,7 @@ scheduler.log.addHandler(_fh)
 from fastapi.testclient import TestClient
 from api import app
 import db as db_mod
+
 db_mod.AUTH_DB_FILE = os.path.join(_tmpdir, "auth.db")
 
 client = TestClient(app)
@@ -69,13 +75,25 @@ BAD_VERSIONS = {
 }
 
 
-def _register_host(host_id="h1", ip="10.0.0.1", gpu="RTX 4090", vram=24,
-                    country="CA", province="ON", versions=None, **extra):
+def _register_host(
+    host_id="h1",
+    ip="10.0.0.1",
+    gpu="RTX 4090",
+    vram=24,
+    country="CA",
+    province="ON",
+    versions=None,
+    **extra,
+):
     """Helper to register a host with optional parameters."""
     data = {
-        "host_id": host_id, "ip": ip, "gpu_model": gpu,
-        "total_vram_gb": vram, "free_vram_gb": vram,
-        "country": country, "province": province,
+        "host_id": host_id,
+        "ip": ip,
+        "gpu_model": gpu,
+        "total_vram_gb": vram,
+        "free_vram_gb": vram,
+        "country": country,
+        "province": province,
     }
     if versions is not None:
         data["versions"] = versions
@@ -106,6 +124,7 @@ def clean_data():
             os.remove(f)
     # Clear in-memory telemetry and rate limit buckets
     import api as api_mod
+
     api_mod._host_telemetry.clear()
     api_mod._RATE_BUCKETS.clear()
     yield
@@ -354,8 +373,10 @@ class TestJobEndpoints:
     def test_submit_job_with_nfs(self):
         """NFS mount support in job submission."""
         r = _submit_job(
-            "nfs-model", 16,
-            nfs_server="10.0.0.5", nfs_path="/exports/models",
+            "nfs-model",
+            16,
+            nfs_server="10.0.0.5",
+            nfs_path="/exports/models",
             nfs_mount_point="/mnt/models",
         )
         assert r.status_code == 200
@@ -413,11 +434,14 @@ class TestAuth:
 class TestTelemetry:
     def test_telemetry_push_pull(self):
         """POST telemetry → GET returns it."""
-        client.post("/agent/telemetry", json={
-            "host_id": "h1",
-            "timestamp": time.time(),
-            "metrics": {"utilization": 85, "temp": 72, "memory_errors": 0},
-        })
+        client.post(
+            "/agent/telemetry",
+            json={
+                "host_id": "h1",
+                "timestamp": time.time(),
+                "metrics": {"utilization": 85, "temp": 72, "memory_errors": 0},
+            },
+        )
         r = client.get("/agent/telemetry/h1")
         assert r.status_code == 200
         assert r.json()["metrics"]["utilization"] == 85
@@ -429,12 +453,20 @@ class TestTelemetry:
 
     def test_telemetry_all(self):
         """GET /api/telemetry/all returns all host telemetry."""
-        client.post("/agent/telemetry", json={
-            "host_id": "h1", "metrics": {"utilization": 50},
-        })
-        client.post("/agent/telemetry", json={
-            "host_id": "h2", "metrics": {"utilization": 90},
-        })
+        client.post(
+            "/agent/telemetry",
+            json={
+                "host_id": "h1",
+                "metrics": {"utilization": 50},
+            },
+        )
+        client.post(
+            "/agent/telemetry",
+            json={
+                "host_id": "h2",
+                "metrics": {"utilization": 90},
+            },
+        )
         r = client.get("/api/telemetry/all")
         assert r.status_code == 200
         assert r.json()["count"] == 2
@@ -442,6 +474,7 @@ class TestTelemetry:
     def test_telemetry_stale_detection(self):
         """Telemetry older than 30s is marked stale."""
         import api as api_mod
+
         api_mod._host_telemetry["h-stale"] = {
             "timestamp": time.time() - 60,
             "metrics": {"utilization": 10},
@@ -474,10 +507,13 @@ class TestReputation:
 
     def test_reputation_verify(self):
         """POST /api/reputation/verify grants verification badge."""
-        r = client.post("/api/reputation/verify", json={
-            "entity_id": "host-1",
-            "verification_type": "email",
-        })
+        r = client.post(
+            "/api/reputation/verify",
+            json={
+                "entity_id": "host-1",
+                "verification_type": "email",
+            },
+        )
         assert r.status_code == 200
         rep = r.json()["reputation"]
         # Verify the reputation dict has expected keys
@@ -486,10 +522,13 @@ class TestReputation:
 
     def test_reputation_verify_invalid_type(self):
         """Invalid verification type → 400."""
-        r = client.post("/api/reputation/verify", json={
-            "entity_id": "host-1",
-            "verification_type": "invalid_type",
-        })
+        r = client.post(
+            "/api/reputation/verify",
+            json={
+                "entity_id": "host-1",
+                "verification_type": "invalid_type",
+            },
+        )
         assert r.status_code == 400
 
 
@@ -503,11 +542,14 @@ class TestPricing:
 
     def test_pricing_estimate(self):
         """POST /api/pricing/estimate returns cost."""
-        r = client.post("/api/pricing/estimate", json={
-            "gpu_model": "RTX 4090",
-            "duration_hours": 1.0,
-            "is_canadian": True,
-        })
+        r = client.post(
+            "/api/pricing/estimate",
+            json={
+                "gpu_model": "RTX 4090",
+                "duration_hours": 1.0,
+                "is_canadian": True,
+            },
+        )
         assert r.status_code == 200
         data = r.json()
         assert data["ok"]
@@ -516,11 +558,14 @@ class TestPricing:
 
     def test_pricing_estimate_spot(self):
         """Spot pricing estimate."""
-        r = client.post("/api/pricing/estimate", json={
-            "gpu_model": "RTX 4090",
-            "duration_hours": 2.0,
-            "spot": True,
-        })
+        r = client.post(
+            "/api/pricing/estimate",
+            json={
+                "gpu_model": "RTX 4090",
+                "duration_hours": 2.0,
+                "spot": True,
+            },
+        )
         assert r.status_code == 200
         assert r.json()["ok"]
 
@@ -539,23 +584,29 @@ class TestPricing:
 
     def test_reserve_commitment(self):
         """POST /api/pricing/reserve creates a commitment."""
-        r = client.post("/api/pricing/reserve", json={
-            "customer_id": "cust-1",
-            "gpu_model": "RTX 4090",
-            "commitment_type": "1_month",
-            "quantity": 1,
-            "province": "ON",
-        })
+        r = client.post(
+            "/api/pricing/reserve",
+            json={
+                "customer_id": "cust-1",
+                "gpu_model": "RTX 4090",
+                "commitment_type": "1_month",
+                "quantity": 1,
+                "province": "ON",
+            },
+        )
         assert r.status_code == 200
         assert r.json()["ok"]
 
     def test_reserve_invalid_commitment(self):
         """Invalid commitment_type → 400."""
-        r = client.post("/api/pricing/reserve", json={
-            "customer_id": "cust-1",
-            "gpu_model": "RTX 4090",
-            "commitment_type": "5_year",
-        })
+        r = client.post(
+            "/api/pricing/reserve",
+            json={
+                "customer_id": "cust-1",
+                "gpu_model": "RTX 4090",
+                "commitment_type": "5_year",
+            },
+        )
         assert r.status_code == 400
 
 
@@ -591,11 +642,14 @@ class TestBillingEndpoints:
 
     def test_billing_refund(self):
         """POST /api/billing/refund processes a refund."""
-        r = client.post("/api/billing/refund", json={
-            "job_id": "job-test-refund",
-            "exit_code": -1,
-            "failure_reason": "hardware",
-        })
+        r = client.post(
+            "/api/billing/refund",
+            json={
+                "job_id": "job-test-refund",
+                "exit_code": -1,
+                "failure_reason": "hardware",
+            },
+        )
         assert r.status_code == 200
 
 
@@ -679,7 +733,12 @@ class TestMarketplaceEndpoints:
         """DELETE /marketplace/{host_id} removes listing."""
         client.post(
             "/marketplace/list",
-            json={"host_id": "to-remove", "gpu_model": "RTX 4090", "vram_gb": 24, "price_per_hour": 0.30},
+            json={
+                "host_id": "to-remove",
+                "gpu_model": "RTX 4090",
+                "vram_gb": 24,
+                "price_per_hour": 0.30,
+            },
         )
         r = client.delete("/marketplace/to-remove")
         assert r.status_code == 200
@@ -725,24 +784,30 @@ class TestAgentEndpoints:
 
     def test_agent_mining_alert(self):
         """POST /agent/mining-alert receives alert."""
-        r = client.post("/agent/mining-alert", json={
-            "host_id": "h-suspect",
-            "gpu_index": 0,
-            "confidence": 0.95,
-            "reason": "Sustained high util + low PCIe",
-        })
+        r = client.post(
+            "/agent/mining-alert",
+            json={
+                "host_id": "h-suspect",
+                "gpu_index": 0,
+                "confidence": 0.95,
+                "reason": "Sustained high util + low PCIe",
+            },
+        )
         assert r.status_code == 200
         assert r.json()["received"] is True
 
     def test_agent_benchmark(self):
         """POST /agent/benchmark records compute score."""
-        r = client.post("/agent/benchmark", json={
-            "host_id": "h-bench",
-            "gpu_model": "RTX 4090",
-            "score": 8.5,
-            "tflops": 82.6,
-            "details": {"benchmark": "matmul_fp16"},
-        })
+        r = client.post(
+            "/agent/benchmark",
+            json={
+                "host_id": "h-bench",
+                "gpu_model": "RTX 4090",
+                "score": 8.5,
+                "tflops": 82.6,
+                "details": {"benchmark": "matmul_fp16"},
+            },
+        )
         assert r.status_code == 200
         assert r.json()["xcu"] == 8.5
 
@@ -778,9 +843,14 @@ class TestSpotPricingEndpoints:
 
     def test_submit_spot_job(self):
         """POST /spot/job submits interruptible job."""
-        r = client.post("/spot/job", json={
-            "name": "spot-test", "vram_needed_gb": 8, "max_bid": 1.0,
-        })
+        r = client.post(
+            "/spot/job",
+            json={
+                "name": "spot-test",
+                "vram_needed_gb": 8,
+                "max_bid": 1.0,
+            },
+        )
         assert r.status_code == 200
 
     def test_preemption_cycle(self):
@@ -844,12 +914,15 @@ class TestSLAEndpoints:
 
     def test_sla_enforce(self):
         """POST /api/sla/enforce runs monthly enforcement."""
-        r = client.post("/api/sla/enforce", json={
-            "host_id": "h-sla",
-            "month": "2026-01",
-            "tier": "community",
-            "monthly_spend_cad": 500.0,
-        })
+        r = client.post(
+            "/api/sla/enforce",
+            json={
+                "host_id": "h-sla",
+                "month": "2026-01",
+                "tier": "community",
+                "monthly_spend_cad": 500.0,
+            },
+        )
         assert r.status_code == 200
         assert r.json()["ok"]
 
@@ -878,10 +951,13 @@ class TestPrivacyEndpoints:
     def test_consent_crud(self):
         """Record → get → revoke consent lifecycle."""
         # Record consent
-        r = client.post("/api/privacy/consent", json={
-            "entity_id": "user-1",
-            "consent_type": "data_processing",
-        })
+        r = client.post(
+            "/api/privacy/consent",
+            json={
+                "entity_id": "user-1",
+                "consent_type": "data_processing",
+            },
+        )
         assert r.status_code == 200
 
         # Get consents
@@ -955,11 +1031,14 @@ class TestOAuthDeviceFlow:
         device_code = dev.json()["device_code"]
 
         # Poll without verifying — should be pending (428 Precondition Required)
-        r = client.post("/api/auth/token", json={
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            "device_code": device_code,
-            "client_id": "cli-test",
-        })
+        r = client.post(
+            "/api/auth/token",
+            json={
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "device_code": device_code,
+                "client_id": "cli-test",
+            },
+        )
         # RFC 8628: 428 indicates authorization_pending
         assert r.status_code == 428
         err = r.json().get("error", {})
@@ -994,12 +1073,15 @@ class TestUserAuth:
 
     def test_register_user(self):
         """POST /api/auth/register creates account and returns token."""
-        r = client.post("/api/auth/register", json={
-            "email": "testauth@xcelsior.ca",
-            "password": "securepass123",
-            "name": "Test User",
-            "role": "submitter"
-        })
+        r = client.post(
+            "/api/auth/register",
+            json={
+                "email": "testauth@xcelsior.ca",
+                "password": "securepass123",
+                "name": "Test User",
+                "role": "submitter",
+            },
+        )
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -1012,37 +1094,35 @@ class TestUserAuth:
     def test_register_duplicate_email(self):
         """POST /api/auth/register with existing email returns 409."""
         # First register
-        client.post("/api/auth/register", json={
-            "email": "duplicate@xcelsior.ca",
-            "password": "securepass123"
-        })
+        client.post(
+            "/api/auth/register",
+            json={"email": "duplicate@xcelsior.ca", "password": "securepass123"},
+        )
         # Second register with same email
-        r = client.post("/api/auth/register", json={
-            "email": "duplicate@xcelsior.ca",
-            "password": "otherpass123"
-        })
+        r = client.post(
+            "/api/auth/register",
+            json={"email": "duplicate@xcelsior.ca", "password": "otherpass123"},
+        )
         assert r.status_code == 409
 
     def test_register_short_password(self):
         """POST /api/auth/register with <8 char password returns 400."""
-        r = client.post("/api/auth/register", json={
-            "email": "shortpw@xcelsior.ca",
-            "password": "short"
-        })
+        r = client.post(
+            "/api/auth/register", json={"email": "shortpw@xcelsior.ca", "password": "short"}
+        )
         assert r.status_code == 400
 
     def test_login_success(self):
         """POST /api/auth/login with valid credentials returns token."""
         # Register first
-        client.post("/api/auth/register", json={
-            "email": "logintest@xcelsior.ca",
-            "password": "mypassword123"
-        })
+        client.post(
+            "/api/auth/register",
+            json={"email": "logintest@xcelsior.ca", "password": "mypassword123"},
+        )
         # Login
-        r = client.post("/api/auth/login", json={
-            "email": "logintest@xcelsior.ca",
-            "password": "mypassword123"
-        })
+        r = client.post(
+            "/api/auth/login", json={"email": "logintest@xcelsior.ca", "password": "mypassword123"}
+        )
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -1051,22 +1131,20 @@ class TestUserAuth:
 
     def test_login_wrong_password(self):
         """POST /api/auth/login with wrong password returns 401."""
-        client.post("/api/auth/register", json={
-            "email": "wrongpw@xcelsior.ca",
-            "password": "correctpass123"
-        })
-        r = client.post("/api/auth/login", json={
-            "email": "wrongpw@xcelsior.ca",
-            "password": "wrongpass"
-        })
+        client.post(
+            "/api/auth/register",
+            json={"email": "wrongpw@xcelsior.ca", "password": "correctpass123"},
+        )
+        r = client.post(
+            "/api/auth/login", json={"email": "wrongpw@xcelsior.ca", "password": "wrongpass"}
+        )
         assert r.status_code == 401
 
     def test_login_nonexistent_user(self):
         """POST /api/auth/login with unknown email returns 401."""
-        r = client.post("/api/auth/login", json={
-            "email": "nobody@xcelsior.ca",
-            "password": "whatever123"
-        })
+        r = client.post(
+            "/api/auth/login", json={"email": "nobody@xcelsior.ca", "password": "whatever123"}
+        )
         assert r.status_code == 401
 
     def test_oauth_login(self):
@@ -1086,11 +1164,14 @@ class TestUserAuth:
 
     def test_get_profile(self):
         """GET /api/auth/me returns user profile when authenticated."""
-        reg = client.post("/api/auth/register", json={
-            "email": "profiletest@xcelsior.ca",
-            "password": "testpass123",
-            "name": "Profile User"
-        }).json()
+        reg = client.post(
+            "/api/auth/register",
+            json={
+                "email": "profiletest@xcelsior.ca",
+                "password": "testpass123",
+                "name": "Profile User",
+            },
+        ).json()
         token = reg["access_token"]
 
         r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -1107,15 +1188,17 @@ class TestUserAuth:
 
     def test_update_profile(self):
         """PATCH /api/auth/me updates profile fields."""
-        reg = client.post("/api/auth/register", json={
-            "email": "updateprofile@xcelsior.ca",
-            "password": "testpass123"
-        }).json()
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "updateprofile@xcelsior.ca", "password": "testpass123"},
+        ).json()
         token = reg["access_token"]
 
-        r = client.patch("/api/auth/me",
+        r = client.patch(
+            "/api/auth/me",
             headers={"Authorization": f"Bearer {token}"},
-            json={"name": "Updated Name", "role": "provider", "country": "CA", "province": "BC"})
+            json={"name": "Updated Name", "role": "provider", "country": "CA", "province": "BC"},
+        )
         assert r.status_code == 200
         assert r.json()["ok"] is True
 
@@ -1127,10 +1210,10 @@ class TestUserAuth:
 
     def test_refresh_token(self):
         """POST /api/auth/refresh returns new token and invalidates old."""
-        reg = client.post("/api/auth/register", json={
-            "email": "refreshtest@xcelsior.ca",
-            "password": "testpass123"
-        }).json()
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "refreshtest@xcelsior.ca", "password": "testpass123"},
+        ).json()
         old_token = reg["access_token"]
 
         r = client.post("/api/auth/refresh", headers={"Authorization": f"Bearer {old_token}"})
@@ -1144,20 +1227,19 @@ class TestUserAuth:
 
     def test_delete_account(self):
         """DELETE /api/auth/me removes account."""
-        reg = client.post("/api/auth/register", json={
-            "email": "deletetest@xcelsior.ca",
-            "password": "testpass123"
-        }).json()
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "deletetest@xcelsior.ca", "password": "testpass123"},
+        ).json()
         token = reg["access_token"]
 
         r = client.delete("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
 
         # Login should fail after deletion
-        r2 = client.post("/api/auth/login", json={
-            "email": "deletetest@xcelsior.ca",
-            "password": "testpass123"
-        })
+        r2 = client.post(
+            "/api/auth/login", json={"email": "deletetest@xcelsior.ca", "password": "testpass123"}
+        )
         assert r2.status_code == 401
 
 
@@ -1166,15 +1248,15 @@ class TestApiKeys:
 
     def test_generate_and_list_keys(self):
         """Generate an API key and verify it appears in the list."""
-        reg = client.post("/api/auth/register", json={
-            "email": "keysuser@xcelsior.ca",
-            "password": "testpass123"
-        }).json()
+        reg = client.post(
+            "/api/auth/register", json={"email": "keysuser@xcelsior.ca", "password": "testpass123"}
+        ).json()
         token = reg["access_token"]
 
         # Generate key
-        r = client.post("/api/keys/generate?name=test-key",
-            headers={"Authorization": f"Bearer {token}"})
+        r = client.post(
+            "/api/keys/generate?name=test-key", headers={"Authorization": f"Bearer {token}"}
+        )
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -1191,15 +1273,16 @@ class TestApiKeys:
 
     def test_api_key_as_bearer(self):
         """API key can be used as Bearer token for /api/auth/me."""
-        reg = client.post("/api/auth/register", json={
-            "email": "apikeyauth@xcelsior.ca",
-            "password": "testpass123"
-        }).json()
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "apikeyauth@xcelsior.ca", "password": "testpass123"},
+        ).json()
         token = reg["access_token"]
 
         # Generate API key
-        key = client.post("/api/keys/generate?name=auth-key",
-            headers={"Authorization": f"Bearer {token}"}).json()["key"]
+        key = client.post(
+            "/api/keys/generate?name=auth-key", headers={"Authorization": f"Bearer {token}"}
+        ).json()["key"]
 
         # Use API key to access profile
         r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {key}"})
@@ -1208,25 +1291,23 @@ class TestApiKeys:
 
     def test_revoke_key(self):
         """DELETE /api/keys/{preview} revokes the key."""
-        reg = client.post("/api/auth/register", json={
-            "email": "revokekey@xcelsior.ca",
-            "password": "testpass123"
-        }).json()
+        reg = client.post(
+            "/api/auth/register", json={"email": "revokekey@xcelsior.ca", "password": "testpass123"}
+        ).json()
         token = reg["access_token"]
 
         # Generate and get preview
-        gen = client.post("/api/keys/generate?name=revoke-me",
-            headers={"Authorization": f"Bearer {token}"}).json()
+        gen = client.post(
+            "/api/keys/generate?name=revoke-me", headers={"Authorization": f"Bearer {token}"}
+        ).json()
         preview = gen["preview"]
 
         # Revoke
-        r = client.delete(f"/api/keys/{preview}",
-            headers={"Authorization": f"Bearer {token}"})
+        r = client.delete(f"/api/keys/{preview}", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
 
         # Key should no longer work
-        r2 = client.get("/api/auth/me",
-            headers={"Authorization": f"Bearer {gen['key']}"})
+        r2 = client.get("/api/auth/me", headers={"Authorization": f"Bearer {gen['key']}"})
         assert r2.status_code == 401
 
     def test_generate_key_unauthenticated(self):

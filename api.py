@@ -19,7 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
-from db import start_pg_listen, UserStore
+from db import start_pg_listen, UserStore, emit_event
 
 from scheduler import (
     register_host,
@@ -118,23 +118,65 @@ from stripe_connect import get_stripe_manager
 OPENAPI_TAGS = [
     {"name": "Hosts", "description": "GPU host registration, admission gating, and management."},
     {"name": "Jobs", "description": "Job submission, scheduling, and lifecycle management."},
-    {"name": "Billing", "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing."},
+    {
+        "name": "Billing",
+        "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing.",
+    },
     {"name": "Marketplace", "description": "Rig listings, browsing, and marketplace billing."},
-    {"name": "Spot Pricing", "description": "Dynamic spot pricing, interruptible jobs, preemption cycles."},
-    {"name": "Reputation", "description": "Trust scoring, verification tiers (Bronze→Platinum), leaderboards."},
-    {"name": "Verification", "description": "Automated hardware attestation: GPU identity, CUDA, thermals, network."},
-    {"name": "SLA", "description": "Service Level Agreement enforcement, uptime tracking, credit calculation."},
-    {"name": "Providers", "description": "Stripe Connect onboarding, Canadian company registration, payouts."},
-    {"name": "Artifacts", "description": "Presigned upload/download URLs for model weights, checkpoints, outputs."},
-    {"name": "Jurisdiction", "description": "Canada-first scheduling, province filtering, data residency traces."},
-    {"name": "Compliance", "description": "Province compliance matrix, tax rates, Quebec PIA checks."},
-    {"name": "Privacy", "description": "PIPEDA consent management, retention policies, privacy officer config."},
-    {"name": "Transparency", "description": "Legal request handling, CLOUD Act canary, transparency reports."},
-    {"name": "Telemetry", "description": "Real-time GPU metrics: utilization, temperature, memory, power."},
-    {"name": "Agent", "description": "Worker agent endpoints: work assignment, leases, benchmarks, mining alerts."},
+    {
+        "name": "Spot Pricing",
+        "description": "Dynamic spot pricing, interruptible jobs, preemption cycles.",
+    },
+    {
+        "name": "Reputation",
+        "description": "Trust scoring, verification tiers (Bronze→Platinum), leaderboards.",
+    },
+    {
+        "name": "Verification",
+        "description": "Automated hardware attestation: GPU identity, CUDA, thermals, network.",
+    },
+    {
+        "name": "SLA",
+        "description": "Service Level Agreement enforcement, uptime tracking, credit calculation.",
+    },
+    {
+        "name": "Providers",
+        "description": "Stripe Connect onboarding, Canadian company registration, payouts.",
+    },
+    {
+        "name": "Artifacts",
+        "description": "Presigned upload/download URLs for model weights, checkpoints, outputs.",
+    },
+    {
+        "name": "Jurisdiction",
+        "description": "Canada-first scheduling, province filtering, data residency traces.",
+    },
+    {
+        "name": "Compliance",
+        "description": "Province compliance matrix, tax rates, Quebec PIA checks.",
+    },
+    {
+        "name": "Privacy",
+        "description": "PIPEDA consent management, retention policies, privacy officer config.",
+    },
+    {
+        "name": "Transparency",
+        "description": "Legal request handling, CLOUD Act canary, transparency reports.",
+    },
+    {
+        "name": "Telemetry",
+        "description": "Real-time GPU metrics: utilization, temperature, memory, power.",
+    },
+    {
+        "name": "Agent",
+        "description": "Worker agent endpoints: work assignment, leases, benchmarks, mining alerts.",
+    },
     {"name": "Autoscale", "description": "Auto-scaling pool management and provisioning cycles."},
     {"name": "Events", "description": "Event sourcing, state machine transitions, audit trail."},
-    {"name": "Infrastructure", "description": "Health checks, readiness probes, metrics, SSE streaming, dashboard."},
+    {
+        "name": "Infrastructure",
+        "description": "Health checks, readiness probes, metrics, SSE streaming, dashboard.",
+    },
 ]
 
 app = FastAPI(
@@ -207,8 +249,16 @@ _RATE_BUCKETS = defaultdict(deque)
 
 # Public routes — no token required
 PUBLIC_PATHS = {
-    "/", "/docs", "/redoc", "/openapi.json", "/llms.txt", "/dashboard",
-    "/healthz", "/readyz", "/metrics", "/api/stream",
+    "/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/llms.txt",
+    "/dashboard",
+    "/healthz",
+    "/readyz",
+    "/metrics",
+    "/api/stream",
     "/api/transparency/report",
 }
 
@@ -362,7 +412,13 @@ class ReadOnlyScopeMiddleware(BaseHTTPMiddleware):
             if key_data and key_data.get("scope") == "read-only":
                 return JSONResponse(
                     status_code=403,
-                    content={"ok": False, "error": {"code": "read_only_key", "message": "This API key has read-only scope"}},
+                    content={
+                        "ok": False,
+                        "error": {
+                            "code": "read_only_key",
+                            "message": "This API key has read-only scope",
+                        },
+                    },
                 )
         return await call_next(request)
 
@@ -374,7 +430,9 @@ app.add_middleware(ReadOnlyScopeMiddleware)
 async def http_exception_handler(request: Request, exc: HTTPException):
     accept = request.headers.get("accept", "")
     if exc.status_code in (404, 403, 500) and "text/html" in accept:
-        title = {404: "Page Not Found", 403: "Forbidden", 500: "Server Error"}.get(exc.status_code, "Error")
+        title = {404: "Page Not Found", 403: "Forbidden", 500: "Server Error"}.get(
+            exc.status_code, "Error"
+        )
         html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{exc.status_code} — {title} | Xcelsior</title>
@@ -417,15 +475,15 @@ class HostIn(BaseModel):
     total_vram_gb: float
     free_vram_gb: float
     cost_per_hour: float = 0.20
-    country: str = "CA"           # ISO 3166-1 alpha-2
-    province: str = ""            # CA province code (ON, QC, BC, etc.)
+    country: str = "CA"  # ISO 3166-1 alpha-2
+    province: str = ""  # CA province code (ON, QC, BC, etc.)
     # Optional: agent-reported versions for inline admission
     versions: dict | None = None  # {"runc": "1.2.4", "nvidia_ctk": "1.17.8", ...}
     # Canadian company fields (Report #1.B — Provider Onboarding)
-    corporation_name: str = ""    # Legal corporation name
-    business_number: str = ""     # CRA Business Number (BN), e.g. 123456789RC0001
-    gst_hst_number: str = ""      # GST/HST registration number
-    legal_name: str = ""          # Legal name of individual or company
+    corporation_name: str = ""  # Legal corporation name
+    business_number: str = ""  # CRA Business Number (BN), e.g. 123456789RC0001
+    gst_hst_number: str = ""  # GST/HST registration number
+    legal_name: str = ""  # Legal name of individual or company
 
 
 class JobIn(BaseModel):
@@ -485,8 +543,11 @@ def api_register_host(h: HostIn):
         if not admitted:
             # Host is registered but marked as not-admitted — won't receive work
             entry["status"] = "pending"
-            log.warning("HOST %s registered but NOT ADMITTED: %s",
-                        h.host_id, details.get("rejection_reasons", []))
+            log.warning(
+                "HOST %s registered but NOT ADMITTED: %s",
+                h.host_id,
+                details.get("rejection_reasons", []),
+            )
     else:
         # No versions provided — host starts as pending until agent reports
         entry["admitted"] = False
@@ -494,15 +555,20 @@ def api_register_host(h: HostIn):
 
     # Persist the updated entry (country, province, admitted status)
     from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
+
     with _atomic_mutation() as conn:
         _migrate_hosts_if_needed(conn)
         _upsert_host_row(conn, entry)
 
-    broadcast_sse("host_update", {
-        "host_id": h.host_id, "gpu_model": h.gpu_model,
-        "admitted": entry.get("admitted", False),
-        "country": entry.get("country", ""),
-    })
+    broadcast_sse(
+        "host_update",
+        {
+            "host_id": h.host_id,
+            "gpu_model": h.gpu_model,
+            "admitted": entry.get("admitted", False),
+            "country": entry.get("country", ""),
+        },
+    )
     return {"ok": True, "host": entry}
 
 
@@ -540,10 +606,17 @@ def api_submit_job(j: JobIn):
     Multi-GPU: Set num_gpus > 1 for multi-GPU jobs.
     NFS: Optionally specify nfs_server + nfs_path for shared storage.
     """
-    job = submit_job(j.name, j.vram_needed_gb, j.priority, tier=j.tier,
-                     num_gpus=j.num_gpus, nfs_server=j.nfs_server,
-                     nfs_path=j.nfs_path, nfs_mount_point=j.nfs_mount_point,
-                     image=j.image)
+    job = submit_job(
+        j.name,
+        j.vram_needed_gb,
+        j.priority,
+        tier=j.tier,
+        num_gpus=j.num_gpus,
+        nfs_server=j.nfs_server,
+        nfs_path=j.nfs_path,
+        nfs_mount_point=j.nfs_mount_point,
+        image=j.image,
+    )
     broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
     return {"ok": True, "job": job}
 
@@ -579,9 +652,7 @@ def api_update_job(job_id: str, update: StatusUpdate):
 def api_process_queue():
     """Process the job queue — assign jobs to hosts."""
     assigned = process_queue()
-    result = [
-        {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
-    ]
+    result = [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned]
     if result:
         broadcast_sse("queue_processed", {"assigned_count": len(result)})
     return {"assigned": result}
@@ -664,8 +735,12 @@ async def _job_log_generator(request: Request, job_id: str):
                 event_data = msg.get("data", {})
                 # Filter: only pass through events for this job
                 if event_data.get("job_id") == job_id or event_type in (
-                    "job_status", "job_log", "lease_claimed", "lease_released",
-                    "job_completed", "job_failed",
+                    "job_status",
+                    "job_log",
+                    "lease_claimed",
+                    "lease_released",
+                    "job_completed",
+                    "job_failed",
                 ):
                     if event_data.get("job_id", "") == job_id:
                         yield f"event: {event_type}\ndata: {json.dumps(event_data)}\n\n"
@@ -847,10 +922,12 @@ def api_auth_device_code(request: Request):
     in the browser at the verification_uri).
     """
     device_code = secrets.token_urlsafe(32)
-    user_code = "-".join([
-        secrets.token_hex(2).upper(),
-        secrets.token_hex(2).upper(),
-    ])  # e.g. "A1B2-C3D4"
+    user_code = "-".join(
+        [
+            secrets.token_hex(2).upper(),
+            secrets.token_hex(2).upper(),
+        ]
+    )  # e.g. "A1B2-C3D4"
 
     base_url = str(request.base_url).rstrip("/")
     verification_uri = f"{base_url}/api/auth/verify"
@@ -1092,9 +1169,13 @@ def _get_current_user(request: Request) -> dict | None:
                 return dict(session)
             api_key = UserStore.get_api_key(token)
             if api_key:
-                return {"email": api_key["email"], "user_id": api_key["user_id"],
-                        "role": api_key.get("role", "submitter"), "name": api_key.get("name", ""),
-                        "scope": api_key.get("scope", "full-access")}
+                return {
+                    "email": api_key["email"],
+                    "user_id": api_key["user_id"],
+                    "role": api_key.get("role", "submitter"),
+                    "name": api_key.get("name", ""),
+                    "scope": api_key.get("scope", "full-access"),
+                }
         else:
             with _user_lock:
                 session = _sessions.get(token)
@@ -1104,16 +1185,24 @@ def _get_current_user(request: Request) -> dict | None:
                 api_key = _api_keys.get(token)
             if api_key:
                 api_key["last_used"] = time.time()
-                return {"email": api_key["email"], "user_id": api_key["user_id"],
-                        "role": api_key.get("role", "submitter"), "name": api_key.get("name", ""),
-                        "scope": api_key.get("scope", "full-access")}
+                return {
+                    "email": api_key["email"],
+                    "user_id": api_key["user_id"],
+                    "role": api_key.get("role", "submitter"),
+                    "name": api_key.get("name", ""),
+                    "scope": api_key.get("scope", "full-access"),
+                }
     return None
 
 
 def _require_write_access(request: Request):
     """Raise 403 if the current user is using a read-only API key on a mutating request."""
     user = _get_current_user(request)
-    if user and user.get("scope") == "read-only" and request.method not in ("GET", "HEAD", "OPTIONS"):
+    if (
+        user
+        and user.get("scope") == "read-only"
+        and request.method not in ("GET", "HEAD", "OPTIONS")
+    ):
         raise HTTPException(403, "This API key has read-only scope")
     return user
 
@@ -1365,7 +1454,10 @@ def api_auth_oauth_callback(provider: str, request: Request):
             try:
                 emails_resp = _httpx.get(
                     "https://api.github.com/user/emails",
-                    headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/json",
+                    },
                     timeout=10,
                 )
                 if emails_resp.status_code == 200:
@@ -1569,7 +1661,9 @@ def api_generate_api_key(request: Request, name: str = "default", scope: str = "
     if not user:
         raise HTTPException(401, "Not authenticated")
     if scope not in VALID_KEY_SCOPES:
-        raise HTTPException(400, f"Invalid scope. Must be one of: {', '.join(sorted(VALID_KEY_SCOPES))}")
+        raise HTTPException(
+            400, f"Invalid scope. Must be one of: {', '.join(sorted(VALID_KEY_SCOPES))}"
+        )
 
     key = f"xc-{secrets.token_urlsafe(32)}"
     key_data = {
@@ -1647,8 +1741,10 @@ def api_revoke_key(key_preview: str, request: Request):
     else:
         with _user_lock:
             to_remove = [
-                k for k, v in _api_keys.items()
-                if v["email"] == user["email"] and (v["key"][:12] + "..." + v["key"][-4:]) == key_preview
+                k
+                for k, v in _api_keys.items()
+                if v["email"] == user["email"]
+                and (v["key"][:12] + "..." + v["key"][-4:]) == key_preview
             ]
             for k in to_remove:
                 del _api_keys[k]
@@ -1673,10 +1769,13 @@ def api_auth_password_reset(req: PasswordResetRequest):
         if not user:
             return {"ok": True, "message": "If the email exists, a reset link has been sent."}
         reset_token = secrets.token_urlsafe(32)
-        UserStore.update_user(req.email, {
-            "reset_token": reset_token,
-            "reset_token_expires": time.time() + 3600,
-        })
+        UserStore.update_user(
+            req.email,
+            {
+                "reset_token": reset_token,
+                "reset_token_expires": time.time() + 3600,
+            },
+        )
     else:
         with _user_lock:
             user = _users_db.get(req.email)
@@ -1706,8 +1805,11 @@ def api_auth_password_reset_confirm(req: PasswordResetConfirm):
 
     if _USE_PERSISTENT_AUTH:
         from db import auth_connection
+
         with auth_connection() as conn:
-            row = conn.execute("SELECT email, reset_token_expires FROM users WHERE reset_token = ?", (req.token,)).fetchone()
+            row = conn.execute(
+                "SELECT email, reset_token_expires FROM users WHERE reset_token = ?", (req.token,)
+            ).fetchone()
             if not row:
                 raise HTTPException(400, "Invalid or expired reset token")
             if time.time() > (row["reset_token_expires"] or 0):
@@ -2050,6 +2152,7 @@ def api_slurm_cancel(slurm_job_id: str):
 def api_slurm_profiles():
     """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
     from slurm_adapter import CLUSTER_PROFILES
+
     return {"profiles": {k: v["name"] for k, v in CLUSTER_PROFILES.items()}}
 
 
@@ -2332,8 +2435,7 @@ def api_agent_work(host_id: str):
     """Pull pending work for an agent. Returns assigned jobs."""
     all_jobs = list_jobs()
     pending = [
-        j for j in all_jobs
-        if j.get("host_id") == host_id and j.get("status") in ("assigned",)
+        j for j in all_jobs if j.get("host_id") == host_id and j.get("status") in ("assigned",)
     ]
     with _agent_lock:
         queued_work = _agent_work.pop(host_id, [])
@@ -2384,25 +2486,35 @@ def api_agent_versions(report: VersionReport):
             h["admission_details"] = details
             if details["admitted"]:
                 h["status"] = "active"
-                log.info("HOST %s ADMITTED — status set to active, runtime=%s",
-                         report.host_id, details.get("recommended_runtime", "runc"))
+                log.info(
+                    "HOST %s ADMITTED — status set to active, runtime=%s",
+                    report.host_id,
+                    details.get("recommended_runtime", "runc"),
+                )
             else:
                 h["status"] = "pending"
-                log.warning("HOST %s NOT ADMITTED — status remains pending: %s",
-                            report.host_id, details.get("rejection_reasons", []))
+                log.warning(
+                    "HOST %s NOT ADMITTED — status remains pending: %s",
+                    report.host_id,
+                    details.get("rejection_reasons", []),
+                )
             # Persist
             from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
+
             with _atomic_mutation() as conn:
                 _migrate_hosts_if_needed(conn)
                 _upsert_host_row(conn, h)
             break
 
-    broadcast_sse("node_admission", {
-        "host_id": report.host_id,
-        "admitted": details["admitted"],
-        "versions": report.versions,
-        "runtime": details.get("recommended_runtime", "runc"),
-    })
+    broadcast_sse(
+        "node_admission",
+        {
+            "host_id": report.host_id,
+            "admitted": details["admitted"],
+            "versions": report.versions,
+            "runtime": details.get("recommended_runtime", "runc"),
+        },
+    )
     return {
         "ok": True,
         "admitted": details["admitted"],
@@ -2415,14 +2527,20 @@ def api_mining_alert(alert: MiningAlert):
     """Receive mining detection alert from an agent."""
     log.warning(
         "MINING ALERT host=%s gpu=%d confidence=%.0f%% — %s",
-        alert.host_id, alert.gpu_index, alert.confidence * 100, alert.reason,
+        alert.host_id,
+        alert.gpu_index,
+        alert.confidence * 100,
+        alert.reason,
     )
-    broadcast_sse("mining_alert", {
-        "host_id": alert.host_id,
-        "gpu_index": alert.gpu_index,
-        "confidence": alert.confidence,
-        "reason": alert.reason,
-    })
+    broadcast_sse(
+        "mining_alert",
+        {
+            "host_id": alert.host_id,
+            "gpu_index": alert.gpu_index,
+            "confidence": alert.confidence,
+            "reason": alert.reason,
+        },
+    )
     return {"ok": True, "received": True}
 
 
@@ -2430,20 +2548,27 @@ def api_mining_alert(alert: MiningAlert):
 def api_agent_benchmark(report: BenchmarkReport):
     """Receive compute benchmark results from an agent."""
     register_compute_score(
-        report.host_id, report.gpu_model, report.score, report.details,
+        report.host_id,
+        report.gpu_model,
+        report.score,
+        report.details,
     )
-    broadcast_sse("benchmark_result", {
-        "host_id": report.host_id,
-        "gpu_model": report.gpu_model,
-        "xcu": report.score,
-        "tflops": report.tflops,
-    })
+    broadcast_sse(
+        "benchmark_result",
+        {
+            "host_id": report.host_id,
+            "gpu_model": report.gpu_model,
+            "xcu": report.score,
+            "tflops": report.tflops,
+        },
+    )
     return {"ok": True, "xcu": report.score}
 
 
 # ── Agent Lease Protocol ──────────────────────────────────────────────
 # Per REPORT_FEATURE_FINAL.md: "clean lease/claim protocol"
 # (assign → lease renewal → completion) — not conflating assigned/running.
+
 
 class LeaseClaimRequest(BaseModel):
     host_id: str
@@ -2488,21 +2613,28 @@ def api_agent_lease_claim(req: LeaseClaimRequest):
 
     # Transition state: assigned → leased
     try:
-        sm.transition(req.job_id, "assigned", "leased",
-                      actor=f"agent:{req.host_id}",
-                      data={"lease_id": lease.lease_id})
+        sm.transition(
+            req.job_id,
+            "assigned",
+            "leased",
+            actor=f"agent:{req.host_id}",
+            data={"lease_id": lease.lease_id},
+        )
     except ValueError:
         pass  # Event already recorded by grant_lease
 
     # Update scheduler's job status to leased
     update_job_status(req.job_id, "leased", host_id=req.host_id)
 
-    broadcast_sse("lease_granted", {
-        "job_id": req.job_id,
-        "host_id": req.host_id,
-        "lease_id": lease.lease_id,
-        "expires_at": lease.expires_at,
-    })
+    broadcast_sse(
+        "lease_granted",
+        {
+            "job_id": req.job_id,
+            "host_id": req.host_id,
+            "lease_id": lease.lease_id,
+            "expires_at": lease.expires_at,
+        },
+    )
 
     return {
         "ok": True,
@@ -2588,9 +2720,14 @@ def api_update_spot_prices():
 def api_submit_spot_job(j: SpotJobIn):
     """Submit a spot job with a maximum bid price."""
     job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier)
-    broadcast_sse("spot_job_submitted", {
-        "job_id": job["job_id"], "name": job["name"], "max_bid": j.max_bid,
-    })
+    broadcast_sse(
+        "spot_job_submitted",
+        {
+            "job_id": job["job_id"],
+            "name": job["name"],
+            "max_bid": j.max_bid,
+        },
+    )
     return {"ok": True, "job": job}
 
 
@@ -2661,6 +2798,7 @@ def metrics():
 @app.get("/", tags=["Infrastructure"], include_in_schema=False)
 def root():
     from fastapi.responses import RedirectResponse
+
     return RedirectResponse(url="/dashboard")
 
 
@@ -2670,6 +2808,7 @@ def root():
 
 
 # ── Events ────────────────────────────────────────────────────────────
+
 
 @app.get("/api/events/{entity_type}/{entity_id}", tags=["Events"])
 def api_get_events(entity_type: str, entity_id: str, limit: int = 50):
@@ -2690,6 +2829,7 @@ def api_get_lease(job_id: str):
 
 
 # ── Verification ──────────────────────────────────────────────────────
+
 
 class VerifyHostRequest(BaseModel):
     host_id: str
@@ -2735,17 +2875,19 @@ def api_verified_hosts():
     result = []
     for r in rows:
         h = host_map.get(r["host_id"], {})
-        result.append({
-            "host_id": r["host_id"],
-            "status": r["state"],
-            "overall_score": r["overall_score"],
-            "last_check": r["last_check_at"],
-            "gpu_fingerprint": r["gpu_fingerprint"],
-            "deverify_reason": r["deverify_reason"] or "",
-            "gpu_model": h.get("gpu_model", "—"),
-            "country": h.get("country", ""),
-            "province": h.get("province", ""),
-        })
+        result.append(
+            {
+                "host_id": r["host_id"],
+                "status": r["state"],
+                "overall_score": r["overall_score"],
+                "last_check": r["last_check_at"],
+                "gpu_fingerprint": r["gpu_fingerprint"],
+                "deverify_reason": r["deverify_reason"] or "",
+                "gpu_model": h.get("gpu_model", "—"),
+                "country": h.get("country", ""),
+                "province": h.get("province", ""),
+            }
+        )
     return {"ok": True, "count": len(result), "hosts": result}
 
 
@@ -2762,6 +2904,7 @@ def api_admin_approve_host(host_id: str, notes: str = ""):
     if not existing:
         # Create a new verification record for this host
         from verification import HostVerification, HostVerificationState
+
         existing = HostVerification(
             verification_id=str(uuid.uuid4())[:12],
             host_id=host_id,
@@ -2791,6 +2934,7 @@ def api_admin_reject_host(host_id: str, reason: str = "Admin rejection"):
     existing = store.get_verification(host_id)
     if not existing:
         from verification import HostVerification, HostVerificationState
+
         existing = HostVerification(
             verification_id=str(uuid.uuid4())[:12],
             host_id=host_id,
@@ -2808,6 +2952,7 @@ def api_admin_reject_host(host_id: str, reason: str = "Admin rejection"):
 
 # ── Jurisdiction ──────────────────────────────────────────────────────
 
+
 class JurisdictionFilterRequest(BaseModel):
     canada_only: bool = True
     province: str = None
@@ -2824,6 +2969,7 @@ def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
         trust_tier=TrustTier(req.trust_tier) if req.trust_tier else None,
     )
     from jurisdiction import filter_hosts_by_jurisdiction
+
     filtered = filter_hosts_by_jurisdiction(hosts, constraint)
     return {"ok": True, "count": len(filtered), "hosts": filtered}
 
@@ -2843,6 +2989,7 @@ def api_residency_trace(job_id: str):
 
     # Build jurisdiction object from host data
     from jurisdiction import HostJurisdiction
+
     jurisdiction = None
     if host_data:
         jurisdiction = HostJurisdiction(
@@ -2864,6 +3011,7 @@ def api_residency_trace(job_id: str):
 def api_trust_tiers():
     """List available trust tiers and their requirements."""
     from jurisdiction import TRUST_TIER_REQUIREMENTS
+
     return {
         "ok": True,
         "tiers": {t.value: v for t, v in TRUST_TIER_REQUIREMENTS.items()},
@@ -2871,6 +3019,7 @@ def api_trust_tiers():
 
 
 # ── Billing ───────────────────────────────────────────────────────────
+
 
 @app.get("/api/billing/wallet/{customer_id}", tags=["Billing"])
 def api_get_wallet(customer_id: str):
@@ -2914,9 +3063,13 @@ def api_usage_summary(customer_id: str, period_start: float = 0, period_end: flo
 
 
 @app.get("/api/billing/invoice/{customer_id}", tags=["Billing"])
-def api_generate_invoice(customer_id: str, customer_name: str = "",
-                         period_start: float = 0, period_end: float = 0,
-                         tax_rate: float = 0.13):
+def api_generate_invoice(
+    customer_id: str,
+    customer_name: str = "",
+    period_start: float = 0,
+    period_end: float = 0,
+    tax_rate: float = 0.13,
+):
     """Generate an AI Compute Access Fund–aligned invoice."""
     if period_end == 0:
         period_end = time.time()
@@ -2928,8 +3081,9 @@ def api_generate_invoice(customer_id: str, customer_name: str = "",
 
 
 @app.get("/api/billing/export/caf/{customer_id}", tags=["Billing"])
-def api_export_caf(customer_id: str, period_start: float = 0, period_end: float = 0,
-                   format: str = "json"):
+def api_export_caf(
+    customer_id: str, period_start: float = 0, period_end: float = 0, format: str = "json"
+):
     """Export AI Compute Access Fund rebate documentation.
 
     From REPORT_FEATURE_2.md: /billing/export?format=caf
@@ -2971,27 +3125,36 @@ def api_list_invoices(customer_id: str, limit: int = 12):
             inv_dict = inv.to_dict()
             # Only include months with actual usage
             if inv_dict.get("total_compute_cad", 0) > 0 or inv_dict.get("line_items"):
-                invoices.append({
-                    "invoice_id": f"INV-{customer_id[:8]}-{i+1:03d}",
-                    "period_start": period_start,
-                    "period_end": period_end,
-                    "total_cad": inv_dict.get("total_with_tax_cad", inv_dict.get("total_compute_cad", 0)),
-                    "subtotal_cad": inv_dict.get("total_compute_cad", 0),
-                    "tax_cad": inv_dict.get("tax_cad", 0),
-                    "tax_rate": inv_dict.get("tax_rate", 0.13),
-                    "line_items": len(inv_dict.get("line_items", [])),
-                    "caf_eligible_cad": inv_dict.get("caf_eligible_cad", 0),
-                    "status": "paid",
-                })
+                invoices.append(
+                    {
+                        "invoice_id": f"INV-{customer_id[:8]}-{i+1:03d}",
+                        "period_start": period_start,
+                        "period_end": period_end,
+                        "total_cad": inv_dict.get(
+                            "total_with_tax_cad", inv_dict.get("total_compute_cad", 0)
+                        ),
+                        "subtotal_cad": inv_dict.get("total_compute_cad", 0),
+                        "tax_cad": inv_dict.get("tax_cad", 0),
+                        "tax_rate": inv_dict.get("tax_rate", 0.13),
+                        "line_items": len(inv_dict.get("line_items", [])),
+                        "caf_eligible_cad": inv_dict.get("caf_eligible_cad", 0),
+                        "status": "paid",
+                    }
+                )
         except Exception:
             pass
     return {"ok": True, "invoices": invoices, "count": len(invoices)}
 
 
 @app.get("/api/billing/invoice/{customer_id}/download", tags=["Billing"])
-def api_download_invoice(customer_id: str, format: str = "csv",
-                         period_start: float = 0, period_end: float = 0,
-                         tax_rate: float = 0.13, customer_name: str = ""):
+def api_download_invoice(
+    customer_id: str,
+    format: str = "csv",
+    period_start: float = 0,
+    period_end: float = 0,
+    tax_rate: float = 0.13,
+    customer_name: str = "",
+):
     """Download an invoice as CSV or plain-text PDF-style document.
 
     Formats: csv (spreadsheet-ready), txt (printable receipt).
@@ -3017,23 +3180,29 @@ def api_download_invoice(customer_id: str, format: str = "csv",
         writer.writerow([])
         writer.writerow(["Description", "GPU", "Duration (h)", "Rate (CAD/h)", "Amount (CAD)"])
         for item in inv_dict.get("line_items", []):
-            writer.writerow([
-                item.get("description", "Compute"),
-                item.get("gpu_model", "—"),
-                round(item.get("duration_hours", 0), 2),
-                round(item.get("rate_cad_per_hour", 0), 2),
-                round(item.get("amount_cad", 0), 2),
-            ])
+            writer.writerow(
+                [
+                    item.get("description", "Compute"),
+                    item.get("gpu_model", "—"),
+                    round(item.get("duration_hours", 0), 2),
+                    round(item.get("rate_cad_per_hour", 0), 2),
+                    round(item.get("amount_cad", 0), 2),
+                ]
+            )
         writer.writerow([])
         writer.writerow(["Subtotal", "", "", "", round(inv_dict.get("total_compute_cad", 0), 2)])
         writer.writerow(["Tax", "", "", "", round(inv_dict.get("tax_cad", 0), 2)])
-        writer.writerow(["Total (CAD)", "", "", "", round(inv_dict.get("total_with_tax_cad", 0), 2)])
+        writer.writerow(
+            ["Total (CAD)", "", "", "", round(inv_dict.get("total_with_tax_cad", 0), 2)]
+        )
         writer.writerow(["CAF Eligible", "", "", "", round(inv_dict.get("caf_eligible_cad", 0), 2)])
         csv_data = output.getvalue()
         return StreamingResponse(
             iter([csv_data]),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.csv"},
+            headers={
+                "Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.csv"
+            },
         )
 
     # Plain-text receipt format
@@ -3068,10 +3237,13 @@ def api_download_invoice(customer_id: str, format: str = "csv",
         "Xcelsior Inc. | xcelsior.ca | Built in Canada 🍁",
     ]
     from fastapi.responses import PlainTextResponse
+
     return PlainTextResponse(
         content="\n".join(lines),
         media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.txt"},
+        headers={
+            "Content-Disposition": f"attachment; filename=xcelsior-invoice-{customer_id[:8]}-{date_str}.txt"
+        },
     )
 
 
@@ -3103,6 +3275,7 @@ def api_process_refund(req: RefundRequest):
 
 
 # ── Reputation ────────────────────────────────────────────────────────
+
 
 @app.get("/api/reputation/{entity_id}", tags=["Reputation"])
 def api_get_reputation(entity_id: str):
@@ -3139,13 +3312,16 @@ def api_grant_verification(req: VerificationGrant):
     try:
         vtype = VerificationType(req.verification_type)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid verification type: {req.verification_type}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid verification type: {req.verification_type}"
+        )
     re = get_reputation_engine()
     score = re.add_verification(req.entity_id, vtype)
     return {"ok": True, "reputation": score.to_dict()}
 
 
 # ── Pricing & Estimation ─────────────────────────────────────────────
+
 
 class EstimateRequest(BaseModel):
     gpu_model: str = "RTX 4090"
@@ -3162,8 +3338,10 @@ def api_estimate_cost(req: EstimateRequest):
     From REPORT_FEATURE_2.md: --estimate-rebate / simulate=true
     """
     estimate = estimate_job_cost(
-        req.gpu_model, req.duration_hours,
-        spot=req.spot, sovereignty=req.sovereignty,
+        req.gpu_model,
+        req.duration_hours,
+        spot=req.spot,
+        sovereignty=req.sovereignty,
         is_canadian=req.is_canadian,
     )
     return {"ok": True, **estimate}
@@ -3225,7 +3403,11 @@ def api_reserved_plans():
     for tier_key, tier in RESERVED_PRICING_TIERS.items():
         samples = {}
         for gpu, ref in GPU_REFERENCE_PRICING_CAD.items():
-            rate = ref.get("base_rate_cad", ref.get("cad_per_hour", 0)) if isinstance(ref, dict) else ref
+            rate = (
+                ref.get("base_rate_cad", ref.get("cad_per_hour", 0))
+                if isinstance(ref, dict)
+                else ref
+            )
             samples[gpu] = round(rate * (1 - tier["discount_pct"] / 100), 4)
         enriched[tier_key] = {**tier, "sample_hourly_rates_cad": samples}
     return {"ok": True, "currency": "CAD", "reserved_tiers": enriched}
@@ -3241,13 +3423,18 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
     """
     tier = RESERVED_PRICING_TIERS.get(req.commitment_type)
     if not tier:
-        raise HTTPException(400, f"Invalid commitment_type: {req.commitment_type}. "
-                           f"Valid: {list(RESERVED_PRICING_TIERS.keys())}")
+        raise HTTPException(
+            400,
+            f"Invalid commitment_type: {req.commitment_type}. "
+            f"Valid: {list(RESERVED_PRICING_TIERS.keys())}",
+        )
 
     # Calculate pricing
     ref_pricing = GPU_REFERENCE_PRICING_CAD.get(req.gpu_model, {})
-    base_rate = ref_pricing.get("base_rate_cad", ref_pricing.get("cad_per_hour", 0)) if isinstance(ref_pricing, dict) else (
-        ref_pricing if isinstance(ref_pricing, (int, float)) else 0
+    base_rate = (
+        ref_pricing.get("base_rate_cad", ref_pricing.get("cad_per_hour", 0))
+        if isinstance(ref_pricing, dict)
+        else (ref_pricing if isinstance(ref_pricing, (int, float)) else 0)
     )
     if base_rate <= 0:
         raise HTTPException(400, f"Unknown GPU model: {req.gpu_model}")
@@ -3279,11 +3466,14 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
     commitment["monthly_estimate_cad"] = round(monthly_estimate, 2)
     commitment["monthly_estimate_with_tax_cad"] = round(monthly_estimate * (1 + tax_rate), 2)
 
-    broadcast_sse("reservation_created", {
-        "commitment_id": commitment["commitment_id"],
-        "customer_id": req.customer_id,
-        "type": req.commitment_type,
-    })
+    broadcast_sse(
+        "reservation_created",
+        {
+            "commitment_id": commitment["commitment_id"],
+            "customer_id": req.customer_id,
+            "type": req.commitment_type,
+        },
+    )
     return {"ok": True, **commitment}
 
 
@@ -3346,7 +3536,7 @@ def api_gst_threshold_status():
             "GST/HST registration REQUIRED — revenue exceeds $30,000 threshold."
             if exceeded
             else f"Below threshold (${total_rev:,.2f} / $30,000). "
-                 "Registration not yet required but recommended."
+            "Registration not yet required but recommended."
         ),
     }
 
@@ -3396,6 +3586,7 @@ def api_provider_gst_threshold(provider_id: str):
 # Per Report #1.B Phase 3: "Usage Analytics Dashboard — Providing both
 # providers and submitters with deep insights into cost, performance,
 # and hardware health over time."
+
 
 @app.get("/api/analytics/usage", tags=["Billing"])
 def api_usage_analytics(
@@ -3459,7 +3650,9 @@ def api_usage_analytics(
                     "period": r["period"],
                     "job_count": r["job_count"],
                     "total_cost_cad": r["total_cost_cad"],
-                    "total_gpu_hours": round(r["total_gpu_seconds"] / 3600, 2) if r["total_gpu_seconds"] else 0,
+                    "total_gpu_hours": (
+                        round(r["total_gpu_seconds"] / 3600, 2) if r["total_gpu_seconds"] else 0
+                    ),
                     "avg_gpu_utilization_pct": r["avg_gpu_util_pct"],
                     "canadian_jobs": r["canadian_jobs"],
                     "international_jobs": r["international_jobs"],
@@ -3495,6 +3688,7 @@ def api_usage_analytics(
 
 # ── Artifacts ─────────────────────────────────────────────────────────
 
+
 class UploadRequest(BaseModel):
     job_id: str
     filename: str
@@ -3506,6 +3700,7 @@ class UploadRequest(BaseModel):
 def api_request_upload(req: UploadRequest):
     """Get a presigned upload URL for an artifact."""
     from artifacts import ArtifactType, ResidencyPolicy
+
     try:
         atype = ArtifactType(req.artifact_type)
         rpolicy = ResidencyPolicy(req.residency_policy)
@@ -3526,6 +3721,7 @@ class DownloadRequest(BaseModel):
 def api_request_download(req: DownloadRequest):
     """Get a presigned download URL for an artifact."""
     from artifacts import ArtifactType
+
     try:
         atype = ArtifactType(req.artifact_type)
     except ValueError as e:
@@ -3545,6 +3741,7 @@ def api_list_artifacts(job_id: str):
 
 # ── Sovereign Queue Processing ───────────────────────────────────────
 
+
 class SovereignQueueRequest(BaseModel):
     canada_only: bool = True
     province: str = None
@@ -3561,23 +3758,29 @@ def api_process_queue_sovereign(req: SovereignQueueRequest):
     )
     results = []
     for job, host in assigned:
-        results.append({
-            "job_id": job["job_id"],
-            "job_name": job.get("name"),
-            "host_id": host["host_id"],
-            "gpu_model": host.get("gpu_model"),
-            "country": host.get("country", ""),
-        })
-        broadcast_sse("job_assigned", {
-            "job_id": job["job_id"],
-            "host_id": host["host_id"],
-        })
+        results.append(
+            {
+                "job_id": job["job_id"],
+                "job_name": job.get("name"),
+                "host_id": host["host_id"],
+                "gpu_model": host.get("gpu_model"),
+                "country": host.get("country", ""),
+            }
+        )
+        broadcast_sse(
+            "job_assigned",
+            {
+                "job_id": job["job_id"],
+                "host_id": host["host_id"],
+            },
+        )
     return {"ok": True, "assigned": len(results), "jobs": results}
 
 
 # ═══ Province Compliance Matrix ══════════════════════════════════════
 # REPORT_MARKETING_FINAL.md: "maintaining a small policy matrix embedded
 # in the scheduler product and documentation"
+
 
 @app.get("/api/compliance/provinces", tags=["Compliance"])
 def api_compliance_provinces():
@@ -3608,13 +3811,13 @@ def api_tax_rates():
 @app.get("/api/compliance/trust-tier-requirements", tags=["Compliance"])
 def api_trust_tier_requirements():
     """Full trust tier requirements matrix."""
-    return {"tiers": [
-        {"tier": tier.value, **reqs}
-        for tier, reqs in TRUST_TIER_REQUIREMENTS.items()
-    ]}
+    return {
+        "tiers": [{"tier": tier.value, **reqs} for tier, reqs in TRUST_TIER_REQUIREMENTS.items()]
+    }
 
 
 # ═══ Québec Law 25 PIA Check ════════════════════════════════════════
+
 
 class PIACheckRequest(BaseModel):
     data_origin_province: str = "QC"
@@ -3634,6 +3837,7 @@ def api_quebec_pia_check(req: PIACheckRequest):
 
 # ═══ Privacy Controls ════════════════════════════════════════════════
 # REPORT_FEATURE_FINAL.md § "Privacy-by-default and governance hooks"
+
 
 @app.get("/api/privacy/retention-policies", tags=["Privacy"])
 def api_retention_policies():
@@ -3749,6 +3953,7 @@ _transparency_db_path = os.path.join(os.path.dirname(__file__), "xcelsior_transp
 def _get_transparency_db():
     """Lazy-init transparency SQLite DB."""
     import sqlite3
+
     conn = sqlite3.connect(_transparency_db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -3784,7 +3989,7 @@ def _get_transparency_db():
 
 
 class LegalRequestRecord(BaseModel):
-    request_type: str = "subpoena"   # subpoena, warrant, mlat, production_order, informal
+    request_type: str = "subpoena"  # subpoena, warrant, mlat, production_order, informal
     jurisdiction: str = "CA"
     authority: str = ""
     scope: str = ""
@@ -3795,34 +4000,45 @@ class LegalRequestRecord(BaseModel):
 def api_record_legal_request(req: LegalRequestRecord):
     """Record a legal request (subpoena, warrant, MLAT, etc.)."""
     import uuid
+
     conn = _get_transparency_db()
     request_id = str(uuid.uuid4())[:12]
     conn.execute(
         """INSERT INTO legal_requests
            (request_id, received_at, request_type, jurisdiction, authority, scope, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (request_id, time.time(), req.request_type, req.jurisdiction,
-         req.authority, req.scope, req.notes),
+        (
+            request_id,
+            time.time(),
+            req.request_type,
+            req.jurisdiction,
+            req.authority,
+            req.scope,
+            req.notes,
+        ),
     )
     conn.commit()
     conn.close()
 
     # Also record as an auditable event in the hash chain
     store = get_event_store()
-    store.append(Event(
-        event_type="transparency.legal_request",
-        entity_type="legal",
-        entity_id=request_id,
-        actor="admin",
-        data={"request_type": req.request_type, "jurisdiction": req.jurisdiction},
-    ))
+    store.append(
+        Event(
+            event_type="transparency.legal_request",
+            entity_type="legal",
+            entity_id=request_id,
+            actor="admin",
+            data={"request_type": req.request_type, "jurisdiction": req.jurisdiction},
+        )
+    )
 
     return {"ok": True, "request_id": request_id}
 
 
 @app.post("/api/transparency/legal-request/{request_id}/respond", tags=["Transparency"])
-def api_respond_legal_request(request_id: str, complied: bool = False,
-                               challenged: bool = False, notes: str = ""):
+def api_respond_legal_request(
+    request_id: str, complied: bool = False, challenged: bool = False, notes: str = ""
+):
     """Record response to a legal request."""
     conn = _get_transparency_db()
     conn.execute(
@@ -3897,6 +4113,7 @@ def api_transparency_report(months: int = 12):
 
 
 # ── Tamper-Evident Audit Verification (REPORT_FEATURE_2.md Phase C §1) ──
+
 
 @app.get("/api/audit/verify-chain", tags=["Events"])
 def api_verify_event_chain():
@@ -3974,6 +4191,7 @@ def api_all_telemetry():
 # ── Agent Verification Endpoint ───────────────────────────────────────
 # Full verification report from agent benchmark → verification.py checks
 
+
 class VerificationReportPayload(BaseModel):
     host_id: str
     report: dict
@@ -3987,7 +4205,7 @@ def api_agent_verify(payload: VerificationReportPayload):
     return {
         "ok": True,
         "host_id": payload.host_id,
-        "state": result.state.value if hasattr(result.state, 'value') else str(result.state),
+        "state": result.state.value if hasattr(result.state, "value") else str(result.state),
         "score": result.overall_score,
         "checks": result.checks,
         "gpu_fingerprint": result.gpu_fingerprint,
@@ -4002,9 +4220,10 @@ def api_agent_verify(payload: VerificationReportPayload):
 
 # ── SLA Enforcement (Report #1.B: "SLA Enforcement" section) ─────────
 
+
 class SLAEnforceRequest(BaseModel):
     host_id: str
-    month: str            # YYYY-MM
+    month: str  # YYYY-MM
     tier: str = "community"
     monthly_spend_cad: float = 0.0
 
@@ -4021,7 +4240,10 @@ def api_sla_enforce(req: SLAEnforceRequest):
     """
     engine = get_sla_engine()
     record = engine.enforce_monthly(
-        req.host_id, req.tier, req.month, req.monthly_spend_cad,
+        req.host_id,
+        req.tier,
+        req.month,
+        req.monthly_spend_cad,
     )
     return {
         "ok": True,
@@ -4045,6 +4267,7 @@ def api_sla_hosts_summary():
     """
     engine = get_sla_engine()
     import scheduler as _sched
+
     hosts = _sched.list_hosts(active_only=False)
     summaries = []
     for h in hosts:
@@ -4054,17 +4277,19 @@ def api_sla_hosts_summary():
         uptime = engine.get_host_uptime_pct(hid)
         violations = engine.get_violations(hid)
         tier = h.get("sla_tier", "community")
-        summaries.append({
-            "host_id": hid,
-            "gpu_model": h.get("gpu_model", "Unknown"),
-            "status": h.get("status", "unknown"),
-            "sla_tier": tier,
-            "uptime_30d_pct": round(uptime, 4),
-            "violation_count": len(violations),
-            "last_violation": violations[-1] if violations else None,
-            "country": h.get("country", ""),
-            "province": h.get("province", ""),
-        })
+        summaries.append(
+            {
+                "host_id": hid,
+                "gpu_model": h.get("gpu_model", "Unknown"),
+                "status": h.get("status", "unknown"),
+                "sla_tier": tier,
+                "uptime_30d_pct": round(uptime, 4),
+                "violation_count": len(violations),
+                "last_violation": violations[-1] if violations else None,
+                "country": h.get("country", ""),
+                "province": h.get("province", ""),
+            }
+        )
     return {"ok": True, "hosts": summaries, "count": len(summaries)}
 
 
@@ -4076,14 +4301,19 @@ def api_sla_status(host_id: str, month: str = ""):
     record = None
     if month:
         rec = engine.get_host_sla(host_id, month)
-        record = {
-            "month": rec.month, "tier": rec.tier,
-            "uptime_pct": round(rec.uptime_pct, 4),
-            "downtime_seconds": rec.downtime_seconds,
-            "incidents": rec.incidents,
-            "credit_pct": rec.credit_pct,
-            "credit_cad": rec.credit_cad,
-        } if rec else None
+        record = (
+            {
+                "month": rec.month,
+                "tier": rec.tier,
+                "uptime_pct": round(rec.uptime_pct, 4),
+                "downtime_seconds": rec.downtime_seconds,
+                "incidents": rec.incidents,
+                "credit_pct": rec.credit_pct,
+                "credit_cad": rec.credit_cad,
+            }
+            if rec
+            else None
+        )
     return {
         "ok": True,
         "host_id": host_id,
@@ -4112,21 +4342,23 @@ def api_sla_active_downtimes():
 def api_sla_targets():
     """Get SLA target definitions for all tiers."""
     from dataclasses import asdict
+
     targets = {t.value: asdict(v) for t, v in SLA_TARGETS.items()}
     return {"ok": True, "targets": targets}
 
 
 # ── Provider Onboarding (Report #1.B: Stripe Connect + Canadian Co) ──
 
+
 class ProviderRegisterRequest(BaseModel):
     provider_id: str
     email: str
     provider_type: str = "individual"  # "individual" or "company"
-    corporation_name: str = ""         # Required for company type
-    business_number: str = ""          # CRA Business Number (BN)
-    gst_hst_number: str = ""           # GST/HST registration number
-    province: str = ""                 # ON, QC, BC, AB, etc.
-    legal_name: str = ""               # Legal name of individual or entity
+    corporation_name: str = ""  # Required for company type
+    business_number: str = ""  # CRA Business Number (BN)
+    gst_hst_number: str = ""  # GST/HST registration number
+    province: str = ""  # ON, QC, BC, AB, etc.
+    legal_name: str = ""  # Legal name of individual or entity
 
 
 class IncorporationUploadRequest(BaseModel):
@@ -4160,11 +4392,14 @@ def api_register_provider(req: ProviderRegisterRequest):
         province=req.province,
         legal_name=req.legal_name,
     )
-    broadcast_sse("provider_registered", {
-        "provider_id": req.provider_id,
-        "type": req.provider_type,
-        "corporation_name": req.corporation_name,
-    })
+    broadcast_sse(
+        "provider_registered",
+        {
+            "provider_id": req.provider_id,
+            "type": req.provider_type,
+            "corporation_name": req.corporation_name,
+        },
+    )
     return {"ok": True, **result}
 
 
@@ -4242,6 +4477,7 @@ def api_provider_payout(provider_id: str, job_id: str = "", total_cad: float = 0
 
 class StripeWebhookRaw(BaseModel):
     """Raw Stripe webhook — in production, read from request body directly."""
+
     payload: str = ""
     signature: str = ""
 
@@ -4256,6 +4492,7 @@ def api_stripe_webhook(req: StripeWebhookRaw):
 
 # ── LLMs.txt Endpoint (Report #1.B: LLM Optimization) ────────────────
 
+
 @app.get("/llms.txt", tags=["Infrastructure"])
 def api_llms_txt():
     """Serve LLM-optimized documentation for AI agents.
@@ -4266,11 +4503,13 @@ def api_llms_txt():
     llms_path = Path(os.path.dirname(__file__)) / "llms.txt"
     if llms_path.exists():
         from fastapi.responses import PlainTextResponse
+
         return PlainTextResponse(content=llms_path.read_text(), media_type="text/plain")
     raise HTTPException(404, "llms.txt not found")
 
 
 # ── User Data Export (PIPEDA / Subject Access Request) ────────────────
+
 
 @app.get("/api/auth/me/data-export", tags=["Auth"])
 def api_data_export(request: Request):
@@ -4292,16 +4531,12 @@ def api_data_export(request: Request):
         with _user_lock:
             profile = _users_db.get(email, {})
     customer_id = profile.get("customer_id", "")
-    safe_profile = {
-        k: v for k, v in profile.items()
-        if k not in ("hashed_password", "password")
-    }
+    safe_profile = {k: v for k, v in profile.items() if k not in ("hashed_password", "password")}
 
     # Gather jobs
     all_jobs = list_jobs()
     user_jobs = [
-        j for j in all_jobs
-        if j.get("customer_id") == customer_id or j.get("submitted_by") == email
+        j for j in all_jobs if j.get("customer_id") == customer_id or j.get("submitted_by") == email
     ]
 
     # Gather billing
@@ -4335,6 +4570,7 @@ def api_data_export(request: Request):
 
 # ── Artifact TTL / Expiry Info ────────────────────────────────────────
 
+
 @app.get("/api/artifacts/{job_id}/expiry", tags=["Artifacts"])
 def api_artifact_expiry(job_id: str):
     """Get expiry/cleanup dates for artifacts of a given job.
@@ -4361,19 +4597,22 @@ def api_artifact_expiry(job_id: str):
         created = a.get("created_at", time.time())
         ttl_days = retention_days.get(art_type, 90)
         expiry = created + ttl_days * 86400
-        result.append({
-            "artifact_id": a.get("artifact_id", ""),
-            "artifact_type": art_type,
-            "created_at": created,
-            "ttl_days": ttl_days,
-            "expires_at": expiry,
-            "days_remaining": max(0, int((expiry - time.time()) / 86400)),
-        })
+        result.append(
+            {
+                "artifact_id": a.get("artifact_id", ""),
+                "artifact_type": art_type,
+                "created_at": created,
+                "ttl_days": ttl_days,
+                "expires_at": expiry,
+                "days_remaining": max(0, int((expiry - time.time()) / 86400)),
+            }
+        )
 
     return {"ok": True, "job_id": job_id, "artifacts": result}
 
 
 # ── Reputation Score Breakdown ────────────────────────────────────────
+
 
 @app.get("/api/reputation/{entity_id}/breakdown", tags=["Reputation"])
 def api_reputation_breakdown(entity_id: str):
@@ -4431,7 +4670,10 @@ def api_reputation_breakdown(entity_id: str):
 
 
 class InferenceRequest(BaseModel):
-    model: str = Field(..., description="Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')")
+    model: str = Field(
+        ...,
+        description="Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')",
+    )
     inputs: list[str] | str = Field(..., description="Text input(s) for inference")
     gpu_model: str = Field("any", description="Preferred GPU model or 'any'")
     max_tokens: int = Field(512, ge=1, le=8192)
@@ -4484,8 +4726,13 @@ def api_inference_result(job_id: str):
         elapsed = time.time() - meta["submitted_at"]
         if elapsed > meta["timeout_sec"]:
             return {"ok": False, "status": "timeout", "job_id": job_id}
-        return {"ok": True, "status": "running", "job_id": job_id, "model": meta["model"],
-                "elapsed_sec": round(elapsed, 1)}
+        return {
+            "ok": True,
+            "status": "running",
+            "job_id": job_id,
+            "model": meta["model"],
+            "elapsed_sec": round(elapsed, 1),
+        }
     # Check scheduler
     jobs = list_jobs()
     job = next((j for j in jobs if j.get("job_id") == job_id), None)
@@ -4498,18 +4745,42 @@ def api_inference_result(job_id: str):
 def api_inference_models():
     """List available inference models and their resource requirements."""
     models = [
-        {"name": "distilbert-base-uncased-finetuned-sst-2-english", "task": "sentiment-analysis",
-         "min_vram_gb": 1, "avg_latency_ms": 50},
-        {"name": "meta-llama/Llama-2-7b-chat-hf", "task": "text-generation",
-         "min_vram_gb": 14, "avg_latency_ms": 2000},
-        {"name": "meta-llama/Llama-2-13b-chat-hf", "task": "text-generation",
-         "min_vram_gb": 26, "avg_latency_ms": 4000},
-        {"name": "stabilityai/stable-diffusion-xl-base-1.0", "task": "image-generation",
-         "min_vram_gb": 8, "avg_latency_ms": 5000},
-        {"name": "openai/whisper-large-v3", "task": "speech-to-text",
-         "min_vram_gb": 4, "avg_latency_ms": 3000},
-        {"name": "BAAI/bge-large-en-v1.5", "task": "embeddings",
-         "min_vram_gb": 2, "avg_latency_ms": 100},
+        {
+            "name": "distilbert-base-uncased-finetuned-sst-2-english",
+            "task": "sentiment-analysis",
+            "min_vram_gb": 1,
+            "avg_latency_ms": 50,
+        },
+        {
+            "name": "meta-llama/Llama-2-7b-chat-hf",
+            "task": "text-generation",
+            "min_vram_gb": 14,
+            "avg_latency_ms": 2000,
+        },
+        {
+            "name": "meta-llama/Llama-2-13b-chat-hf",
+            "task": "text-generation",
+            "min_vram_gb": 26,
+            "avg_latency_ms": 4000,
+        },
+        {
+            "name": "stabilityai/stable-diffusion-xl-base-1.0",
+            "task": "image-generation",
+            "min_vram_gb": 8,
+            "avg_latency_ms": 5000,
+        },
+        {
+            "name": "openai/whisper-large-v3",
+            "task": "speech-to-text",
+            "min_vram_gb": 4,
+            "avg_latency_ms": 3000,
+        },
+        {
+            "name": "BAAI/bge-large-en-v1.5",
+            "task": "embeddings",
+            "min_vram_gb": 2,
+            "avg_latency_ms": 100,
+        },
     ]
     return {"ok": True, "models": models}
 
@@ -4518,6 +4789,7 @@ def api_inference_models():
 def api_inference_post_result(job_id: str, request: Request):
     """Worker callback: post inference results. Internal use."""
     import asyncio
+
     try:
         body = asyncio.get_event_loop().run_until_complete(request.json())
     except Exception:

@@ -28,37 +28,44 @@ log = logging.getLogger("xcelsior")
 
 # ── Job States ────────────────────────────────────────────────────────
 
+
 class JobState(str, Enum):
     """Strict job lifecycle states. Every transition is validated."""
+
     QUEUED = "queued"
-    ASSIGNED = "assigned"       # Host selected, not yet confirmed by agent
-    LEASED = "leased"           # Agent confirmed, lease clock started
-    RUNNING = "running"         # Container executing
-    COMPLETED = "completed"     # Terminal: success
-    FAILED = "failed"           # Terminal: error
-    PREEMPTED = "preempted"     # Terminal: evicted (spot pricing / priority)
-    CANCELLED = "cancelled"     # Terminal: user cancelled
+    ASSIGNED = "assigned"  # Host selected, not yet confirmed by agent
+    LEASED = "leased"  # Agent confirmed, lease clock started
+    RUNNING = "running"  # Container executing
+    COMPLETED = "completed"  # Terminal: success
+    FAILED = "failed"  # Terminal: error
+    PREEMPTED = "preempted"  # Terminal: evicted (spot pricing / priority)
+    CANCELLED = "cancelled"  # Terminal: user cancelled
 
 
-TERMINAL_STATES = frozenset({
-    JobState.COMPLETED, JobState.FAILED,
-    JobState.PREEMPTED, JobState.CANCELLED,
-})
+TERMINAL_STATES = frozenset(
+    {
+        JobState.COMPLETED,
+        JobState.FAILED,
+        JobState.PREEMPTED,
+        JobState.CANCELLED,
+    }
+)
 
 # Valid state transitions — anything not here is rejected
 VALID_TRANSITIONS = {
-    JobState.QUEUED:     {JobState.ASSIGNED, JobState.CANCELLED},
-    JobState.ASSIGNED:   {JobState.LEASED, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
-    JobState.LEASED:     {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
-    JobState.RUNNING:    {JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED},
-    JobState.COMPLETED:  set(),  # Terminal
-    JobState.FAILED:     {JobState.QUEUED},  # Retry
-    JobState.PREEMPTED:  {JobState.QUEUED},  # Re-queue
-    JobState.CANCELLED:  set(),  # Terminal
+    JobState.QUEUED: {JobState.ASSIGNED, JobState.CANCELLED},
+    JobState.ASSIGNED: {JobState.LEASED, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
+    JobState.LEASED: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
+    JobState.RUNNING: {JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED},
+    JobState.COMPLETED: set(),  # Terminal
+    JobState.FAILED: {JobState.QUEUED},  # Retry
+    JobState.PREEMPTED: {JobState.QUEUED},  # Re-queue
+    JobState.CANCELLED: set(),  # Terminal
 }
 
 
 # ── Event Types ───────────────────────────────────────────────────────
+
 
 class EventType(str, Enum):
     # Job lifecycle
@@ -101,30 +108,35 @@ class Event:
     event's canonical JSON) and event_hash (SHA-256 of this event).
     Replaying the chain detects any modification.
     """
+
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: str = ""
-    entity_type: str = ""      # "job", "host", "billing"
-    entity_id: str = ""        # job_id or host_id
+    entity_type: str = ""  # "job", "host", "billing"
+    entity_id: str = ""  # job_id or host_id
     timestamp: float = field(default_factory=time.time)
-    actor: str = ""            # "scheduler", "agent:<host_id>", "user:<user_id>"
+    actor: str = ""  # "scheduler", "agent:<host_id>", "user:<user_id>"
     data: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
-    prev_hash: str = ""        # SHA-256 hash of preceding event (chain link)
-    event_hash: str = ""       # SHA-256 hash of this event's canonical form
+    prev_hash: str = ""  # SHA-256 hash of preceding event (chain link)
+    event_hash: str = ""  # SHA-256 hash of this event's canonical form
 
     def compute_hash(self) -> str:
         """Compute SHA-256 hash of canonical event payload (excludes event_hash)."""
-        canonical = json.dumps({
-            "event_id": self.event_id,
-            "event_type": self.event_type,
-            "entity_type": self.entity_type,
-            "entity_id": self.entity_id,
-            "timestamp": self.timestamp,
-            "actor": self.actor,
-            "data": self.data,
-            "metadata": self.metadata,
-            "prev_hash": self.prev_hash,
-        }, sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(
+            {
+                "event_id": self.event_id,
+                "event_type": self.event_type,
+                "entity_type": self.entity_type,
+                "entity_id": self.entity_id,
+                "timestamp": self.timestamp,
+                "actor": self.actor,
+                "data": self.data,
+                "metadata": self.metadata,
+                "prev_hash": self.prev_hash,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict:
@@ -135,12 +147,14 @@ class Event:
 # A lease differentiates "host acknowledged the job" from "host completed work."
 # Leases must be renewed periodically. Expired leases = host lost → re-queue.
 
-DEFAULT_LEASE_DURATION_SEC = 300    # 5 minute lease
-LEASE_RENEWAL_GRACE_SEC = 60       # 1 minute grace after expiry before re-queue
+DEFAULT_LEASE_DURATION_SEC = 300  # 5 minute lease
+LEASE_RENEWAL_GRACE_SEC = 60  # 1 minute grace after expiry before re-queue
+
 
 @dataclass
 class Lease:
     """Job lease — proves the agent is alive and working."""
+
     lease_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     job_id: str = ""
     host_id: str = ""
@@ -148,7 +162,7 @@ class Lease:
     expires_at: float = 0.0
     last_renewed: float = field(default_factory=time.time)
     duration_sec: int = DEFAULT_LEASE_DURATION_SEC
-    status: str = "active"     # active, expired, released
+    status: str = "active"  # active, expired, released
 
     def __post_init__(self):
         if self.expires_at == 0.0:
@@ -172,6 +186,7 @@ class Lease:
 # ── Event Store ───────────────────────────────────────────────────────
 # Append-only event log. SQLite for dev, Postgres JSONB for production.
 
+
 class EventStore:
     """Append-only event store backed by SQLite.
 
@@ -181,9 +196,8 @@ class EventStore:
 
     def __init__(self, db_path: Optional[str] = None):
         import os
-        self.db_path = db_path or os.path.join(
-            os.path.dirname(__file__), "xcelsior_events.db"
-        )
+
+        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_events.db")
         self._init_db()
 
     def _init_db(self):
@@ -268,10 +282,16 @@ class EventStore:
                     timestamp, actor, data, metadata, prev_hash, event_hash)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    event.event_id, event.event_type, event.entity_type,
-                    event.entity_id, event.timestamp, event.actor,
-                    json.dumps(event.data), json.dumps(event.metadata),
-                    event.prev_hash, event.event_hash,
+                    event.event_id,
+                    event.event_type,
+                    event.entity_type,
+                    event.entity_id,
+                    event.timestamp,
+                    event.actor,
+                    json.dumps(event.data),
+                    json.dumps(event.metadata),
+                    event.prev_hash,
+                    event.event_hash,
                 ),
             )
         return event
@@ -388,8 +408,9 @@ class EventStore:
 
     # ── Lease operations ──────────────────────────────────────────────
 
-    def grant_lease(self, job_id: str, host_id: str,
-                    duration_sec: int = DEFAULT_LEASE_DURATION_SEC) -> Lease:
+    def grant_lease(
+        self, job_id: str, host_id: str, duration_sec: int = DEFAULT_LEASE_DURATION_SEC
+    ) -> Lease:
         """Grant a lease to an agent for a job."""
         lease = Lease(
             job_id=job_id,
@@ -408,22 +429,37 @@ class EventStore:
                     last_renewed, duration_sec, status)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    lease.lease_id, lease.job_id, lease.host_id,
-                    lease.granted_at, lease.expires_at, lease.last_renewed,
-                    lease.duration_sec, lease.status,
+                    lease.lease_id,
+                    lease.job_id,
+                    lease.host_id,
+                    lease.granted_at,
+                    lease.expires_at,
+                    lease.last_renewed,
+                    lease.duration_sec,
+                    lease.status,
                 ),
             )
 
-        self.append(Event(
-            event_type=EventType.JOB_LEASE_GRANTED,
-            entity_type="job",
-            entity_id=job_id,
-            actor=f"agent:{host_id}",
-            data={"lease_id": lease.lease_id, "host_id": host_id,
-                  "expires_at": lease.expires_at},
-        ))
-        log.info("LEASE GRANTED job=%s host=%s lease=%s expires=%.0f",
-                 job_id, host_id, lease.lease_id, lease.expires_at)
+        self.append(
+            Event(
+                event_type=EventType.JOB_LEASE_GRANTED,
+                entity_type="job",
+                entity_id=job_id,
+                actor=f"agent:{host_id}",
+                data={
+                    "lease_id": lease.lease_id,
+                    "host_id": host_id,
+                    "expires_at": lease.expires_at,
+                },
+            )
+        )
+        log.info(
+            "LEASE GRANTED job=%s host=%s lease=%s expires=%.0f",
+            job_id,
+            host_id,
+            lease.lease_id,
+            lease.expires_at,
+        )
         return lease
 
     def renew_lease(self, job_id: str, host_id: str) -> Optional[Lease]:
@@ -460,13 +496,15 @@ class EventStore:
                 (lease.expires_at, lease.last_renewed, lease.lease_id),
             )
 
-        self.append(Event(
-            event_type=EventType.JOB_LEASE_RENEWED,
-            entity_type="job",
-            entity_id=job_id,
-            actor=f"agent:{host_id}",
-            data={"lease_id": lease.lease_id, "new_expires_at": new_expiry},
-        ))
+        self.append(
+            Event(
+                event_type=EventType.JOB_LEASE_RENEWED,
+                entity_type="job",
+                entity_id=job_id,
+                actor=f"agent:{host_id}",
+                data={"lease_id": lease.lease_id, "new_expires_at": new_expiry},
+            )
+        )
         return lease
 
     def expire_stale_leases(self) -> list[str]:
@@ -488,20 +526,26 @@ class EventStore:
                 )
                 expired_jobs.append(row["job_id"])
 
-                self.append(Event(
-                    event_type=EventType.JOB_LEASE_EXPIRED,
-                    entity_type="job",
-                    entity_id=row["job_id"],
-                    actor="scheduler",
-                    data={
-                        "lease_id": row["lease_id"],
-                        "host_id": row["host_id"],
-                        "expired_at": now,
-                        "was_due_at": row["expires_at"],
-                    },
-                ))
-                log.warning("LEASE EXPIRED job=%s host=%s lease=%s",
-                            row["job_id"], row["host_id"], row["lease_id"])
+                self.append(
+                    Event(
+                        event_type=EventType.JOB_LEASE_EXPIRED,
+                        entity_type="job",
+                        entity_id=row["job_id"],
+                        actor="scheduler",
+                        data={
+                            "lease_id": row["lease_id"],
+                            "host_id": row["host_id"],
+                            "expired_at": now,
+                            "was_due_at": row["expires_at"],
+                        },
+                    )
+                )
+                log.warning(
+                    "LEASE EXPIRED job=%s host=%s lease=%s",
+                    row["job_id"],
+                    row["host_id"],
+                    row["lease_id"],
+                )
 
         return expired_jobs
 
@@ -536,6 +580,7 @@ class EventStore:
 
 
 # ── Job State Machine ─────────────────────────────────────────────────
+
 
 class JobStateMachine:
     """Validates and records job state transitions.
@@ -601,8 +646,7 @@ class JobStateMachine:
         )
 
         self.events.append(event)
-        log.info("STATE %s → %s | job=%s | actor=%s",
-                 current.value, target.value, job_id, actor)
+        log.info("STATE %s → %s | job=%s | actor=%s", current.value, target.value, job_id, actor)
         return event
 
     def get_job_timeline(self, job_id: str) -> list[dict]:

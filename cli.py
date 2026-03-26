@@ -10,31 +10,60 @@ import sys
 import time
 
 from scheduler import (
-    register_host, remove_host, list_hosts, check_hosts,
-    submit_job, list_jobs, update_job_status, process_queue,
-    bill_job, bill_all_completed, get_total_revenue, load_billing,
+    register_host,
+    remove_host,
+    list_hosts,
+    check_hosts,
+    submit_job,
+    list_jobs,
+    update_job_status,
+    process_queue,
+    bill_job,
+    bill_all_completed,
+    get_total_revenue,
+    load_billing,
     start_health_monitor,
-    generate_ssh_keypair, get_public_key,
-    failover_and_reassign, requeue_job,
-    list_tiers, PRIORITY_TIERS,
-    build_and_push, list_builds, generate_dockerfile,
-    list_rig, unlist_rig, get_marketplace, marketplace_bill, marketplace_stats,
-    register_host_ca, list_hosts_filtered, process_queue_filtered,
+    generate_ssh_keypair,
+    get_public_key,
+    failover_and_reassign,
+    requeue_job,
+    list_tiers,
+    PRIORITY_TIERS,
+    build_and_push,
+    list_builds,
+    generate_dockerfile,
+    list_rig,
+    unlist_rig,
+    get_marketplace,
+    marketplace_bill,
+    marketplace_stats,
+    register_host_ca,
+    list_hosts_filtered,
+    process_queue_filtered,
     set_canada_only,
-    add_to_pool, remove_from_pool, load_autoscale_pool,
+    add_to_pool,
+    remove_from_pool,
+    load_autoscale_pool,
     autoscale_cycle,
 )
 
 
 def cmd_run(args):
     """Submit a job and optionally process the queue."""
-    job = submit_job(args.model, args.vram, args.priority, tier=args.tier,
-                     num_gpus=getattr(args, 'gpus', 1),
-                     nfs_server=getattr(args, 'nfs_server', None),
-                     nfs_path=getattr(args, 'nfs_path', None),
-                     image=getattr(args, 'image', None))
-    gpus_str = f" | {job.get('num_gpus', 1)} GPUs" if job.get('num_gpus', 1) > 1 else ""
-    print(f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB{gpus_str} | tier={job['tier']} (priority {job['priority']})")
+    job = submit_job(
+        args.model,
+        args.vram,
+        args.priority,
+        tier=args.tier,
+        num_gpus=getattr(args, "gpus", 1),
+        nfs_server=getattr(args, "nfs_server", None),
+        nfs_path=getattr(args, "nfs_path", None),
+        image=getattr(args, "image", None),
+    )
+    gpus_str = f" | {job.get('num_gpus', 1)} GPUs" if job.get("num_gpus", 1) > 1 else ""
+    print(
+        f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB{gpus_str} | tier={job['tier']} (priority {job['priority']})"
+    )
 
     if not args.no_assign:
         assigned = process_queue()
@@ -54,7 +83,9 @@ def cmd_jobs(args):
     for j in jobs:
         host = j.get("host_id") or "—"
         tier = j.get("tier", "free")
-        print(f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | {tier} | host: {host}")
+        print(
+            f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | {tier} | host: {host}"
+        )
 
 
 def cmd_job(args):
@@ -85,11 +116,20 @@ def cmd_process(args):
 
 def cmd_host_add(args):
     """Register a host."""
-    entry = register_host(args.id, args.ip, args.gpu, args.vram, args.free_vram, args.rate,
-                          country=getattr(args, 'country', 'CA'),
-                          province=getattr(args, 'province', ''))
-    prov = entry.get('province', '')
-    print(f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', 'CA')}{(' ' + prov) if prov else ''} | {entry['total_vram_gb']}GB | ${entry['cost_per_hour']}/hr")
+    entry = register_host(
+        args.id,
+        args.ip,
+        args.gpu,
+        args.vram,
+        args.free_vram,
+        args.rate,
+        country=getattr(args, "country", "CA"),
+        province=getattr(args, "province", ""),
+    )
+    prov = entry.get("province", "")
+    print(
+        f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', 'CA')}{(' ' + prov) if prov else ''} | {entry['total_vram_gb']}GB | ${entry['cost_per_hour']}/hr"
+    )
 
 
 def cmd_host_rm(args):
@@ -105,7 +145,9 @@ def cmd_hosts(args):
         print("No hosts.")
         return
     for h in hosts:
-        print(f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr")
+        print(
+            f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
+        )
 
 
 def cmd_ping(args):
@@ -162,7 +204,9 @@ def cmd_requeue(args):
     if result:
         print(f"Job {args.job_id} requeued (retry {result.get('retries', 0)})")
     else:
-        print(f"Failed to requeue {args.job_id} (max retries exceeded or not found)", file=sys.stderr)
+        print(
+            f"Failed to requeue {args.job_id} (max retries exceeded or not found)", file=sys.stderr
+        )
         sys.exit(1)
 
 
@@ -197,11 +241,20 @@ def cmd_token_gen(args):
 
 def cmd_host_add_ca(args):
     """Register a host with country tag."""
-    entry = register_host_ca(args.id, args.ip, args.gpu, args.vram, args.free_vram,
-                              args.rate, country=args.country,
-                              province=getattr(args, 'province', 'ON'))
-    prov = entry.get('province', '')
-    print(f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', 'CA')}{(' ' + prov) if prov else ''} | ${entry['cost_per_hour']}/hr")
+    entry = register_host_ca(
+        args.id,
+        args.ip,
+        args.gpu,
+        args.vram,
+        args.free_vram,
+        args.rate,
+        country=args.country,
+        province=getattr(args, "province", "ON"),
+    )
+    prov = entry.get("province", "")
+    print(
+        f"Host registered: {entry['host_id']} | {entry['ip']} | {entry['gpu_model']} | {entry.get('country', 'CA')}{(' ' + prov) if prov else ''} | ${entry['cost_per_hour']}/hr"
+    )
 
 
 def cmd_hosts_ca(args):
@@ -211,7 +264,9 @@ def cmd_hosts_ca(args):
         print("No Canadian hosts.")
         return
     for h in hosts:
-        print(f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h.get('country', '?')} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr")
+        print(
+            f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h.get('country', '?')} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
+        )
 
 
 def cmd_canada(args):
@@ -224,6 +279,7 @@ def cmd_canada(args):
         print("Canada-only mode: OFF")
     else:
         from scheduler import CANADA_ONLY
+
         print(f"Canada-only mode: {'ON' if CANADA_ONLY else 'OFF'}")
 
 
@@ -235,13 +291,14 @@ def cmd_pool(args):
         return
     for p in pool:
         status = "provisioned" if p.get("provisioned") else "available"
-        print(f"  [{status:>12}] {p['host_id']} | {p['ip']} | {p['gpu_model']} | {p['vram_gb']}GB | ${p['cost_per_hour']}/hr | {p.get('country', '?')}")
+        print(
+            f"  [{status:>12}] {p['host_id']} | {p['ip']} | {p['gpu_model']} | {p['vram_gb']}GB | ${p['cost_per_hour']}/hr | {p.get('country', '?')}"
+        )
 
 
 def cmd_pool_add(args):
     """Add a host to the autoscale pool."""
-    entry = add_to_pool(args.host_id, args.ip, args.gpu, args.vram,
-                         args.rate, args.country)
+    entry = add_to_pool(args.host_id, args.ip, args.gpu, args.vram, args.rate, args.country)
     print(f"Added to pool: {entry['host_id']} | {entry['gpu_model']} | {entry['vram_gb']}GB")
 
 
@@ -279,14 +336,19 @@ def cmd_market(args):
         print("No listings.")
         return
     for l in listings:
-        print(f"  {l['host_id']} | {l['gpu_model']} | {l['vram_gb']}GB | ${l['price_per_hour']}/hr | {l['owner']} | jobs: {l.get('total_jobs', 0)} | earned: ${l.get('total_earned', 0)}")
+        print(
+            f"  {l['host_id']} | {l['gpu_model']} | {l['vram_gb']}GB | ${l['price_per_hour']}/hr | {l['owner']} | jobs: {l.get('total_jobs', 0)} | earned: ${l.get('total_earned', 0)}"
+        )
 
 
 def cmd_market_list(args):
     """List a rig on the marketplace."""
-    listing = list_rig(args.host_id, args.gpu, args.vram, args.price,
-                        description=args.desc, owner=args.owner)
-    print(f"Listed: {listing['host_id']} | {listing['gpu_model']} | ${listing['price_per_hour']}/hr | owner={listing['owner']}")
+    listing = list_rig(
+        args.host_id, args.gpu, args.vram, args.price, description=args.desc, owner=args.owner
+    )
+    print(
+        f"Listed: {listing['host_id']} | {listing['gpu_model']} | ${listing['price_per_hour']}/hr | owner={listing['owner']}"
+    )
 
 
 def cmd_market_unlist(args):
@@ -317,9 +379,13 @@ def cmd_build(args):
         print(content)
         return
 
-    result = build_and_push(args.model, context_dir=args.context,
-                             quantize=args.quantize, base_image=args.base,
-                             push=args.push)
+    result = build_and_push(
+        args.model,
+        context_dir=args.context,
+        quantize=args.quantize,
+        base_image=args.base,
+        push=args.push,
+    )
     if result["built"]:
         print(f"  Built: {result['tag']}")
         if result["pushed"]:
@@ -347,13 +413,16 @@ def cmd_tiers(args):
     tiers = list_tiers()
     print("Priority tiers:")
     for name, info in tiers.items():
-        print(f"  {name:>10} | priority {info['priority']} | {info['multiplier']}x billing | {info['label']}")
+        print(
+            f"  {name:>10} | priority {info['priority']} | {info['multiplier']}x billing | {info['label']}"
+        )
 
 
 def cmd_serve(args):
     """Start the API server."""
     import uvicorn
     from api import app
+
     print(f"Starting Xcelsior API on port {args.port}...")
     uvicorn.run(app, host=args.bind, port=args.port)
 
@@ -371,9 +440,11 @@ def cmd_health_start(args):
 
 # ── v2.1 CLI Command Handlers ────────────────────────────────────────
 
+
 def cmd_reputation(args):
     """Get reputation score and tier for a host or user."""
     from reputation import get_reputation_engine
+
     re = get_reputation_engine()
     score = re.compute_score(args.entity_id)
     d = score.to_dict()
@@ -388,6 +459,7 @@ def cmd_reputation(args):
 def cmd_verify(args):
     """Get verification status for a host."""
     from verification import get_verification_engine
+
     ve = get_verification_engine()
     status = ve.get_host_status(args.host_id)
     if not status:
@@ -403,6 +475,7 @@ def cmd_verify(args):
 def cmd_wallet(args):
     """Get billing wallet balance."""
     from billing import get_billing_engine
+
     be = get_billing_engine()
     wallet = be.get_wallet(args.customer_id)
     print(f"Customer: {args.customer_id}")
@@ -414,6 +487,7 @@ def cmd_wallet(args):
 def cmd_deposit(args):
     """Deposit credits into a customer wallet."""
     from billing import get_billing_engine
+
     be = get_billing_engine()
     result = be.deposit(args.customer_id, args.amount)
     print(f"Deposited ${args.amount:.2f} CAD into {args.customer_id}")
@@ -423,6 +497,7 @@ def cmd_deposit(args):
 def cmd_invoice(args):
     """Generate invoice with tax breakdown."""
     from billing import get_billing_engine
+
     be = get_billing_engine()
     invoice = be.generate_invoice(args.customer_id)
     print(f"Invoice for {args.customer_id}:")
@@ -436,6 +511,7 @@ def cmd_invoice(args):
 def cmd_sla(args):
     """Get SLA uptime and violations for a host."""
     from sla import get_sla_engine
+
     engine = get_sla_engine()
     uptime = engine.get_host_uptime_pct(args.host_id)
     print(f"Host: {args.host_id}")
@@ -450,13 +526,16 @@ def cmd_sla(args):
     if violations:
         print(f"  Recent violations: {len(violations)}")
         for v in violations[:5]:
-            print(f"    {v.get('violation_type')}: {v.get('severity')} "
-                  f"({v.get('metric_value'):.1f} vs {v.get('threshold'):.1f})")
+            print(
+                f"    {v.get('violation_type')}: {v.get('severity')} "
+                f"({v.get('metric_value'):.1f} vs {v.get('threshold'):.1f})"
+            )
 
 
 def cmd_provider_register(args):
     """Register a GPU provider with Stripe Connect."""
     from stripe_connect import get_stripe_manager
+
     mgr = get_stripe_manager()
     result = mgr.create_provider_account(
         provider_id=args.provider_id,
@@ -478,6 +557,7 @@ def cmd_provider_register(args):
 def cmd_provider_info(args):
     """Get provider account details."""
     from stripe_connect import get_stripe_manager
+
     mgr = get_stripe_manager()
     provider = mgr.get_provider(args.provider_id)
     if not provider:
@@ -492,18 +572,22 @@ def cmd_provider_info(args):
 def cmd_leaderboard(args):
     """Show reputation leaderboard."""
     from reputation import get_reputation_engine
+
     re = get_reputation_engine()
     lb = re.get_leaderboard(entity_type=args.type, limit=args.limit)
     print(f"Reputation Leaderboard (top {args.limit} {args.type}s):")
     for i, entry in enumerate(lb, 1):
-        print(f"  {i}. {entry.get('entity_id', '?')} — "
-              f"{entry.get('tier', '?')} ({entry.get('total_score', 0)} pts)")
+        print(
+            f"  {i}. {entry.get('entity_id', '?')} — "
+            f"{entry.get('tier', '?')} ({entry.get('total_score', 0)} pts)"
+        )
 
 
 def cmd_compliance(args):
     """Show province compliance matrix and tax rates."""
     from billing import PROVINCE_TAX_RATES
     from jurisdiction import PROVINCE_COMPLIANCE
+
     print("Province Compliance Matrix:")
     print(f"  {'Province':<6} {'Tax Rate':>10} {'Residency':>12} {'PIA Required':>14}")
     print(f"  {'─'*6} {'─'*10} {'─'*12} {'─'*14}")
@@ -511,8 +595,10 @@ def cmd_compliance(args):
         comp = PROVINCE_COMPLIANCE.get(prov, {})
         residency = comp.get("residency_required", False)
         pia = comp.get("pia_required", False)
-        print(f"  {prov:<6} {rate*100:>9.1f}% {'Yes' if residency else 'No':>12} "
-              f"{'Yes' if pia else 'No':>14}")
+        print(
+            f"  {prov:<6} {rate*100:>9.1f}% {'Yes' if residency else 'No':>12} "
+            f"{'Yes' if pia else 'No':>14}"
+        )
 
 
 # ── OAuth2 Device Flow (CLI-to-Web Auth) ─────────────────────────────
@@ -555,11 +641,14 @@ def cmd_login(args):
     """
     import webbrowser
 
-    api_url = getattr(args, "api_url", None) or os.environ.get("XCELSIOR_API_URL", "http://localhost:8000")
+    api_url = getattr(args, "api_url", None) or os.environ.get(
+        "XCELSIOR_API_URL", "http://localhost:8000"
+    )
 
     # Step 1: Request device code
     try:
         import requests as req
+
         resp = req.post(f"{api_url}/api/auth/device", timeout=10)
         resp.raise_for_status()
     except Exception as e:
@@ -670,6 +759,7 @@ def cmd_slurm_submit(args):
 def cmd_slurm_status(args):
     """Check Slurm job status."""
     from slurm_adapter import slurm_status_cli
+
     result = slurm_status_cli(
         xcelsior_job_id=args.job_id,
         slurm_job_id=args.slurm_id,
@@ -680,6 +770,7 @@ def cmd_slurm_status(args):
 def cmd_slurm_cancel(args):
     """Cancel a Slurm job."""
     from slurm_adapter import cancel_slurm_job
+
     result = cancel_slurm_job(args.slurm_id)
     if result.get("cancelled"):
         print(f"Slurm job {args.slurm_id} cancelled.")
@@ -699,8 +790,12 @@ def main():
     p_run.add_argument("--model", required=True, help="Model name")
     p_run.add_argument("--vram", type=float, default=0, help="VRAM needed (GB)")
     p_run.add_argument("--priority", type=int, default=0, help="Job priority")
-    p_run.add_argument("--tier", choices=list(PRIORITY_TIERS.keys()), default=None,
-                       help="Priority tier (overrides --priority)")
+    p_run.add_argument(
+        "--tier",
+        choices=list(PRIORITY_TIERS.keys()),
+        default=None,
+        help="Priority tier (overrides --priority)",
+    )
     p_run.add_argument("--gpus", type=int, default=1, help="Number of GPUs needed (default 1)")
     p_run.add_argument("--nfs-server", default=None, help="NFS server for shared storage")
     p_run.add_argument("--nfs-path", default=None, help="NFS export path")
@@ -727,7 +822,7 @@ def main():
     p_proc = sub.add_parser("process", help="Process the job queue")
     p_proc.set_defaults(func=cmd_process)
 
-    CA_PROVINCES = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT"]
+    CA_PROVINCES = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
 
     # xcelsior host add
     p_hadd = sub.add_parser("host-add", help="Register a host")
@@ -735,11 +830,17 @@ def main():
     p_hadd.add_argument("--ip", required=True, help="Host IP")
     p_hadd.add_argument("--gpu", required=True, help="GPU model")
     p_hadd.add_argument("--vram", type=float, required=True, help="Total VRAM (GB)")
-    p_hadd.add_argument("--free-vram", type=float, default=None, help="Free VRAM (GB), defaults to --vram")
+    p_hadd.add_argument(
+        "--free-vram", type=float, default=None, help="Free VRAM (GB), defaults to --vram"
+    )
     p_hadd.add_argument("--rate", type=float, default=0.20, help="Cost per hour (default $0.20)")
     p_hadd.add_argument("--country", default="CA", help="Country code (default CA)")
-    p_hadd.add_argument("--province", default="", choices=CA_PROVINCES,
-                        help="Province/territory code (e.g. ON, BC, QC)")
+    p_hadd.add_argument(
+        "--province",
+        default="",
+        choices=CA_PROVINCES,
+        help="Province/territory code (e.g. ON, BC, QC)",
+    )
     p_hadd.set_defaults(func=cmd_host_add)
 
     # xcelsior host-rm
@@ -795,8 +896,12 @@ def main():
     p_haddca.add_argument("--free-vram", type=float, default=None, help="Free VRAM (GB)")
     p_haddca.add_argument("--rate", type=float, default=0.20, help="Cost per hour")
     p_haddca.add_argument("--country", default="CA", help="Country code (default CA)")
-    p_haddca.add_argument("--province", default="ON", choices=CA_PROVINCES,
-                          help="Province/territory code (default ON)")
+    p_haddca.add_argument(
+        "--province",
+        default="ON",
+        choices=CA_PROVINCES,
+        help="Province/territory code (default ON)",
+    )
     p_haddca.set_defaults(func=cmd_host_add_ca)
 
     # xcelsior hosts-ca
@@ -861,11 +966,14 @@ def main():
     p_build = sub.add_parser("build", help="Build a Docker image for a model")
     p_build.add_argument("model", help="Model name")
     p_build.add_argument("--base", default="python:3.11-slim", help="Base Docker image")
-    p_build.add_argument("--quantize", choices=["gguf", "gptq", "awq"], default=None,
-                         help="Quantization method")
+    p_build.add_argument(
+        "--quantize", choices=["gguf", "gptq", "awq"], default=None, help="Quantization method"
+    )
     p_build.add_argument("--context", default=None, help="Build context directory")
     p_build.add_argument("--push", action="store_true", help="Push to registry after build")
-    p_build.add_argument("--dockerfile-only", action="store_true", help="Print Dockerfile, don't build")
+    p_build.add_argument(
+        "--dockerfile-only", action="store_true", help="Print Dockerfile, don't build"
+    )
     p_build.set_defaults(func=cmd_build)
 
     # xcelsior builds
@@ -925,13 +1033,18 @@ def main():
     p_preg = sub.add_parser("provider-register", help="Register a GPU provider (Stripe Connect)")
     p_preg.add_argument("provider_id", help="Unique provider ID")
     p_preg.add_argument("--email", required=True, help="Provider email")
-    p_preg.add_argument("--type", default="individual", choices=["individual", "company"],
-                        help="Provider type")
+    p_preg.add_argument(
+        "--type", default="individual", choices=["individual", "company"], help="Provider type"
+    )
     p_preg.add_argument("--corp-name", default="", help="Corporation name (for company type)")
     p_preg.add_argument("--bn", default="", help="CRA Business Number")
     p_preg.add_argument("--gst", default="", help="GST/HST registration number")
-    p_preg.add_argument("--province", default="ON", choices=CA_PROVINCES,
-                        help="Province/territory code (default ON)")
+    p_preg.add_argument(
+        "--province",
+        default="ON",
+        choices=CA_PROVINCES,
+        help="Province/territory code (default ON)",
+    )
     p_preg.set_defaults(func=cmd_provider_register)
 
     # xcelsior provider <provider_id>
@@ -953,8 +1066,12 @@ def main():
 
     # xcelsior login
     p_login = sub.add_parser("login", help="Authenticate via browser (OAuth2 device flow)")
-    p_login.add_argument("--api-url", dest="api_url", default=None,
-                         help="API base URL (default: XCELSIOR_API_URL or localhost:8000)")
+    p_login.add_argument(
+        "--api-url",
+        dest="api_url",
+        default=None,
+        help="API base URL (default: XCELSIOR_API_URL or localhost:8000)",
+    )
     p_login.set_defaults(func=cmd_login)
 
     # xcelsior logout
@@ -971,12 +1088,17 @@ def main():
     p_slurm_sub.add_argument("--vram", type=float, default=0, help="VRAM needed (GB)")
     p_slurm_sub.add_argument("--priority", type=int, default=0, help="Priority")
     p_slurm_sub.add_argument("--tier", default=None, help="Priority tier")
-    p_slurm_sub.add_argument("--profile", default=None,
-                             choices=["nibi", "graham", "narval", "generic"],
-                             help="Cluster profile")
+    p_slurm_sub.add_argument(
+        "--profile",
+        default=None,
+        choices=["nibi", "graham", "narval", "generic"],
+        help="Cluster profile",
+    )
     p_slurm_sub.add_argument("--image", default="", help="Docker/Apptainer image")
     p_slurm_sub.add_argument("--gpus", type=int, default=None, help="Number of GPUs")
-    p_slurm_sub.add_argument("--dry-run", action="store_true", help="Print script without submitting")
+    p_slurm_sub.add_argument(
+        "--dry-run", action="store_true", help="Print script without submitting"
+    )
     p_slurm_sub.set_defaults(func=cmd_slurm_submit)
 
     # xcelsior slurm-status

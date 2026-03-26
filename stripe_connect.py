@@ -35,6 +35,7 @@ stripe = None
 if STRIPE_ENABLED:
     try:
         import stripe as _stripe
+
         _stripe.api_key = STRIPE_SECRET_KEY
         stripe = _stripe
         log.info("Stripe Connect ENABLED (key prefix: %s...)", STRIPE_SECRET_KEY[:7])
@@ -45,31 +46,33 @@ if STRIPE_ENABLED:
 
 # ── Enums and Data Models ────────────────────────────────────────────
 
+
 class AccountStatus(str, Enum):
-    PENDING = "pending"           # Onboarding started
-    ONBOARDING = "onboarding"     # Stripe hosted KYC in progress
-    ACTIVE = "active"             # Fully verified, can receive payouts
-    RESTRICTED = "restricted"     # Missing info or compliance issue
-    SUSPENDED = "suspended"       # Platform-level suspension
+    PENDING = "pending"  # Onboarding started
+    ONBOARDING = "onboarding"  # Stripe hosted KYC in progress
+    ACTIVE = "active"  # Fully verified, can receive payouts
+    RESTRICTED = "restricted"  # Missing info or compliance issue
+    SUSPENDED = "suspended"  # Platform-level suspension
 
 
 class ProviderType(str, Enum):
-    INDIVIDUAL = "individual"     # Solo GPU provider
-    COMPANY = "company"           # Incorporated Canadian business
+    INDIVIDUAL = "individual"  # Solo GPU provider
+    COMPANY = "company"  # Incorporated Canadian business
 
 
 @dataclass
 class ProviderAccount:
     """A provider's Stripe Connect account and company details."""
+
     provider_id: str
     provider_type: str = "individual"
     stripe_account_id: str = ""
     status: str = "pending"
     # Canadian company details
     corporation_name: str = ""
-    business_number: str = ""          # CRA Business Number (BN)
-    incorporation_file_id: str = ""    # Reference to uploaded file in artifacts
-    gst_hst_number: str = ""           # GST/HST registration number
+    business_number: str = ""  # CRA Business Number (BN)
+    incorporation_file_id: str = ""  # Reference to uploaded file in artifacts
+    gst_hst_number: str = ""  # GST/HST registration number
     # Contact
     email: str = ""
     legal_name: str = ""
@@ -81,12 +84,13 @@ class ProviderAccount:
     onboarded_at: float = 0.0
     # Payout
     default_currency: str = "cad"
-    payout_schedule: str = "weekly"    # daily, weekly, monthly
+    payout_schedule: str = "weekly"  # daily, weekly, monthly
 
 
 @dataclass
 class PaymentIntent:
     """A payment intent for compute credits."""
+
     intent_id: str
     customer_id: str
     amount_cents: int
@@ -100,6 +104,7 @@ class PaymentIntent:
 @dataclass
 class PayoutSplit:
     """A split payment between provider and platform."""
+
     job_id: str
     provider_id: str
     total_cad: float
@@ -111,6 +116,7 @@ class PayoutSplit:
 
 
 # ── Stripe Connect Manager ───────────────────────────────────────────
+
 
 class StripeConnectManager:
     """Manages Stripe Connect accounts, payments, and payouts."""
@@ -224,8 +230,11 @@ class StripeConnectManager:
                     type="account_onboarding",
                 )
                 onboarding_url = link.url
-                log.info("Stripe Connect account created: %s for provider %s",
-                         stripe_account_id, provider_id)
+                log.info(
+                    "Stripe Connect account created: %s for provider %s",
+                    stripe_account_id,
+                    provider_id,
+                )
             except Exception as e:
                 log.error("Stripe account creation failed for %s: %s", provider_id, e)
                 # Continue with local-only record
@@ -243,9 +252,19 @@ class StripeConnectManager:
                     corporation_name, business_number, gst_hst_number,
                     email, legal_name, country, province, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CA', ?, ?)""",
-                (provider_id, provider_type, stripe_account_id, "onboarding",
-                 corporation_name, business_number, gst_hst_number,
-                 email, legal_name, province, now),
+                (
+                    provider_id,
+                    provider_type,
+                    stripe_account_id,
+                    "onboarding",
+                    corporation_name,
+                    business_number,
+                    gst_hst_number,
+                    email,
+                    legal_name,
+                    province,
+                    now,
+                ),
             )
 
         return {
@@ -305,8 +324,9 @@ class StripeConnectManager:
 
     # ── Payment Processing ────────────────────────────────────────────
 
-    def create_credit_deposit(self, customer_id: str, amount_cad: float,
-                              description: str = "Compute credits") -> dict:
+    def create_credit_deposit(
+        self, customer_id: str, amount_cad: float, description: str = "Compute credits"
+    ) -> dict:
         """Create a payment intent for depositing compute credits.
 
         Per Report #1.B: "Credit-first model where users deposit CAD
@@ -314,6 +334,7 @@ class StripeConnectManager:
         withdraw funds."
         """
         import secrets
+
         intent_id = f"pi_{secrets.token_hex(12)}"
         amount_cents = int(amount_cad * 100)
         stripe_intent_id = ""
@@ -341,8 +362,7 @@ class StripeConnectManager:
                    (intent_id, customer_id, amount_cents, currency, status,
                     stripe_intent_id, description, created_at)
                    VALUES (?, ?, ?, 'cad', 'created', ?, ?, ?)""",
-                (intent_id, customer_id, amount_cents,
-                 stripe_intent_id, description, time.time()),
+                (intent_id, customer_id, amount_cents, stripe_intent_id, description, time.time()),
             )
 
         return {
@@ -354,8 +374,9 @@ class StripeConnectManager:
 
     # ── Payout Splitting ──────────────────────────────────────────────
 
-    def split_payout(self, job_id: str, provider_id: str, total_cad: float,
-                     province: str = "ON") -> dict:
+    def split_payout(
+        self, job_id: str, provider_id: str, total_cad: float, province: str = "ON"
+    ) -> dict:
         """Split a job's revenue between provider and platform.
 
         Per Report #1.B:
@@ -394,8 +415,15 @@ class StripeConnectManager:
                    (job_id, provider_id, total_cad, provider_share_cad,
                     platform_share_cad, gst_hst_cad, stripe_transfer_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (job_id, provider_id, total_cad, provider_share,
-                 platform_share, gst_hst, stripe_transfer_id),
+                (
+                    job_id,
+                    provider_id,
+                    total_cad,
+                    provider_share,
+                    platform_share,
+                    gst_hst,
+                    stripe_transfer_id,
+                ),
             )
 
         return {
@@ -430,10 +458,16 @@ class StripeConnectManager:
                    FROM payout_splits WHERE provider_id=?""",
                 (provider_id,),
             ).fetchone()
-            return dict(row) if row else {
-                "total_jobs": 0, "total_earned_cad": 0,
-                "total_platform_cad": 0, "total_tax_cad": 0,
-            }
+            return (
+                dict(row)
+                if row
+                else {
+                    "total_jobs": 0,
+                    "total_earned_cad": 0,
+                    "total_platform_cad": 0,
+                    "total_tax_cad": 0,
+                }
+            )
 
     # ── Webhook Handling ──────────────────────────────────────────────
 
@@ -450,7 +484,9 @@ class StripeConnectManager:
 
         try:
             event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET,
+                payload,
+                sig_header,
+                STRIPE_WEBHOOK_SECRET,
             )
         except Exception as e:
             log.error("Webhook signature verification failed: %s", e)

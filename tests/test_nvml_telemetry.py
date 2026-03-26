@@ -7,7 +7,6 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch, PropertyMock
 
-
 # ── Mock pynvml Module ──────────────────────────────────────────────
 # Create a comprehensive mock of the pynvml module so we can test
 # the NVML telemetry code without actual NVIDIA hardware.
@@ -15,6 +14,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 class MockPynvml:
     """Mock pynvml module for testing."""
+
     NVML_TEMPERATURE_GPU = 0
     NVML_SINGLE_BIT_ECC = 0
     NVML_DOUBLE_BIT_ECC = 1
@@ -22,8 +22,11 @@ class MockPynvml:
     NVML_PCIE_UTIL_TX_BYTES = 0
     NVML_PCIE_UTIL_RX_BYTES = 1
 
-    def nvmlInit(self): pass
-    def nvmlShutdown(self): pass
+    def nvmlInit(self):
+        pass
+
+    def nvmlShutdown(self):
+        pass
 
     def nvmlSystemGetDriverVersion(self):
         return "560.35.03"
@@ -49,8 +52,8 @@ class MockPynvml:
     def nvmlDeviceGetPciInfo(self, handle):
         pci = MagicMock()
         pci.busId = b"0000:01:00.0"
-        pci.pciDeviceId = 0x268410de
-        pci.pciSubSystemId = 0x16e810de
+        pci.pciDeviceId = 0x268410DE
+        pci.pciSubSystemId = 0x16E810DE
         return pci
 
     def nvmlDeviceGetUtilizationRates(self, handle):
@@ -61,9 +64,9 @@ class MockPynvml:
 
     def nvmlDeviceGetMemoryInfo(self, handle):
         mem = MagicMock()
-        mem.total = 24 * 1024**3   # 24 GB
-        mem.used = 8 * 1024**3     # 8 GB used
-        mem.free = 16 * 1024**3    # 16 GB free
+        mem.total = 24 * 1024**3  # 24 GB
+        mem.used = 8 * 1024**3  # 8 GB used
+        mem.free = 16 * 1024**3  # 16 GB free
         return mem
 
     def nvmlDeviceGetTemperature(self, handle, sensor_type):
@@ -102,6 +105,7 @@ class TestNVMLInit(unittest.TestCase):
     def setUp(self):
         # Clear module state before each test
         import nvml_telemetry as mod
+
         mod._nvml_initialized = False
         mod._nvml_available = False
         mod._thermal_history.clear()
@@ -109,12 +113,14 @@ class TestNVMLInit(unittest.TestCase):
     def test_init_without_pynvml_returns_false(self):
         """NVML init should return False when pynvml is not available."""
         import nvml_telemetry as mod
+
         mod._nvml_available = False
         assert mod.nvml_init() is False
 
     def test_init_with_pynvml_returns_true(self):
         """NVML init should return True when pynvml is available."""
         import nvml_telemetry as mod
+
         mod._nvml_available = True
         mod.pynvml = mock_pynvml
         assert mod.nvml_init() is True
@@ -123,6 +129,7 @@ class TestNVMLInit(unittest.TestCase):
     def test_double_init_is_safe(self):
         """Calling nvml_init() twice should be idempotent."""
         import nvml_telemetry as mod
+
         mod._nvml_available = True
         mod.pynvml = mock_pynvml
         mod.nvml_init()
@@ -132,6 +139,7 @@ class TestNVMLInit(unittest.TestCase):
     def test_shutdown(self):
         """nvml_shutdown should clear initialized flag."""
         import nvml_telemetry as mod
+
         mod._nvml_available = True
         mod.pynvml = mock_pynvml
         mod.nvml_init()
@@ -141,6 +149,7 @@ class TestNVMLInit(unittest.TestCase):
     def test_is_nvml_available(self):
         """is_nvml_available reflects initialization state."""
         import nvml_telemetry as mod
+
         assert mod.is_nvml_available() is False
         mod._nvml_available = True
         mod.pynvml = mock_pynvml
@@ -153,6 +162,7 @@ class TestCollectGPUTelemetry(unittest.TestCase):
 
     def setUp(self):
         import nvml_telemetry as mod
+
         self.mod = mod
         mod._nvml_available = True
         mod._nvml_initialized = True
@@ -215,8 +225,8 @@ class TestCollectGPUTelemetry(unittest.TestCase):
     def test_pcie_throughput(self):
         """Should report actual PCIe throughput in MB/s."""
         data = self.mod.collect_gpu_telemetry(0)
-        assert data["pcie_tx_mb_s"] == 500.0   # 512000 KB/s → 500 MB/s
-        assert data["pcie_rx_mb_s"] == 375.0   # 384000 KB/s → 375 MB/s
+        assert data["pcie_tx_mb_s"] == 500.0  # 512000 KB/s → 500 MB/s
+        assert data["pcie_rx_mb_s"] == 375.0  # 384000 KB/s → 375 MB/s
 
     def test_serial(self):
         """Should report GPU serial for anti-spoofing."""
@@ -265,6 +275,7 @@ class TestCollectAllGPUs(unittest.TestCase):
 
     def setUp(self):
         import nvml_telemetry as mod
+
         self.mod = mod
         mod._nvml_available = True
         mod._nvml_initialized = True
@@ -294,6 +305,7 @@ class TestGetGPUInfoNVML(unittest.TestCase):
 
     def setUp(self):
         import nvml_telemetry as mod
+
         self.mod = mod
         mod._nvml_available = True
         mod._nvml_initialized = True
@@ -322,6 +334,7 @@ class TestBuildVerificationReport(unittest.TestCase):
 
     def setUp(self):
         import nvml_telemetry as mod
+
         self.mod = mod
         mod._nvml_available = True
         mod._nvml_initialized = True
@@ -358,6 +371,7 @@ class TestThermalHistory(unittest.TestCase):
 
     def setUp(self):
         import nvml_telemetry as mod
+
         self.mod = mod
         mod._thermal_history.clear()
 
@@ -386,6 +400,7 @@ class TestThermalHistory(unittest.TestCase):
         self.mod._thermal_history.clear()
 
         from collections import deque
+
         self.mod._thermal_history[0] = deque(maxlen=3)
 
         self.mod._get_thermal_avg(0, 60.0)
@@ -403,6 +418,7 @@ class TestNVMLFallback(unittest.TestCase):
     def test_fallback_returns_empty_list_without_nvidia_smi(self):
         """Fallback should return empty list when nvidia-smi not found."""
         import nvml_telemetry as mod
+
         result = mod._fallback_nvidia_smi()
         assert isinstance(result, list)
         # Will be empty in test env (no nvidia-smi)
@@ -410,6 +426,7 @@ class TestNVMLFallback(unittest.TestCase):
     def test_fallback_with_mocked_nvidia_smi(self):
         """Fallback parses nvidia-smi output correctly."""
         import nvml_telemetry as mod
+
         mock_output = (
             "0, 65, 42, 4, 16, 285.0, 72, NVIDIA GeForce RTX 4090, "
             "GPU-SN-001, GPU-uuid-001, 24576, 8192, 16384"

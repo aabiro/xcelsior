@@ -14,11 +14,10 @@ import requests
 
 import worker_agent
 
-
 # ── Helpers ───────────────────────────────────────────────────────────
 
-def _patch_base(monkeypatch, host_id="rig-01", url="http://localhost:8000",
-                token=None, cost=0.50):
+
+def _patch_base(monkeypatch, host_id="rig-01", url="http://localhost:8000", token=None, cost=0.50):
     """Apply the common module-level patches for most tests."""
     monkeypatch.setattr(worker_agent, "HOST_ID", host_id)
     monkeypatch.setattr(worker_agent, "SCHEDULER_URL", url)
@@ -28,18 +27,22 @@ def _patch_base(monkeypatch, host_id="rig-01", url="http://localhost:8000",
 
 class _FakeResp:
     """Minimal requests.Response stand-in."""
+
     def __init__(self, status_code=200, body=None, ok=True):
         self.status_code = status_code
         self.ok = ok
         self._body = body or {}
+
     def raise_for_status(self):
         if self.status_code >= 400:
             raise Exception(f"HTTP {self.status_code}")
+
     def json(self):
         return self._body
 
 
 # ── Config / Startup ─────────────────────────────────────────────────
+
 
 class TestValidateConfig:
     def test_allows_missing_api_token(self, monkeypatch):
@@ -60,6 +63,7 @@ class TestValidateConfig:
 
 
 # ── API Helpers ──────────────────────────────────────────────────────
+
 
 class TestApiHelpers:
     def test_api_headers_no_token(self, monkeypatch):
@@ -83,6 +87,7 @@ class TestApiHelpers:
 
 
 # ── GPU Detection ────────────────────────────────────────────────────
+
 
 class TestGetGpuInfo:
     def test_parses_nvidia_smi(self, monkeypatch):
@@ -132,6 +137,7 @@ class TestGetGpuInfo:
 
 # ── Host IP Detection ────────────────────────────────────────────────
 
+
 class TestGetHostIp:
     def test_from_hostname(self, monkeypatch):
         monkeypatch.setattr(worker_agent, "TAILSCALE_ENABLED", False)
@@ -166,6 +172,7 @@ class TestGetHostIp:
 
 
 # ── Heartbeat (formerly register_or_update_host) ─────────────────────
+
 
 class TestHeartbeat:
     def test_heartbeat_success_without_token(self, monkeypatch):
@@ -219,6 +226,7 @@ class TestHeartbeat:
 
 # ── Version Reporting / Admission ─────────────────────────────────────
 
+
 class TestReportVersions:
     def test_admitted(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -255,6 +263,7 @@ class TestReportVersions:
 
 # ── Work Polling ─────────────────────────────────────────────────────
 
+
 class TestPollForWork:
     def test_returns_jobs(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -288,6 +297,7 @@ class TestPollForWork:
 
 # ── Preemption Check ─────────────────────────────────────────────────
 
+
 class TestCheckPreemption:
     def test_returns_job_ids(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -310,6 +320,7 @@ class TestCheckPreemption:
 
 
 # ── Lease Management ─────────────────────────────────────────────────
+
 
 class TestLeaseManagement:
     def test_claim_lease_success(self, monkeypatch):
@@ -367,6 +378,7 @@ class TestLeaseManagement:
 
 # ── Job Status Reporting ─────────────────────────────────────────────
 
+
 class TestReportJobStatus:
     def test_success(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -406,6 +418,7 @@ class TestReportJobStatus:
 
 # ── Mining Alert ─────────────────────────────────────────────────────
 
+
 class TestReportMiningAlert:
     def test_sends_alert(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -434,6 +447,7 @@ class TestReportMiningAlert:
 
 # ── Benchmark Reporting ──────────────────────────────────────────────
 
+
 class TestReportBenchmark:
     def test_sends_score(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -451,6 +465,7 @@ class TestReportBenchmark:
 
 
 # ── Telemetry Push ───────────────────────────────────────────────────
+
 
 class TestReportTelemetry:
     def test_sends_metrics(self, monkeypatch):
@@ -480,6 +495,7 @@ class TestReportTelemetry:
 
 # ── Verification Report ──────────────────────────────────────────────
 
+
 class TestReportVerification:
     def test_sends_report(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -496,6 +512,7 @@ class TestReportVerification:
 
 
 # ── Image Cache ──────────────────────────────────────────────────────
+
 
 class TestImageCache:
     @pytest.fixture(autouse=True)
@@ -531,18 +548,24 @@ class TestImageCache:
         assert evicted == 0
 
     def test_cache_evict_removes_oldest(self, monkeypatch):
-        monkeypatch.setattr(worker_agent, "IMAGE_CACHE_MAX_GB", 0.5)   # 512 MB
+        monkeypatch.setattr(worker_agent, "IMAGE_CACHE_MAX_GB", 0.5)  # 512 MB
         monkeypatch.setattr(worker_agent, "IMAGE_CACHE_EVICT_LOW_GB", 0.3)  # 307 MB
 
         # Simulate 3 images totalling 600 MB (over 512 limit)
         worker_agent._image_cache_index["old:1"] = {
-            "last_used": time.time() - 3600, "size_mb": 200, "pull_count": 1,
+            "last_used": time.time() - 3600,
+            "size_mb": 200,
+            "pull_count": 1,
         }
         worker_agent._image_cache_index["mid:1"] = {
-            "last_used": time.time() - 1800, "size_mb": 200, "pull_count": 1,
+            "last_used": time.time() - 1800,
+            "size_mb": 200,
+            "pull_count": 1,
         }
         worker_agent._image_cache_index["new:1"] = {
-            "last_used": time.time(), "size_mb": 200, "pull_count": 1,
+            "last_used": time.time(),
+            "size_mb": 200,
+            "pull_count": 1,
         }
 
         docker_rmi_calls = []
@@ -570,6 +593,7 @@ class TestImageCache:
 
 # ── Fetch Popular Images ────────────────────────────────────────────
 
+
 class TestFetchPopularImages:
     def test_returns_images(self, monkeypatch):
         _patch_base(monkeypatch)
@@ -593,6 +617,7 @@ class TestFetchPopularImages:
 
 # ── Tailscale / Headscale Setup ──────────────────────────────────────
 
+
 class TestSetupTailscale:
     def test_skipped_when_disabled(self, monkeypatch):
         monkeypatch.setattr(worker_agent, "TAILSCALE_ENABLED", False)
@@ -605,11 +630,14 @@ class TestSetupTailscale:
         def fake_run(cmd, **kw):
             if "status" in cmd:
                 return subprocess.CompletedProcess(
-                    cmd, 0,
-                    stdout=json.dumps({
-                        "BackendState": "Running",
-                        "TailscaleIPs": ["100.64.0.10"],
-                    }),
+                    cmd,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "BackendState": "Running",
+                            "TailscaleIPs": ["100.64.0.10"],
+                        }
+                    ),
                 )
             return subprocess.CompletedProcess(cmd, 0)
 
@@ -626,7 +654,8 @@ class TestSetupTailscale:
         def fake_run(cmd, **kw):
             if "status" in cmd:
                 return subprocess.CompletedProcess(
-                    cmd, 0,
+                    cmd,
+                    0,
                     stdout=json.dumps({"BackendState": "NeedsLogin"}),
                 )
             if "up" in cmd:
@@ -658,9 +687,111 @@ class TestSetupTailscale:
 
 # ── Signal Handler ───────────────────────────────────────────────────
 
+
 class TestSignalHandler:
     def test_sets_shutdown_event(self):
         worker_agent._shutdown.clear()
         worker_agent._signal_handler(signal.SIGTERM, None)
         assert worker_agent._shutdown.is_set()
         worker_agent._shutdown.clear()  # reset
+
+
+# ── NFS Support ───────────────────────────────────────────────────────
+
+
+class TestMountNfs:
+    def test_mount_success(self, monkeypatch, tmp_path):
+        """_mount_nfs returns True when mount succeeds."""
+        mount_point = str(tmp_path / "nfs")
+
+        def fake_run(cmd, **kw):
+            if "mountpoint" in cmd:
+                return subprocess.CompletedProcess(cmd, 1)  # not yet mounted
+            if "mount" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stderr="")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
+        assert result is True
+
+    def test_mount_already_mounted(self, monkeypatch, tmp_path):
+        """_mount_nfs returns True when mount point is already mounted."""
+        mount_point = str(tmp_path / "nfs")
+
+        def fake_run(cmd, **kw):
+            if "mountpoint" in cmd:
+                return subprocess.CompletedProcess(cmd, 0)  # already mounted
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
+        assert result is True
+
+    def test_mount_failure_returns_false(self, monkeypatch, tmp_path):
+        """_mount_nfs returns False when mount command fails."""
+        mount_point = str(tmp_path / "nfs")
+
+        def fake_run(cmd, **kw):
+            if "mountpoint" in cmd:
+                return subprocess.CompletedProcess(cmd, 1)
+            if "mount" in cmd:
+                return subprocess.CompletedProcess(cmd, 1, stderr="Permission denied")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
+        assert result is False
+
+    def test_mount_exception_returns_false(self, monkeypatch, tmp_path):
+        """_mount_nfs returns False when subprocess raises an exception."""
+        mount_point = str(tmp_path / "nfs")
+
+        def fake_run(cmd, **kw):
+            raise subprocess.TimeoutExpired(cmd, 30)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = worker_agent._mount_nfs("nfs.example.com", "/exports/models", mount_point)
+        assert result is False
+
+    def test_creates_mount_point_dir(self, monkeypatch, tmp_path):
+        """_mount_nfs creates the mount point directory if it doesn't exist."""
+        mount_point = str(tmp_path / "deeply" / "nested" / "nfs")
+
+        def fake_run(cmd, **kw):
+            if "mountpoint" in cmd:
+                return subprocess.CompletedProcess(cmd, 1)
+            return subprocess.CompletedProcess(cmd, 0, stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        worker_agent._mount_nfs("nfs.example.com", "/exports/data", mount_point)
+        import os
+
+        assert os.path.isdir(mount_point)
+
+
+class TestUnmountNfs:
+    def test_unmount_success(self, monkeypatch, tmp_path):
+        """_unmount_nfs runs umount -l and logs success."""
+        mount_point = str(tmp_path / "nfs")
+        called = {}
+
+        def fake_run(cmd, **kw):
+            called["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        worker_agent._unmount_nfs(mount_point)
+        assert "umount" in called["cmd"]
+        assert "-l" in called["cmd"]
+
+    def test_unmount_failure_is_nonfatal(self, monkeypatch, tmp_path):
+        """_unmount_nfs does not raise even if umount fails."""
+        mount_point = str(tmp_path / "nfs")
+
+        def fake_run(cmd, **kw):
+            raise Exception("umount: device busy")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        # Should not raise
+        worker_agent._unmount_nfs(mount_point)

@@ -13,6 +13,7 @@
 
 # Auto-load .env file
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import json
@@ -58,16 +59,29 @@ try:
         get_gpu_info_nvml,
         build_verification_report,
     )
+
     _nvml_imported = True
 except ImportError:
     _nvml_imported = False
 
-    def nvml_init(): return False
-    def nvml_shutdown(): pass
-    def is_nvml_available(): return False
-    def collect_all_gpus(): return []
-    def get_gpu_info_nvml(): return None
-    def build_verification_report(gpu_index=0): return None
+    def nvml_init():
+        return False
+
+    def nvml_shutdown():
+        pass
+
+    def is_nvml_available():
+        return False
+
+    def collect_all_gpus():
+        return []
+
+    def get_gpu_info_nvml():
+        return None
+
+    def build_verification_report(gpu_index=0):
+        return None
+
 
 # ── Configuration ─────────────────────────────────────────────────────
 
@@ -124,6 +138,7 @@ signal.signal(signal.SIGINT, _signal_handler)
 
 # ── GPU Queries ──────────────────────────────────────────────────────
 
+
 def get_gpu_info():
     """Query GPU name, total VRAM, free VRAM.
 
@@ -149,7 +164,10 @@ def get_gpu_info():
                 "--query-gpu=name,memory.total,memory.free",
                 "--format=csv,noheader,nounits",
             ],
-            capture_output=True, text=True, check=True, timeout=10,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
         )
         lines = result.stdout.strip().split("\n")
         if not lines or not lines[0]:
@@ -179,7 +197,9 @@ def get_host_ip():
         try:
             r = subprocess.run(
                 ["tailscale", "ip", "-4"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if r.returncode == 0 and r.stdout.strip():
                 return r.stdout.strip().split("\n")[0]
@@ -211,6 +231,7 @@ def get_host_ip():
 
 # ── Compute Score Benchmark ──────────────────────────────────────────
 
+
 def run_compute_benchmark():
     """Run comprehensive benchmark suite for all 6 verification checks.
 
@@ -221,7 +242,8 @@ def run_compute_benchmark():
     try:
         result = subprocess.run(
             [
-                sys.executable, "-c",
+                sys.executable,
+                "-c",
                 """
 import time, json, subprocess, re
 report = {}
@@ -328,7 +350,9 @@ except ImportError:
     print(json.dumps({"error": "no_torch"}))
 """,
             ],
-            capture_output=True, text=True, timeout=300,  # Longer timeout for thermal test
+            capture_output=True,
+            text=True,
+            timeout=300,  # Longer timeout for thermal test
         )
         if result.returncode == 0 and result.stdout.strip():
             data = json.loads(result.stdout.strip())
@@ -351,6 +375,7 @@ def run_network_benchmark(scheduler_url: str = None):
         return {}
 
     from urllib.parse import urlparse
+
     parsed = urlparse(target)
     host = parsed.hostname or "127.0.0.1"
 
@@ -360,7 +385,9 @@ def run_network_benchmark(scheduler_url: str = None):
     try:
         r = subprocess.run(
             ["ping", "-c", "20", "-i", "0.2", "-W", "2", host],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode == 0:
             # Parse packet loss
@@ -384,6 +411,7 @@ def run_network_benchmark(scheduler_url: str = None):
     # ── Throughput estimate via HTTP download (scheduler /metrics endpoint) ──
     try:
         import requests as req
+
         # Download a known endpoint multiple times to estimate throughput
         sizes = []
         times = []
@@ -410,6 +438,7 @@ def run_network_benchmark(scheduler_url: str = None):
 
 # ── Tailscale / Headscale Integration ────────────────────────────────
 
+
 def setup_tailscale():
     """Join the Tailscale/Headscale mesh network if configured."""
     if not TAILSCALE_ENABLED:
@@ -419,12 +448,16 @@ def setup_tailscale():
         # Check if already running
         r = subprocess.run(
             ["tailscale", "status", "--json"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode == 0:
             status = json.loads(r.stdout)
             if status.get("BackendState") == "Running":
-                log.info("Tailscale already connected (IP: %s)", status.get("TailscaleIPs", ["?"])[0])
+                log.info(
+                    "Tailscale already connected (IP: %s)", status.get("TailscaleIPs", ["?"])[0]
+                )
                 return True
 
         # Bring up tailscale
@@ -448,6 +481,7 @@ def setup_tailscale():
 
 
 # ── Scheduler Communication (Pull-Based) ────────────────────────────
+
 
 def _api_headers():
     """Build standard API headers."""
@@ -479,7 +513,10 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
 
     try:
         resp = requests.put(
-            _api_url("/host"), json=data, headers=_api_headers(), timeout=10,
+            _api_url("/host"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
         resp.raise_for_status()
         return True
@@ -496,7 +533,10 @@ def report_versions(versions):
     data = {"host_id": HOST_ID, "versions": versions}
     try:
         resp = requests.post(
-            _api_url("/agent/versions"), json=data, headers=_api_headers(), timeout=10,
+            _api_url("/agent/versions"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
         if resp.status_code == 200:
             result = resp.json()
@@ -516,7 +556,8 @@ def poll_for_work():
     try:
         resp = requests.get(
             _api_url(f"/agent/work/{HOST_ID}"),
-            headers=_api_headers(), timeout=10,
+            headers=_api_headers(),
+            timeout=10,
         )
         if resp.status_code == 200:
             data = resp.json()
@@ -540,7 +581,8 @@ def check_preemption():
     try:
         resp = requests.get(
             _api_url(f"/agent/preempt/{HOST_ID}"),
-            headers=_api_headers(), timeout=10,
+            headers=_api_headers(),
+            timeout=10,
         )
         if resp.status_code == 200:
             return resp.json().get("preempt_jobs", [])
@@ -560,7 +602,9 @@ def report_job_status(job_id, status, host_id=None):
     try:
         resp = requests.patch(
             _api_url(f"/job/{job_id}"),
-            json=data, headers=_api_headers(), timeout=10,
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
         return resp.status_code == 200
     except requests.RequestException as e:
@@ -573,6 +617,7 @@ def report_job_status(job_id, status, host_id=None):
 # conflating "assigned" with "running."
 #   assign → lease claim → lease renewal → completion/release
 
+
 def claim_lease(job_id):
     """Claim a lease for a job (assigned → leased).
 
@@ -583,12 +628,18 @@ def claim_lease(job_id):
     try:
         resp = requests.post(
             _api_url("/agent/lease/claim"),
-            json=data, headers=_api_headers(), timeout=10,
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
         if resp.status_code == 200:
             result = resp.json()
-            log.info("Lease claimed: job=%s lease=%s expires=%.0f",
-                     job_id, result.get("lease_id"), result.get("expires_at", 0))
+            log.info(
+                "Lease claimed: job=%s lease=%s expires=%.0f",
+                job_id,
+                result.get("lease_id"),
+                result.get("expires_at", 0),
+            )
             return result
         else:
             log.warning("Lease claim failed for job %s: HTTP %d", job_id, resp.status_code)
@@ -608,7 +659,9 @@ def renew_lease(job_id):
     try:
         resp = requests.post(
             _api_url("/agent/lease/renew"),
-            json=data, headers=_api_headers(), timeout=10,
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
         if resp.status_code == 200:
             return resp.json()
@@ -629,7 +682,9 @@ def release_lease(job_id, reason="completed"):
     try:
         requests.post(
             _api_url("/agent/lease/release"),
-            json=data, headers=_api_headers(), timeout=10,
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
     except requests.RequestException:
         pass  # Best-effort
@@ -650,7 +705,9 @@ def report_mining_alert(gpu_index, confidence, reason):
     try:
         requests.post(
             _api_url("/agent/mining-alert"),
-            json=data, headers=_api_headers(), timeout=10,
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
     except requests.RequestException:
         pass  # Best-effort
@@ -671,7 +728,9 @@ def report_benchmark(score_data, gpu_model):
     try:
         requests.post(
             _api_url("/agent/benchmark"),
-            json=data, headers=_api_headers(), timeout=10,
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
         )
     except requests.RequestException:
         pass
@@ -689,12 +748,17 @@ def report_verification(full_report):
     try:
         r = requests.post(
             _api_url("/agent/verify"),
-            json=payload, headers=_api_headers(), timeout=15,
+            json=payload,
+            headers=_api_headers(),
+            timeout=15,
         )
         if r.ok:
             result = r.json()
-            log.info("Verification result: state=%s score=%.0f",
-                     result.get("state", "?"), result.get("score", 0))
+            log.info(
+                "Verification result: state=%s score=%.0f",
+                result.get("state", "?"),
+                result.get("score", 0),
+            )
         else:
             log.warning("Verification submission failed: %s", r.status_code)
     except requests.RequestException as e:
@@ -714,7 +778,9 @@ def report_telemetry(metrics):
     try:
         requests.post(
             _api_url("/agent/telemetry"),
-            json=payload, headers=_api_headers(), timeout=5,
+            json=payload,
+            headers=_api_headers(),
+            timeout=5,
         )
     except requests.RequestException:
         pass  # Best-effort; don't log every failure
@@ -738,7 +804,9 @@ def _get_local_images():
     try:
         result = subprocess.run(
             ["docker", "images", "--format", "{{.Repository}}:{{.Tag}} {{.Size}}"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if result.returncode != 0:
             return {}
@@ -817,7 +885,9 @@ def cache_evict_lru():
     try:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Image}}"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         running_images = set(result.stdout.strip().split("\n")) if result.returncode == 0 else set()
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -840,7 +910,9 @@ def cache_evict_lru():
         try:
             rm = subprocess.run(
                 ["docker", "rmi", image_tag],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if rm.returncode == 0:
                 size = entry.get("size_mb", 0)
@@ -891,7 +963,9 @@ def cache_prepull_popular(popular_images):
         try:
             pull = subprocess.run(
                 ["docker", "pull", image_tag],
-                capture_output=True, text=True, timeout=600,
+                capture_output=True,
+                text=True,
+                timeout=600,
             )
             if pull.returncode == 0:
                 # Get size of pulled image
@@ -912,7 +986,8 @@ def fetch_popular_images():
     try:
         resp = requests.get(
             _api_url("/agent/popular-images"),
-            headers=_api_headers(), timeout=10,
+            headers=_api_headers(),
+            timeout=10,
         )
         if resp.status_code == 200:
             return resp.json().get("images", [])
@@ -941,16 +1016,21 @@ def _mount_nfs(server, path, mount_point):
         # Check if already mounted
         r = subprocess.run(
             ["mountpoint", "-q", mount_point],
-            capture_output=True, timeout=5,
+            capture_output=True,
+            timeout=5,
         )
         if r.returncode == 0:
             return True  # Already mounted
 
         # Mount NFS
         mount_cmd = [
-            "mount", "-t", "nfs",
-            "-o", "noatime,nodiratime,rsize=65536,wsize=65536,hard,intr,timeo=600",
-            f"{server}:{path}", mount_point,
+            "mount",
+            "-t",
+            "nfs",
+            "-o",
+            "noatime,nodiratime,rsize=65536,wsize=65536,hard,intr,timeo=600",
+            f"{server}:{path}",
+            mount_point,
         ]
         r = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
@@ -968,7 +1048,8 @@ def _unmount_nfs(mount_point):
     try:
         subprocess.run(
             ["umount", "-l", mount_point],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         log.info("NFS unmounted: %s", mount_point)
     except Exception as e:
@@ -976,6 +1057,7 @@ def _unmount_nfs(mount_point):
 
 
 # ── Container Lifecycle ──────────────────────────────────────────────
+
 
 def run_job(job):
     """Execute a job in a hardened Docker container.
@@ -1000,7 +1082,9 @@ def run_job(job):
     # NFS configuration — from job dict or env vars
     nfs_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
     nfs_path = job.get("nfs_path") or os.environ.get("XCELSIOR_NFS_PATH", "")
-    nfs_mount_point = job.get("nfs_mount_point") or os.environ.get("XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs")
+    nfs_mount_point = job.get("nfs_mount_point") or os.environ.get(
+        "XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs"
+    )
     nfs_mounted = False
 
     if not image:
@@ -1035,7 +1119,9 @@ def run_job(job):
                 log.warning("Lease renewal failed for job %s — lease may have expired", job_id)
 
     lease_thread = threading.Thread(
-        target=_lease_renewal_loop, name=f"lease-{job_id[:8]}", daemon=True,
+        target=_lease_renewal_loop,
+        name=f"lease-{job_id[:8]}",
+        daemon=True,
     )
     lease_thread.start()
 
@@ -1054,7 +1140,9 @@ def run_job(job):
         log.info("Pulling image %s...", image)
         pull = subprocess.run(
             ["docker", "pull", image],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
         if pull.returncode != 0:
             log.error("Image pull failed: %s", pull.stderr.strip())
@@ -1092,7 +1180,10 @@ def run_job(job):
         # 4. Start container
         log.info("Starting container %s", container_name)
         start = subprocess.run(
-            docker_args, capture_output=True, text=True, timeout=60,
+            docker_args,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if start.returncode != 0:
             log.error("Container start failed: %s", start.stderr.strip())
@@ -1107,7 +1198,9 @@ def run_job(job):
             egress_rules = build_egress_iptables_rules(container_name)
             for rule in egress_rules:
                 subprocess.run(
-                    rule.split(), capture_output=True, timeout=5,
+                    rule.split(),
+                    capture_output=True,
+                    timeout=5,
                 )
         except Exception as e:
             log.debug("Egress rules failed (non-fatal): %s", e)
@@ -1144,7 +1237,9 @@ def _monitor_container(job_id, container_name):
         try:
             result = subprocess.run(
                 ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             status = result.stdout.strip()
 
@@ -1152,7 +1247,9 @@ def _monitor_container(job_id, container_name):
                 # Check exit code
                 exit_result = subprocess.run(
                     ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
 
@@ -1166,7 +1263,9 @@ def _monitor_container(job_id, container_name):
                     try:
                         logs = subprocess.run(
                             ["docker", "logs", "--tail", "50", container_name],
-                            capture_output=True, text=True, timeout=10,
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
                         )
                         if logs.stdout:
                             log.info("Container output (last 50 lines):\n%s", logs.stdout[-2000:])
@@ -1203,7 +1302,8 @@ def _kill_container(container_name):
     with suppress(Exception):
         subprocess.run(
             ["docker", "kill", container_name],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
     _remove_container(container_name)
 
@@ -1213,7 +1313,8 @@ def _remove_container(container_name):
     with suppress(Exception):
         subprocess.run(
             ["docker", "rm", "-f", container_name],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
 
 
@@ -1233,7 +1334,8 @@ def handle_preemptions(preempt_job_ids):
         try:
             subprocess.run(
                 ["docker", "stop", "-t", "10", container_name],
-                capture_output=True, timeout=20,
+                capture_output=True,
+                timeout=20,
             )
         except (subprocess.TimeoutExpired, Exception):
             _kill_container(container_name)
@@ -1309,6 +1411,7 @@ def telemetry_loop():
 
 # ── Mining Detection Thread ──────────────────────────────────────────
 
+
 def mining_detection_loop():
     """Background thread: periodically check for mining signatures."""
     consecutive_mining_detections = 0
@@ -1327,7 +1430,10 @@ def mining_detection_loop():
                 consecutive_mining_detections += 1
                 log.warning(
                     "MINING DETECTED GPU=%d confidence=%.0f%% (%s) [%d consecutive]",
-                    gpu["index"], confidence * 100, reason, consecutive_mining_detections,
+                    gpu["index"],
+                    confidence * 100,
+                    reason,
+                    consecutive_mining_detections,
                 )
                 report_mining_alert(gpu["index"], confidence, reason)
 
@@ -1346,6 +1452,7 @@ def mining_detection_loop():
 
 # ── Heartbeat Thread ─────────────────────────────────────────────────
 
+
 def heartbeat_loop(host_ip, compute_score=None):
     """Background thread: periodic heartbeat/registration updates."""
     consecutive_failures = 0
@@ -1360,7 +1467,9 @@ def heartbeat_loop(host_ip, compute_score=None):
             else:
                 consecutive_failures += 1
                 if consecutive_failures > MAX_CONSECUTIVE_FAILURES:
-                    log.error("Too many heartbeat failures (%d) — shutting down", consecutive_failures)
+                    log.error(
+                        "Too many heartbeat failures (%d) — shutting down", consecutive_failures
+                    )
                     _shutdown.set()
                     return
         except RuntimeError as e:
@@ -1376,6 +1485,7 @@ def heartbeat_loop(host_ip, compute_score=None):
 
 # ── Graceful Shutdown ────────────────────────────────────────────────
 
+
 def graceful_shutdown():
     """Stop all active containers and deregister from scheduler."""
     log.info("Graceful shutdown — stopping %d active containers", len(_active_containers))
@@ -1386,7 +1496,8 @@ def graceful_shutdown():
             try:
                 subprocess.run(
                     ["docker", "stop", "-t", "15", container_name],
-                    capture_output=True, timeout=25,
+                    capture_output=True,
+                    timeout=25,
                 )
             except (subprocess.TimeoutExpired, Exception):
                 _kill_container(container_name)
@@ -1399,7 +1510,8 @@ def graceful_shutdown():
     try:
         requests.delete(
             _api_url(f"/host/{HOST_ID}"),
-            headers=_api_headers(), timeout=10,
+            headers=_api_headers(),
+            timeout=10,
         )
         log.info("Deregistered from scheduler")
     except requests.RequestException:
@@ -1407,6 +1519,7 @@ def graceful_shutdown():
 
 
 # ── Main Loop ─────────────────────────────────────────────────────────
+
 
 def validate_config():
     """Validate required configuration."""
@@ -1430,7 +1543,9 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     log.info("  Host ID:        %s", HOST_ID)
     log.info("  Scheduler URL:  %s", SCHEDULER_URL)
     log.info("  Host IP:        %s", host_ip)
-    log.info("  GPU:            %s (%.1f GB VRAM)", gpu_info["gpu_model"], gpu_info["total_vram_gb"])
+    log.info(
+        "  GPU:            %s (%.1f GB VRAM)", gpu_info["gpu_model"], gpu_info["total_vram_gb"]
+    )
     log.info("  Cost/hour:      $%.2f", COST_PER_HOUR)
     log.info("  Poll interval:  %ds", POLL_INTERVAL)
     log.info("  Heartbeat:      %ds", HEARTBEAT_INTERVAL)
@@ -1469,6 +1584,7 @@ def main():
     # ── Step 2b: gVisor auto-install ──
     if PREFER_GVISOR:
         from security import is_gvisor_available
+
         if not is_gvisor_available():
             log.info("gVisor preferred but not installed — attempting auto-install...")
             success, msg = install_gvisor(enable_nvproxy=True)
@@ -1502,24 +1618,30 @@ def main():
     if bench:
         compute_score = bench.get("tflops", 0) / 10  # XCU
         log.info("GPU Benchmark: %.1f TFLOPS = %.1f XCU", bench["tflops"], compute_score)
-        log.info("  CUDA %s | Driver %s | CC %s",
-                 bench.get("cuda_version", "?"),
-                 bench.get("driver_version", "?"),
-                 bench.get("compute_capability", "?"))
-        log.info("  PCIe: %.2f GB/s | Peak Temp: %s°C",
-                 bench.get("pcie_bandwidth_gbps", 0),
-                 bench.get("gpu_temp_celsius", "?"))
+        log.info(
+            "  CUDA %s | Driver %s | CC %s",
+            bench.get("cuda_version", "?"),
+            bench.get("driver_version", "?"),
+            bench.get("compute_capability", "?"),
+        )
+        log.info(
+            "  PCIe: %.2f GB/s | Peak Temp: %s°C",
+            bench.get("pcie_bandwidth_gbps", 0),
+            bench.get("gpu_temp_celsius", "?"),
+        )
         report_benchmark(bench, gpu_info["gpu_model"])
 
         # Network benchmark (ping + throughput to scheduler)
         log.info("Running network quality benchmark...")
         net_bench = run_network_benchmark()
         if net_bench:
-            log.info("  Latency: %.1fms avg | Jitter: %.1fms | Loss: %.1f%% | Throughput: %.1f Mbps",
-                     net_bench.get("latency_avg_ms", 0),
-                     net_bench.get("jitter_ms", 0),
-                     net_bench.get("packet_loss_pct", 0),
-                     net_bench.get("throughput_mbps", 0))
+            log.info(
+                "  Latency: %.1fms avg | Jitter: %.1fms | Loss: %.1f%% | Throughput: %.1f Mbps",
+                net_bench.get("latency_avg_ms", 0),
+                net_bench.get("jitter_ms", 0),
+                net_bench.get("packet_loss_pct", 0),
+                net_bench.get("throughput_mbps", 0),
+            )
             bench.update(net_bench)
 
         # Build full verification report and submit
@@ -1540,16 +1662,21 @@ def main():
 
     # ── Step 6: Initialize image cache ──
     cache_init()
-    log.info("Image cache initialized (%d images, %.0f MB)",
-             len(_image_cache_index), _total_cache_size_mb())
+    log.info(
+        "Image cache initialized (%d images, %.0f MB)",
+        len(_image_cache_index),
+        _total_cache_size_mb(),
+    )
 
     # ── Step 7: Start background threads ──
     threads = []
 
     # Heartbeat thread
     hb_thread = threading.Thread(
-        target=heartbeat_loop, args=(host_ip, compute_score),
-        name="heartbeat", daemon=True,
+        target=heartbeat_loop,
+        args=(host_ip, compute_score),
+        name="heartbeat",
+        daemon=True,
     )
     hb_thread.start()
     threads.append(hb_thread)
@@ -1557,7 +1684,8 @@ def main():
     # Telemetry push thread (GPU metrics every 5s)
     telem_thread = threading.Thread(
         target=telemetry_loop,
-        name="telemetry", daemon=True,
+        name="telemetry",
+        daemon=True,
     )
     telem_thread.start()
     threads.append(telem_thread)
@@ -1566,7 +1694,8 @@ def main():
     # Mining detection thread
     mining_thread = threading.Thread(
         target=mining_detection_loop,
-        name="mining-detection", daemon=True,
+        name="mining-detection",
+        daemon=True,
     )
     mining_thread.start()
     threads.append(mining_thread)
@@ -1593,8 +1722,10 @@ def main():
 
                     # Run job in a separate thread so we can continue polling
                     job_thread = threading.Thread(
-                        target=run_job, args=(job,),
-                        name=f"job-{job_id[:8]}", daemon=True,
+                        target=run_job,
+                        args=(job,),
+                        name=f"job-{job_id[:8]}",
+                        daemon=True,
                     )
                     job_thread.start()
                     threads.append(job_thread)
@@ -1622,7 +1753,7 @@ def main():
                 break
 
             # Exponential backoff on repeated failures
-            backoff = min(2 ** consecutive_poll_failures, 300)
+            backoff = min(2**consecutive_poll_failures, 300)
             log.warning("Backing off %ds before next poll", backoff)
             for _ in range(backoff):
                 if _shutdown.is_set():

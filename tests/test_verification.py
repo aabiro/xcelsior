@@ -27,9 +27,7 @@ from verification import (
 
 
 def _store() -> VerificationStore:
-    return VerificationStore(
-        db_path=os.path.join(_tmpdir, f"verif_{os.urandom(4).hex()}.db")
-    )
+    return VerificationStore(db_path=os.path.join(_tmpdir, f"verif_{os.urandom(4).hex()}.db"))
 
 
 def _good_report() -> dict:
@@ -174,15 +172,21 @@ class TestVerificationStore:
 
     def test_list_verified_hosts(self):
         store = _store()
-        store.save_verification(HostVerification(host_id="h-v1", state=HostVerificationState.VERIFIED))
-        store.save_verification(HostVerification(host_id="h-v2", state=HostVerificationState.DEVERIFIED))
+        store.save_verification(
+            HostVerification(host_id="h-v1", state=HostVerificationState.VERIFIED)
+        )
+        store.save_verification(
+            HostVerification(host_id="h-v2", state=HostVerificationState.DEVERIFIED)
+        )
         verified = store.list_verified_hosts()
         assert "h-v1" in verified
         assert "h-v2" not in verified
 
     def test_record_job_failure(self):
         store = _store()
-        store.save_verification(HostVerification(host_id="h-fail", state=HostVerificationState.VERIFIED))
+        store.save_verification(
+            HostVerification(host_id="h-fail", state=HostVerificationState.VERIFIED)
+        )
         store.record_job_failure("h-fail", "j-fail-1")
         # Verify failure was recorded (get_recent_failures counts them)
         count = store.get_recent_failures("h-fail")

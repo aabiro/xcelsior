@@ -25,21 +25,22 @@ DB_PATH = os.environ.get("XCELSIOR_SLA_DB", "xcelsior_sla.db")
 
 
 class SLATier(str, Enum):
-    COMMUNITY = "community"       # Consumer hardware, best-effort
-    SECURE = "secure"             # Data-center grade, SOC 2 path
-    SOVEREIGN = "sovereign"       # Canadian-owned, data residency guarantee
+    COMMUNITY = "community"  # Consumer hardware, best-effort
+    SECURE = "secure"  # Data-center grade, SOC 2 path
+    SOVEREIGN = "sovereign"  # Canadian-owned, data residency guarantee
 
 
 @dataclass
 class SLATarget:
     """Performance and availability targets for a tier."""
+
     tier: SLATier
-    availability_pct: float       # e.g. 99.0, 99.5, 99.9
-    latency_ttft_ms: int          # Time-to-first-token max
-    throughput_floor_pct: float   # % of peak benchmark score
-    response_time_hours: int      # Support response SLA
-    heartbeat_grace_sec: int      # Seconds before "down" flag
-    max_thermal_c: int            # Thermal ceiling before degraded
+    availability_pct: float  # e.g. 99.0, 99.5, 99.9
+    latency_ttft_ms: int  # Time-to-first-token max
+    throughput_floor_pct: float  # % of peak benchmark score
+    response_time_hours: int  # Support response SLA
+    heartbeat_grace_sec: int  # Seconds before "down" flag
+    max_thermal_c: int  # Thermal ceiling before degraded
 
 
 SLA_TARGETS: dict[SLATier, SLATarget] = {
@@ -49,7 +50,7 @@ SLA_TARGETS: dict[SLATier, SLATarget] = {
         latency_ttft_ms=200,
         throughput_floor_pct=80.0,
         response_time_hours=4,
-        heartbeat_grace_sec=90,   # 3 missed 30s heartbeats
+        heartbeat_grace_sec=90,  # 3 missed 30s heartbeats
         max_thermal_c=90,
     ),
     SLATier.SECURE: SLATarget(
@@ -79,9 +80,9 @@ SLA_TARGETS: dict[SLATier, SLATarget] = {
 
 CREDIT_TIERS: list[tuple[float, float, float]] = [
     # (min_uptime, max_uptime, credit_pct)
-    (95.0, 99.0, 10.0),    # 95.0% - <99.0% → 10% credit
-    (90.0, 95.0, 25.0),    # 90.0% - <95.0% → 25% credit
-    (0.0,  90.0, 100.0),   # <90.0%          → 100% credit
+    (95.0, 99.0, 10.0),  # 95.0% - <99.0% → 10% credit
+    (90.0, 95.0, 25.0),  # 90.0% - <95.0% → 25% credit
+    (0.0, 90.0, 100.0),  # <90.0%          → 100% credit
 ]
 
 
@@ -95,9 +96,11 @@ def compute_credit_pct(uptime_pct: float) -> float:
 
 # ── Data Models ───────────────────────────────────────────────────────
 
+
 @dataclass
 class DowntimePeriod:
     """A contiguous window where a host was unavailable or degraded."""
+
     host_id: str
     start_ts: float
     end_ts: float = 0.0
@@ -113,9 +116,10 @@ class DowntimePeriod:
 @dataclass
 class HostSLARecord:
     """Monthly SLA record for a host."""
+
     host_id: str
     tier: str
-    month: str               # YYYY-MM
+    month: str  # YYYY-MM
     total_seconds: float = 0.0
     downtime_seconds: float = 0.0
     incidents: int = 0
@@ -133,9 +137,10 @@ class HostSLARecord:
 @dataclass
 class SLAViolation:
     """An individual SLA violation event."""
+
     host_id: str
     violation_type: str  # availability, latency, throughput, thermal
-    severity: str        # warning, breach, critical
+    severity: str  # warning, breach, critical
     metric_value: float
     threshold: float
     timestamp: float = 0.0
@@ -143,6 +148,7 @@ class SLAViolation:
 
 
 # ── SLA Engine ────────────────────────────────────────────────────────
+
 
 class SLAEngine:
     """Tracks uptime, detects violations, calculates credits."""
@@ -244,11 +250,24 @@ class SLAEngine:
                 """INSERT INTO sla_violations
                    (host_id, violation_type, severity, metric_value, threshold, timestamp, details)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (v.host_id, v.violation_type, v.severity,
-                 v.metric_value, v.threshold, v.timestamp or time.time(), v.details),
+                (
+                    v.host_id,
+                    v.violation_type,
+                    v.severity,
+                    v.metric_value,
+                    v.threshold,
+                    v.timestamp or time.time(),
+                    v.details,
+                ),
             )
-        log.warning("SLA VIOLATION: host=%s type=%s severity=%s value=%.2f threshold=%.2f",
-                     v.host_id, v.violation_type, v.severity, v.metric_value, v.threshold)
+        log.warning(
+            "SLA VIOLATION: host=%s type=%s severity=%s value=%.2f threshold=%.2f",
+            v.host_id,
+            v.violation_type,
+            v.severity,
+            v.metric_value,
+            v.threshold,
+        )
 
     # ── Telemetry-Based Checks ────────────────────────────────────────
 
@@ -267,9 +286,12 @@ class SLAEngine:
         if temp and temp > target.max_thermal_c:
             severity = "critical" if temp > target.max_thermal_c + 10 else "breach"
             v = SLAViolation(
-                host_id=host_id, violation_type="thermal",
-                severity=severity, metric_value=temp,
-                threshold=target.max_thermal_c, timestamp=now,
+                host_id=host_id,
+                violation_type="thermal",
+                severity=severity,
+                metric_value=temp,
+                threshold=target.max_thermal_c,
+                timestamp=now,
                 details=f"GPU temp {temp}°C exceeds {target.max_thermal_c}°C ceiling for {tier} tier",
             )
             violations.append(v)
@@ -281,9 +303,12 @@ class SLAEngine:
         active_jobs = metrics.get("active_jobs", 0)
         if active_jobs and active_jobs > 0 and util < target.throughput_floor_pct * 0.5:
             v = SLAViolation(
-                host_id=host_id, violation_type="throughput",
-                severity="warning", metric_value=util,
-                threshold=target.throughput_floor_pct, timestamp=now,
+                host_id=host_id,
+                violation_type="throughput",
+                severity="warning",
+                metric_value=util,
+                threshold=target.throughput_floor_pct,
+                timestamp=now,
                 details=f"GPU utilization {util}% below floor with {active_jobs} active jobs",
             )
             violations.append(v)
@@ -293,9 +318,12 @@ class SLAEngine:
         mem_errors = metrics.get("memory_errors", 0)
         if mem_errors and mem_errors > 0:
             v = SLAViolation(
-                host_id=host_id, violation_type="hardware",
-                severity="critical", metric_value=mem_errors,
-                threshold=0, timestamp=now,
+                host_id=host_id,
+                violation_type="hardware",
+                severity="critical",
+                metric_value=mem_errors,
+                threshold=0,
+                timestamp=now,
                 details=f"ECC uncorrectable memory errors detected: {mem_errors}",
             )
             violations.append(v)
@@ -305,8 +333,9 @@ class SLAEngine:
 
     # ── Monthly Enforcement ───────────────────────────────────────────
 
-    def enforce_monthly(self, host_id: str, tier: str, month: str,
-                        monthly_spend_cad: float = 0.0) -> HostSLARecord:
+    def enforce_monthly(
+        self, host_id: str, tier: str, month: str, monthly_spend_cad: float = 0.0
+    ) -> HostSLARecord:
         """Calculate monthly SLA record and credits owed.
 
         Args:
@@ -337,7 +366,9 @@ class SLAEngine:
         incidents = 0
         for row in rows:
             start = max(row["start_ts"], month_start)
-            end = row["end_ts"] if row["end_ts"] and row["resolved"] else min(time.time(), month_end)
+            end = (
+                row["end_ts"] if row["end_ts"] and row["resolved"] else min(time.time(), month_end)
+            )
             end = min(end, month_end)
             if end > start:
                 downtime_sec += end - start
@@ -364,13 +395,28 @@ class SLAEngine:
                    (host_id, month, tier, total_seconds, downtime_seconds,
                     incidents, credit_pct, credit_cad, enforced)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (host_id, month, tier, total_sec, downtime_sec,
-                 incidents, record.credit_pct, record.credit_cad, 1),
+                (
+                    host_id,
+                    month,
+                    tier,
+                    total_sec,
+                    downtime_sec,
+                    incidents,
+                    record.credit_pct,
+                    record.credit_cad,
+                    1,
+                ),
             )
 
         if record.credit_pct > 0:
-            log.warning("SLA ENFORCEMENT: host=%s month=%s uptime=%.2f%% credit=%.1f%% ($%.2f CAD)",
-                        host_id, month, record.uptime_pct, record.credit_pct, record.credit_cad)
+            log.warning(
+                "SLA ENFORCEMENT: host=%s month=%s uptime=%.2f%% credit=%.1f%% ($%.2f CAD)",
+                host_id,
+                month,
+                record.uptime_pct,
+                record.credit_pct,
+                record.credit_cad,
+            )
 
         return record
 

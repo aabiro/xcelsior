@@ -37,22 +37,26 @@ class TestEventStore:
 
     def test_append_returns_event_with_hash(self):
         es = _store()
-        evt = es.append(Event(
-            event_type=EventType.JOB_SUBMITTED,
-            entity_type="job",
-            entity_id="j1",
-            actor="test",
-        ))
+        evt = es.append(
+            Event(
+                event_type=EventType.JOB_SUBMITTED,
+                entity_type="job",
+                entity_id="j1",
+                actor="test",
+            )
+        )
         assert evt.event_hash
         assert len(evt.event_hash) == 64  # SHA-256 hex
 
     def test_first_event_has_empty_prev_hash(self):
         es = _store()
-        evt = es.append(Event(
-            event_type=EventType.JOB_SUBMITTED,
-            entity_type="job",
-            entity_id="j1",
-        ))
+        evt = es.append(
+            Event(
+                event_type=EventType.JOB_SUBMITTED,
+                entity_type="job",
+                entity_id="j1",
+            )
+        )
         assert evt.prev_hash == ""
 
     def test_second_event_chains_to_first(self):
@@ -64,7 +68,9 @@ class TestEventStore:
     def test_verify_chain_valid(self):
         es = _store()
         for i in range(5):
-            es.append(Event(event_type=EventType.HOST_REGISTERED, entity_type="host", entity_id=f"h{i}"))
+            es.append(
+                Event(event_type=EventType.HOST_REGISTERED, entity_type="host", entity_id=f"h{i}")
+            )
         result = es.verify_chain()
         assert result["valid"] is True
         assert result["events_checked"] == 5

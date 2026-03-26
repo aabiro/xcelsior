@@ -26,6 +26,7 @@ def isolated_db(tmp_path, monkeypatch):
     monkeypatch.setenv("XCELSIOR_DB_PATH", db_file)
     # Also patch the module-level default
     import db as db_mod
+
     monkeypatch.setattr(db_mod, "DEFAULT_DB_FILE", db_file)
     yield db_file
 
@@ -39,9 +40,7 @@ class TestSQLiteConnection:
     def test_connection_creates_tables(self):
         with sqlite_connection() as conn:
             # Check that tables exist
-            tables = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             names = [t["name"] for t in tables]
             assert "state" in names
             assert "jobs" in names
@@ -312,30 +311,39 @@ class TestStateNamespace:
 class TestQueryHostsByGPU:
     def _seed_hosts(self):
         with sqlite_transaction() as conn:
-            DatabaseOps.upsert_host(conn, {
-                "host_id": "h-4090",
-                "gpu_model": "RTX 4090",
-                "vram_gb": 24,
-                "free_vram_gb": 20,
-                "status": "active",
-                "registered_at": time.time(),
-            })
-            DatabaseOps.upsert_host(conn, {
-                "host_id": "h-a100",
-                "gpu_model": "A100",
-                "vram_gb": 80,
-                "free_vram_gb": 60,
-                "status": "active",
-                "registered_at": time.time(),
-            })
-            DatabaseOps.upsert_host(conn, {
-                "host_id": "h-3060",
-                "gpu_model": "RTX 3060",
-                "vram_gb": 12,
-                "free_vram_gb": 8,
-                "status": "active",
-                "registered_at": time.time(),
-            })
+            DatabaseOps.upsert_host(
+                conn,
+                {
+                    "host_id": "h-4090",
+                    "gpu_model": "RTX 4090",
+                    "vram_gb": 24,
+                    "free_vram_gb": 20,
+                    "status": "active",
+                    "registered_at": time.time(),
+                },
+            )
+            DatabaseOps.upsert_host(
+                conn,
+                {
+                    "host_id": "h-a100",
+                    "gpu_model": "A100",
+                    "vram_gb": 80,
+                    "free_vram_gb": 60,
+                    "status": "active",
+                    "registered_at": time.time(),
+                },
+            )
+            DatabaseOps.upsert_host(
+                conn,
+                {
+                    "host_id": "h-3060",
+                    "gpu_model": "RTX 3060",
+                    "vram_gb": 12,
+                    "free_vram_gb": 8,
+                    "status": "active",
+                    "registered_at": time.time(),
+                },
+            )
 
     def test_filter_by_gpu_model(self):
         self._seed_hosts()
@@ -357,7 +365,9 @@ class TestQueryHostsByGPU:
         self._seed_hosts()
         with sqlite_connection() as conn:
             results = DatabaseOps.query_hosts_by_gpu(
-                conn, gpu_model="RTX 4090", min_vram_gb=15,
+                conn,
+                gpu_model="RTX 4090",
+                min_vram_gb=15,
             )
             assert len(results) == 1
             assert results[0]["host_id"] == "h-4090"
@@ -383,18 +393,18 @@ class TestDualWriteEngineSQLite:
 
     def test_engine_connection(self):
         from db import DualWriteEngine
+
         engine = DualWriteEngine()
         engine.backend = "sqlite"
         with engine.connection() as (conn, backend):
             assert backend == "sqlite"
             # Connection should be usable
-            tables = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             assert len(tables) > 0
 
     def test_engine_transaction(self):
         from db import DualWriteEngine
+
         engine = DualWriteEngine()
         engine.backend = "sqlite"
         with engine.transaction() as (conn, backend):
@@ -414,6 +424,7 @@ class TestPgEventBusInMemory:
 
     def test_add_and_remove_listener(self):
         from db import PgEventBus
+
         bus = PgEventBus()
         events = []
         bus.add_listener(lambda e: events.append(e))
@@ -424,6 +435,7 @@ class TestPgEventBusInMemory:
     def test_notify_inmemory(self, monkeypatch):
         from db import PgEventBus
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         bus = PgEventBus()
         received = []
@@ -435,6 +447,7 @@ class TestPgEventBusInMemory:
 
     def test_remove_listener(self):
         from db import PgEventBus
+
         bus = PgEventBus()
         events = []
         cb = lambda e: events.append(e)
@@ -445,6 +458,7 @@ class TestPgEventBusInMemory:
 
     def test_remove_nonexistent_listener_no_error(self):
         from db import PgEventBus
+
         bus = PgEventBus()
         bus.remove_listener(lambda e: None)  # Should not raise
 

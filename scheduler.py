@@ -139,9 +139,10 @@ def _read_legacy_json_file(path):
 
 def _ensure_storage_tables(conn):
     """Ensure all scheduler persistence tables and indexes exist."""
-    conn.execute("CREATE TABLE IF NOT EXISTS state (namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)")
     conn.execute(
-        """
+        "CREATE TABLE IF NOT EXISTS state (namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -150,18 +151,15 @@ def _ensure_storage_tables(conn):
             host_id TEXT,
             payload TEXT NOT NULL
         )
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS hosts (
             host_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
             registered_at REAL NOT NULL,
             payload TEXT NOT NULL
         )
-        """
-    )
+        """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, priority DESC, submitted_at ASC)"
     )
@@ -200,7 +198,9 @@ def _namespace_key(path):
 
 def _load_legacy_namespace(conn, path):
     """Read namespace data from state table first, then fallback JSON."""
-    row = conn.execute("SELECT payload FROM state WHERE namespace = ?", (_namespace_key(path),)).fetchone()
+    row = conn.execute(
+        "SELECT payload FROM state WHERE namespace = ?", (_namespace_key(path),)
+    ).fetchone()
     if row:
         try:
             return _coerce_list(json.loads(row["payload"]))
@@ -309,13 +309,11 @@ def _load_jobs_from_conn(conn, status=None):
             (status,),
         ).fetchall()
     else:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT payload
             FROM jobs
             ORDER BY submitted_at ASC, job_id ASC
-            """
-        ).fetchall()
+            """).fetchall()
     jobs = []
     for row in rows:
         item = _decode_payload(row["payload"])
@@ -326,22 +324,18 @@ def _load_jobs_from_conn(conn, status=None):
 
 def _load_hosts_from_conn(conn, active_only=False):
     if active_only:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT payload
             FROM hosts
             WHERE status = 'active'
             ORDER BY registered_at ASC, host_id ASC
-            """
-        ).fetchall()
+            """).fetchall()
     else:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT payload
             FROM hosts
             ORDER BY registered_at ASC, host_id ASC
-            """
-        ).fetchall()
+            """).fetchall()
     hosts = []
     for row in rows:
         item = _decode_payload(row["payload"])
@@ -458,15 +452,15 @@ def allocate(job, hosts):
 
     # Step 1b: GPU count filter (multi-GPU jobs)
     if num_gpus_needed > 1:
-        gpu_candidates = [h for h in candidates
-                          if h.get("gpu_count", 1) >= num_gpus_needed]
+        gpu_candidates = [h for h in candidates if h.get("gpu_count", 1) >= num_gpus_needed]
         if gpu_candidates:
             candidates = gpu_candidates
         else:
             log.warning(
                 "ALLOCATE: job=%s needs %d GPUs but no single host has enough — "
                 "best available: %d GPUs",
-                job.get("name", "?"), num_gpus_needed,
+                job.get("name", "?"),
+                num_gpus_needed,
                 max((h.get("gpu_count", 1) for h in candidates), default=0),
             )
             # Fall through — allocate to best-available even if fewer GPUs
@@ -479,7 +473,8 @@ def allocate(job, hosts):
     if not admitted_candidates:
         log.warning(
             "ALLOCATE BLOCKED: %d hosts have VRAM but none are admitted (job=%s)",
-            len(candidates), job.get("name", "?"),
+            len(candidates),
+            job.get("name", "?"),
         )
         return None
     candidates = admitted_candidates
@@ -490,15 +485,15 @@ def allocate(job, hosts):
     job_tier = job.get("tier", "free") or "free"
     requires_isolation = job_tier in ("sovereign", "regulated", "secure")
     if requires_isolation:
-        isolated = [h for h in candidates
-                    if h.get("recommended_runtime", "runc") != "runc"]
+        isolated = [h for h in candidates if h.get("recommended_runtime", "runc") != "runc"]
         if isolated:
             candidates = isolated
         else:
             log.warning(
                 "ALLOCATE: tier=%s prefers gVisor/Kata isolation but no isolated "
                 "hosts available — falling back to hardened runc (job=%s)",
-                job_tier, job.get("name", "?"),
+                job_tier,
+                job.get("name", "?"),
             )
 
     # Prioritize: GPU count match > available VRAM > speed (low latency) > lowest cost
@@ -540,8 +535,9 @@ def save_hosts(hosts):
         _replace_hosts_in_conn(conn, hosts)
 
 
-def register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20,
-                  country="", province=""):
+def register_host(
+    host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20, country="", province=""
+):
     """
     Register a host. If it exists, update it. If not, add it.
     Every host sends: GPU model, VRAM, IP, uptime.
@@ -724,8 +720,14 @@ def list_tiers():
 # Extended status set — aligns with events.JobState
 # Legacy 4 statuses preserved for backward compat; new statuses for v2.1
 VALID_STATUSES = (
-    "queued", "assigned", "leased", "running",
-    "completed", "failed", "preempted", "cancelled",
+    "queued",
+    "assigned",
+    "leased",
+    "running",
+    "completed",
+    "failed",
+    "preempted",
+    "cancelled",
 )
 
 
@@ -742,8 +744,17 @@ def save_jobs(jobs):
         _replace_jobs_in_conn(conn, jobs)
 
 
-def submit_job(name, vram_needed_gb, priority=0, tier=None, num_gpus=1,
-               nfs_server=None, nfs_path=None, nfs_mount_point=None, image=None):
+def submit_job(
+    name,
+    vram_needed_gb,
+    priority=0,
+    tier=None,
+    num_gpus=1,
+    nfs_server=None,
+    nfs_path=None,
+    nfs_mount_point=None,
+    image=None,
+):
     """
     Submit a job to the queue.
     Each job has: model name, VRAM needed, priority, tier.
@@ -813,15 +824,13 @@ def get_next_job():
     """
     with _db_connection() as conn:
         _migrate_jobs_if_needed(conn)
-        row = conn.execute(
-            """
+        row = conn.execute("""
             SELECT payload
             FROM jobs
             WHERE status = 'queued'
             ORDER BY priority DESC, submitted_at ASC, job_id ASC
             LIMIT 1
-            """
-        ).fetchone()
+            """).fetchone()
         if not row:
             return None
         return _decode_payload(row["payload"])
@@ -935,7 +944,9 @@ def update_job_status(job_id, status, host_id=None):
     # Mirror to secondary DB + emit SSE event
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.upsert_job, j)
-    emit_event("job_status", {"job_id": job_id, "status": status, "host_id": host_id or old_host_id})
+    emit_event(
+        "job_status", {"job_id": job_id, "status": status, "host_id": host_id or old_host_id}
+    )
 
     # ── v2.1: Record event + trigger billing/reputation ──
     try:
@@ -1481,9 +1492,7 @@ def requeue_job(job_id):
 
         # Only requeue running or failed jobs
         if j["status"] not in ("running", "failed"):
-            log.warning(
-                "REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"]
-            )
+            log.warning("REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"])
             return None
 
         retries = j.get("retries", 0) + 1
@@ -1980,12 +1989,26 @@ def set_canada_only(enabled):
 
 
 def register_host_ca(
-    host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20,
-    country="CA", province=""
+    host_id,
+    ip,
+    gpu_model,
+    total_vram_gb,
+    free_vram_gb,
+    cost_per_hour=0.20,
+    country="CA",
+    province="",
 ):
     """Register a host with country tag. Defaults to Canada because why wouldn't it."""
-    entry = register_host(host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour,
-                          country=country, province=province)
+    entry = register_host(
+        host_id,
+        ip,
+        gpu_model,
+        total_vram_gb,
+        free_vram_gb,
+        cost_per_hour,
+        country=country,
+        province=province,
+    )
     # Ensure country is set even if register_host didn't receive it
     if not entry.get("country"):
         _set_host_fields(host_id, country=country.upper())
@@ -1994,8 +2017,13 @@ def register_host_ca(
         _set_host_fields(host_id, province=province.upper())
         entry["province"] = province.upper()
 
-    log.info("HOST REGISTERED (country=%s, province=%s) %s | %s",
-             entry.get('country', ''), entry.get('province', ''), host_id, ip)
+    log.info(
+        "HOST REGISTERED (country=%s, province=%s) %s | %s",
+        entry.get("country", ""),
+        entry.get("province", ""),
+        host_id,
+        ip,
+    )
     return entry
 
 
@@ -2384,13 +2412,15 @@ def update_spot_prices():
         price = compute_spot_price(base, demand, supply)
         spot_prices[gpu] = price
 
-        history.append({
-            "gpu_model": gpu,
-            "price": price,
-            "supply": supply,
-            "demand": demand,
-            "computed_at": now,
-        })
+        history.append(
+            {
+                "gpu_model": gpu,
+                "price": price,
+                "supply": supply,
+                "demand": demand,
+                "computed_at": now,
+            }
+        )
 
     # Keep last 1000 records
     if len(history) > 1000:
@@ -2448,10 +2478,12 @@ def identify_preemptible_jobs(spot_prices=None):
             continue
 
         if max_bid < current_price:
-            preemptible.append((
-                j,
-                f"bid ${max_bid} < spot ${current_price} for {gpu}",
-            ))
+            preemptible.append(
+                (
+                    j,
+                    f"bid ${max_bid} < spot ${current_price} for {gpu}",
+                )
+            )
 
     return preemptible
 
@@ -2676,8 +2708,9 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
     if constraint:
         hosts = filter_hosts_by_jurisdiction(hosts, constraint)
         if not hosts:
-            log.warning("ALLOCATE no hosts match jurisdiction constraint for job=%s",
-                        job.get("name", "?"))
+            log.warning(
+                "ALLOCATE no hosts match jurisdiction constraint for job=%s", job.get("name", "?")
+            )
             return None
 
     # 2. Verification filter — only use verified hosts for production
