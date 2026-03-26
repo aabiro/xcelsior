@@ -24,10 +24,10 @@ log = logging.getLogger("xcelsior")
 
 # Minimum safe versions (update as new CVEs are published)
 MINIMUM_VERSIONS = {
-    "runc": "1.1.12",         # CVE-2024-21626 fix
+    "runc": "1.1.12",  # CVE-2024-21626 fix
     "nvidia_toolkit": "1.17.8",  # CVE-2025-23266 fix
-    "nvidia_driver": "550.0",    # Minimum recommended driver
-    "docker": "24.0.0",          # Modern Docker with security defaults
+    "nvidia_driver": "550.0",  # Minimum recommended driver
+    "docker": "24.0.0",  # Modern Docker with security defaults
 }
 
 
@@ -86,9 +86,7 @@ def check_node_versions(versions):
     # Docker version
     docker_ver = versions.get("docker")
     if docker_ver and not version_gte(docker_ver, MINIMUM_VERSIONS["docker"]):
-        reasons.append(
-            f"Docker {docker_ver} is below minimum {MINIMUM_VERSIONS['docker']}"
-        )
+        reasons.append(f"Docker {docker_ver} is below minimum {MINIMUM_VERSIONS['docker']}")
 
     admitted = len(reasons) == 0
     return admitted, reasons
@@ -103,9 +101,7 @@ def get_local_versions():
 
     # runc version
     try:
-        r = subprocess.run(
-            ["runc", "--version"], capture_output=True, text=True, timeout=5
-        )
+        r = subprocess.run(["runc", "--version"], capture_output=True, text=True, timeout=5)
         if r.returncode == 0:
             match = re.search(r"runc version (\S+)", r.stdout)
             if match:
@@ -117,7 +113,9 @@ def get_local_versions():
     try:
         r = subprocess.run(
             ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
             versions["docker"] = r.stdout.strip()
@@ -128,7 +126,9 @@ def get_local_versions():
     try:
         r = subprocess.run(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode == 0 and r.stdout.strip():
             versions["nvidia_driver"] = r.stdout.strip().split("\n")[0]
@@ -139,7 +139,9 @@ def get_local_versions():
     try:
         r = subprocess.run(
             ["nvidia-container-toolkit", "--version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if r.returncode == 0:
             match = re.search(r"(\d+\.\d+\.\d+)", r.stdout + r.stderr)
@@ -150,7 +152,9 @@ def get_local_versions():
         try:
             r = subprocess.run(
                 ["nvidia-container-runtime", "--version"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if r.returncode == 0:
                 match = re.search(r"(\d+\.\d+\.\d+)", r.stdout)
@@ -306,14 +310,8 @@ def build_egress_iptables_rules(container_id, allowlist=None, strict=True):
     rules = []
 
     # Allow DNS (needed for domain resolution)
-    rules.append(
-        f"docker exec {container_id} "
-        "iptables -A OUTPUT -p udp --dport 53 -j ACCEPT"
-    )
-    rules.append(
-        f"docker exec {container_id} "
-        "iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT"
-    )
+    rules.append(f"docker exec {container_id} " "iptables -A OUTPUT -p udp --dport 53 -j ACCEPT")
+    rules.append(f"docker exec {container_id} " "iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT")
 
     # Allow established connections
     rules.append(
@@ -322,38 +320,25 @@ def build_egress_iptables_rules(container_id, allowlist=None, strict=True):
     )
 
     # Allow loopback
-    rules.append(
-        f"docker exec {container_id} "
-        "iptables -A OUTPUT -o lo -j ACCEPT"
-    )
+    rules.append(f"docker exec {container_id} " "iptables -A OUTPUT -o lo -j ACCEPT")
 
     # Allow HTTPS/HTTP to allowlisted domains
     # Note: iptables works on IPs; in practice use Docker network policy
     # or DNS-based proxy. These rules permit ports 80/443 broadly —
     # combine with mining pool port blocks for defense-in-depth.
-    rules.append(
-        f"docker exec {container_id} "
-        "iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT"
-    )
-    rules.append(
-        f"docker exec {container_id} "
-        "iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT"
-    )
+    rules.append(f"docker exec {container_id} " "iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT")
+    rules.append(f"docker exec {container_id} " "iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT")
 
     # Block common mining pool ports (Stratum protocol)
     for port in [3333, 4444, 5555, 7777, 8888, 9999, 14444, 14433]:
         rules.append(
-            f"docker exec {container_id} "
-            f"iptables -A OUTPUT -p tcp --dport {port} -j DROP"
+            f"docker exec {container_id} " f"iptables -A OUTPUT -p tcp --dport {port} -j DROP"
         )
 
     # Default-deny: drop all other outbound traffic
     # This is the core of "default-deny egress with allowlists"
     if strict:
-        rules.append(
-            f"docker exec {container_id} "
-            "iptables -P OUTPUT DROP"
-        )
+        rules.append(f"docker exec {container_id} " "iptables -P OUTPUT DROP")
 
     return rules
 
@@ -384,9 +369,13 @@ def check_mining_heuristic(gpu_stats):
 
     if util > MINING_GPU_UTIL_THRESHOLD and pcie_tx < MINING_PCIE_TX_THRESHOLD:
         confidence = min(1.0, (util - 90) / 10 * (1 - pcie_tx / MINING_PCIE_TX_THRESHOLD))
-        return True, confidence, (
-            f"GPU util={util}% mem={mem_util}% pcie_tx={pcie_tx}MB/s — "
-            f"matches mining signature (high compute, low PCIe)"
+        return (
+            True,
+            confidence,
+            (
+                f"GPU util={util}% mem={mem_util}% pcie_tx={pcie_tx}MB/s — "
+                f"matches mining signature (high compute, low PCIe)"
+            ),
         )
 
     return False, 0.0, "Normal GPU usage pattern"
@@ -404,6 +393,7 @@ def get_gpu_telemetry():
     """
     try:
         from nvml_telemetry import collect_all_gpus, is_nvml_available
+
         if is_nvml_available():
             return collect_all_gpus()
     except ImportError:
@@ -419,7 +409,9 @@ def get_gpu_telemetry():
                 "power.draw,temperature.gpu",
                 "--format=csv,noheader,nounits",
             ],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode != 0:
             return []
@@ -428,16 +420,18 @@ def get_gpu_telemetry():
         for line in result.stdout.strip().split("\n"):
             parts = [p.strip() for p in line.split(",")]
             if len(parts) >= 7:
-                gpus.append({
-                    "index": int(parts[0]),
-                    "utilization": float(parts[1]),
-                    "memory_util": float(parts[2]),
-                    "pcie_gen": parts[3],
-                    "pcie_width": parts[4],
-                    "power_draw_w": float(parts[5]) if parts[5] != "[N/A]" else 0,
-                    "temperature_c": float(parts[6]),
-                    "pcie_tx_mb_s": 0,
-                })
+                gpus.append(
+                    {
+                        "index": int(parts[0]),
+                        "utilization": float(parts[1]),
+                        "memory_util": float(parts[2]),
+                        "pcie_gen": parts[3],
+                        "pcie_width": parts[4],
+                        "power_draw_w": float(parts[5]) if parts[5] != "[N/A]" else 0,
+                        "temperature_c": float(parts[6]),
+                        "pcie_tx_mb_s": 0,
+                    }
+                )
         return gpus
 
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
@@ -451,11 +445,23 @@ def get_gpu_telemetry():
 # Consumer GPUs (RTX 3090/4090) on same microarchitectures "likely work"
 
 GVISOR_SUPPORTED_GPUS = {
-    "T4", "A100", "A10G", "L4", "H100",
+    "T4",
+    "A100",
+    "A10G",
+    "L4",
+    "H100",
     # Consumer cards on supported microarchitectures (unofficial but likely to work)
-    "RTX 3060", "RTX 3070", "RTX 3080", "RTX 3090",
-    "RTX 4060", "RTX 4070", "RTX 4080", "RTX 4090",
-    "RTX 2060", "RTX 2070", "RTX 2080",
+    "RTX 3060",
+    "RTX 3070",
+    "RTX 3080",
+    "RTX 3090",
+    "RTX 4060",
+    "RTX 4070",
+    "RTX 4080",
+    "RTX 4090",
+    "RTX 2060",
+    "RTX 2070",
+    "RTX 2080",
 }
 
 GVISOR_RELEASE_URL = "https://storage.googleapis.com/gvisor/releases/release/latest/x86_64"
@@ -486,7 +492,9 @@ def install_gvisor(enable_nvproxy=True):
         log.info("Downloading runsc binary...")
         dl_runsc = subprocess.run(
             ["wget", "-q", f"{GVISOR_RELEASE_URL}/runsc", "-O", "/usr/local/bin/runsc"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if dl_runsc.returncode != 0:
             return False, f"Failed to download runsc: {dl_runsc.stderr.strip()}"
@@ -494,9 +502,16 @@ def install_gvisor(enable_nvproxy=True):
         # 2. Download containerd-shim-runsc-v1
         log.info("Downloading containerd-shim-runsc-v1...")
         dl_shim = subprocess.run(
-            ["wget", "-q", f"{GVISOR_RELEASE_URL}/containerd-shim-runsc-v1",
-             "-O", "/usr/local/bin/containerd-shim-runsc-v1"],
-            capture_output=True, text=True, timeout=120,
+            [
+                "wget",
+                "-q",
+                f"{GVISOR_RELEASE_URL}/containerd-shim-runsc-v1",
+                "-O",
+                "/usr/local/bin/containerd-shim-runsc-v1",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if dl_shim.returncode != 0:
             return False, f"Failed to download containerd-shim: {dl_shim.stderr.strip()}"
@@ -536,17 +551,24 @@ def install_gvisor(enable_nvproxy=True):
         log.info("Restarting Docker to register runsc runtime...")
         restart = subprocess.run(
             ["systemctl", "restart", "docker"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if restart.returncode != 0:
-            log.warning("Docker restart failed: %s — runtime may not be active",
-                        restart.stderr.strip())
+            log.warning(
+                "Docker restart failed: %s — runtime may not be active", restart.stderr.strip()
+            )
 
         # 7. Verify installation
         time.sleep(2)
         if is_gvisor_available():
             log.info("gVisor (runsc) installed and verified successfully")
-            return True, "gVisor installed successfully with nvproxy" if enable_nvproxy else "gVisor installed successfully"
+            return True, (
+                "gVisor installed successfully with nvproxy"
+                if enable_nvproxy
+                else "gVisor installed successfully"
+            )
         else:
             return False, "gVisor binaries installed but runsc not responding"
 
@@ -559,9 +581,7 @@ def install_gvisor(enable_nvproxy=True):
 def is_gvisor_available():
     """Check if gVisor (runsc) runtime is installed and available."""
     try:
-        r = subprocess.run(
-            ["runsc", "--version"], capture_output=True, text=True, timeout=5
-        )
+        r = subprocess.run(["runsc", "--version"], capture_output=True, text=True, timeout=5)
         return r.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -615,12 +635,15 @@ def admit_node(host_id, versions, gpu_model=None):
     if admitted:
         log.info(
             "NODE ADMITTED host=%s runtime=%s versions=%s",
-            host_id, runtime, json.dumps(versions),
+            host_id,
+            runtime,
+            json.dumps(versions),
         )
     else:
         log.warning(
             "NODE REJECTED host=%s reasons=%s",
-            host_id, "; ".join(reasons),
+            host_id,
+            "; ".join(reasons),
         )
 
     return admitted, details

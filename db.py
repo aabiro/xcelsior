@@ -10,6 +10,7 @@
 
 # Auto-load .env file (must be before any os.environ reads)
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import json
@@ -56,11 +57,9 @@ def _db_path():
 def _ensure_sqlite_tables(conn):
     """Ensure all scheduler persistence tables and indexes exist in SQLite."""
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS state "
-        "(namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+        "CREATE TABLE IF NOT EXISTS state " "(namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
     )
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -69,25 +68,21 @@ def _ensure_sqlite_tables(conn):
             host_id TEXT,
             payload TEXT NOT NULL
         )
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS hosts (
             host_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
             registered_at REAL NOT NULL,
             payload TEXT NOT NULL
         )
-        """
-    )
+        """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_queue "
         "ON jobs(status, priority DESC, submitted_at ASC)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hosts_status "
-        "ON hosts(status, registered_at ASC)"
+        "CREATE INDEX IF NOT EXISTS idx_hosts_status " "ON hosts(status, registered_at ASC)"
     )
 
 
@@ -168,17 +163,14 @@ def _ensure_pg_tables(conn):
     """
     cur = conn.cursor()
 
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS state (
             namespace TEXT PRIMARY KEY,
             payload JSONB NOT NULL
         )
-        """
-    )
+        """)
 
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             job_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -187,19 +179,16 @@ def _ensure_pg_tables(conn):
             host_id TEXT,
             payload JSONB NOT NULL
         )
-        """
-    )
+        """)
 
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS hosts (
             host_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
             registered_at DOUBLE PRECISION NOT NULL,
             payload JSONB NOT NULL
         )
-        """
-    )
+        """)
 
     # Indexed columns for scheduler queries
     cur.execute(
@@ -207,30 +196,19 @@ def _ensure_pg_tables(conn):
         "ON jobs(status, priority DESC, submitted_at ASC)"
     )
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hosts_status "
-        "ON hosts(status, registered_at ASC)"
+        "CREATE INDEX IF NOT EXISTS idx_hosts_status " "ON hosts(status, registered_at ASC)"
     )
 
     # GIN indexes on JSONB payloads for GPU capability queries
     # Allows: SELECT * FROM hosts WHERE payload->'gpu_specs' @> '{"vram_gb": 24}'
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hosts_payload_gin "
-        "ON hosts USING GIN (payload)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_payload_gin "
-        "ON jobs USING GIN (payload)"
-    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_hosts_payload_gin " "ON hosts USING GIN (payload)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_payload_gin " "ON jobs USING GIN (payload)")
 
     # Expression indexes for hot-path queries
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hosts_gpu_model "
-        "ON hosts ((payload->>'gpu_model'))"
+        "CREATE INDEX IF NOT EXISTS idx_hosts_gpu_model " "ON hosts ((payload->>'gpu_model'))"
     )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_tier "
-        "ON jobs ((payload->>'tier'))"
-    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tier " "ON jobs ((payload->>'tier'))")
 
 
 @contextmanager
@@ -363,9 +341,7 @@ class DatabaseOps:
     def get_job(conn, job_id, backend="sqlite"):
         """Fetch a single job by ID."""
         ph = "%s" if backend == "postgres" else "?"
-        row = conn.execute(
-            f"SELECT payload FROM jobs WHERE job_id = {ph}", (job_id,)
-        ).fetchone()
+        row = conn.execute(f"SELECT payload FROM jobs WHERE job_id = {ph}", (job_id,)).fetchone()
         if not row:
             return None
         payload = row[0] if backend == "postgres" else row["payload"]
@@ -375,9 +351,7 @@ class DatabaseOps:
     def get_host(conn, host_id, backend="sqlite"):
         """Fetch a single host by ID."""
         ph = "%s" if backend == "postgres" else "?"
-        row = conn.execute(
-            f"SELECT payload FROM hosts WHERE host_id = {ph}", (host_id,)
-        ).fetchone()
+        row = conn.execute(f"SELECT payload FROM hosts WHERE host_id = {ph}", (host_id,)).fetchone()
         if not row:
             return None
         payload = row[0] if backend == "postgres" else row["payload"]
@@ -493,9 +467,7 @@ class DatabaseOps:
                 conditions.append("payload->>'gpu_model' = %s")
                 params.append(gpu_model)
             if min_vram_gb is not None:
-                conditions.append(
-                    "(payload->>'free_vram_gb')::float >= %s"
-                )
+                conditions.append("(payload->>'free_vram_gb')::float >= %s")
                 params.append(min_vram_gb)
 
             query = (
@@ -548,9 +520,7 @@ class DualWriteEngine:
     @contextmanager
     def connection(self):
         """Get a connection for the current read backend."""
-        if self.backend == "postgres" or (
-            self.backend == "dual" and self.read_from == "postgres"
-        ):
+        if self.backend == "postgres" or (self.backend == "dual" and self.read_from == "postgres"):
             with pg_connection() as conn:
                 yield conn, "postgres"
         else:
@@ -654,17 +624,17 @@ class PgEventBus:
         def _do_notify():
             try:
                 with pg_connection() as conn:
-                    payload = json.dumps(
-                        {"type": event_type, "data": data, "ts": time.time()}
-                    )
+                    payload = json.dumps({"type": event_type, "data": data, "ts": time.time()})
                     # Truncate to stay under 8000 bytes
                     if len(payload) > 7900:
                         payload = json.dumps(
-                            {"type": event_type, "data": {"id": data.get("id", "?")}, "ts": time.time()}
+                            {
+                                "type": event_type,
+                                "data": {"id": data.get("id", "?")},
+                                "ts": time.time(),
+                            }
                         )
-                    conn.execute(
-                        f"NOTIFY {self.channel}, %s", (payload,)
-                    )
+                    conn.execute(f"NOTIFY {self.channel}, %s", (payload,))
                     conn.commit()
             except Exception as e:
                 log.debug("PgEventBus notify failed: %s", e)
@@ -814,23 +784,43 @@ class UserStore:
     @staticmethod
     def create_user(user: dict) -> None:
         with auth_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO users (email, user_id, name, password_hash, salt, role,
                     customer_id, provider_id, country, province, oauth_provider, team_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                user["email"], user["user_id"], user.get("name", ""),
-                user.get("password_hash", ""), user.get("salt", ""),
-                user.get("role", "submitter"), user.get("customer_id"),
-                user.get("provider_id"), user.get("country", "CA"),
-                user.get("province", "ON"), user.get("oauth_provider"),
-                user.get("team_id"), user.get("created_at", time.time()),
-            ))
+            """,
+                (
+                    user["email"],
+                    user["user_id"],
+                    user.get("name", ""),
+                    user.get("password_hash", ""),
+                    user.get("salt", ""),
+                    user.get("role", "submitter"),
+                    user.get("customer_id"),
+                    user.get("provider_id"),
+                    user.get("country", "CA"),
+                    user.get("province", "ON"),
+                    user.get("oauth_provider"),
+                    user.get("team_id"),
+                    user.get("created_at", time.time()),
+                ),
+            )
 
     @staticmethod
     def update_user(email: str, updates: dict) -> None:
-        allowed = {"name", "role", "country", "province", "provider_id", "team_id",
-                    "password_hash", "salt", "reset_token", "reset_token_expires"}
+        allowed = {
+            "name",
+            "role",
+            "country",
+            "province",
+            "provider_id",
+            "team_id",
+            "password_hash",
+            "salt",
+            "reset_token",
+            "reset_token_expires",
+        }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
             return
@@ -866,14 +856,21 @@ class UserStore:
     @staticmethod
     def create_session(session: dict) -> None:
         with auth_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO sessions (token, email, user_id, role, name, created_at, expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session["token"], session["email"], session["user_id"],
-                session.get("role", "submitter"), session.get("name", ""),
-                session.get("created_at", time.time()), session["expires_at"],
-            ))
+            """,
+                (
+                    session["token"],
+                    session["email"],
+                    session["user_id"],
+                    session.get("role", "submitter"),
+                    session.get("name", ""),
+                    session.get("created_at", time.time()),
+                    session["expires_at"],
+                ),
+            )
 
     @staticmethod
     def get_session(token: str) -> dict | None:
@@ -897,9 +894,7 @@ class UserStore:
     @staticmethod
     def cleanup_expired_sessions() -> int:
         with auth_connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM sessions WHERE expires_at < ?", (time.time(),)
-            )
+            cursor = conn.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
             return cursor.rowcount
 
     # ── API Keys ──
@@ -907,16 +902,22 @@ class UserStore:
     @staticmethod
     def create_api_key(key_data: dict) -> None:
         with auth_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO api_keys (key, name, email, user_id, role, scope, created_at, last_used)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                key_data["key"], key_data.get("name", "default"),
-                key_data["email"], key_data["user_id"],
-                key_data.get("role", "submitter"),
-                key_data.get("scope", "full-access"),
-                key_data.get("created_at", time.time()), key_data.get("last_used"),
-            ))
+            """,
+                (
+                    key_data["key"],
+                    key_data.get("name", "default"),
+                    key_data["email"],
+                    key_data["user_id"],
+                    key_data.get("role", "submitter"),
+                    key_data.get("scope", "full-access"),
+                    key_data.get("created_at", time.time()),
+                    key_data.get("last_used"),
+                ),
+            )
 
     @staticmethod
     def get_api_key(key: str) -> dict | None:
@@ -931,9 +932,7 @@ class UserStore:
     @staticmethod
     def list_api_keys(email: str) -> list[dict]:
         with auth_connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM api_keys WHERE email = ?", (email,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM api_keys WHERE email = ?", (email,)).fetchall()
             return [dict(r) for r in rows]
 
     @staticmethod
@@ -957,19 +956,28 @@ class UserStore:
     @staticmethod
     def create_team(team: dict) -> None:
         with auth_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO teams (team_id, name, owner_email, created_at, plan, max_members)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                team["team_id"], team["name"], team["owner_email"],
-                team.get("created_at", time.time()),
-                team.get("plan", "free"), team.get("max_members", 5),
-            ))
+            """,
+                (
+                    team["team_id"],
+                    team["name"],
+                    team["owner_email"],
+                    team.get("created_at", time.time()),
+                    team.get("plan", "free"),
+                    team.get("max_members", 5),
+                ),
+            )
             # Add owner as admin member
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO team_members (team_id, email, role, joined_at)
                 VALUES (?, ?, 'admin', ?)
-            """, (team["team_id"], team["owner_email"], time.time()))
+            """,
+                (team["team_id"], team["owner_email"], time.time()),
+            )
 
     @staticmethod
     def get_team(team_id: str) -> dict | None:
@@ -980,17 +988,22 @@ class UserStore:
     @staticmethod
     def list_team_members(team_id: str) -> list[dict]:
         with auth_connection() as conn:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT tm.email, tm.role, tm.joined_at, u.name, u.user_id
                 FROM team_members tm LEFT JOIN users u ON tm.email = u.email
                 WHERE tm.team_id = ?
-            """, (team_id,)).fetchall()
+            """,
+                (team_id,),
+            ).fetchall()
             return [dict(r) for r in rows]
 
     @staticmethod
     def add_team_member(team_id: str, email: str, role: str = "member") -> bool:
         with auth_connection() as conn:
-            team = conn.execute("SELECT max_members FROM teams WHERE team_id = ?", (team_id,)).fetchone()
+            team = conn.execute(
+                "SELECT max_members FROM teams WHERE team_id = ?", (team_id,)
+            ).fetchone()
             if not team:
                 return False
             count = conn.execute(
@@ -998,18 +1011,25 @@ class UserStore:
             ).fetchone()["c"]
             if count >= team["max_members"]:
                 return False
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO team_members (team_id, email, role, joined_at)
                 VALUES (?, ?, ?, ?)
-            """, (team_id, email, role, time.time()))
+            """,
+                (team_id, email, role, time.time()),
+            )
             conn.execute("UPDATE users SET team_id = ? WHERE email = ?", (team_id, email))
             return True
 
     @staticmethod
     def remove_team_member(team_id: str, email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM team_members WHERE team_id = ? AND email = ?", (team_id, email))
-            conn.execute("UPDATE users SET team_id = NULL WHERE email = ? AND team_id = ?", (email, team_id))
+            conn.execute(
+                "DELETE FROM team_members WHERE team_id = ? AND email = ?", (team_id, email)
+            )
+            conn.execute(
+                "UPDATE users SET team_id = NULL WHERE email = ? AND team_id = ?", (email, team_id)
+            )
 
     @staticmethod
     def delete_team(team_id: str) -> None:
@@ -1021,11 +1041,14 @@ class UserStore:
     @staticmethod
     def get_user_teams(email: str) -> list[dict]:
         with auth_connection() as conn:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT t.*, tm.role as member_role
                 FROM teams t JOIN team_members tm ON t.team_id = tm.team_id
                 WHERE tm.email = ?
-            """, (email,)).fetchall()
+            """,
+                (email,),
+            ).fetchall()
             return [dict(r) for r in rows]
 
 
@@ -1051,16 +1074,19 @@ def start_pg_listen(callback, channel="xcelsior_events"):
         # SQLite mode: register callback directly as in-memory listener
         def _adapter(event):
             callback(event.get("type", "message"), event.get("data", {}))
+
         event_bus.add_listener(_adapter)
         log.info("PgEventBus: registered in-memory listener (SQLite mode)")
         return None
 
     def _listen_loop():
         import select
+
         while True:
             try:
                 # Dedicated connection for LISTEN (not from pool)
                 import psycopg
+
                 conn = psycopg.connect(
                     os.environ.get("XCELSIOR_PG_DSN") or POSTGRES_DSN,
                     autocommit=True,

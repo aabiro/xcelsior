@@ -32,7 +32,21 @@ def _engine() -> BillingEngine:
 class TestProvinceTaxRates:
     """Verify all 13 provinces/territories have correct GST/HST/QST rates."""
 
-    EXPECTED_PROVINCES = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
+    EXPECTED_PROVINCES = {
+        "AB",
+        "BC",
+        "MB",
+        "NB",
+        "NL",
+        "NS",
+        "NT",
+        "NU",
+        "ON",
+        "PE",
+        "QC",
+        "SK",
+        "YT",
+    }
 
     def test_all_13_present(self):
         assert set(PROVINCE_TAX_RATES.keys()) == self.EXPECTED_PROVINCES

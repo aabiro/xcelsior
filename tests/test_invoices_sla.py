@@ -53,12 +53,24 @@ GOOD_VERSIONS = {
 }
 
 
-def _register_host(host_id="h1", ip="10.0.0.1", gpu="RTX 4090", vram=24,
-                    country="CA", province="ON", versions=None, **extra):
+def _register_host(
+    host_id="h1",
+    ip="10.0.0.1",
+    gpu="RTX 4090",
+    vram=24,
+    country="CA",
+    province="ON",
+    versions=None,
+    **extra,
+):
     data = {
-        "host_id": host_id, "ip": ip, "gpu_model": gpu,
-        "total_vram_gb": vram, "free_vram_gb": vram,
-        "country": country, "province": province,
+        "host_id": host_id,
+        "ip": ip,
+        "gpu_model": gpu,
+        "total_vram_gb": vram,
+        "free_vram_gb": vram,
+        "country": country,
+        "province": province,
     }
     if versions is not None:
         data["versions"] = versions
@@ -81,6 +93,7 @@ def clean_data():
         if os.path.exists(f):
             os.remove(f)
     import api as api_mod
+
     api_mod._host_telemetry.clear()
     api_mod._RATE_BUCKETS.clear()
     yield
@@ -185,8 +198,24 @@ class TestSLAHostsSummary:
     def test_summary_multiple_hosts(self):
         """Register multiple hosts and verify all appear."""
         _register_host("sla-m1", ip="10.0.0.1", gpu="RTX 4090", vram=24, versions=GOOD_VERSIONS)
-        _register_host("sla-m2", ip="10.0.0.2", gpu="A100", vram=80, versions=GOOD_VERSIONS, country="CA", province="QC")
-        _register_host("sla-m3", ip="10.0.0.3", gpu="H100", vram=80, versions=GOOD_VERSIONS, country="CA", province="BC")
+        _register_host(
+            "sla-m2",
+            ip="10.0.0.2",
+            gpu="A100",
+            vram=80,
+            versions=GOOD_VERSIONS,
+            country="CA",
+            province="QC",
+        )
+        _register_host(
+            "sla-m3",
+            ip="10.0.0.3",
+            gpu="H100",
+            vram=80,
+            versions=GOOD_VERSIONS,
+            country="CA",
+            province="BC",
+        )
         r = client.get("/api/sla/hosts-summary")
         assert r.status_code == 200
         d = r.json()

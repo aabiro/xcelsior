@@ -19,7 +19,6 @@ from artifacts import (
     StorageConfig,
 )
 
-
 # ── StorageConfig ────────────────────────────────────────────────────
 
 
@@ -285,14 +284,16 @@ class TestArtifactManager:
             f.write(b"cached-weights")
 
         result = self.manager.request_download(
-            "model_weights/job-1/weights.bin", prefer_cache=True,
+            "model_weights/job-1/weights.bin",
+            prefer_cache=True,
         )
         assert self._cache_dir in result["url"]
 
     def test_request_download_falls_back_to_primary(self):
         # File only in primary
         result = self.manager.request_download(
-            "model_weights/job-1/missing.bin", prefer_cache=True,
+            "model_weights/job-1/missing.bin",
+            prefer_cache=True,
         )
         assert self._primary_dir in result["url"]
 

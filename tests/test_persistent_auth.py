@@ -26,7 +26,6 @@ os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 import db as db_mod
 from db import UserStore, auth_connection
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 
@@ -110,7 +109,9 @@ class TestUserStoreCRUD:
 
     def test_update_user_ignores_disallowed_fields(self, sample_user):
         UserStore.create_user(sample_user)
-        UserStore.update_user(sample_user["email"], {"email": "evil@hacker.com", "name": "Good Name"})
+        UserStore.update_user(
+            sample_user["email"], {"email": "evil@hacker.com", "name": "Good Name"}
+        )
         user = UserStore.get_user(sample_user["email"])
         assert user["email"] == sample_user["email"]  # unchanged
         assert user["name"] == "Good Name"
@@ -201,13 +202,15 @@ class TestUserStoreSessions:
     def test_delete_user_sessions(self, sample_user):
         UserStore.create_user(sample_user)
         for i in range(3):
-            UserStore.create_session({
-                "token": f"tok-multi-{i}",
-                "email": sample_user["email"],
-                "user_id": sample_user["user_id"],
-                "role": "submitter",
-                "expires_at": time.time() + 3600,
-            })
+            UserStore.create_session(
+                {
+                    "token": f"tok-multi-{i}",
+                    "email": sample_user["email"],
+                    "user_id": sample_user["user_id"],
+                    "role": "submitter",
+                    "expires_at": time.time() + 3600,
+                }
+            )
         UserStore.delete_user_sessions(sample_user["email"])
         for i in range(3):
             assert UserStore.get_session(f"tok-multi-{i}") is None
@@ -216,20 +219,24 @@ class TestUserStoreSessions:
         UserStore.create_user(sample_user)
         # Create 2 expired + 1 valid
         for i in range(2):
-            UserStore.create_session({
-                "token": f"tok-exp-{i}",
+            UserStore.create_session(
+                {
+                    "token": f"tok-exp-{i}",
+                    "email": sample_user["email"],
+                    "user_id": sample_user["user_id"],
+                    "role": "submitter",
+                    "expires_at": time.time() - 100,
+                }
+            )
+        UserStore.create_session(
+            {
+                "token": "tok-valid",
                 "email": sample_user["email"],
                 "user_id": sample_user["user_id"],
                 "role": "submitter",
-                "expires_at": time.time() - 100,
-            })
-        UserStore.create_session({
-            "token": "tok-valid",
-            "email": sample_user["email"],
-            "user_id": sample_user["user_id"],
-            "role": "submitter",
-            "expires_at": time.time() + 3600,
-        })
+                "expires_at": time.time() + 3600,
+            }
+        )
         cleaned = UserStore.cleanup_expired_sessions()
         assert cleaned == 2
         assert UserStore.get_session("tok-valid") is not None
@@ -244,12 +251,14 @@ class TestUserStoreAPIKeys:
     def test_create_and_get_key(self, sample_user):
         UserStore.create_user(sample_user)
         key_val = "xc_test_" + uuid.uuid4().hex
-        UserStore.create_api_key({
-            "key": key_val,
-            "name": "test-key",
-            "email": sample_user["email"],
-            "user_id": sample_user["user_id"],
-        })
+        UserStore.create_api_key(
+            {
+                "key": key_val,
+                "name": "test-key",
+                "email": sample_user["email"],
+                "user_id": sample_user["user_id"],
+            }
+        )
         result = UserStore.get_api_key(key_val)
         assert result is not None
         assert result["name"] == "test-key"
@@ -258,24 +267,28 @@ class TestUserStoreAPIKeys:
     def test_list_keys(self, sample_user):
         UserStore.create_user(sample_user)
         for i in range(3):
-            UserStore.create_api_key({
-                "key": f"xc_list_{i}_" + uuid.uuid4().hex,
-                "name": f"key-{i}",
-                "email": sample_user["email"],
-                "user_id": sample_user["user_id"],
-            })
+            UserStore.create_api_key(
+                {
+                    "key": f"xc_list_{i}_" + uuid.uuid4().hex,
+                    "name": f"key-{i}",
+                    "email": sample_user["email"],
+                    "user_id": sample_user["user_id"],
+                }
+            )
         keys = UserStore.list_api_keys(sample_user["email"])
         assert len(keys) == 3
 
     def test_delete_key_by_preview(self, sample_user):
         UserStore.create_user(sample_user)
         key_val = "xc_preview_test_abcdefghij"
-        UserStore.create_api_key({
-            "key": key_val,
-            "name": "preview-key",
-            "email": sample_user["email"],
-            "user_id": sample_user["user_id"],
-        })
+        UserStore.create_api_key(
+            {
+                "key": key_val,
+                "name": "preview-key",
+                "email": sample_user["email"],
+                "user_id": sample_user["user_id"],
+            }
+        )
         preview = key_val[:12] + "..." + key_val[-4:]
         deleted = UserStore.delete_api_key_by_preview(sample_user["email"], preview)
         assert deleted is True
@@ -294,13 +307,15 @@ class TestUserStoreTeams:
     def test_create_team(self, sample_user):
         UserStore.create_user(sample_user)
         team_id = f"team-{uuid.uuid4().hex[:8]}"
-        UserStore.create_team({
-            "team_id": team_id,
-            "name": "Test Team",
-            "owner_email": sample_user["email"],
-            "plan": "free",
-            "max_members": 5,
-        })
+        UserStore.create_team(
+            {
+                "team_id": team_id,
+                "name": "Test Team",
+                "owner_email": sample_user["email"],
+                "plan": "free",
+                "max_members": 5,
+            }
+        )
         team = UserStore.get_team(team_id)
         assert team is not None
         assert team["name"] == "Test Team"
@@ -309,11 +324,13 @@ class TestUserStoreTeams:
     def test_owner_auto_added_as_admin(self, sample_user):
         UserStore.create_user(sample_user)
         team_id = f"team-{uuid.uuid4().hex[:8]}"
-        UserStore.create_team({
-            "team_id": team_id,
-            "name": "Auto Admin Team",
-            "owner_email": sample_user["email"],
-        })
+        UserStore.create_team(
+            {
+                "team_id": team_id,
+                "name": "Auto Admin Team",
+                "owner_email": sample_user["email"],
+            }
+        )
         members = UserStore.list_team_members(team_id)
         assert len(members) == 1
         assert members[0]["email"] == sample_user["email"]
@@ -323,12 +340,14 @@ class TestUserStoreTeams:
         UserStore.create_user(sample_user)
         UserStore.create_user(sample_user_2)
         team_id = f"team-{uuid.uuid4().hex[:8]}"
-        UserStore.create_team({
-            "team_id": team_id,
-            "name": "Addable Team",
-            "owner_email": sample_user["email"],
-            "max_members": 5,
-        })
+        UserStore.create_team(
+            {
+                "team_id": team_id,
+                "name": "Addable Team",
+                "owner_email": sample_user["email"],
+                "max_members": 5,
+            }
+        )
         result = UserStore.add_team_member(team_id, sample_user_2["email"], "member")
         assert result is True
         members = UserStore.list_team_members(team_id)
@@ -340,12 +359,14 @@ class TestUserStoreTeams:
         UserStore.create_user(sample_user)
         UserStore.create_user(sample_user_2)
         team_id = f"team-{uuid.uuid4().hex[:8]}"
-        UserStore.create_team({
-            "team_id": team_id,
-            "name": "Tiny Team",
-            "owner_email": sample_user["email"],
-            "max_members": 1,
-        })
+        UserStore.create_team(
+            {
+                "team_id": team_id,
+                "name": "Tiny Team",
+                "owner_email": sample_user["email"],
+                "max_members": 1,
+            }
+        )
         result = UserStore.add_team_member(team_id, sample_user_2["email"])
         assert result is False  # capacity = 1, owner already takes the slot
         members = UserStore.list_team_members(team_id)
@@ -355,12 +376,14 @@ class TestUserStoreTeams:
         UserStore.create_user(sample_user)
         UserStore.create_user(sample_user_2)
         team_id = f"team-{uuid.uuid4().hex[:8]}"
-        UserStore.create_team({
-            "team_id": team_id,
-            "name": "Remove Test",
-            "owner_email": sample_user["email"],
-            "max_members": 5,
-        })
+        UserStore.create_team(
+            {
+                "team_id": team_id,
+                "name": "Remove Test",
+                "owner_email": sample_user["email"],
+                "max_members": 5,
+            }
+        )
         UserStore.add_team_member(team_id, sample_user_2["email"])
         UserStore.remove_team_member(team_id, sample_user_2["email"])
         members = UserStore.list_team_members(team_id)
@@ -373,12 +396,14 @@ class TestUserStoreTeams:
         UserStore.create_user(sample_user)
         UserStore.create_user(sample_user_2)
         team_id = f"team-{uuid.uuid4().hex[:8]}"
-        UserStore.create_team({
-            "team_id": team_id,
-            "name": "Deletable Team",
-            "owner_email": sample_user["email"],
-            "max_members": 5,
-        })
+        UserStore.create_team(
+            {
+                "team_id": team_id,
+                "name": "Deletable Team",
+                "owner_email": sample_user["email"],
+                "max_members": 5,
+            }
+        )
         UserStore.add_team_member(team_id, sample_user_2["email"])
         UserStore.delete_team(team_id)
         assert UserStore.get_team(team_id) is None
@@ -390,11 +415,13 @@ class TestUserStoreTeams:
     def test_get_user_teams(self, sample_user):
         UserStore.create_user(sample_user)
         for i in range(3):
-            UserStore.create_team({
-                "team_id": f"team-multi-{i}",
-                "name": f"Team {i}",
-                "owner_email": sample_user["email"],
-            })
+            UserStore.create_team(
+                {
+                    "team_id": f"team-multi-{i}",
+                    "name": f"Team {i}",
+                    "owner_email": sample_user["email"],
+                }
+            )
         teams = UserStore.get_user_teams(sample_user["email"])
         assert len(teams) == 3
 
@@ -412,86 +439,122 @@ class TestTeamEndpoints:
     def client(self):
         from fastapi.testclient import TestClient
         from api import app
+
         return TestClient(app)
 
     @pytest.fixture
     def auth_token(self, client):
         """Register + login, return Bearer token."""
-        client.post("/api/auth/register", json={
-            "email": "team-leader@xcelsior.ca",
-            "password": "StrongPass123!",
-            "name": "Team Leader",
-        })
-        r = client.post("/api/auth/login", json={
-            "email": "team-leader@xcelsior.ca",
-            "password": "StrongPass123!",
-        })
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "team-leader@xcelsior.ca",
+                "password": "StrongPass123!",
+                "name": "Team Leader",
+            },
+        )
+        r = client.post(
+            "/api/auth/login",
+            json={
+                "email": "team-leader@xcelsior.ca",
+                "password": "StrongPass123!",
+            },
+        )
         return r.json()["access_token"]
 
     def test_create_team_endpoint(self, client, auth_token):
-        r = client.post("/api/teams", json={"name": "API Team", "plan": "free"},
-                        headers={"Authorization": f"Bearer {auth_token}"})
+        r = client.post(
+            "/api/teams",
+            json={"name": "API Team", "plan": "free"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         assert r.status_code == 200
         d = r.json()
         assert d["name"] == "API Team"
         assert "team_id" in d
 
     def test_get_my_teams(self, client, auth_token):
-        client.post("/api/teams", json={"name": "My Team"},
-                     headers={"Authorization": f"Bearer {auth_token}"})
-        r = client.get("/api/teams/me",
-                       headers={"Authorization": f"Bearer {auth_token}"})
+        client.post(
+            "/api/teams",
+            json={"name": "My Team"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        r = client.get("/api/teams/me", headers={"Authorization": f"Bearer {auth_token}"})
         assert r.status_code == 200
         assert len(r.json()["teams"]) >= 1
 
     def test_get_team_detail(self, client, auth_token):
-        cr = client.post("/api/teams", json={"name": "Detail Team"},
-                         headers={"Authorization": f"Bearer {auth_token}"})
+        cr = client.post(
+            "/api/teams",
+            json={"name": "Detail Team"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         team_id = cr.json()["team_id"]
-        r = client.get(f"/api/teams/{team_id}",
-                       headers={"Authorization": f"Bearer {auth_token}"})
+        r = client.get(f"/api/teams/{team_id}", headers={"Authorization": f"Bearer {auth_token}"})
         assert r.status_code == 200
         d = r.json()
         assert d["team"]["name"] == "Detail Team"
         assert "members" in d
 
     def test_add_member_endpoint(self, client, auth_token):
-        cr = client.post("/api/teams", json={"name": "Add Member Team"},
-                         headers={"Authorization": f"Bearer {auth_token}"})
+        cr = client.post(
+            "/api/teams",
+            json={"name": "Add Member Team"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         team_id = cr.json()["team_id"]
         # Register another user
-        client.post("/api/auth/register", json={
-            "email": "member@xcelsior.ca",
-            "password": "MemberPass123!",
-            "name": "Team Member",
-        })
-        r = client.post(f"/api/teams/{team_id}/members",
-                        json={"email": "member@xcelsior.ca", "role": "member"},
-                        headers={"Authorization": f"Bearer {auth_token}"})
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "member@xcelsior.ca",
+                "password": "MemberPass123!",
+                "name": "Team Member",
+            },
+        )
+        r = client.post(
+            f"/api/teams/{team_id}/members",
+            json={"email": "member@xcelsior.ca", "role": "member"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         assert r.status_code == 200
 
     def test_remove_member_endpoint(self, client, auth_token):
-        cr = client.post("/api/teams", json={"name": "Remove Member Team"},
-                         headers={"Authorization": f"Bearer {auth_token}"})
+        cr = client.post(
+            "/api/teams",
+            json={"name": "Remove Member Team"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         team_id = cr.json()["team_id"]
-        client.post("/api/auth/register", json={
-            "email": "removable@xcelsior.ca",
-            "password": "RemovePass123!",
-            "name": "Removable",
-        })
-        client.post(f"/api/teams/{team_id}/members",
-                     json={"email": "removable@xcelsior.ca", "role": "member"},
-                     headers={"Authorization": f"Bearer {auth_token}"})
-        r = client.delete(f"/api/teams/{team_id}/members/removable@xcelsior.ca",
-                          headers={"Authorization": f"Bearer {auth_token}"})
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "removable@xcelsior.ca",
+                "password": "RemovePass123!",
+                "name": "Removable",
+            },
+        )
+        client.post(
+            f"/api/teams/{team_id}/members",
+            json={"email": "removable@xcelsior.ca", "role": "member"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        r = client.delete(
+            f"/api/teams/{team_id}/members/removable@xcelsior.ca",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         assert r.status_code == 200
 
     def test_delete_team_endpoint(self, client, auth_token):
-        cr = client.post("/api/teams", json={"name": "Deletable Team"},
-                         headers={"Authorization": f"Bearer {auth_token}"})
+        cr = client.post(
+            "/api/teams",
+            json={"name": "Deletable Team"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         team_id = cr.json()["team_id"]
-        r = client.delete(f"/api/teams/{team_id}",
-                          headers={"Authorization": f"Bearer {auth_token}"})
+        r = client.delete(
+            f"/api/teams/{team_id}", headers={"Authorization": f"Bearer {auth_token}"}
+        )
         assert r.status_code == 200
 
     def test_create_team_unauthenticated(self, client):
@@ -499,22 +562,32 @@ class TestTeamEndpoints:
         assert r.status_code == 401
 
     def test_nonmember_cannot_view_team(self, client, auth_token):
-        cr = client.post("/api/teams", json={"name": "Private Team"},
-                         headers={"Authorization": f"Bearer {auth_token}"})
+        cr = client.post(
+            "/api/teams",
+            json={"name": "Private Team"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
         team_id = cr.json()["team_id"]
         # Register another user who is NOT a member
-        client.post("/api/auth/register", json={
-            "email": "outsider@xcelsior.ca",
-            "password": "OutsiderPass123!",
-            "name": "Outsider",
-        })
-        lr = client.post("/api/auth/login", json={
-            "email": "outsider@xcelsior.ca",
-            "password": "OutsiderPass123!",
-        })
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "outsider@xcelsior.ca",
+                "password": "OutsiderPass123!",
+                "name": "Outsider",
+            },
+        )
+        lr = client.post(
+            "/api/auth/login",
+            json={
+                "email": "outsider@xcelsior.ca",
+                "password": "OutsiderPass123!",
+            },
+        )
         outsider_token = lr.json()["access_token"]
-        r = client.get(f"/api/teams/{team_id}",
-                       headers={"Authorization": f"Bearer {outsider_token}"})
+        r = client.get(
+            f"/api/teams/{team_id}", headers={"Authorization": f"Bearer {outsider_token}"}
+        )
         assert r.status_code == 403
 
 
@@ -528,14 +601,18 @@ class TestPersistentAuthEndpoints:
     def client(self):
         from fastapi.testclient import TestClient
         from api import app
+
         return TestClient(app)
 
     def test_register_creates_persistent_user(self, client):
-        r = client.post("/api/auth/register", json={
-            "email": "persist@xcelsior.ca",
-            "password": "PersistPass123!",
-            "name": "Persist User",
-        })
+        r = client.post(
+            "/api/auth/register",
+            json={
+                "email": "persist@xcelsior.ca",
+                "password": "PersistPass123!",
+                "name": "Persist User",
+            },
+        )
         assert r.status_code == 200
         # Verify user exists in persistent store
         user = UserStore.get_user("persist@xcelsior.ca")
@@ -543,15 +620,21 @@ class TestPersistentAuthEndpoints:
         assert user["name"] == "Persist User"
 
     def test_login_returns_session(self, client):
-        client.post("/api/auth/register", json={
-            "email": "sesstest@xcelsior.ca",
-            "password": "SessTest123!",
-            "name": "Sess Test",
-        })
-        r = client.post("/api/auth/login", json={
-            "email": "sesstest@xcelsior.ca",
-            "password": "SessTest123!",
-        })
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "sesstest@xcelsior.ca",
+                "password": "SessTest123!",
+                "name": "Sess Test",
+            },
+        )
+        r = client.post(
+            "/api/auth/login",
+            json={
+                "email": "sesstest@xcelsior.ca",
+                "password": "SessTest123!",
+            },
+        )
         assert r.status_code == 200
         d = r.json()
         assert "access_token" in d
@@ -560,34 +643,46 @@ class TestPersistentAuthEndpoints:
         assert sess is not None
 
     def test_me_endpoint_uses_persistent_auth(self, client):
-        client.post("/api/auth/register", json={
-            "email": "metest@xcelsior.ca",
-            "password": "MeTest123!",
-            "name": "Me Test",
-        })
-        lr = client.post("/api/auth/login", json={
-            "email": "metest@xcelsior.ca",
-            "password": "MeTest123!",
-        })
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "metest@xcelsior.ca",
+                "password": "MeTest123!",
+                "name": "Me Test",
+            },
+        )
+        lr = client.post(
+            "/api/auth/login",
+            json={
+                "email": "metest@xcelsior.ca",
+                "password": "MeTest123!",
+            },
+        )
         token = lr.json()["access_token"]
-        r = client.get("/api/auth/me",
-                       headers={"Authorization": f"Bearer {token}"})
+        r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         assert r.json()["user"]["email"] == "metest@xcelsior.ca"
 
     def test_api_key_persistent_storage(self, client):
-        client.post("/api/auth/register", json={
-            "email": "apikey@xcelsior.ca",
-            "password": "ApiKey123!",
-            "name": "API Key User",
-        })
-        lr = client.post("/api/auth/login", json={
-            "email": "apikey@xcelsior.ca",
-            "password": "ApiKey123!",
-        })
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "apikey@xcelsior.ca",
+                "password": "ApiKey123!",
+                "name": "API Key User",
+            },
+        )
+        lr = client.post(
+            "/api/auth/login",
+            json={
+                "email": "apikey@xcelsior.ca",
+                "password": "ApiKey123!",
+            },
+        )
         token = lr.json()["access_token"]
-        r = client.post("/api/keys/generate?name=persist-key",
-                        headers={"Authorization": f"Bearer {token}"})
+        r = client.post(
+            "/api/keys/generate?name=persist-key", headers={"Authorization": f"Bearer {token}"}
+        )
         assert r.status_code == 200
         key_val = r.json()["key"]
         # Key should be in persistent store
@@ -606,17 +701,22 @@ class TestSLAEnforcement:
     def client(self):
         from fastapi.testclient import TestClient
         from api import app
+
         return TestClient(app)
 
     def test_sla_enforce_endpoint_exists(self, client):
         import datetime
+
         month = datetime.datetime.now().strftime("%Y-%m")
-        r = client.post("/api/sla/enforce", json={
-            "host_id": "gpu-test-01",
-            "month": month,
-            "tier": "community",
-            "monthly_spend_cad": 100.0,
-        })
+        r = client.post(
+            "/api/sla/enforce",
+            json={
+                "host_id": "gpu-test-01",
+                "month": month,
+                "tier": "community",
+                "monthly_spend_cad": 100.0,
+            },
+        )
         assert r.status_code == 200
         assert r.json()["ok"] is True
 

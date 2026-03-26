@@ -46,10 +46,12 @@ def _admit_host(host_id):
         row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
         if row:
             import json as _json
+
             data = _json.loads(row["payload"])
             data["admitted"] = True
-            conn.execute("UPDATE hosts SET payload = ? WHERE host_id = ?",
-                         (_json.dumps(data), host_id))
+            conn.execute(
+                "UPDATE hosts SET payload = ? WHERE host_id = ?", (_json.dumps(data), host_id)
+            )
 
 
 @pytest.fixture(autouse=True)
@@ -658,7 +660,11 @@ class TestSpotPricing:
     def test_base_price_returned_when_low_utilization(self):
         """When demand << supply, price should be near base."""
         price = scheduler.compute_spot_price(
-            base_price=1.0, demand=1, supply=10, k=0.5, threshold=0.8,
+            base_price=1.0,
+            demand=1,
+            supply=10,
+            k=0.5,
+            threshold=0.8,
         )
         # 1/10 = 0.1 utilization, well below 0.8 threshold → multiplier ≈ 1.0
         assert 0.99 <= price <= 1.01
@@ -666,14 +672,20 @@ class TestSpotPricing:
     def test_price_increases_above_threshold(self):
         """When D/S exceeds threshold, price should spike."""
         price = scheduler.compute_spot_price(
-            base_price=1.0, demand=10, supply=10, k=0.5, threshold=0.8,
+            base_price=1.0,
+            demand=10,
+            supply=10,
+            k=0.5,
+            threshold=0.8,
         )
         # 10/10 = 1.0 utilization, 0.2 above threshold → e^(0.5 * 0.2) ≈ 1.105
         assert price > 1.0
 
     def test_zero_supply_returns_max_surge(self):
         price = scheduler.compute_spot_price(
-            base_price=1.0, demand=5, supply=0,
+            base_price=1.0,
+            demand=5,
+            supply=0,
         )
         assert price == 3.0  # 3x max surge
 
@@ -773,7 +785,8 @@ class TestComputeScores:
 
     def test_estimate_with_benchmark_result(self):
         score = scheduler.estimate_compute_score(
-            "RTX 4090", benchmark_result={"tflops": 100.0},
+            "RTX 4090",
+            benchmark_result={"tflops": 100.0},
         )
         assert score == 10.0  # 100 / 10
 

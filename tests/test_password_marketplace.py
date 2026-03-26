@@ -44,6 +44,7 @@ scheduler.log.addHandler(_fh)
 from fastapi.testclient import TestClient
 from api import app
 import db as db_mod
+
 db_mod.AUTH_DB_FILE = os.path.join(_tmpdir, "auth.db")
 
 client = TestClient(app)
@@ -58,9 +59,9 @@ class TestPasswordReset:
     """Tests for /api/auth/password-reset and /api/auth/password-reset/confirm."""
 
     def _register(self, email="pwreset@xcelsior.ca", password="oldpass12345"):
-        return client.post("/api/auth/register", json={
-            "email": email, "password": password, "name": "Reset User"
-        }).json()
+        return client.post(
+            "/api/auth/register", json={"email": email, "password": password, "name": "Reset User"}
+        ).json()
 
     def test_password_reset_request(self):
         """POST /api/auth/password-reset returns reset_token in test mode."""
@@ -86,18 +87,21 @@ class TestPasswordReset:
         """POST /api/auth/password-reset/confirm sets new password."""
         self._register(email="pwconfirm@xcelsior.ca", password="oldpass12345")
         # Request reset
-        reset = client.post("/api/auth/password-reset", json={"email": "pwconfirm@xcelsior.ca"}).json()
+        reset = client.post(
+            "/api/auth/password-reset", json={"email": "pwconfirm@xcelsior.ca"}
+        ).json()
         token = reset["reset_token"]
         # Confirm reset
-        r = client.post("/api/auth/password-reset/confirm", json={
-            "token": token, "new_password": "newpass12345"
-        })
+        r = client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": token, "new_password": "newpass12345"},
+        )
         assert r.status_code == 200
         assert r.json()["message"] == "Password updated. Please log in again."
         # Login with new password
-        login = client.post("/api/auth/login", json={
-            "email": "pwconfirm@xcelsior.ca", "password": "newpass12345"
-        })
+        login = client.post(
+            "/api/auth/login", json={"email": "pwconfirm@xcelsior.ca", "password": "newpass12345"}
+        )
         assert login.status_code == 200
         assert "access_token" in login.json()
 
@@ -105,37 +109,45 @@ class TestPasswordReset:
         """After reset, old password should fail."""
         self._register(email="pwold@xcelsior.ca", password="oldpass12345")
         reset = client.post("/api/auth/password-reset", json={"email": "pwold@xcelsior.ca"}).json()
-        client.post("/api/auth/password-reset/confirm", json={
-            "token": reset["reset_token"], "new_password": "brandnew123"
-        })
-        login = client.post("/api/auth/login", json={
-            "email": "pwold@xcelsior.ca", "password": "oldpass12345"
-        })
+        client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": reset["reset_token"], "new_password": "brandnew123"},
+        )
+        login = client.post(
+            "/api/auth/login", json={"email": "pwold@xcelsior.ca", "password": "oldpass12345"}
+        )
         assert login.status_code == 401
 
     def test_password_reset_invalid_token(self):
         """POST /api/auth/password-reset/confirm with bad token returns 400."""
-        r = client.post("/api/auth/password-reset/confirm", json={
-            "token": "invalid-token-xxx", "new_password": "newpass12345"
-        })
+        r = client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": "invalid-token-xxx", "new_password": "newpass12345"},
+        )
         assert r.status_code == 400
 
     def test_password_reset_short_password(self):
         """POST /api/auth/password-reset/confirm with <8 char password returns 400."""
         self._register(email="pwshort@xcelsior.ca", password="oldpass12345")
-        reset = client.post("/api/auth/password-reset", json={"email": "pwshort@xcelsior.ca"}).json()
-        r = client.post("/api/auth/password-reset/confirm", json={
-            "token": reset["reset_token"], "new_password": "short"
-        })
+        reset = client.post(
+            "/api/auth/password-reset", json={"email": "pwshort@xcelsior.ca"}
+        ).json()
+        r = client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": reset["reset_token"], "new_password": "short"},
+        )
         assert r.status_code == 400
 
     def test_password_reset_expired_token(self):
         """Expired reset tokens should be rejected."""
         self._register(email="pwexpire@xcelsior.ca", password="oldpass12345")
-        reset = client.post("/api/auth/password-reset", json={"email": "pwexpire@xcelsior.ca"}).json()
+        reset = client.post(
+            "/api/auth/password-reset", json={"email": "pwexpire@xcelsior.ca"}
+        ).json()
         token = reset["reset_token"]
         # Manually expire the token by modifying the store
         import api
+
         with api._user_lock:
             for email, data in api._users_db.items():
                 if data.get("reset_token") == token:
@@ -144,10 +156,14 @@ class TestPasswordReset:
         # Also expire in persistent store if active
         if api._USE_PERSISTENT_AUTH:
             from db import UserStore
-            UserStore.update_user("pwexpire@xcelsior.ca", {"reset_token_expires": time.time() - 100})
-        r = client.post("/api/auth/password-reset/confirm", json={
-            "token": token, "new_password": "newpass12345"
-        })
+
+            UserStore.update_user(
+                "pwexpire@xcelsior.ca", {"reset_token_expires": time.time() - 100}
+            )
+        r = client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": token, "new_password": "newpass12345"},
+        )
         assert r.status_code == 400
         d = r.json()
         msg = d.get("detail", d.get("error", {}).get("message", "")).lower()
@@ -163,30 +179,32 @@ class TestChangePassword:
     """Tests for POST /api/auth/change-password."""
 
     def _register_and_login(self, email, password="testpass123"):
-        reg = client.post("/api/auth/register", json={
-            "email": email, "password": password
-        }).json()
+        reg = client.post("/api/auth/register", json={"email": email, "password": password}).json()
         return reg.get("access_token")
 
     def test_change_password_success(self):
         """POST /api/auth/change-password with correct current password works."""
         token = self._register_and_login("chpw1@xcelsior.ca", "oldpass12345")
-        r = client.post("/api/auth/change-password",
+        r = client.post(
+            "/api/auth/change-password",
             headers={"Authorization": f"Bearer {token}"},
-            json={"current_password": "oldpass12345", "new_password": "newpass12345"})
+            json={"current_password": "oldpass12345", "new_password": "newpass12345"},
+        )
         assert r.status_code == 200
         # Login with new password
-        login = client.post("/api/auth/login", json={
-            "email": "chpw1@xcelsior.ca", "password": "newpass12345"
-        })
+        login = client.post(
+            "/api/auth/login", json={"email": "chpw1@xcelsior.ca", "password": "newpass12345"}
+        )
         assert login.status_code == 200
 
     def test_change_password_wrong_current(self):
         """POST /api/auth/change-password with wrong current password returns 400."""
         token = self._register_and_login("chpw2@xcelsior.ca")
-        r = client.post("/api/auth/change-password",
+        r = client.post(
+            "/api/auth/change-password",
             headers={"Authorization": f"Bearer {token}"},
-            json={"current_password": "wrongpass", "new_password": "newpass12345"})
+            json={"current_password": "wrongpass", "new_password": "newpass12345"},
+        )
         assert r.status_code == 400
         d = r.json()
         msg = d.get("detail", d.get("error", {}).get("message", "")).lower()
@@ -195,15 +213,18 @@ class TestChangePassword:
     def test_change_password_short_new(self):
         """POST /api/auth/change-password with short new password returns 400."""
         token = self._register_and_login("chpw3@xcelsior.ca", "testpass123")
-        r = client.post("/api/auth/change-password",
+        r = client.post(
+            "/api/auth/change-password",
             headers={"Authorization": f"Bearer {token}"},
-            json={"current_password": "testpass123", "new_password": "abc"})
+            json={"current_password": "testpass123", "new_password": "abc"},
+        )
         assert r.status_code == 400
 
     def test_change_password_unauthenticated(self):
         """POST /api/auth/change-password without auth returns 401."""
-        r = client.post("/api/auth/change-password",
-            json={"current_password": "x", "new_password": "y" * 8})
+        r = client.post(
+            "/api/auth/change-password", json={"current_password": "x", "new_password": "y" * 8}
+        )
         assert r.status_code == 401
 
 
@@ -220,25 +241,51 @@ class TestMarketplaceSearch:
         """Register hosts and list them on marketplace."""
         # Register a few hosts
         hosts = [
-            {"host_id": "mkt-h1", "ip": "10.0.0.1", "gpu_model": "RTX 4090",
-             "total_vram_gb": 24, "free_vram_gb": 24, "cost_per_hour": 0.50,
-             "country": "CA", "province": "ON"},
-            {"host_id": "mkt-h2", "ip": "10.0.0.2", "gpu_model": "A100 80GB",
-             "total_vram_gb": 80, "free_vram_gb": 80, "cost_per_hour": 2.00,
-             "country": "CA", "province": "QC"},
-            {"host_id": "mkt-h3", "ip": "10.0.0.3", "gpu_model": "RTX 3090",
-             "total_vram_gb": 24, "free_vram_gb": 24, "cost_per_hour": 0.35,
-             "country": "US"},
+            {
+                "host_id": "mkt-h1",
+                "ip": "10.0.0.1",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.50,
+                "country": "CA",
+                "province": "ON",
+            },
+            {
+                "host_id": "mkt-h2",
+                "ip": "10.0.0.2",
+                "gpu_model": "A100 80GB",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 2.00,
+                "country": "CA",
+                "province": "QC",
+            },
+            {
+                "host_id": "mkt-h3",
+                "ip": "10.0.0.3",
+                "gpu_model": "RTX 3090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.35,
+                "country": "US",
+            },
         ]
         for h in hosts:
             r = client.put("/host", json=h)
             assert r.status_code == 200, f"Failed to register {h['host_id']}: {r.text}"
             # List on marketplace
-            client.post("/marketplace", json={
-                "host_id": h["host_id"], "gpu_model": h["gpu_model"],
-                "vram_gb": h["total_vram_gb"], "price_per_hour": h["cost_per_hour"],
-                "country": h.get("country", ""), "province": h.get("province", ""),
-            })
+            client.post(
+                "/marketplace",
+                json={
+                    "host_id": h["host_id"],
+                    "gpu_model": h["gpu_model"],
+                    "vram_gb": h["total_vram_gb"],
+                    "price_per_hour": h["cost_per_hour"],
+                    "country": h.get("country", ""),
+                    "province": h.get("province", ""),
+                },
+            )
 
     def test_marketplace_search_all(self):
         """GET /marketplace/search with no filters returns all listings."""
@@ -254,7 +301,10 @@ class TestMarketplaceSearch:
         assert r.status_code == 200
         d = r.json()
         for listing in d["listings"]:
-            assert "RTX" in listing.get("gpu_model", "").upper() or "rtx" in listing.get("gpu_model", "").lower()
+            assert (
+                "RTX" in listing.get("gpu_model", "").upper()
+                or "rtx" in listing.get("gpu_model", "").lower()
+            )
 
     def test_marketplace_search_by_vram(self):
         """GET /marketplace/search?min_vram=48 filters by minimum VRAM."""
