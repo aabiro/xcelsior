@@ -277,8 +277,8 @@ Xcelsior uses **PostgreSQL 16** for core state (hosts, jobs) with a **dual-write
 ### Running Migrations
 
 ```bash
-# Ensure PostgreSQL is running
-docker compose up db -d
+# Ensure PostgreSQL is running and reachable at XCELSIOR_POSTGRES_DSN
+pg_isready -d "$XCELSIOR_POSTGRES_DSN"
 
 # Run Alembic migrations
 alembic upgrade head
@@ -323,8 +323,8 @@ No token required in dev mode. SQLite only. Hot reload enabled.
 For integration testing with PostgreSQL:
 
 ```bash
-# Start PostgreSQL
-docker compose up db -d
+# Start a PostgreSQL 16 instance reachable at localhost:5432
+# (local service, Docker container, or CI service container)
 
 # .env
 XCELSIOR_ENV=test
@@ -339,18 +339,18 @@ alembic upgrade head
 uvicorn api:app --port 8000
 
 # Run test suite
-python -m pytest test_scheduler.py test_api.py test_integration.py test_worker_agent.py -v
+python -m pytest tests/test_scheduler.py tests/test_api.py tests/test_integration.py tests/test_worker_agent.py -v
 ```
 
-The `docker-compose.yml` includes a `scripts/init-test-db.sh` for test database initialization.
+Use `scripts/init-test-db.sh` as a `docker-entrypoint-initdb.d` hook if you spin up a disposable Postgres container for tests.
 
 ### Production (xcelsior.ca)
 
 **Infrastructure:**
 - **VPS**: 149.28.121.61 (Ubuntu 24.04) — runs API, PostgreSQL, Headscale
-- **Domains**: xcelsior.ca, xcelsior.com, xcelsior.ca (Porkbun → Cloudflare NS)
+- **Domains**: xcelsior.ca, www.xcelsior.ca, hs.xcelsior.ca
 - **Headscale**: v0.28.0 at `hs.xcelsior.ca` — private mesh for GPU workers
-- **SSL**: Cloudflare proxy + Let's Encrypt on VPS
+- **SSL**: Let's Encrypt terminates on the VPS; keep `hs.xcelsior.ca` DNS-only and proxy the public app endpoints separately if desired
 
 **Deploy with Docker Compose:**
 
@@ -362,8 +362,11 @@ cd /opt/xcelsior
 # Set production secrets in .env
 XCELSIOR_ENV=production
 XCELSIOR_API_TOKEN=<generate: python -c "import secrets; print(secrets.token_urlsafe(32))">
-XCELSIOR_POSTGRES_PASSWORD=<strong-password>
-XCELSIOR_DB_BACKEND=dual
+XCELSIOR_POSTGRES_DSN=postgresql://xcelsior:<strong-password>@localhost:5432/xcelsior
+XCELSIOR_DB_BACKEND=postgres  # use dual only during a live SQLite -> Postgres migration
+
+# Apply schema changes against the host Postgres instance
+alembic upgrade head
 
 # Deploy
 docker compose up --build -d
@@ -384,42 +387,19 @@ sudo systemctl enable --now xcelsior-api xcelsior-health
 
 **Nginx reverse proxy:**
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name xcelsior.ca www.xcelsior.ca;
+Install the checked-in site files:
 
-    ssl_certificate /etc/letsencrypt/live/xcelsior.ca/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/xcelsior.ca/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # SSE support
-        proxy_set_header Connection '';
-        proxy_http_version 1.1;
-        chunked_transfer_encoding off;
-        proxy_buffering off;
-        proxy_cache off;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    server_name hs.xcelsior.ca;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
+```bash
+sudo cp nginx/xcelsior.conf /etc/nginx/sites-available/xcelsior
+sudo cp nginx/headscale.conf /etc/nginx/sites-available/headscale
+sudo cp nginx/headscale-http.conf /etc/nginx/sites-available/headscale-http
+sudo ln -sf /etc/nginx/sites-available/xcelsior /etc/nginx/sites-enabled/xcelsior
+sudo ln -sf /etc/nginx/sites-available/headscale /etc/nginx/sites-enabled/headscale
+sudo ln -sf /etc/nginx/sites-available/headscale-http /etc/nginx/sites-enabled/headscale-http
+sudo nginx -t && sudo systemctl reload nginx
 ```
+
+`nginx/xcelsior.conf` proxies the API to `127.0.0.1:9500`. `nginx/headscale.conf` proxies `hs.xcelsior.ca` to `127.0.0.1:8443` with its own certificate at `/etc/letsencrypt/live/hs.xcelsior.ca/`.
 
 **DNS (pending Cloudflare propagation):**
 
@@ -448,7 +428,7 @@ The worker agent runs on each GPU host and handles the complete lifecycle:
 ```bash
 # Required
 export XCELSIOR_HOST_ID=gpu-rig-01
-export XCELSIOR_SCHEDULER_URL=http://scheduler:8000
+export XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
 export XCELSIOR_API_TOKEN=your_token
 
 # Optional
@@ -608,14 +588,14 @@ Worker agents run continuous heuristic detection:
 
 ```bash
 # All tests
-python -m pytest test_scheduler.py test_api.py test_integration.py test_worker_agent.py -v
+python -m pytest tests/test_scheduler.py tests/test_api.py tests/test_integration.py tests/test_worker_agent.py -v
 
 # With coverage
 python -m pytest -v --cov=. --cov-report=html
 
 # Specific module
-python -m pytest test_scheduler.py -v
-python -m pytest test_api.py -v
+python -m pytest tests/test_scheduler.py -v
+python -m pytest tests/test_api.py -v
 
 # Lint
 ruff check .

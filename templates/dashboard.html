@@ -2861,6 +2861,36 @@ setInterval(() => {
 let currentUser = null;
 
 function checkAuth() {
+  // Handle OAuth callback: token arrives in URL fragment (#oauth_token=...)
+  if (window.location.hash && window.location.hash.includes('oauth_token=')) {
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    const token = params.get('oauth_token');
+    const provider = params.get('provider') || '';
+    const email = params.get('email') || '';
+    const role = params.get('role') || 'submitter';
+    const customerId = params.get('customer_id') || '';
+    if (token) {
+      sessionStorage.setItem('xcelsior_token', token);
+      sessionStorage.setItem('xcelsior_provider', provider);
+      sessionStorage.setItem('xcelsior_email', email);
+      sessionStorage.setItem('xcelsior_role', role);
+      localStorage.setItem('xcelsior_customer_id', customerId);
+      localStorage.setItem('xcelsior_role', role);
+      sessionStorage.setItem('xcelsior_login_time', String(Math.floor(Date.now()/1000)));
+      // Clear the hash so token doesn't linger in URL
+      history.replaceState(null, '', '/dashboard');
+      showApp();
+      showToast(`Signed in via ${provider}`, 'success');
+      return;
+    }
+  }
+  // Handle OAuth error in query params
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('error')) {
+    showToast(`OAuth error: ${urlParams.get('error')}`, 'error');
+    history.replaceState(null, '', '/dashboard');
+  }
+
   const token = sessionStorage.getItem('xcelsior_token');
   const devMode = localStorage.getItem('xcelsior_dev_mode');
   if (token || devMode) {
@@ -2889,30 +2919,17 @@ function showApp() {
 }
 
 function oauthLogin(provider) {
-  showToast(`Signing in with ${provider}...`, 'info');
+  showToast(`Redirecting to ${provider}...`, 'info');
   fetch(`${API}/api/auth/oauth/${provider}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
     .then(r => r.json())
     .then(d => {
-      if (d.ok && d.access_token) {
-        sessionStorage.setItem('xcelsior_token', d.access_token);
-        sessionStorage.setItem('xcelsior_provider', provider);
-        if (d.user) {
-          sessionStorage.setItem('xcelsior_email', d.user.email || '');
-          sessionStorage.setItem('xcelsior_role', d.user.role || 'submitter');
-          localStorage.setItem('xcelsior_customer_id', d.user.customer_id || '');
-          localStorage.setItem('xcelsior_role', d.user.role || 'submitter');
-        }
-        sessionStorage.setItem('xcelsior_login_time', String(Math.floor(Date.now()/1000)));
-        showToast(`Signed in via ${provider}`, 'success');
-        setTimeout(() => showApp(), 300);
-      } else { showToast(d.detail || 'OAuth failed', 'error'); }
+      if (d.ok && d.auth_url) {
+        // Redirect to OAuth provider's authorization page
+        window.location.href = d.auth_url;
+      } else { showToast(d.detail || d.error?.message || 'OAuth not configured', 'error'); }
     })
     .catch(() => {
-      // Fallback to simulated login if backend not available
-      sessionStorage.setItem('xcelsior_token', `dev-${provider}-${Date.now()}`);
-      sessionStorage.setItem('xcelsior_provider', provider);
-      showToast(`OAuth with ${provider} (dev mode)`, 'success');
-      setTimeout(() => showApp(), 300);
+      showToast('Failed to connect to server', 'error');
     });
 }
 

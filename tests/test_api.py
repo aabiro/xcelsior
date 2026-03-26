@@ -1070,14 +1070,14 @@ class TestUserAuth:
         assert r.status_code == 401
 
     def test_oauth_login(self):
-        """POST /api/auth/oauth/{provider} creates session."""
+        """POST /api/auth/oauth/{provider} returns auth URL for redirect."""
         for provider in ("google", "github", "huggingface"):
             r = client.post(f"/api/auth/oauth/{provider}")
             assert r.status_code == 200
             d = r.json()
             assert d["ok"] is True
-            assert "access_token" in d
-            assert d["user"]["oauth_provider"] == provider
+            assert "auth_url" in d
+            assert provider in d["auth_url"]
 
     def test_oauth_invalid_provider(self):
         """POST /api/auth/oauth/invalid returns 400."""

@@ -38,7 +38,7 @@ black>=24.0.0
 nvidia-ml-py>=12.0.0
 
 # ── Payments — Stripe Connect (optional — only needed for provider payouts) ──
-# stripe>=8.0.0
+stripe>=8.0.0
 
 # ── ML/Inference (optional — only needed if using inference.py) ───────
 # torch>=2.1.0
