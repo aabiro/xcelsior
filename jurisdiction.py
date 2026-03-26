@@ -22,6 +22,7 @@ log = logging.getLogger("xcelsior")
 
 # ── Canadian Provinces ────────────────────────────────────────────────
 
+
 class Province(str, Enum):
     AB = "AB"  # Alberta
     BC = "BC"  # British Columbia
@@ -70,11 +71,12 @@ PROVINCE_COMPLIANCE = {
 #   2. Sovereignty — Canadian-jurisdiction operator, no foreign control
 #   3. Regulated — deeper auditability for health/public sector
 
+
 class TrustTier(str, Enum):
-    COMMUNITY = "community"     # Open marketplace, no guarantees
-    RESIDENCY = "residency"     # Canada-only physical location
-    SOVEREIGNTY = "sovereignty" # Canadian-incorporated, no foreign control
-    REGULATED = "regulated"     # Audit trail, health/public sector ready
+    COMMUNITY = "community"  # Open marketplace, no guarantees
+    RESIDENCY = "residency"  # Canada-only physical location
+    SOVEREIGNTY = "sovereignty"  # Canadian-incorporated, no foreign control
+    REGULATED = "regulated"  # Audit trail, health/public sector ready
 
 
 TRUST_TIER_REQUIREMENTS = {
@@ -94,7 +96,7 @@ TRUST_TIER_REQUIREMENTS = {
         "requires_verified": True,
         "requires_sovereignty_vetting": False,
         "requires_audit_trail": False,
-        "pricing_multiplier": 1.15,   # 15% premium for residency guarantee
+        "pricing_multiplier": 1.15,  # 15% premium for residency guarantee
     },
     TrustTier.SOVEREIGNTY: {
         "label": "Canada Sovereignty",
@@ -103,7 +105,7 @@ TRUST_TIER_REQUIREMENTS = {
         "requires_verified": True,
         "requires_sovereignty_vetting": True,
         "requires_audit_trail": False,
-        "pricing_multiplier": 1.35,   # 35% premium for sovereignty
+        "pricing_multiplier": 1.35,  # 35% premium for sovereignty
     },
     TrustTier.REGULATED: {
         "label": "Regulated",
@@ -112,28 +114,30 @@ TRUST_TIER_REQUIREMENTS = {
         "requires_verified": True,
         "requires_sovereignty_vetting": True,
         "requires_audit_trail": True,
-        "pricing_multiplier": 1.60,   # 60% premium for regulated tier
+        "pricing_multiplier": 1.60,  # 60% premium for regulated tier
     },
 }
 
 
 # ── Host Jurisdiction Metadata ───────────────────────────────────────
 
+
 @dataclass
 class HostJurisdiction:
     """Jurisdiction and compliance metadata for a GPU host."""
+
     host_id: str = ""
-    country: str = ""               # ISO 3166-1 alpha-2 (CA, US, etc.)
-    province: str = ""              # Province/state code
+    country: str = ""  # ISO 3166-1 alpha-2 (CA, US, etc.)
+    province: str = ""  # Province/state code
     city: str = ""
     data_center_name: str = ""
-    data_center_class: str = ""     # "commercial", "residential", "colocation"
+    data_center_class: str = ""  # "commercial", "residential", "colocation"
 
     # Sovereignty vetting
     operator_name: str = ""
     operator_incorporated_in: str = ""  # Country of incorporation
     operator_registered_canada: bool = False
-    foreign_control: bool = False   # Subject to foreign jurisdiction?
+    foreign_control: bool = False  # Subject to foreign jurisdiction?
     sovereignty_vetted: bool = False
     sovereignty_vetted_at: Optional[float] = None
 
@@ -150,17 +154,19 @@ class HostJurisdiction:
 
 # ── Jurisdiction-Aware Scheduling ────────────────────────────────────
 
+
 @dataclass
 class JurisdictionConstraint:
     """Scheduling constraint for jurisdiction-aware job routing."""
+
     canada_only: bool = False
-    province: Optional[str] = None          # Restrict to specific province
-    trust_tier: str = TrustTier.COMMUNITY   # Minimum trust tier
+    province: Optional[str] = None  # Restrict to specific province
+    trust_tier: str = TrustTier.COMMUNITY  # Minimum trust tier
     exclude_countries: list = field(default_factory=list)
     require_verified: bool = False
     require_sovereignty: bool = False
     require_audit_trail: bool = False
-    data_sensitivity: str = "standard"     # standard, sensitive, regulated
+    data_sensitivity: str = "standard"  # standard, sensitive, regulated
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -177,8 +183,7 @@ def host_meets_constraint(
         (meets: bool, reason: str) — reason explains why it was rejected
     """
     # Country check
-    host_country = (jurisdiction.country if jurisdiction else
-                    host.get("country", "")).upper()
+    host_country = (jurisdiction.country if jurisdiction else host.get("country", "")).upper()
 
     if constraint.canada_only and host_country != "CA":
         return False, f"Canada-only required, host is in {host_country or 'unknown'}"
@@ -188,10 +193,14 @@ def host_meets_constraint(
 
     # Province check
     if constraint.province:
-        host_province = (jurisdiction.province if jurisdiction else
-                        host.get("province", "")).upper()
+        host_province = (
+            jurisdiction.province if jurisdiction else host.get("province", "")
+        ).upper()
         if host_province != constraint.province.upper():
-            return False, f"Province {constraint.province} required, host is in {host_province or 'unknown'}"
+            return (
+                False,
+                f"Province {constraint.province} required, host is in {host_province or 'unknown'}",
+            )
 
     # Verification check
     if constraint.require_verified:
@@ -219,7 +228,9 @@ def host_meets_constraint(
         # Sensitive data requires at least Residency tier (Canada-only)
         if not jurisdiction or jurisdiction.country.upper() != "CA":
             return False, "Sensitive data requires Canadian-resident host"
-        if not host.get("verified", False) and not (jurisdiction and jurisdiction.sovereignty_vetted):
+        if not host.get("verified", False) and not (
+            jurisdiction and jurisdiction.sovereignty_vetted
+        ):
             return False, "Sensitive data requires verified host"
     elif constraint.data_sensitivity == "regulated":
         # Regulated data requires Sovereignty + audit trail
@@ -229,16 +240,19 @@ def host_meets_constraint(
             return False, "Regulated data requires audit trail capability"
 
     # Trust tier check
-    tier_order = [TrustTier.COMMUNITY, TrustTier.RESIDENCY,
-                  TrustTier.SOVEREIGNTY, TrustTier.REGULATED]
+    tier_order = [
+        TrustTier.COMMUNITY,
+        TrustTier.RESIDENCY,
+        TrustTier.SOVEREIGNTY,
+        TrustTier.REGULATED,
+    ]
     required_idx = tier_order.index(TrustTier(constraint.trust_tier))
     host_tier = TrustTier(jurisdiction.max_trust_tier if jurisdiction else TrustTier.COMMUNITY)
     host_idx = tier_order.index(host_tier)
 
     if host_idx < required_idx:
         return False, (
-            f"Trust tier {constraint.trust_tier} required, "
-            f"host qualifies for {host_tier.value}"
+            f"Trust tier {constraint.trust_tier} required, " f"host qualifies for {host_tier.value}"
         )
 
     return True, "OK"
@@ -269,9 +283,14 @@ def filter_hosts_by_jurisdiction(
         else:
             log.debug("HOST EXCLUDED %s: %s", host_id, reason)
 
-    log.info("JURISDICTION FILTER: %d/%d hosts eligible (canada_only=%s, tier=%s, province=%s)",
-             len(eligible), len(hosts), constraint.canada_only,
-             constraint.trust_tier, constraint.province)
+    log.info(
+        "JURISDICTION FILTER: %d/%d hosts eligible (canada_only=%s, tier=%s, province=%s)",
+        len(eligible),
+        len(hosts),
+        constraint.canada_only,
+        constraint.trust_tier,
+        constraint.province,
+    )
     return eligible
 
 
@@ -287,9 +306,11 @@ def classify_host_trust_tier(jurisdiction: Optional[HostJurisdiction]) -> TrustT
     tier = TrustTier.RESIDENCY
 
     # Sovereignty requires Canadian incorporation + no foreign control
-    if (jurisdiction.sovereignty_vetted and
-            jurisdiction.operator_registered_canada and
-            not jurisdiction.foreign_control):
+    if (
+        jurisdiction.sovereignty_vetted
+        and jurisdiction.operator_registered_canada
+        and not jurisdiction.foreign_control
+    ):
         tier = TrustTier.SOVEREIGNTY
 
         # Regulated requires audit trail capability on top of sovereignty
@@ -305,7 +326,7 @@ def classify_host_trust_tier(jurisdiction: Optional[HostJurisdiction]) -> TrustT
 #   - 50% (1:1) for non-Canadian compute until March 31, 2027
 #   - Non-Canadian no longer eligible after April 1, 2027
 
-FUND_CANADIAN_RATE = 0.6667    # 2/3 coverage
+FUND_CANADIAN_RATE = 0.6667  # 2/3 coverage
 FUND_NON_CANADIAN_RATE = 0.50  # 1/2 coverage
 FUND_NON_CANADIAN_CUTOFF = 1743465600  # April 1, 2027 UTC
 
@@ -371,8 +392,12 @@ def generate_residency_trace(
         "data_center": jurisdiction.data_center_name if jurisdiction else "unknown",
         "data_center_class": jurisdiction.data_center_class if jurisdiction else "unknown",
         "operator": jurisdiction.operator_name if jurisdiction else "unknown",
-        "operator_incorporated_in": jurisdiction.operator_incorporated_in if jurisdiction else "unknown",
-        "operator_canadian_registered": jurisdiction.operator_registered_canada if jurisdiction else False,
+        "operator_incorporated_in": (
+            jurisdiction.operator_incorporated_in if jurisdiction else "unknown"
+        ),
+        "operator_canadian_registered": (
+            jurisdiction.operator_registered_canada if jurisdiction else False
+        ),
         "sovereignty_vetted": jurisdiction.sovereignty_vetted if jurisdiction else False,
         "started_at": started_at,
         "completed_at": completed_at,

@@ -47,10 +47,13 @@ for _h in scheduler.log.handlers[:]:
         _h.close()
 _fh = logging.FileHandler(scheduler.LOG_FILE)
 _fh.setLevel(logging.INFO)
-_fh.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+)
 scheduler.log.addHandler(_fh)
 
 import db as db_mod
+
 db_mod.AUTH_DB_FILE = os.path.join(_tmpdir, "auth.db")
 
 from fastapi.testclient import TestClient
@@ -66,46 +69,59 @@ GOOD_VERSIONS = {
 }
 
 
-def _register_host(host_id="h-ux-1", gpu="RTX 4090", vram=24, cost=0.45,
-                    country="CA", province="ON"):
+def _register_host(
+    host_id="h-ux-1", gpu="RTX 4090", vram=24, cost=0.45, country="CA", province="ON"
+):
     """Register a host for testing."""
-    return client.put("/host", json={
-        "host_id": host_id,
-        "ip": "10.50.1.1",
-        "gpu_model": gpu,
-        "total_vram_gb": vram,
-        "free_vram_gb": vram,
-        "cost_per_hour": cost,
-        "country": country,
-        "province": province,
-        "versions": GOOD_VERSIONS,
-    })
+    return client.put(
+        "/host",
+        json={
+            "host_id": host_id,
+            "ip": "10.50.1.1",
+            "gpu_model": gpu,
+            "total_vram_gb": vram,
+            "free_vram_gb": vram,
+            "cost_per_hour": cost,
+            "country": country,
+            "province": province,
+            "versions": GOOD_VERSIONS,
+        },
+    )
 
 
 def _submit_job(name="ux-test-job", vram=8, tier="standard"):
     """Submit a test job."""
-    return client.post("/job", json={
-        "name": name,
-        "docker_image": "pytorch/pytorch:latest",
-        "vram_needed_gb": vram,
-        "tier": tier,
-    })
+    return client.post(
+        "/job",
+        json={
+            "name": name,
+            "docker_image": "pytorch/pytorch:latest",
+            "vram_needed_gb": vram,
+            "tier": tier,
+        },
+    )
 
 
 def _create_test_user():
     """Register a test user and return auth token."""
-    r = client.post("/api/auth/register", json={
-        "email": "ux-test@xcelsior.ca",
-        "password": "TestPass123!",
-        "name": "UX Test User",
-    })
+    r = client.post(
+        "/api/auth/register",
+        json={
+            "email": "ux-test@xcelsior.ca",
+            "password": "TestPass123!",
+            "name": "UX Test User",
+        },
+    )
     if r.status_code == 200 and r.json().get("access_token"):
         return r.json()["access_token"]
     # Try login if already registered
-    r = client.post("/api/auth/login", json={
-        "email": "ux-test@xcelsior.ca",
-        "password": "TestPass123!",
-    })
+    r = client.post(
+        "/api/auth/login",
+        json={
+            "email": "ux-test@xcelsior.ca",
+            "password": "TestPass123!",
+        },
+    )
     if r.status_code == 200:
         return r.json().get("access_token")
     return None
@@ -114,6 +130,7 @@ def _create_test_user():
 # ═══════════════════════════════════════════════════════════════════════
 # API Endpoint Tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestDataExportEndpoint:
     """Test the PIPEDA data export endpoint."""
@@ -126,8 +143,7 @@ class TestDataExportEndpoint:
         token = _create_test_user()
         if not token:
             pytest.skip("Auth not available")
-        r = client.get("/api/auth/me/data-export",
-                       headers={"Authorization": f"Bearer {token}"})
+        r = client.get("/api/auth/me/data-export", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -143,8 +159,7 @@ class TestDataExportEndpoint:
         token = _create_test_user()
         if not token:
             pytest.skip("Auth not available")
-        r = client.get("/api/auth/me/data-export",
-                       headers={"Authorization": f"Bearer {token}"})
+        r = client.get("/api/auth/me/data-export", headers={"Authorization": f"Bearer {token}"})
         d = r.json()
         profile = d["data_export"]["profile"]
         assert "hashed_password" not in profile
@@ -154,8 +169,7 @@ class TestDataExportEndpoint:
         token = _create_test_user()
         if not token:
             pytest.skip("Auth not available")
-        r = client.get("/api/auth/me/data-export",
-                       headers={"Authorization": f"Bearer {token}"})
+        r = client.get("/api/auth/me/data-export", headers={"Authorization": f"Bearer {token}"})
         d = r.json()
         export = d["data_export"]
         assert "total_jobs" in export
@@ -177,12 +191,15 @@ class TestArtifactExpiryEndpoint:
     def test_artifact_expiry_has_ttl_fields(self):
         """If artifacts exist, they should have TTL info."""
         # Upload an artifact first
-        upload_r = client.post("/api/artifacts/upload", json={
-            "job_id": "ux-expiry-job",
-            "artifact_type": "log_bundle",
-            "size_bytes": 1024,
-            "residency_policy": "canada_only",
-        })
+        upload_r = client.post(
+            "/api/artifacts/upload",
+            json={
+                "job_id": "ux-expiry-job",
+                "artifact_type": "log_bundle",
+                "size_bytes": 1024,
+                "residency_policy": "canada_only",
+            },
+        )
         if upload_r.status_code != 200:
             pytest.skip("Artifact upload not available")
         r = client.get("/api/artifacts/ux-expiry-job/expiry")
@@ -255,8 +272,7 @@ class TestAuthMeCreatedAt:
         token = _create_test_user()
         if not token:
             pytest.skip("Auth not available")
-        r = client.get("/api/auth/me",
-                       headers={"Authorization": f"Bearer {token}"})
+        r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         user = r.json()["user"]
         assert "created_at" in user
@@ -265,6 +281,7 @@ class TestAuthMeCreatedAt:
 # ═══════════════════════════════════════════════════════════════════════
 # Dashboard HTML Structure Tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestDashboardUXPolish:
     """Verify v2.8.0 UX polish elements in dashboard HTML."""
@@ -356,7 +373,7 @@ class TestDashboardUXPolish:
         # Score breakdown should start with a skeleton
         idx = self.html.find('id="score-breakdown"')
         assert idx > 0
-        nearby = self.html[idx:idx+200]
+        nearby = self.html[idx : idx + 200]
         assert "skeleton-block" in nearby
 
     # ── Empty States ──────────────────────────────────────────────────

@@ -23,6 +23,7 @@ log = logging.getLogger("xcelsior")
 
 # ── Currency ─────────────────────────────────────────────────────────
 
+
 class Currency(str, Enum):
     CAD = "CAD"
     USD = "USD"
@@ -85,9 +86,11 @@ GST_SMALL_SUPPLIER_THRESHOLD_CAD = 30_000.00
 
 # ── Metering ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class UsageMeter:
     """Per-job resource usage metering record."""
+
     meter_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     job_id: str = ""
     host_id: str = ""
@@ -97,7 +100,7 @@ class UsageMeter:
     started_at: float = 0.0
     completed_at: float = 0.0
     duration_sec: float = 0.0
-    gpu_seconds: float = 0.0       # Actual GPU utilization time
+    gpu_seconds: float = 0.0  # Actual GPU utilization time
 
     # Resources
     gpu_model: str = ""
@@ -127,11 +130,13 @@ class UsageMeter:
 
 # ── Invoice ──────────────────────────────────────────────────────────
 
+
 @dataclass
 class InvoiceLineItem:
     """Single line item on an invoice."""
+
     description: str = ""
-    category: str = ""           # "compute", "storage", "monitoring", "security"
+    category: str = ""  # "compute", "storage", "monitoring", "security"
     quantity: float = 0.0
     unit: str = "GPU-hours"
     unit_price_cad: float = 0.0
@@ -156,6 +161,7 @@ class Invoice:
     - Monitoring
     - Compute-specific security requirements
     """
+
     invoice_id: str = field(default_factory=lambda: f"INV-{int(time.time())}-{os.urandom(3).hex()}")
     customer_id: str = ""
     customer_name: str = ""
@@ -170,7 +176,7 @@ class Invoice:
 
     # Totals
     subtotal_cad: float = 0.0
-    tax_rate: float = 0.0          # GST/HST rate
+    tax_rate: float = 0.0  # GST/HST rate
     tax_amount_cad: float = 0.0
     total_cad: float = 0.0
 
@@ -182,7 +188,7 @@ class Invoice:
 
     # Metadata
     created_at: float = field(default_factory=time.time)
-    status: str = "draft"         # draft, issued, paid, void
+    status: str = "draft"  # draft, issued, paid, void
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -195,9 +201,11 @@ class Invoice:
 # From REPORT_MARKETING_FINAL.md: customers need supplier qualification
 # evidence for AI Compute Access Fund claims.
 
+
 @dataclass
 class ProviderAttestation:
     """Supplier attestation bundle for compliance/fund claims."""
+
     attestation_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     provider_name: str = "Xcelsior"
     incorporated_in: str = "Canada"
@@ -220,6 +228,7 @@ class ProviderAttestation:
 
 # ── Billing Engine ────────────────────────────────────────────────────
 
+
 class BillingEngine:
     """Production billing engine with CAD pricing and fund alignment.
 
@@ -232,9 +241,7 @@ class BillingEngine:
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.path.join(
-            os.path.dirname(__file__), "xcelsior_billing.db"
-        )
+        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_billing.db")
         self._init_db()
 
     def _init_db(self):
@@ -323,9 +330,13 @@ class BillingEngine:
         finally:
             conn.close()
 
-    def meter_job(self, job: dict, host: dict,
-                  jurisdiction_data: Optional[dict] = None,
-                  trust_tier: str = "community") -> UsageMeter:
+    def meter_job(
+        self,
+        job: dict,
+        host: dict,
+        jurisdiction_data: Optional[dict] = None,
+        trust_tier: str = "community",
+    ) -> UsageMeter:
         """Create a metering record for a completed job.
 
         This is the source of truth for billing. Every completed job
@@ -392,20 +403,37 @@ class BillingEngine:
                     tier_multiplier, spot_discount, total_cost_cad, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    meter.meter_id, meter.job_id, meter.host_id, meter.owner,
-                    meter.started_at, meter.completed_at, meter.duration_sec,
-                    meter.gpu_seconds, meter.gpu_model, meter.vram_gb,
-                    meter.gpu_utilization_pct, meter.xcu_score,
-                    meter.country, meter.province,
+                    meter.meter_id,
+                    meter.job_id,
+                    meter.host_id,
+                    meter.owner,
+                    meter.started_at,
+                    meter.completed_at,
+                    meter.duration_sec,
+                    meter.gpu_seconds,
+                    meter.gpu_model,
+                    meter.vram_gb,
+                    meter.gpu_utilization_pct,
+                    meter.xcu_score,
+                    meter.country,
+                    meter.province,
                     1 if meter.is_canadian_compute else 0,
-                    meter.trust_tier, meter.base_rate_per_hour,
-                    meter.tier_multiplier, meter.spot_discount,
-                    meter.total_cost_cad, time.time(),
+                    meter.trust_tier,
+                    meter.base_rate_per_hour,
+                    meter.tier_multiplier,
+                    meter.spot_discount,
+                    meter.total_cost_cad,
+                    time.time(),
                 ),
             )
 
-        log.info("METERED job=%s cost=$%.4f CAD tier=%s canadian=%s",
-                 meter.job_id, meter.total_cost_cad, trust_tier, is_canadian)
+        log.info(
+            "METERED job=%s cost=$%.4f CAD tier=%s canadian=%s",
+            meter.job_id,
+            meter.total_cost_cad,
+            trust_tier,
+            is_canadian,
+        )
         return meter
 
     def generate_invoice(
@@ -415,7 +443,7 @@ class BillingEngine:
         period_start: float,
         period_end: float,
         tax_rate: Optional[float] = None,  # None = auto-detect by province
-        customer_province: str = "ON",      # Used for tax rate lookup
+        customer_province: str = "ON",  # Used for tax rate lookup
     ) -> Invoice:
         """Generate an AI Compute Access Fund–aligned invoice.
 
@@ -475,7 +503,9 @@ class BillingEngine:
         # Fund calculations
         ca_fund = compute_fund_eligible_amount(ca_total, True)
         non_ca_fund = compute_fund_eligible_amount(non_ca_total, False)
-        total_reimbursable = ca_fund["reimbursable_amount_cad"] + non_ca_fund["reimbursable_amount_cad"]
+        total_reimbursable = (
+            ca_fund["reimbursable_amount_cad"] + non_ca_fund["reimbursable_amount_cad"]
+        )
         effective = round(total - total_reimbursable, 2)
 
         invoice = Invoice(
@@ -506,20 +536,38 @@ class BillingEngine:
                     created_at, status, notes)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    invoice.invoice_id, invoice.customer_id, invoice.customer_name,
-                    invoice.currency, invoice.period_start, invoice.period_end,
-                    json.dumps(invoice.line_items), invoice.subtotal_cad,
-                    invoice.tax_rate, invoice.tax_amount_cad, invoice.total_cad,
-                    invoice.canadian_compute_total_cad, invoice.non_canadian_compute_total_cad,
-                    invoice.fund_eligible_reimbursement_cad, invoice.effective_cost_after_fund_cad,
-                    invoice.created_at, invoice.status, invoice.notes,
+                    invoice.invoice_id,
+                    invoice.customer_id,
+                    invoice.customer_name,
+                    invoice.currency,
+                    invoice.period_start,
+                    invoice.period_end,
+                    json.dumps(invoice.line_items),
+                    invoice.subtotal_cad,
+                    invoice.tax_rate,
+                    invoice.tax_amount_cad,
+                    invoice.total_cad,
+                    invoice.canadian_compute_total_cad,
+                    invoice.non_canadian_compute_total_cad,
+                    invoice.fund_eligible_reimbursement_cad,
+                    invoice.effective_cost_after_fund_cad,
+                    invoice.created_at,
+                    invoice.status,
+                    invoice.notes,
                 ),
             )
 
-        log.info("INVOICE %s customer=%s total=$%.2f CAD (CA: $%.2f, non-CA: $%.2f, "
-                 "fund reimbursable: $%.2f, effective: $%.2f)",
-                 invoice.invoice_id, customer_id, total, ca_total, non_ca_total,
-                 total_reimbursable, effective)
+        log.info(
+            "INVOICE %s customer=%s total=$%.2f CAD (CA: $%.2f, non-CA: $%.2f, "
+            "fund reimbursable: $%.2f, effective: $%.2f)",
+            invoice.invoice_id,
+            customer_id,
+            total,
+            ca_total,
+            non_ca_total,
+            total_reimbursable,
+            effective,
+        )
         return invoice
 
     def record_payout(
@@ -543,12 +591,27 @@ class BillingEngine:
                    (payout_id, provider_id, job_id, amount_cad,
                     platform_fee_cad, provider_payout_cad, status, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (payout_id, provider_id, job_id, gross_amount_cad,
-                 fee, payout, "pending", time.time()),
+                (
+                    payout_id,
+                    provider_id,
+                    job_id,
+                    gross_amount_cad,
+                    fee,
+                    payout,
+                    "pending",
+                    time.time(),
+                ),
             )
 
-        log.info("PAYOUT %s provider=%s job=%s gross=$%.4f fee=$%.4f payout=$%.4f",
-                 payout_id, provider_id, job_id, gross_amount_cad, fee, payout)
+        log.info(
+            "PAYOUT %s provider=%s job=%s gross=$%.4f fee=$%.4f payout=$%.4f",
+            payout_id,
+            provider_id,
+            job_id,
+            gross_amount_cad,
+            fee,
+            payout,
+        )
 
         return {
             "payout_id": payout_id,
@@ -608,8 +671,7 @@ class BillingEngine:
 
     # ── Refund Logic (REPORT_FEATURE_1.md) ────────────────────────────
 
-    def process_refund(self, job_id: str, exit_code: int,
-                       failure_reason: str = "") -> dict:
+    def process_refund(self, job_id: str, exit_code: int, failure_reason: str = "") -> dict:
         """Determine and process refund for a failed job.
 
         From REPORT_FEATURE_1.md:
@@ -670,11 +732,17 @@ class BillingEngine:
 
         if refund_amount > 0:
             # Credit the refund to the user's wallet
-            self._credit_wallet(row["owner"], refund_amount,
-                                f"Refund for job {job_id} ({classification})")
+            self._credit_wallet(
+                row["owner"], refund_amount, f"Refund for job {job_id} ({classification})"
+            )
 
-        log.info("REFUND job=%s classification=%s refund=$%.4f CAD (%.0f%%)",
-                 job_id, classification, refund_amount, refund_pct * 100)
+        log.info(
+            "REFUND job=%s classification=%s refund=$%.4f CAD (%.0f%%)",
+            job_id,
+            classification,
+            refund_amount,
+            refund_pct * 100,
+        )
         return result
 
     # ── Credit/Wallet System (REPORT_FEATURE_1.md) ────────────────────
@@ -742,8 +810,9 @@ class BillingEngine:
                 "status": "active",
             }
 
-    def deposit(self, customer_id: str, amount_cad: float,
-                description: str = "Credit deposit") -> dict:
+    def deposit(
+        self, customer_id: str, amount_cad: float, description: str = "Credit deposit"
+    ) -> dict:
         """Deposit credits into a customer wallet."""
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
@@ -764,15 +833,19 @@ class BillingEngine:
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, created_at)
                    VALUES (?, ?, 'deposit', ?, ?, ?, ?)""",
-                (tx_id, customer_id, amount_cad, new_balance,
-                 description, time.time()),
+                (tx_id, customer_id, amount_cad, new_balance, description, time.time()),
             )
 
         log.info("DEPOSIT %s +$%.2f CAD balance=$%.2f", customer_id, amount_cad, new_balance)
         return {"tx_id": tx_id, "balance_cad": new_balance}
 
-    def charge(self, customer_id: str, amount_cad: float,
-               job_id: str = "", description: str = "Compute charge") -> dict:
+    def charge(
+        self,
+        customer_id: str,
+        amount_cad: float,
+        job_id: str = "",
+        description: str = "Compute charge",
+    ) -> dict:
         """Charge a customer wallet. Returns False if insufficient balance
         (triggers grace period per REPORT_FEATURE_1.md: 72 hours).
         """
@@ -795,9 +868,12 @@ class BillingEngine:
                         "UPDATE wallets SET grace_until = ?, updated_at = ? WHERE customer_id = ?",
                         (grace_end, now, customer_id),
                     )
-                log.warning("WALLET %s insufficient balance ($%.2f < $%.2f) "
-                            "— 72hr grace period started",
-                            customer_id, balance, amount_cad)
+                log.warning(
+                    "WALLET %s insufficient balance ($%.2f < $%.2f) " "— 72hr grace period started",
+                    customer_id,
+                    balance,
+                    amount_cad,
+                )
                 return {
                     "charged": False,
                     "reason": "insufficient_balance",
@@ -812,8 +888,7 @@ class BillingEngine:
                         "UPDATE wallets SET status = 'suspended', updated_at = ? WHERE customer_id = ?",
                         (now, customer_id),
                     )
-                log.warning("WALLET %s grace period expired — account suspended",
-                            customer_id)
+                log.warning("WALLET %s grace period expired — account suspended", customer_id)
                 return {
                     "charged": False,
                     "reason": "grace_expired",
@@ -842,16 +917,21 @@ class BillingEngine:
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, job_id, created_at)
                    VALUES (?, ?, 'charge', ?, ?, ?, ?, ?)""",
-                (tx_id, customer_id, -amount_cad, new_balance,
-                 description, job_id, time.time()),
+                (tx_id, customer_id, -amount_cad, new_balance, description, job_id, time.time()),
             )
 
-        log.info("CHARGE %s -$%.4f CAD job=%s balance=$%.4f",
-                 customer_id, amount_cad, job_id, new_balance)
+        log.info(
+            "CHARGE %s -$%.4f CAD job=%s balance=$%.4f",
+            customer_id,
+            amount_cad,
+            job_id,
+            new_balance,
+        )
         return {"charged": True, "tx_id": tx_id, "balance_cad": new_balance}
 
-    def _credit_wallet(self, customer_id: str, amount_cad: float,
-                       description: str = "Refund credit"):
+    def _credit_wallet(
+        self, customer_id: str, amount_cad: float, description: str = "Refund credit"
+    ):
         """Internal: credit a wallet (for refunds)."""
         self._ensure_wallet_table()
         wallet = self.get_wallet(customer_id)
@@ -872,8 +952,7 @@ class BillingEngine:
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, created_at)
                    VALUES (?, ?, 'refund', ?, ?, ?, ?)""",
-                (tx_id, customer_id, amount_cad, new_balance,
-                 description, time.time()),
+                (tx_id, customer_id, amount_cad, new_balance, description, time.time()),
             )
 
     def get_wallet_history(self, customer_id: str, limit: int = 50) -> list:
@@ -925,7 +1004,9 @@ class BillingEngine:
                 "gpu_model": row["gpu_model"],
                 "duration_hours": round(float(row["duration_sec"]) / 3600, 4),
                 "cost_cad": cost,
-                "eligible_category": "Canadian cloud compute" if is_ca else "Non-Canadian cloud compute",
+                "eligible_category": (
+                    "Canadian cloud compute" if is_ca else "Non-Canadian cloud compute"
+                ),
                 "host_country": row["country"],
                 "host_province": row["province"],
                 "trust_tier": row["trust_tier"],
@@ -997,28 +1078,48 @@ class BillingEngine:
         writer = csv.writer(output)
 
         # Header
-        writer.writerow([
-            "Job ID", "Host ID", "GPU Model", "Duration (hrs)",
-            "Cost (CAD)", "Eligible Category", "Host Country",
-            "Host Province", "Trust Tier", "Canadian Compute",
-            "Start Time", "End Time",
-        ])
+        writer.writerow(
+            [
+                "Job ID",
+                "Host ID",
+                "GPU Model",
+                "Duration (hrs)",
+                "Cost (CAD)",
+                "Eligible Category",
+                "Host Country",
+                "Host Province",
+                "Trust Tier",
+                "Canadian Compute",
+                "Start Time",
+                "End Time",
+            ]
+        )
 
         for item in report["line_items"]:
-            writer.writerow([
-                item["job_id"],
-                item["host_id"],
-                item["gpu_model"],
-                item["duration_hours"],
-                item["cost_cad"],
-                item["eligible_category"],
-                item["host_country"],
-                item["host_province"],
-                item["trust_tier"],
-                "Yes" if item["is_canadian_compute"] else "No",
-                datetime.fromtimestamp(item["started_at"]).isoformat() if item["started_at"] else "",
-                datetime.fromtimestamp(item["completed_at"]).isoformat() if item["completed_at"] else "",
-            ])
+            writer.writerow(
+                [
+                    item["job_id"],
+                    item["host_id"],
+                    item["gpu_model"],
+                    item["duration_hours"],
+                    item["cost_cad"],
+                    item["eligible_category"],
+                    item["host_country"],
+                    item["host_province"],
+                    item["trust_tier"],
+                    "Yes" if item["is_canadian_compute"] else "No",
+                    (
+                        datetime.fromtimestamp(item["started_at"]).isoformat()
+                        if item["started_at"]
+                        else ""
+                    ),
+                    (
+                        datetime.fromtimestamp(item["completed_at"]).isoformat()
+                        if item["completed_at"]
+                        else ""
+                    ),
+                ]
+            )
 
         # Summary footer
         writer.writerow([])

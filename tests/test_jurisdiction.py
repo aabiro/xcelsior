@@ -25,7 +25,6 @@ from jurisdiction import (
     host_meets_constraint,
 )
 
-
 # ── Trust Tier Classification ─────────────────────────────────────────
 
 
@@ -184,14 +183,16 @@ class TestComputeFundEligibility:
 
     def test_non_canadian_50pct_before_cutoff(self):
         result = compute_fund_eligible_amount(
-            100.0, is_canadian_compute=False,
+            100.0,
+            is_canadian_compute=False,
             timestamp=FUND_NON_CANADIAN_CUTOFF - 86400,
         )
         assert abs(result["reimbursable_amount_cad"] - 100 * FUND_NON_CANADIAN_RATE) < 0.01
 
     def test_non_canadian_zero_after_cutoff(self):
         result = compute_fund_eligible_amount(
-            100.0, is_canadian_compute=False,
+            100.0,
+            is_canadian_compute=False,
             timestamp=FUND_NON_CANADIAN_CUTOFF + 86400,
         )
         assert result["reimbursable_amount_cad"] == 0.0
@@ -214,8 +215,11 @@ class TestResidencyTrace:
 
     def test_trace_with_jurisdiction(self):
         jur = HostJurisdiction(
-            host_id="h1", country="CA", province="ON",
-            city="Toronto", data_center_name="Equinix TR1",
+            host_id="h1",
+            country="CA",
+            province="ON",
+            city="Toronto",
+            data_center_name="Equinix TR1",
             operator_name="Xcelsior Inc",
             operator_incorporated_in="CA",
             operator_registered_canada=True,

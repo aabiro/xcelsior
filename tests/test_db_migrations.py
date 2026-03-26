@@ -24,14 +24,15 @@ from db import (
     sqlite_transaction,
 )
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path, monkeypatch):
     db_file = str(tmp_path / "migration_test.db")
     monkeypatch.setenv("XCELSIOR_DB_PATH", db_file)
     import db as db_mod
+
     monkeypatch.setattr(db_mod, "DEFAULT_DB_FILE", db_file)
     # Reset engine singleton so each test gets fresh config
     monkeypatch.setattr(db_mod, "_engine", None)
@@ -47,30 +48,40 @@ class TestSQLiteAutoInit:
     def test_db_module_creates_state_jobs_hosts(self):
         """db.py auto-creates state, jobs, hosts tables."""
         with sqlite_connection() as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "state" in tables
         assert "jobs" in tables
         assert "hosts" in tables
 
     def test_db_creates_queue_index(self):
         with sqlite_connection() as conn:
-            indexes = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='index'"
-            ).fetchall()}
+            indexes = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                ).fetchall()
+            }
         assert "idx_jobs_queue" in indexes
         assert "idx_hosts_status" in indexes
 
     def test_events_module_creates_tables(self):
         """events.py auto-creates events + leases tables."""
         from events import EventStore
+
         store = EventStore()
         tables = set()
         with sqlite3.connect(store.db_path) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "events" in tables
         assert "leases" in tables
 
@@ -78,33 +89,45 @@ class TestSQLiteAutoInit:
         """billing.py auto-creates usage_meters, invoices, wallets, etc."""
         db = str(tmp_path / "billing_init.db")
         from billing import BillingEngine
+
         be = BillingEngine(db_path=db)
         with sqlite3.connect(be.db_path) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "usage_meters" in tables
         assert "invoices" in tables
 
     def test_reputation_module_creates_tables(self, tmp_path):
         """reputation.py auto-creates reputation_scores + reputation_events."""
         from reputation import ReputationStore
+
         store = ReputationStore(str(tmp_path / "rep_init.db"))
         with sqlite3.connect(store.db_path) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "reputation_scores" in tables
         assert "reputation_events" in tables
 
     def test_verification_module_creates_tables(self, tmp_path):
         """verification.py auto-creates host_verifications, verification_history, job_failure_log."""
         from verification import VerificationStore
+
         store = VerificationStore(str(tmp_path / "verif_init.db"))
         with sqlite3.connect(store.db_path) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "host_verifications" in tables
         assert "verification_history" in tables
         assert "job_failure_log" in tables
@@ -114,11 +137,15 @@ class TestSQLiteAutoInit:
         db = str(tmp_path / "privacy_init.db")
         monkeypatch.setenv("XCELSIOR_PRIVACY_DB", db)
         from privacy import DataLifecycleManager
+
         dlm = DataLifecycleManager(db_path=db)
         with sqlite3.connect(db) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "retention_records" in tables
         assert "consent_records" in tables
 
@@ -127,11 +154,15 @@ class TestSQLiteAutoInit:
         db = str(tmp_path / "sla_init.db")
         monkeypatch.setenv("XCELSIOR_SLA_DB", db)
         from sla import SLAEngine
+
         engine = SLAEngine(db_path=db)
         with sqlite3.connect(db) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()}
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
         assert "sla_downtime" in tables
         assert "sla_monthly" in tables
         assert "sla_violations" in tables
@@ -145,12 +176,14 @@ class TestDualWriteEngine:
 
     def test_engine_defaults_to_sqlite(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         engine = DualWriteEngine()
         assert engine.backend == "sqlite"
 
     def test_connection_yields_sqlite(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         engine = DualWriteEngine()
         with engine.connection() as (conn, backend):
@@ -160,17 +193,22 @@ class TestDualWriteEngine:
 
     def test_transaction_yields_sqlite(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         engine = DualWriteEngine()
         with engine.transaction() as (conn, backend):
             assert backend == "sqlite"
-            DatabaseOps.upsert_job(conn, {
-                "job_id": "dual-j1",
-                "status": "queued",
-                "priority": 1,
-                "submitted_at": time.time(),
-                "name": "dual-test",
-            }, backend="sqlite")
+            DatabaseOps.upsert_job(
+                conn,
+                {
+                    "job_id": "dual-j1",
+                    "status": "queued",
+                    "priority": 1,
+                    "submitted_at": time.time(),
+                    "name": "dual-test",
+                },
+                backend="sqlite",
+            )
 
         # Verify written
         with engine.connection() as (conn, backend):
@@ -181,6 +219,7 @@ class TestDualWriteEngine:
     def test_mirror_noop_in_sqlite_mode(self, monkeypatch):
         """mirror_to_secondary does nothing when not in dual mode."""
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         engine = DualWriteEngine()
         # Should not raise
@@ -188,6 +227,7 @@ class TestDualWriteEngine:
 
     def test_dual_mode_sets_backend(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "dual")
         monkeypatch.setattr(db_mod, "DUAL_READ_FROM", "sqlite")
         engine = DualWriteEngine()
@@ -196,6 +236,7 @@ class TestDualWriteEngine:
 
     def test_dual_transaction_uses_sqlite_primary(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "dual")
         monkeypatch.setattr(db_mod, "DUAL_READ_FROM", "sqlite")
         engine = DualWriteEngine()
@@ -283,10 +324,16 @@ class TestDualWriteConsistency:
 
     def test_delete_then_read_returns_none(self):
         with sqlite_transaction() as conn:
-            DatabaseOps.upsert_job(conn, {
-                "job_id": "del-j1", "status": "queued",
-                "priority": 0, "submitted_at": time.time(),
-            }, backend="sqlite")
+            DatabaseOps.upsert_job(
+                conn,
+                {
+                    "job_id": "del-j1",
+                    "status": "queued",
+                    "priority": 0,
+                    "submitted_at": time.time(),
+                },
+                backend="sqlite",
+            )
             DatabaseOps.delete_job(conn, "del-j1", backend="sqlite")
 
         with sqlite_connection() as conn:
@@ -295,12 +342,16 @@ class TestDualWriteConsistency:
     def test_load_jobs_filter_by_status(self):
         with sqlite_transaction() as conn:
             for i, status in enumerate(["queued", "running", "completed", "queued"]):
-                DatabaseOps.upsert_job(conn, {
-                    "job_id": f"filter-j{i}",
-                    "status": status,
-                    "priority": 1,
-                    "submitted_at": time.time() + i,
-                }, backend="sqlite")
+                DatabaseOps.upsert_job(
+                    conn,
+                    {
+                        "job_id": f"filter-j{i}",
+                        "status": status,
+                        "priority": 1,
+                        "submitted_at": time.time() + i,
+                    },
+                    backend="sqlite",
+                )
 
         with sqlite_connection() as conn:
             queued = DatabaseOps.load_jobs(conn, status="queued", backend="sqlite")
@@ -309,12 +360,22 @@ class TestDualWriteConsistency:
     def test_gpu_query_sqlite_fallback(self):
         """query_hosts_by_gpu filters in Python for SQLite backend."""
         with sqlite_transaction() as conn:
-            for hid, model, vram in [("g1", "RTX 4090", 24), ("g2", "A100", 80), ("g3", "RTX 4090", 12)]:
-                DatabaseOps.upsert_host(conn, {
-                    "host_id": hid, "gpu_model": model,
-                    "free_vram_gb": vram, "status": "active",
-                    "registered_at": time.time(),
-                }, backend="sqlite")
+            for hid, model, vram in [
+                ("g1", "RTX 4090", 24),
+                ("g2", "A100", 80),
+                ("g3", "RTX 4090", 12),
+            ]:
+                DatabaseOps.upsert_host(
+                    conn,
+                    {
+                        "host_id": hid,
+                        "gpu_model": model,
+                        "free_vram_gb": vram,
+                        "status": "active",
+                        "registered_at": time.time(),
+                    },
+                    backend="sqlite",
+                )
 
         with sqlite_connection() as conn:
             results = DatabaseOps.query_hosts_by_gpu(conn, gpu_model="RTX 4090", backend="sqlite")
@@ -325,11 +386,17 @@ class TestDualWriteConsistency:
     def test_gpu_query_min_vram_filter(self):
         with sqlite_transaction() as conn:
             for hid, vram in [("v1", 8), ("v2", 24), ("v3", 48)]:
-                DatabaseOps.upsert_host(conn, {
-                    "host_id": hid, "gpu_model": "A100",
-                    "free_vram_gb": vram, "status": "active",
-                    "registered_at": time.time(),
-                }, backend="sqlite")
+                DatabaseOps.upsert_host(
+                    conn,
+                    {
+                        "host_id": hid,
+                        "gpu_model": "A100",
+                        "free_vram_gb": vram,
+                        "status": "active",
+                        "registered_at": time.time(),
+                    },
+                    backend="sqlite",
+                )
 
         with sqlite_connection() as conn:
             results = DatabaseOps.query_hosts_by_gpu(conn, min_vram_gb=20, backend="sqlite")
@@ -345,6 +412,7 @@ class TestEventBusSQLiteFallback:
 
     def test_inmemory_listener_receives_events(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         bus = db_mod.PgEventBus()
         received = []
@@ -356,6 +424,7 @@ class TestEventBusSQLiteFallback:
 
     def test_remove_listener(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         bus = db_mod.PgEventBus()
         received = []
@@ -367,12 +436,14 @@ class TestEventBusSQLiteFallback:
 
     def test_remove_nonexistent_listener_noop(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         bus = db_mod.PgEventBus()
         bus.remove_listener(lambda ev: None)  # Should not raise
 
     def test_emit_event_convenience(self, monkeypatch):
         import db as db_mod
+
         monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")
         received = []
         db_mod.event_bus._listeners.clear()
@@ -392,6 +463,7 @@ class TestAlembicMigrationFiles:
     def _load_migration(self, name):
         import importlib.util
         import pathlib
+
         path = pathlib.Path(__file__).resolve().parent.parent / "migrations" / "versions" / name
         spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
         mod = importlib.util.module_from_spec(spec)

@@ -53,9 +53,7 @@ def _reset_state():
 
 def _admit_host(host_id):
     with scheduler._atomic_mutation() as conn:
-        row = conn.execute(
-            "SELECT payload FROM hosts WHERE host_id = ?", (host_id,)
-        ).fetchone()
+        row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
         if row:
             data = _json.loads(row["payload"])
             data["admitted"] = True
@@ -108,6 +106,7 @@ class TestSSEStreamEvents:
     def test_sse_broadcast_function_is_callable(self):
         """Verify broadcast_sse is importable and callable."""
         from api import broadcast_sse
+
         # Should not raise — just broadcasts to any connected clients
         broadcast_sse("test_event", {"key": "value"})
 
@@ -120,14 +119,17 @@ class TestAddHostViaAPI:
 
     def test_register_and_list_host(self):
         _reset_state()
-        resp = client.put("/host", json={
-            "host_id": "e2e-host-1",
-            "ip": "10.0.0.50",
-            "gpu_model": "RTX 4090",
-            "total_vram_gb": 24,
-            "free_vram_gb": 24,
-            "cost_per_hour": 0.65,
-        })
+        resp = client.put(
+            "/host",
+            json={
+                "host_id": "e2e-host-1",
+                "ip": "10.0.0.50",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.65,
+            },
+        )
         assert resp.status_code == 200
 
         hosts_resp = client.get("/hosts?active_only=false")
@@ -138,16 +140,19 @@ class TestAddHostViaAPI:
 
     def test_register_canadian_host_with_province(self):
         _reset_state()
-        resp = client.put("/host", json={
-            "host_id": "e2e-ca-host",
-            "ip": "10.0.0.51",
-            "gpu_model": "A100",
-            "total_vram_gb": 80,
-            "free_vram_gb": 80,
-            "cost_per_hour": 1.2,
-            "country": "CA",
-            "province": "ON",
-        })
+        resp = client.put(
+            "/host",
+            json={
+                "host_id": "e2e-ca-host",
+                "ip": "10.0.0.51",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.2,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
         assert resp.status_code == 200
         host = resp.json()["host"]
         assert host["country"] == "CA"
@@ -156,21 +161,27 @@ class TestAddHostViaAPI:
     def test_register_host_admits_and_receives_job(self):
         """Full E2E: register → admit → submit job → process queue → assigned."""
         _reset_state()
-        client.put("/host", json={
-            "host_id": "e2e-admit",
-            "ip": "10.0.0.52",
-            "gpu_model": "RTX 3090",
-            "total_vram_gb": 24,
-            "free_vram_gb": 24,
-            "cost_per_hour": 0.50,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "e2e-admit",
+                "ip": "10.0.0.52",
+                "gpu_model": "RTX 3090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.50,
+            },
+        )
         _admit_host("e2e-admit")
 
-        job_resp = client.post("/job", json={
-            "name": "e2e-job",
-            "vram_needed_gb": 8,
-            "tier": "free",
-        })
+        job_resp = client.post(
+            "/job",
+            json={
+                "name": "e2e-job",
+                "vram_needed_gb": 8,
+                "tier": "free",
+            },
+        )
         assert job_resp.status_code == 200
         job_id = job_resp.json()["job"]["job_id"]
 
@@ -219,24 +230,30 @@ class TestExportCAFCSV:
         """Bill a job then export CAF — line item should appear."""
         _reset_state()
         # Register and admit host
-        client.put("/host", json={
-            "host_id": "caf-h1",
-            "ip": "10.0.0.60",
-            "gpu_model": "A100",
-            "total_vram_gb": 80,
-            "free_vram_gb": 80,
-            "cost_per_hour": 1.0,
-            "country": "CA",
-            "province": "ON",
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "caf-h1",
+                "ip": "10.0.0.60",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.0,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
         _admit_host("caf-h1")
 
         # Submit, process, run, complete, bill
-        job_resp = client.post("/job", json={
-            "name": "caf-job",
-            "vram_needed_gb": 8,
-            "tier": "premium",
-        })
+        job_resp = client.post(
+            "/job",
+            json={
+                "name": "caf-job",
+                "vram_needed_gb": 8,
+                "tier": "premium",
+            },
+        )
         job_id = job_resp.json()["job"]["job_id"]
 
         client.post("/queue/process")
@@ -286,22 +303,28 @@ class TestFullJobLifecycleE2E:
     def test_complete_lifecycle_with_billing(self):
         _reset_state()
         # Register host
-        client.put("/host", json={
-            "host_id": "e2e-lc-h1",
-            "ip": "10.0.0.70",
-            "gpu_model": "A100",
-            "total_vram_gb": 80,
-            "free_vram_gb": 80,
-            "cost_per_hour": 1.50,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "e2e-lc-h1",
+                "ip": "10.0.0.70",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.50,
+            },
+        )
         _admit_host("e2e-lc-h1")
 
         # Submit job
-        job_resp = client.post("/job", json={
-            "name": "e2e-lifecycle",
-            "vram_needed_gb": 16,
-            "tier": "premium",
-        })
+        job_resp = client.post(
+            "/job",
+            json={
+                "name": "e2e-lifecycle",
+                "vram_needed_gb": 16,
+                "tier": "premium",
+            },
+        )
         assert job_resp.status_code == 200
         job_id = job_resp.json()["job"]["job_id"]
 
@@ -328,21 +351,27 @@ class TestFullJobLifecycleE2E:
         """Multiple hosts registered — job goes to the best one."""
         _reset_state()
         for hid, vram, cost in [("mh-1", 24, 0.50), ("mh-2", 80, 1.20), ("mh-3", 48, 0.90)]:
-            client.put("/host", json={
-                "host_id": hid,
-                "ip": "10.0.0.1",
-                "gpu_model": "A100",
-                "total_vram_gb": vram,
-                "free_vram_gb": vram,
-                "cost_per_hour": cost,
-            })
+            client.put(
+                "/host",
+                json={
+                    "host_id": hid,
+                    "ip": "10.0.0.1",
+                    "gpu_model": "A100",
+                    "total_vram_gb": vram,
+                    "free_vram_gb": vram,
+                    "cost_per_hour": cost,
+                },
+            )
             _admit_host(hid)
 
         # Submit job needing 40GB — only mh-2 and mh-3 can handle it
-        job_resp = client.post("/job", json={
-            "name": "big-job",
-            "vram_needed_gb": 40,
-        })
+        job_resp = client.post(
+            "/job",
+            json={
+                "name": "big-job",
+                "vram_needed_gb": 40,
+            },
+        )
         job_id = job_resp.json()["job"]["job_id"]
 
         client.post("/queue/process")
@@ -353,20 +382,26 @@ class TestFullJobLifecycleE2E:
     def test_no_admitted_hosts_job_stays_queued(self):
         """If no hosts are admitted, job remains queued."""
         _reset_state()
-        client.put("/host", json={
-            "host_id": "unadmitted",
-            "ip": "10.0.0.2",
-            "gpu_model": "RTX 4090",
-            "total_vram_gb": 24,
-            "free_vram_gb": 24,
-            "cost_per_hour": 0.5,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "unadmitted",
+                "ip": "10.0.0.2",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.5,
+            },
+        )
         # Don't admit the host
 
-        job_resp = client.post("/job", json={
-            "name": "blocked-job",
-            "vram_needed_gb": 8,
-        })
+        job_resp = client.post(
+            "/job",
+            json={
+                "name": "blocked-job",
+                "vram_needed_gb": 8,
+            },
+        )
         job_id = job_resp.json()["job"]["job_id"]
 
         client.post("/queue/process")

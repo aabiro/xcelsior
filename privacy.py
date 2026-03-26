@@ -24,23 +24,26 @@ log = logging.getLogger("xcelsior")
 
 # ── Privacy Settings (defaults = maximum confidentiality per Law 25) ──
 
+
 class PrivacyLevel(str, Enum):
     """Privacy level for data handling. Default is STRICT per Québec Law 25."""
-    STRICT = "strict"         # Maximum confidentiality, all PII redacted
-    STANDARD = "standard"     # Reasonable safeguards, minimal PII retained
-    PERMISSIVE = "permissive" # Explicit opt-in by user — full metadata retained
+
+    STRICT = "strict"  # Maximum confidentiality, all PII redacted
+    STANDARD = "standard"  # Reasonable safeguards, minimal PII retained
+    PERMISSIVE = "permissive"  # Explicit opt-in by user — full metadata retained
 
 
 class DataCategory(str, Enum):
     """Categories of data for retention and redaction policies."""
-    JOB_PAYLOAD = "job_payload"           # Container args, env vars, commands
-    JOB_METADATA = "job_metadata"         # Job name, tags, labels
+
+    JOB_PAYLOAD = "job_payload"  # Container args, env vars, commands
+    JOB_METADATA = "job_metadata"  # Job name, tags, labels
     PROVIDER_IDENTITY = "provider_identity"  # Host owner info
-    BILLING_INFO = "billing_info"         # Payment details, wallet
-    TELEMETRY = "telemetry"              # GPU metrics, utilization data
-    LOGS = "logs"                         # Job stdout/stderr
-    NETWORK = "network"                   # IP addresses, connection data
-    LOCATION = "location"                 # Geolocation, province, city
+    BILLING_INFO = "billing_info"  # Payment details, wallet
+    TELEMETRY = "telemetry"  # GPU metrics, utilization data
+    LOGS = "logs"  # Job stdout/stderr
+    NETWORK = "network"  # IP addresses, connection data
+    LOCATION = "location"  # Geolocation, province, city
 
 
 # ── Retention Policies ────────────────────────────────────────────────
@@ -50,7 +53,7 @@ class DataCategory(str, Enum):
 # Default retention periods in seconds
 RETENTION_POLICIES = {
     DataCategory.JOB_PAYLOAD: {
-        "retention_sec": 0,           # Deleted immediately after job completion
+        "retention_sec": 0,  # Deleted immediately after job completion
         "description": "Job payloads (container args, env vars) are not retained",
         "redact_on_completion": True,
     },
@@ -75,7 +78,7 @@ RETENTION_POLICIES = {
         "redact_on_completion": False,
     },
     DataCategory.LOGS: {
-        "retention_sec": 7 * 86400,   # 7 days
+        "retention_sec": 7 * 86400,  # 7 days
         "description": "Job logs retained 7 days, then purged",
         "redact_on_completion": False,
     },
@@ -109,17 +112,31 @@ REDACTION_PLACEHOLDER = "[REDACTED]"
 # ── Sensitive Environment Variable Names ──────────────────────────────
 # These are never logged or retained, even in PERMISSIVE mode.
 
-ALWAYS_REDACT_ENV_VARS = frozenset({
-    "PASSWORD", "SECRET", "TOKEN", "API_KEY", "PRIVATE_KEY",
-    "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-    "DATABASE_URL", "DB_PASSWORD", "SMTP_PASSWORD",
-    "STRIPE_SECRET_KEY", "WEBHOOK_SECRET",
-    "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY", "WANDB_API_KEY",
-})
+ALWAYS_REDACT_ENV_VARS = frozenset(
+    {
+        "PASSWORD",
+        "SECRET",
+        "TOKEN",
+        "API_KEY",
+        "PRIVATE_KEY",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "DATABASE_URL",
+        "DB_PASSWORD",
+        "SMTP_PASSWORD",
+        "STRIPE_SECRET_KEY",
+        "WEBHOOK_SECRET",
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "WANDB_API_KEY",
+    }
+)
 
 
 # ── Privacy Configuration ─────────────────────────────────────────────
+
 
 @dataclass
 class PrivacyConfig:
@@ -130,6 +147,7 @@ class PrivacyConfig:
      and identification/location/profiling functions cannot be
      enabled by default."
     """
+
     privacy_level: str = PrivacyLevel.STRICT
 
     # PIPEDA Accountability: privacy officer designation
@@ -138,9 +156,9 @@ class PrivacyConfig:
     privacy_officer_designated: bool = False
 
     # Québec Law 25: identification/location/profiling OFF by default
-    enable_identification: bool = False    # Link jobs to named individuals
-    enable_location_tracking: bool = False # Detailed geolocation beyond country
-    enable_profiling: bool = False         # Usage pattern analysis
+    enable_identification: bool = False  # Link jobs to named individuals
+    enable_location_tracking: bool = False  # Detailed geolocation beyond country
+    enable_profiling: bool = False  # Usage pattern analysis
 
     # Retention overrides (None = use defaults)
     log_retention_days: Optional[int] = None
@@ -148,12 +166,12 @@ class PrivacyConfig:
     metadata_retention_days: Optional[int] = None
 
     # Redaction
-    redact_pii_in_logs: bool = True        # Scan logs for PII patterns
-    redact_env_vars: bool = True           # Scrub env vars from job records
-    redact_ip_addresses: bool = True       # Replace IPs in stored data
+    redact_pii_in_logs: bool = True  # Scan logs for PII patterns
+    redact_env_vars: bool = True  # Scrub env vars from job records
+    redact_ip_addresses: bool = True  # Replace IPs in stored data
 
     # Consent
-    cross_border_consent: bool = False     # Explicit consent for non-CA processing
+    cross_border_consent: bool = False  # Explicit consent for non-CA processing
     data_collection_consent: bool = False  # Consent for analytics/telemetry
 
     def to_dict(self) -> dict:
@@ -161,6 +179,7 @@ class PrivacyConfig:
 
 
 # ── Redaction Functions ───────────────────────────────────────────────
+
 
 def redact_pii(text: str, patterns: Optional[dict] = None) -> str:
     """Scan text for PII patterns and replace with [REDACTED].
@@ -268,6 +287,7 @@ def sanitize_log_output(log_text: str, max_length: int = 10000) -> str:
 
 # ── Data Lifecycle Manager ────────────────────────────────────────────
 
+
 class DataLifecycleManager:
     """Manages data retention and purging per PIPEDA principles.
 
@@ -277,9 +297,7 @@ class DataLifecycleManager:
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.path.join(
-            os.path.dirname(__file__), "xcelsior_privacy.db"
-        )
+        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_privacy.db")
         self._init_db()
 
     def _init_db(self):
@@ -350,11 +368,16 @@ class DataLifecycleManager:
         Returns the record_id.
         """
         import uuid
+
         record_id = str(uuid.uuid4())[:12]
         now = time.time()
 
         # Determine retention period
-        cat = DataCategory(data_category) if data_category in DataCategory.__members__.values() else None
+        cat = (
+            DataCategory(data_category)
+            if data_category in DataCategory.__members__.values()
+            else None
+        )
         if retention_override_sec is not None:
             retention = retention_override_sec
         elif cat and cat in RETENTION_POLICIES:
@@ -370,12 +393,16 @@ class DataLifecycleManager:
                    (record_id, data_category, entity_id, entity_type,
                     created_at, expires_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (record_id, data_category, entity_id, entity_type,
-                 now, expires_at),
+                (record_id, data_category, entity_id, entity_type, now, expires_at),
             )
 
-        log.debug("RETENTION TRACKED %s/%s category=%s expires=%.0f",
-                   entity_type, entity_id, data_category, expires_at)
+        log.debug(
+            "RETENTION TRACKED %s/%s category=%s expires=%.0f",
+            entity_type,
+            entity_id,
+            data_category,
+            expires_at,
+        )
         return record_id
 
     def get_expired_records(self, before: Optional[float] = None) -> list[dict]:
@@ -429,14 +456,14 @@ class DataLifecycleManager:
     ) -> str:
         """Record explicit consent (PIPEDA principle: Consent)."""
         import uuid
+
         consent_id = str(uuid.uuid4())[:12]
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO consent_records
                    (consent_id, entity_id, consent_type, granted_at, details)
                    VALUES (?, ?, ?, ?, ?)""",
-                (consent_id, entity_id, consent_type, time.time(),
-                 json.dumps(details or {})),
+                (consent_id, entity_id, consent_type, time.time(), json.dumps(details or {})),
             )
         log.info("CONSENT RECORDED entity=%s type=%s", entity_id, consent_type)
         return consent_id
@@ -493,10 +520,9 @@ class DataLifecycleManager:
 
         if row:
             data = json.loads(row["config"])
-            return PrivacyConfig(**{
-                k: v for k, v in data.items()
-                if k in PrivacyConfig.__dataclass_fields__
-            })
+            return PrivacyConfig(
+                **{k: v for k, v in data.items() if k in PrivacyConfig.__dataclass_fields__}
+            )
         return PrivacyConfig()  # STRICT defaults
 
     # ── Retention summary ─────────────────────────────────────────────
@@ -524,12 +550,15 @@ class DataLifecycleManager:
 
         return {
             "policies": policies,
-            "categories": {r["data_category"]: {
-                "total_records": r["total"],
-                "purged": r["purged"],
-                "expired_pending_purge": r["expired_pending"],
-                "active": r["total"] - r["purged"],
-            } for r in rows},
+            "categories": {
+                r["data_category"]: {
+                    "total_records": r["total"],
+                    "purged": r["purged"],
+                    "expired_pending_purge": r["expired_pending"],
+                    "active": r["total"] - r["purged"],
+                }
+                for r in rows
+            },
             "queried_at": time.time(),
         }
 
@@ -549,6 +578,7 @@ def get_lifecycle_manager() -> DataLifecycleManager:
 # ── Québec Law 25 Cross-Border Assessment ─────────────────────────────
 # Before communicating personal information outside Québec, an enterprise
 # must conduct a PIA. This helper determines if a cross-border flag is needed.
+
 
 def requires_quebec_pia(
     data_origin_province: str,
