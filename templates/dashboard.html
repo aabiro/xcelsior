@@ -1957,6 +1957,20 @@
 <script>
 const API = '';
 
+// ── Authenticated fetch wrapper ──────────────────────────────────────
+// Automatically attach Authorization header to all API calls
+const _origFetch = window.fetch;
+window.fetch = function(url, opts = {}) {
+  const token = sessionStorage.getItem('xcelsior_token');
+  if (token && (typeof url === 'string') && (url.startsWith('/') || url.startsWith(API + '/'))) {
+    opts.headers = opts.headers || {};
+    if (!opts.headers['Authorization'] && !opts.headers['authorization']) {
+      opts.headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+  return _origFetch.call(this, url, opts);
+};
+
 // ── Tab switching ────────────────────────────────────────────────────
 function showTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
