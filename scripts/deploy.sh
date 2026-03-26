@@ -42,6 +42,27 @@ scp_file() {
     scp -o StrictHostKeyChecking=accept-new "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
 }
 
+install_nginx_configs() {
+    log "Installing nginx site configs..."
+
+    scp_file "$PROJECT_DIR/nginx/xcelsior.conf" "/tmp/xcelsior.conf"
+    scp_file "$PROJECT_DIR/nginx/headscale.conf" "/tmp/headscale.conf"
+    scp_file "$PROJECT_DIR/nginx/headscale-http.conf" "/tmp/headscale-http.conf"
+
+    ssh_cmd << 'EOF'
+set -e
+sudo cp /tmp/xcelsior.conf /etc/nginx/sites-available/xcelsior
+sudo cp /tmp/headscale.conf /etc/nginx/sites-available/headscale
+sudo cp /tmp/headscale-http.conf /etc/nginx/sites-available/headscale-http
+sudo ln -sf /etc/nginx/sites-available/xcelsior /etc/nginx/sites-enabled/xcelsior
+sudo ln -sf /etc/nginx/sites-available/headscale /etc/nginx/sites-enabled/headscale
+sudo ln -sf /etc/nginx/sites-available/headscale-http /etc/nginx/sites-enabled/headscale-http
+sudo nginx -t
+sudo systemctl reload nginx
+EOF
+    success "Nginx configs installed"
+}
+
 check_ssh() {
     log "Testing SSH connection to $REMOTE_HOST..."
     if ssh_cmd "echo 'SSH OK'" &>/dev/null; then
@@ -60,7 +81,7 @@ set -e
 
 echo "=== Installing dependencies ==="
 sudo apt update
-sudo apt install -y nginx certbot python3-certbot-nginx docker.io docker-compose-plugin postgresql-client
+sudo apt install -y nginx certbot python3-certbot-nginx docker.io docker-compose-plugin postgresql postgresql-client
 
 echo "=== Creating directories ==="
 sudo mkdir -p /opt/xcelsior /opt/xcelsior-backups /var/www/certbot
@@ -70,8 +91,8 @@ echo "=== Adding user to docker group ==="
 sudo usermod -aG docker $USER
 
 echo "=== Enabling services ==="
-sudo systemctl enable nginx docker
-sudo systemctl start docker
+sudo systemctl enable nginx docker postgresql
+sudo systemctl start docker postgresql
 
 echo "=== Setup complete ==="
 EOF
@@ -80,9 +101,6 @@ EOF
 
 setup_ssl() {
     log "Setting up SSL certificates..."
-    
-    # Copy nginx config first
-    scp_file "$PROJECT_DIR/nginx/xcelsior.conf" "/tmp/xcelsior.conf"
     
     ssh_cmd << EOF
 set -e
@@ -110,17 +128,22 @@ sudo nginx -t && sudo systemctl reload nginx
 
 # Get SSL certificate
 sudo certbot certonly --webroot -w /var/www/certbot \
-    -d $DOMAIN -d www.$DOMAIN -d hs.$DOMAIN \
+    -d $DOMAIN -d www.$DOMAIN \
+    --non-interactive --agree-tos \
+    --email admin@$DOMAIN
+
+sudo certbot certonly --webroot -w /var/www/certbot \
+    -d hs.$DOMAIN \
     --non-interactive --agree-tos \
     --email admin@$DOMAIN
 
 # Now install full nginx config
-sudo cp /tmp/xcelsior.conf /etc/nginx/sites-available/xcelsior
-sudo nginx -t && sudo systemctl reload nginx
+echo "Certificates installed"
 
 # Setup auto-renewal
 echo "0 3 * * * root certbot renew --quiet --post-hook 'systemctl reload nginx'" | sudo tee /etc/cron.d/certbot-renew
 EOF
+    install_nginx_configs
     success "SSL certificates configured"
 }
 
@@ -201,9 +224,8 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Build and deploy
-docker compose pull db 2>/dev/null || true
-docker compose build --no-cache
+# Build and deploy against the host Postgres instance
+docker compose build --pull --no-cache
 docker compose down --remove-orphans || true
 docker compose up -d
 
@@ -308,11 +330,19 @@ EOF
 health_check() {
     log "Running health checks..."
     
-    # Local check via nginx
-    if curl -sf "https://$DOMAIN/healthz" > /dev/null; then
+    # Public check via nginx / Cloudflare with a short retry window after restarts
+    local public_ok=false
+    for _ in {1..10}; do
+        if curl -sf "https://$DOMAIN/healthz" > /dev/null; then
+            public_ok=true
+            break
+        fi
+        sleep 2
+    done
+    if [ "$public_ok" = true ]; then
         success "Public endpoint healthy: https://$DOMAIN/healthz"
     else
-        warn "Public endpoint not responding (may be expected during setup)"
+        warn "Public endpoint not responding after retries"
     fi
     
     # Remote internal check
@@ -394,7 +424,8 @@ main() {
         --quick)
             check_ssh
             sync_code
-            ssh_cmd "cd /opt/xcelsior && docker compose restart"
+            install_nginx_configs
+            ssh_cmd "cd /opt/xcelsior && docker compose up -d --build"
             health_check
             ;;
         --rollback)
@@ -410,6 +441,7 @@ main() {
             check_ssh
             backup_current
             sync_code
+            install_nginx_configs
             deploy_systemd
             health_check
             ;;
@@ -417,6 +449,7 @@ main() {
             check_ssh
             backup_current
             sync_code
+            install_nginx_configs
             deploy_docker
             health_check
             success "Deployment complete! Visit https://$DOMAIN"

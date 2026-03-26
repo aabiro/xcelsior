@@ -354,24 +354,24 @@ E2E tests using TestClient (no external services needed).
 #### Phase 7a — Immediate (before production deploy)
 ```bash
 # Run existing tests
-python -m pytest test_scheduler.py test_api.py -v
+python -m pytest tests/test_scheduler.py tests/test_api.py -v
 
 # Add security + admission tests
-python -m pytest test_security.py -v
+python -m pytest tests/test_security.py -v
 
 # Add billing engine tests
-python -m pytest test_billing.py -v
+python -m pytest tests/test_billing.py -v
 ```
 
 #### Phase 7b — Pre-launch (xcelsior.ca)
 ```bash
 # Integration tests with PostgreSQL
-docker compose up db -d
+# Start a PostgreSQL 16 instance reachable at localhost:5432
 alembic upgrade head
-python -m pytest test_integration.py -v
+python -m pytest tests/test_integration.py -v
 
 # Worker agent tests
-python -m pytest test_worker_agent.py -v
+python -m pytest tests/test_worker_agent.py -v
 ```
 
 #### Phase 7c — CI Pipeline

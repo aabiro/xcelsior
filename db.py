@@ -1062,7 +1062,7 @@ def start_pg_listen(callback, channel="xcelsior_events"):
                 # Dedicated connection for LISTEN (not from pool)
                 import psycopg
                 conn = psycopg.connect(
-                    os.environ.get("XCELSIOR_PG_DSN", ""),
+                    os.environ.get("XCELSIOR_PG_DSN") or POSTGRES_DSN,
                     autocommit=True,
                 )
                 conn.execute(f"LISTEN {channel}")

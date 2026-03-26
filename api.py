@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -212,6 +212,9 @@ PUBLIC_PATHS = {
     "/api/transparency/report",
 }
 
+# Prefixes that bypass token auth (OAuth callbacks, auth endpoints)
+PUBLIC_PATH_PREFIXES = ("/api/auth/",)
+
 # Agent/worker paths exempt from rate limiting (protected by token auth)
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
 
@@ -239,7 +242,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        if request.url.path in PUBLIC_PATHS:
+        if request.url.path in PUBLIC_PATHS or request.url.path.startswith(PUBLIC_PATH_PREFIXES):
             return await call_next(request)
 
         auth = request.headers.get("Authorization", "")
@@ -997,6 +1000,43 @@ _USE_PERSISTENT_AUTH = os.environ.get("XCELSIOR_PERSISTENT_AUTH", "true").lower(
 
 SESSION_EXPIRY = 86400 * 30  # 30 days
 
+# ── OAuth Provider Configuration ──────────────────────────────────────
+import httpx as _httpx
+import urllib.parse as _urllib_parse
+
+_OAUTH_BASE_URL = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+
+_OAUTH_PROVIDERS = {
+    "google": {
+        "client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
+        "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+        "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "userinfo_url": "https://www.googleapis.com/oauth2/v2/userinfo",
+        "scopes": "openid email profile",
+    },
+    "github": {
+        "client_id": os.environ.get("GITHUB_CLIENT_ID", ""),
+        "client_secret": os.environ.get("GITHUB_CLIENT_SECRET", ""),
+        "authorize_url": "https://github.com/login/oauth/authorize",
+        "token_url": "https://github.com/login/oauth/access_token",
+        "userinfo_url": "https://api.github.com/user",
+        "scopes": "read:user user:email",
+    },
+    "huggingface": {
+        "client_id": os.environ.get("HUGGINGFACE_CLIENT_ID", ""),
+        "client_secret": os.environ.get("HUGGINGFACE_CLIENT_SECRET", ""),
+        "authorize_url": "https://huggingface.co/oauth/authorize",
+        "token_url": "https://huggingface.co/oauth/token",
+        "userinfo_url": "https://huggingface.co/oauth/userinfo",
+        "scopes": "openid profile email",
+    },
+}
+
+# CSRF state tokens for OAuth (short-lived, in-memory)
+_oauth_states: dict[str, dict] = {}  # state -> {provider, created_at}
+_OAUTH_STATE_TTL = 600  # 10 minutes
+
 
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     """Hash a password with PBKDF2-HMAC-SHA256."""
@@ -1192,19 +1232,142 @@ def api_auth_login(body: LoginRequest):
 
 
 @app.post("/api/auth/oauth/{provider}", tags=["Auth"])
-def api_auth_oauth(provider: str, request: Request):
-    """Handle OAuth callback from Google, GitHub, or HuggingFace.
+def api_auth_oauth_initiate(provider: str):
+    """Initiate OAuth flow — returns the provider's authorization URL.
 
-    In production, this would exchange the OAuth authorization code
-    for user profile info. Currently creates/returns a session for
-    the OAuth email.
+    The frontend should redirect the user to the returned URL.
     """
-    if provider not in ("google", "github", "huggingface"):
+    if provider not in _OAUTH_PROVIDERS:
         raise HTTPException(400, f"Unsupported OAuth provider: {provider}")
 
-    # In production: exchange code from query params / body for user profile
-    # For now: create a dev user for this provider
-    email = f"{provider}-user@xcelsior.ca"
+    cfg = _OAUTH_PROVIDERS[provider]
+    if not cfg["client_id"]:
+        raise HTTPException(503, f"OAuth provider {provider} is not configured")
+
+    # Generate CSRF state token
+    state = secrets.token_urlsafe(32)
+    _oauth_states[state] = {"provider": provider, "created_at": time.time()}
+    # Evict expired states
+    now = time.time()
+    for k in list(_oauth_states):
+        if now - _oauth_states[k]["created_at"] > _OAUTH_STATE_TTL:
+            del _oauth_states[k]
+
+    redirect_uri = f"{_OAUTH_BASE_URL}/api/auth/oauth/{provider}/callback"
+    params = {
+        "client_id": cfg["client_id"],
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "response_type": "code",
+    }
+    if provider == "github":
+        params["scope"] = cfg["scopes"]
+    else:
+        params["scope"] = cfg["scopes"]
+        if provider == "google":
+            params["access_type"] = "offline"
+            params["prompt"] = "select_account"
+
+    auth_url = f"{cfg['authorize_url']}?{_urllib_parse.urlencode(params)}"
+    return {"ok": True, "auth_url": auth_url}
+
+
+@app.get("/api/auth/oauth/{provider}/callback", tags=["Auth"])
+def api_auth_oauth_callback(provider: str, request: Request):
+    """OAuth callback — exchanges authorization code for user profile, creates session,
+    and redirects to dashboard.
+    """
+    if provider not in _OAUTH_PROVIDERS:
+        raise HTTPException(400, f"Unsupported OAuth provider: {provider}")
+
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    error = request.query_params.get("error")
+
+    if error:
+        return RedirectResponse(f"/dashboard?error=oauth_{error}")
+
+    if not code or not state:
+        return RedirectResponse("/dashboard?error=oauth_missing_params")
+
+    # Validate CSRF state
+    state_data = _oauth_states.pop(state, None)
+    if not state_data or state_data["provider"] != provider:
+        return RedirectResponse("/dashboard?error=oauth_invalid_state")
+    if time.time() - state_data["created_at"] > _OAUTH_STATE_TTL:
+        return RedirectResponse("/dashboard?error=oauth_state_expired")
+
+    cfg = _OAUTH_PROVIDERS[provider]
+    redirect_uri = f"{_OAUTH_BASE_URL}/api/auth/oauth/{provider}/callback"
+
+    # Exchange authorization code for access token
+    try:
+        token_resp = _httpx.post(
+            cfg["token_url"],
+            data={
+                "client_id": cfg["client_id"],
+                "client_secret": cfg["client_secret"],
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            headers={"Accept": "application/json"},
+            timeout=15,
+        )
+        token_resp.raise_for_status()
+        token_data = token_resp.json()
+    except Exception as e:
+        log.error("OAuth token exchange failed for %s: %s", provider, e)
+        return RedirectResponse("/dashboard?error=oauth_token_failed")
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        log.error("No access_token in OAuth response for %s: %s", provider, token_data)
+        return RedirectResponse("/dashboard?error=oauth_no_token")
+
+    # Fetch user profile from provider
+    try:
+        userinfo_resp = _httpx.get(
+            cfg["userinfo_url"],
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=10,
+        )
+        userinfo_resp.raise_for_status()
+        profile = userinfo_resp.json()
+    except Exception as e:
+        log.error("OAuth userinfo fetch failed for %s: %s", provider, e)
+        return RedirectResponse("/dashboard?error=oauth_profile_failed")
+
+    # Extract email and name by provider
+    if provider == "google":
+        email = profile.get("email", "")
+        name = profile.get("name", "")
+    elif provider == "github":
+        email = profile.get("email") or ""
+        name = profile.get("name") or profile.get("login", "")
+        # GitHub may not return email in profile — fetch from emails API
+        if not email:
+            try:
+                emails_resp = _httpx.get(
+                    "https://api.github.com/user/emails",
+                    headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                    timeout=10,
+                )
+                if emails_resp.status_code == 200:
+                    for e_entry in emails_resp.json():
+                        if e_entry.get("primary") and e_entry.get("verified"):
+                            email = e_entry["email"]
+                            break
+            except Exception:
+                pass
+    elif provider == "huggingface":
+        email = profile.get("email", "")
+        name = profile.get("name") or profile.get("preferred_username", "")
+
+    if not email:
+        return RedirectResponse("/dashboard?error=oauth_no_email")
+
+    # Find or create user
     if _USE_PERSISTENT_AUTH:
         user = UserStore.get_user(email)
     else:
@@ -1217,7 +1380,7 @@ def api_auth_oauth(provider: str, request: Request):
         user = {
             "user_id": user_id,
             "email": email,
-            "name": f"{provider.title()} User",
+            "name": name or f"{provider.title()} User",
             "password_hash": "",
             "salt": "",
             "role": "submitter",
@@ -1233,23 +1396,22 @@ def api_auth_oauth(provider: str, request: Request):
         else:
             with _user_lock:
                 _users_db[email] = user
+    else:
+        # Update name if it was empty
+        if not user.get("name") and name:
+            user["name"] = name
 
     session = _create_session(email, user)
 
-    return {
-        "ok": True,
-        "access_token": session["token"],
-        "token_type": "Bearer",
-        "expires_in": SESSION_EXPIRY,
-        "user": {
-            "user_id": user["user_id"],
-            "email": email,
-            "name": user["name"],
-            "role": user["role"],
-            "customer_id": user["customer_id"],
-            "oauth_provider": provider,
-        },
-    }
+    # Redirect to dashboard with token in fragment (client-side only, not sent to server)
+    token = session["token"]
+    return RedirectResponse(
+        f"/dashboard#oauth_token={_urllib_parse.quote(token)}"
+        f"&provider={provider}"
+        f"&email={_urllib_parse.quote(email)}"
+        f"&role={user.get('role', 'submitter')}"
+        f"&customer_id={_urllib_parse.quote(user.get('customer_id', ''))}"
+    )
 
 
 @app.get("/api/auth/me", tags=["Auth"])

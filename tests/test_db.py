@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import tempfile
 import time
 
@@ -446,3 +447,71 @@ class TestPgEventBusInMemory:
         from db import PgEventBus
         bus = PgEventBus()
         bus.remove_listener(lambda e: None)  # Should not raise
+
+
+class TestPgListenDsnSelection:
+    """Verify the LISTEN thread uses the configured Postgres DSN."""
+
+    def test_start_pg_listen_uses_postgres_dsn_by_default(self, monkeypatch):
+        import db as db_mod
+
+        captured = {}
+
+        class FakePsycopg:
+            @staticmethod
+            def connect(dsn, autocommit):
+                captured["dsn"] = dsn
+                captured["autocommit"] = autocommit
+                raise RuntimeError("stop listen loop")
+
+        class ImmediateThread:
+            def __init__(self, *, target, daemon, name):
+                self.target = target
+                self.daemon = daemon
+                self.name = name
+
+            def start(self):
+                self.target()
+
+        monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
+        monkeypatch.setattr(db_mod, "POSTGRES_DSN", "postgresql://primary-dsn")
+        monkeypatch.delenv("XCELSIOR_PG_DSN", raising=False)
+        monkeypatch.setattr(db_mod.threading, "Thread", ImmediateThread)
+        monkeypatch.setattr(db_mod.time, "sleep", lambda _: (_ for _ in ()).throw(StopIteration))
+        monkeypatch.setitem(sys.modules, "psycopg", FakePsycopg)
+
+        with pytest.raises(StopIteration):
+            db_mod.start_pg_listen(lambda *_: None)
+
+        assert captured["dsn"] == "postgresql://primary-dsn"
+        assert captured["autocommit"] is True
+
+    def test_start_pg_listen_allows_legacy_env_override(self, monkeypatch):
+        import db as db_mod
+
+        captured = {}
+
+        class FakePsycopg:
+            @staticmethod
+            def connect(dsn, autocommit):
+                captured["dsn"] = dsn
+                raise RuntimeError("stop listen loop")
+
+        class ImmediateThread:
+            def __init__(self, *, target, daemon, name):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
+        monkeypatch.setattr(db_mod, "POSTGRES_DSN", "postgresql://primary-dsn")
+        monkeypatch.setenv("XCELSIOR_PG_DSN", "postgresql://legacy-override")
+        monkeypatch.setattr(db_mod.threading, "Thread", ImmediateThread)
+        monkeypatch.setattr(db_mod.time, "sleep", lambda _: (_ for _ in ()).throw(StopIteration))
+        monkeypatch.setitem(sys.modules, "psycopg", FakePsycopg)
+
+        with pytest.raises(StopIteration):
+            db_mod.start_pg_listen(lambda *_: None)
+
+        assert captured["dsn"] == "postgresql://legacy-override"
