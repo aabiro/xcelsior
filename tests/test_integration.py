@@ -59,8 +59,10 @@ def _admit_host(host_id):
             data = _json.loads(row["payload"])
             data["admitted"] = True
             data["status"] = "active"
-            conn.execute("UPDATE hosts SET status = 'active', payload = ? WHERE host_id = ?",
-                         (_json.dumps(data), host_id))
+            conn.execute(
+                "UPDATE hosts SET status = 'active', payload = ? WHERE host_id = ?",
+                (_json.dumps(data), host_id),
+            )
 
 
 def test_job_lifecycle_and_billing_via_api():
@@ -131,16 +133,27 @@ class TestFullJobLifecycle:
 
     def test_host_register_admit_assign_complete_bill(self):
         _reset_state()
-        client.put("/host", json={
-            "host_id": "lc-h1", "ip": "10.0.0.1",
-            "gpu_model": "A100", "total_vram_gb": 80,
-            "free_vram_gb": 80, "cost_per_hour": 1.0,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "lc-h1",
+                "ip": "10.0.0.1",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.0,
+            },
+        )
         _admit_host("lc-h1")
 
-        job = client.post("/job", json={
-            "name": "lifecycle-job", "vram_needed_gb": 16, "tier": "premium",
-        }).json()["job"]
+        job = client.post(
+            "/job",
+            json={
+                "name": "lifecycle-job",
+                "vram_needed_gb": 16,
+                "tier": "premium",
+            },
+        ).json()["job"]
         job_id = job["job_id"]
         assert job["status"] == "queued"
 
@@ -173,27 +186,44 @@ class TestSovereignRouting:
         """When both CA and non-CA hosts exist, sovereign job goes to CA."""
         _reset_state()
         # Register a US host and a CA host
-        client.put("/host", json={
-            "host_id": "us-host", "ip": "10.0.0.10",
-            "gpu_model": "A100", "total_vram_gb": 80,
-            "free_vram_gb": 80, "cost_per_hour": 0.80,
-            "country": "US",
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "us-host",
+                "ip": "10.0.0.10",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 0.80,
+                "country": "US",
+            },
+        )
         _admit_host("us-host")
 
-        client.put("/host", json={
-            "host_id": "ca-host", "ip": "10.0.0.11",
-            "gpu_model": "A100", "total_vram_gb": 80,
-            "free_vram_gb": 80, "cost_per_hour": 1.20,
-            "country": "CA", "province": "ON",
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "ca-host",
+                "ip": "10.0.0.11",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.20,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
         _admit_host("ca-host")
 
         # Submit sovereign-tier job
-        job = client.post("/job", json={
-            "name": "sovereign-job", "vram_needed_gb": 16,
-            "tier": "sovereign",
-        }).json()["job"]
+        job = client.post(
+            "/job",
+            json={
+                "name": "sovereign-job",
+                "vram_needed_gb": 16,
+                "tier": "sovereign",
+            },
+        ).json()["job"]
 
         client.post("/queue/process")
         detail = client.get(f"/job/{job['job_id']}")
@@ -206,12 +236,18 @@ class TestSovereignRouting:
         """XCELSIOR_CANADA_ONLY=true should only schedule on CA hosts."""
         _reset_state()
         # Register non-CA host only
-        client.put("/host", json={
-            "host_id": "de-host", "ip": "10.0.0.20",
-            "gpu_model": "RTX 4090", "total_vram_gb": 24,
-            "free_vram_gb": 24, "cost_per_hour": 0.50,
-            "country": "DE",
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "de-host",
+                "ip": "10.0.0.20",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.50,
+                "country": "DE",
+            },
+        )
         _admit_host("de-host")
 
         # With canada_only filter, the host should still be listed
@@ -240,17 +276,28 @@ class TestSpotPricingLifecycle:
     def test_spot_and_normal_job_coexist(self):
         """Both spot and normal jobs can be submitted and processed."""
         _reset_state()
-        client.put("/host", json={
-            "host_id": "mixed-h1", "ip": "10.0.0.31",
-            "gpu_model": "A100", "total_vram_gb": 80,
-            "free_vram_gb": 80, "cost_per_hour": 1.0,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "mixed-h1",
+                "ip": "10.0.0.31",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.0,
+            },
+        )
         _admit_host("mixed-h1")
 
         # Normal job
-        normal = client.post("/job", json={
-            "name": "normal-job", "vram_needed_gb": 8, "tier": "premium",
-        }).json()["job"]
+        normal = client.post(
+            "/job",
+            json={
+                "name": "normal-job",
+                "vram_needed_gb": 8,
+                "tier": "premium",
+            },
+        ).json()["job"]
 
         # Spot job via scheduler
         spot = scheduler.submit_spot_job("spot-job", 8, max_bid=0.50)
@@ -379,6 +426,7 @@ class TestBillingJurisdiction:
     def test_province_tax_rates_applied(self):
         """Ontario job should have 13% HST applied."""
         from billing import get_tax_rate_for_province
+
         on_rate, on_label = get_tax_rate_for_province("ON")
         assert abs(on_rate - 0.13) < 0.01
         assert "HST" in on_label
@@ -386,12 +434,14 @@ class TestBillingJurisdiction:
     def test_quebec_tax_rate(self):
         """Quebec job should have QST+GST ≈ 14.975%."""
         from billing import get_tax_rate_for_province
+
         qc_rate, qc_label = get_tax_rate_for_province("QC")
         assert qc_rate > 0.14
 
     def test_canadian_compute_fund_eligibility(self):
         """Canadian host job → fund eligibility calculated."""
         from jurisdiction import compute_fund_eligible_amount
+
         result = compute_fund_eligible_amount(
             total_cost_cad=100.0,
             is_canadian_compute=True,
@@ -402,6 +452,7 @@ class TestBillingJurisdiction:
     def test_non_canadian_host_lower_fund_rate(self):
         """Non-Canadian host → lower fund eligibility rate."""
         from jurisdiction import compute_fund_eligible_amount
+
         result = compute_fund_eligible_amount(
             total_cost_cad=100.0,
             is_canadian_compute=False,
@@ -412,11 +463,14 @@ class TestBillingJurisdiction:
     def test_wallet_deposit_and_balance(self):
         """Deposit → check balance → wallet has funds."""
         _reset_state()
-        resp = client.post("/api/billing/wallet/deposit", json={
-            "customer_id": "cust-int-1",
-            "amount": 500.0,
-            "currency": "CAD",
-        })
+        resp = client.post(
+            "/api/billing/wallet/deposit",
+            json={
+                "customer_id": "cust-int-1",
+                "amount": 500.0,
+                "currency": "CAD",
+            },
+        )
         if resp.status_code == 200:
             data = resp.json()
             assert data.get("ok") is True
@@ -431,16 +485,26 @@ class TestSecurityAdmission:
     def test_unadmitted_host_blocks_allocation(self):
         """Host without admission → job stays queued."""
         _reset_state()
-        client.put("/host", json={
-            "host_id": "sec-h1", "ip": "10.0.0.60",
-            "gpu_model": "RTX 4090", "total_vram_gb": 24,
-            "free_vram_gb": 24, "cost_per_hour": 0.50,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "sec-h1",
+                "ip": "10.0.0.60",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.50,
+            },
+        )
         # Don't admit
 
-        job = client.post("/job", json={
-            "name": "sec-job", "vram_needed_gb": 8,
-        }).json()["job"]
+        job = client.post(
+            "/job",
+            json={
+                "name": "sec-job",
+                "vram_needed_gb": 8,
+            },
+        ).json()["job"]
 
         client.post("/queue/process")
 
@@ -450,16 +514,26 @@ class TestSecurityAdmission:
     def test_admitted_host_receives_work(self):
         """Admitted host → job assigned."""
         _reset_state()
-        client.put("/host", json={
-            "host_id": "sec-h2", "ip": "10.0.0.61",
-            "gpu_model": "A100", "total_vram_gb": 80,
-            "free_vram_gb": 80, "cost_per_hour": 1.0,
-        })
+        client.put(
+            "/host",
+            json={
+                "host_id": "sec-h2",
+                "ip": "10.0.0.61",
+                "gpu_model": "A100",
+                "total_vram_gb": 80,
+                "free_vram_gb": 80,
+                "cost_per_hour": 1.0,
+            },
+        )
         _admit_host("sec-h2")
 
-        job = client.post("/job", json={
-            "name": "admitted-job", "vram_needed_gb": 16,
-        }).json()["job"]
+        job = client.post(
+            "/job",
+            json={
+                "name": "admitted-job",
+                "vram_needed_gb": 16,
+            },
+        ).json()["job"]
 
         client.post("/queue/process")
 
@@ -469,21 +543,30 @@ class TestSecurityAdmission:
     def test_version_report_via_api(self):
         """POST /agent/versions reports node versions and gets admission result."""
         _reset_state()
-        client.put("/host", json={
-            "host_id": "ver-h1", "ip": "10.0.0.62",
-            "gpu_model": "RTX 4090", "total_vram_gb": 24,
-            "free_vram_gb": 24, "cost_per_hour": 0.50,
-        })
-
-        resp = client.post("/agent/versions", json={
-            "host_id": "ver-h1",
-            "versions": {
-                "runc": "1.2.0",
-                "nvidia_container_toolkit": "1.17.0",
-                "nvidia_driver": "550.0",
-                "docker": "27.0.0",
+        client.put(
+            "/host",
+            json={
+                "host_id": "ver-h1",
+                "ip": "10.0.0.62",
+                "gpu_model": "RTX 4090",
+                "total_vram_gb": 24,
+                "free_vram_gb": 24,
+                "cost_per_hour": 0.50,
             },
-        })
+        )
+
+        resp = client.post(
+            "/agent/versions",
+            json={
+                "host_id": "ver-h1",
+                "versions": {
+                    "runc": "1.2.0",
+                    "nvidia_container_toolkit": "1.17.0",
+                    "nvidia_driver": "550.0",
+                    "docker": "27.0.0",
+                },
+            },
+        )
         assert resp.status_code == 200
 
     def test_gvisor_preference_for_sovereign_tier(self):
@@ -511,6 +594,7 @@ class TestSecurityAdmission:
     def test_secure_docker_args_generated(self):
         """security.build_secure_docker_args returns proper args."""
         from security import build_secure_docker_args
+
         args = build_secure_docker_args("test-image:latest", "test-container")
         assert isinstance(args, list)
         assert any("--security-opt" in str(a) for a in args)
@@ -525,6 +609,7 @@ class TestReputationMarketplace:
     def test_reputation_score_calculation(self):
         """Completing jobs increases reputation score."""
         from reputation import ReputationEngine, ReputationStore
+
         store = ReputationStore(os.path.join(_tmpdir, "rep_int.db"))
         engine = ReputationEngine(store=store)
 
@@ -538,6 +623,7 @@ class TestReputationMarketplace:
     def test_penalty_reduces_score(self):
         """Failed jobs reduce reputation."""
         from reputation import ReputationEngine, ReputationStore, PenaltyType
+
         store = ReputationStore(os.path.join(_tmpdir, "rep_pen.db"))
         engine = ReputationEngine(store=store)
 

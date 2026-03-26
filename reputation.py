@@ -30,13 +30,14 @@ log = logging.getLogger("xcelsior")
 
 # ── Score Thresholds (REPORT_FEATURE_1.md §Six-Level Reputation Model) ──
 
+
 class ReputationTier(str, Enum):
-    NEW_USER = "new_user"      # 0–99: Baseline access
-    BRONZE = "bronze"          # 100–249: Search visibility
-    SILVER = "silver"          # 250–449: Priority payout status
-    GOLD = "gold"              # 450–649: Verified Badge status
-    PLATINUM = "platinum"      # 650–849: Featured listing placement
-    DIAMOND = "diamond"        # 850+: Reduced platform commission
+    NEW_USER = "new_user"  # 0–99: Baseline access
+    BRONZE = "bronze"  # 100–249: Search visibility
+    SILVER = "silver"  # 250–449: Priority payout status
+    GOLD = "gold"  # 450–649: Verified Badge status
+    PLATINUM = "platinum"  # 650–849: Featured listing placement
+    DIAMOND = "diamond"  # 850+: Reduced platform commission
 
 
 TIER_THRESHOLDS = {
@@ -47,6 +48,7 @@ TIER_THRESHOLDS = {
     ReputationTier.PLATINUM: 650,
     ReputationTier.DIAMOND: 850,
 }
+
 
 # Reverse lookup: which tier for a given score
 def score_to_tier(score: float) -> ReputationTier:
@@ -65,13 +67,14 @@ def score_to_tier(score: float) -> ReputationTier:
 
 # ── Verification Types ────────────────────────────────────────────────
 
+
 class VerificationType(str, Enum):
     EMAIL = "email"
     PHONE = "phone"
     GOV_ID = "gov_id"
     HARDWARE_AUDIT = "hardware_audit"
-    INCORPORATION = "incorporation"     # For sovereignty tier
-    DATA_CENTER = "data_center"         # Tier 3/4 DC verification
+    INCORPORATION = "incorporation"  # For sovereignty tier
+    DATA_CENTER = "data_center"  # Tier 3/4 DC verification
 
 
 VERIFICATION_POINTS = {
@@ -88,14 +91,15 @@ MAX_VERIFICATION_POINTS = 250  # Cap per REPORT_FEATURE_1.md
 
 # ── Penalty Types ─────────────────────────────────────────────────────
 
+
 class PenaltyType(str, Enum):
-    JOB_FAILURE_HOST = "job_failure_host"         # Host-side failure
-    CHARGEBACK = "chargeback"                      # Payment dispute
-    FRAUD_FLAG = "fraud_flag"                       # Suspicious activity
-    SLA_BREACH = "sla_breach"                       # Uptime SLA violation
-    SECURITY_INCIDENT = "security_incident"        # Container escape / compromise
-    HARDWARE_DAMAGE = "hardware_damage"            # Damaged rented hardware
-    TERMS_VIOLATION = "terms_violation"             # TOS breach
+    JOB_FAILURE_HOST = "job_failure_host"  # Host-side failure
+    CHARGEBACK = "chargeback"  # Payment dispute
+    FRAUD_FLAG = "fraud_flag"  # Suspicious activity
+    SLA_BREACH = "sla_breach"  # Uptime SLA violation
+    SECURITY_INCIDENT = "security_incident"  # Container escape / compromise
+    HARDWARE_DAMAGE = "hardware_damage"  # Damaged rented hardware
+    TERMS_VIOLATION = "terms_violation"  # TOS breach
 
 
 PENALTY_POINTS = {
@@ -112,7 +116,7 @@ PENALTY_POINTS = {
 # ── Activity Scoring ──────────────────────────────────────────────────
 
 POINTS_PER_COMPLETED_JOB = 10
-POINTS_PER_HOSTING_DAY = 2        # Reward continuous availability
+POINTS_PER_HOSTING_DAY = 2  # Reward continuous availability
 
 # Diminishing returns on job volume (REPORT_FEATURE_1.md §Volume Gaming)
 # Per report: "focus on total value and complexity of successfully completed
@@ -120,12 +124,12 @@ POINTS_PER_HOSTING_DAY = 2        # Reward continuous availability
 # After DIMINISHING_RETURNS_THRESHOLD completed jobs, each additional job
 # earns progressively fewer points.
 DIMINISHING_RETURNS_THRESHOLD = 50  # Full points for first 50 jobs
-DIMINISHING_RETURNS_FACTOR = 0.5    # Each subsequent job earns half base
+DIMINISHING_RETURNS_FACTOR = 0.5  # Each subsequent job earns half base
 
 # Decay: lose 1 point per day of inactivity (after 7 day grace)
 DECAY_GRACE_DAYS = 7
 DECAY_POINTS_PER_DAY = 1
-MAX_ACTIVITY_POINTS = 500         # Cap to prevent gaming
+MAX_ACTIVITY_POINTS = 500  # Cap to prevent gaming
 
 
 # ── Reliability Score ─────────────────────────────────────────────────
@@ -133,25 +137,27 @@ MAX_ACTIVITY_POINTS = 500         # Cap to prevent gaming
 # Derived from: uptime percentage, job success rate, network stability
 
 RELIABILITY_WEIGHTS = {
-    "uptime_pct": 0.40,           # Measured uptime / expected uptime
-    "job_success_rate": 0.35,     # Completed / (completed + host-failed)
-    "network_stability": 0.25,   # 1.0 - (jitter_pct + packet_loss_pct)
+    "uptime_pct": 0.40,  # Measured uptime / expected uptime
+    "job_success_rate": 0.35,  # Completed / (completed + host-failed)
+    "network_stability": 0.25,  # 1.0 - (jitter_pct + packet_loss_pct)
 }
 
 
 # ── Score Record ──────────────────────────────────────────────────────
 
+
 @dataclass
 class ReputationScore:
     """Current reputation state for an entity (host or user)."""
+
     entity_id: str = ""
-    entity_type: str = "host"        # "host" or "user"
+    entity_type: str = "host"  # "host" or "user"
 
     # Component scores
     verification_points: float = 0.0
     activity_points: float = 0.0
-    penalty_points: float = 0.0      # Negative value
-    reliability_score: float = 1.0   # 0.0–1.0 multiplier
+    penalty_points: float = 0.0  # Negative value
+    reliability_score: float = 1.0  # 0.0–1.0 multiplier
 
     # Derived
     raw_score: float = 0.0
@@ -164,11 +170,11 @@ class ReputationScore:
     jobs_failed_user: int = 0
     days_active: int = 0
     last_activity_at: float = 0.0
-    verifications: str = "[]"        # JSON list of verification types
+    verifications: str = "[]"  # JSON list of verification types
 
     # Marketplace impact
-    search_boost: float = 1.0        # Higher tier = more visibility
-    pricing_premium_pct: float = 0.0 # Gold/Platinum can charge more
+    search_boost: float = 1.0  # Higher tier = more visibility
+    pricing_premium_pct: float = 0.0  # Gold/Platinum can charge more
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -179,12 +185,12 @@ class ReputationScore:
 # and pricing. Gold hosts can charge premium rates.
 
 TIER_SEARCH_BOOST = {
-    ReputationTier.NEW_USER: 0.8,     # Lower visibility until established
+    ReputationTier.NEW_USER: 0.8,  # Lower visibility until established
     ReputationTier.BRONZE: 1.0,
     ReputationTier.SILVER: 1.1,
     ReputationTier.GOLD: 1.25,
     ReputationTier.PLATINUM: 1.5,
-    ReputationTier.DIAMOND: 2.0,      # Maximum marketplace visibility
+    ReputationTier.DIAMOND: 2.0,  # Maximum marketplace visibility
 }
 
 # From REPORT_MARKETING_1.md: Verified "Gold" hosts at $0.70/hr vs $0.50/hr
@@ -192,32 +198,31 @@ TIER_SEARCH_BOOST = {
 TIER_PRICING_PREMIUM = {
     ReputationTier.NEW_USER: 0.0,
     ReputationTier.BRONZE: 0.0,
-    ReputationTier.SILVER: 0.05,    # 5% premium allowed
-    ReputationTier.GOLD: 0.20,      # 20% premium (matches $0.50→$0.60)
+    ReputationTier.SILVER: 0.05,  # 5% premium allowed
+    ReputationTier.GOLD: 0.20,  # 20% premium (matches $0.50→$0.60)
     ReputationTier.PLATINUM: 0.40,  # 40% premium ($0.50→$0.70)
-    ReputationTier.DIAMOND: 0.50,   # 50% premium ($0.50→$0.75)
+    ReputationTier.DIAMOND: 0.50,  # 50% premium ($0.50→$0.75)
 }
 
 # Diamond tier: reduced platform commission (per REPORT_FEATURE_1.md)
 TIER_PLATFORM_COMMISSION = {
-    ReputationTier.NEW_USER: 0.15,    # Standard 15% cut
+    ReputationTier.NEW_USER: 0.15,  # Standard 15% cut
     ReputationTier.BRONZE: 0.15,
     ReputationTier.SILVER: 0.15,
-    ReputationTier.GOLD: 0.12,        # 12% for Gold
-    ReputationTier.PLATINUM: 0.10,    # 10% for Platinum
-    ReputationTier.DIAMOND: 0.08,     # 8% — "Reduced platform commission"
+    ReputationTier.GOLD: 0.12,  # 12% for Gold
+    ReputationTier.PLATINUM: 0.10,  # 10% for Platinum
+    ReputationTier.DIAMOND: 0.08,  # 8% — "Reduced platform commission"
 }
 
 
 # ── Reputation Store ──────────────────────────────────────────────────
 
+
 class ReputationStore:
     """SQLite-backed reputation persistence."""
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.path.join(
-            os.path.dirname(__file__), "xcelsior_reputation.db"
-        )
+        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_reputation.db")
         self._init_db()
 
     def _init_db(self):
@@ -292,21 +297,35 @@ class ReputationStore:
                     search_boost, pricing_premium_pct, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    score.entity_id, score.entity_type,
-                    score.verification_points, score.activity_points,
-                    score.penalty_points, score.reliability_score,
-                    score.raw_score, score.final_score, score.tier,
-                    score.jobs_completed, score.jobs_failed_host,
-                    score.jobs_failed_user, score.days_active,
-                    score.last_activity_at, score.verifications,
-                    score.search_boost, score.pricing_premium_pct,
+                    score.entity_id,
+                    score.entity_type,
+                    score.verification_points,
+                    score.activity_points,
+                    score.penalty_points,
+                    score.reliability_score,
+                    score.raw_score,
+                    score.final_score,
+                    score.tier,
+                    score.jobs_completed,
+                    score.jobs_failed_host,
+                    score.jobs_failed_user,
+                    score.days_active,
+                    score.last_activity_at,
+                    score.verifications,
+                    score.search_boost,
+                    score.pricing_premium_pct,
                     time.time(),
                 ),
             )
 
-    def record_event(self, entity_id: str, event_type: str,
-                     points_delta: float, reason: str = "",
-                     metadata: str = "{}"):
+    def record_event(
+        self,
+        entity_id: str,
+        event_type: str,
+        points_delta: float,
+        reason: str = "",
+        metadata: str = "{}",
+    ):
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO reputation_events
@@ -327,6 +346,7 @@ class ReputationStore:
 
 
 # ── Reputation Engine ─────────────────────────────────────────────────
+
 
 class ReputationEngine:
     """Computes and manages reputation scores.
@@ -420,11 +440,18 @@ class ReputationEngine:
             )
 
         self.store.record_event(
-            entity_id, f"verification_{vtype.value}", delta,
+            entity_id,
+            f"verification_{vtype.value}",
+            delta,
             reason=f"Completed {vtype.value} verification",
         )
-        log.info("REPUTATION %s +%.0f verification (%s) total=%.0f",
-                 entity_id, delta, vtype.value, new_total)
+        log.info(
+            "REPUTATION %s +%.0f verification (%s) total=%.0f",
+            entity_id,
+            delta,
+            vtype.value,
+            new_total,
+        )
         return self.compute_score(entity_id)
 
     def record_job_completed(self, entity_id: str) -> ReputationScore:
@@ -465,13 +492,14 @@ class ReputationEngine:
             )
 
         self.store.record_event(
-            entity_id, "job_completed", points,
+            entity_id,
+            "job_completed",
+            points,
             reason=f"Job completed successfully (+{points} points, job #{jobs_done + 1})",
         )
         return self.compute_score(entity_id)
 
-    def record_job_failure(self, entity_id: str,
-                           is_host_fault: bool = True) -> ReputationScore:
+    def record_job_failure(self, entity_id: str, is_host_fault: bool = True) -> ReputationScore:
         """Record a job failure. Host-side faults incur penalties."""
         existing = self.store.get_score(entity_id)
         if not existing:
@@ -490,7 +518,9 @@ class ReputationEngine:
                     (penalty, time.time(), time.time(), entity_id),
                 )
             self.store.record_event(
-                entity_id, "job_failure_host", penalty,
+                entity_id,
+                "job_failure_host",
+                penalty,
                 reason="Job failed due to host-side error",
             )
             log.warning("REPUTATION %s %.0f penalty (host failure)", entity_id, penalty)
@@ -504,14 +534,17 @@ class ReputationEngine:
                     (time.time(), time.time(), entity_id),
                 )
             self.store.record_event(
-                entity_id, "job_failure_user", 0,
+                entity_id,
+                "job_failure_user",
+                0,
                 reason="Job failed due to user-side error (no penalty)",
             )
 
         return self.compute_score(entity_id)
 
-    def apply_penalty(self, entity_id: str, ptype: PenaltyType,
-                      reason: str = "") -> ReputationScore:
+    def apply_penalty(
+        self, entity_id: str, ptype: PenaltyType, reason: str = ""
+    ) -> ReputationScore:
         """Apply a manual penalty."""
         points = PENALTY_POINTS.get(ptype, -50)
 
@@ -528,14 +561,16 @@ class ReputationEngine:
             )
 
         self.store.record_event(entity_id, f"penalty_{ptype.value}", points, reason=reason)
-        log.warning("REPUTATION %s %.0f penalty (%s): %s",
-                    entity_id, points, ptype.value, reason)
+        log.warning("REPUTATION %s %.0f penalty (%s): %s", entity_id, points, ptype.value, reason)
         return self.compute_score(entity_id)
 
-    def update_reliability(self, entity_id: str,
-                           uptime_pct: float = 1.0,
-                           job_success_rate: float = 1.0,
-                           network_stability: float = 1.0) -> ReputationScore:
+    def update_reliability(
+        self,
+        entity_id: str,
+        uptime_pct: float = 1.0,
+        job_success_rate: float = 1.0,
+        network_stability: float = 1.0,
+    ) -> ReputationScore:
         """Update the reliability multiplier from measured metrics."""
         reliability = (
             uptime_pct * RELIABILITY_WEIGHTS["uptime_pct"]
@@ -554,8 +589,7 @@ class ReputationEngine:
 
         return self.compute_score(entity_id)
 
-    def get_leaderboard(self, entity_type: str = "host",
-                        limit: int = 20) -> list:
+    def get_leaderboard(self, entity_type: str = "host", limit: int = 20) -> list:
         """Top-N hosts/users by reputation score."""
         with self.store._conn() as conn:
             rows = conn.execute(
@@ -585,14 +619,14 @@ GPU_REFERENCE_PRICING_CAD = {
     "RTX 3090": {
         "base_rate_cad": 0.35,
         "subsidized_starter_cad": 0.30,
-        "premium_rate_cad": 0.45,      # Gold-tier host
+        "premium_rate_cad": 0.45,  # Gold-tier host
         "min_rate_cad": 0.20,
         "max_rate_cad": 0.80,
     },
     "RTX 4090": {
         "base_rate_cad": 0.45,
         "subsidized_starter_cad": 0.40,
-        "premium_rate_cad": 0.70,      # Platinum-tier host per MARKETING_1
+        "premium_rate_cad": 0.70,  # Platinum-tier host per MARKETING_1
         "min_rate_cad": 0.30,
         "max_rate_cad": 1.20,
     },
@@ -630,11 +664,15 @@ GPU_REFERENCE_PRICING_CAD = {
 SOVEREIGNTY_PREMIUM_PCT = 0.10  # 10% extra for Canada-only mode
 
 # From REPORT_MARKETING_2.md: spot pricing at 70% of on-demand
-SPOT_DISCOUNT_FACTOR = 0.30     # 30% discount for spot/preemptible
+SPOT_DISCOUNT_FACTOR = 0.30  # 30% discount for spot/preemptible
 
 
-def get_reference_rate(gpu_model: str, tier: ReputationTier = ReputationTier.BRONZE,
-                       spot: bool = False, sovereignty: bool = False) -> float:
+def get_reference_rate(
+    gpu_model: str,
+    tier: ReputationTier = ReputationTier.BRONZE,
+    spot: bool = False,
+    sovereignty: bool = False,
+) -> float:
     """Get the reference rate in CAD/hr for a GPU model.
 
     Adjusts for:
@@ -659,19 +697,23 @@ def get_reference_rate(gpu_model: str, tier: ReputationTier = ReputationTier.BRO
 
     # Spot discount
     if spot:
-        rate *= (1 - SPOT_DISCOUNT_FACTOR)
+        rate *= 1 - SPOT_DISCOUNT_FACTOR
 
     # Sovereignty premium
     if sovereignty:
-        rate *= (1 + SOVEREIGNTY_PREMIUM_PCT)
+        rate *= 1 + SOVEREIGNTY_PREMIUM_PCT
 
     return round(rate, 4)
 
 
-def estimate_job_cost(gpu_model: str, duration_hours: float,
-                      tier: ReputationTier = ReputationTier.BRONZE,
-                      spot: bool = False, sovereignty: bool = False,
-                      is_canadian: bool = True) -> dict:
+def estimate_job_cost(
+    gpu_model: str,
+    duration_hours: float,
+    tier: ReputationTier = ReputationTier.BRONZE,
+    spot: bool = False,
+    sovereignty: bool = False,
+    is_canadian: bool = True,
+) -> dict:
     """Estimate job cost with AI Compute Access Fund rebate preview.
 
     From REPORT_FEATURE_2.md: `--estimate-rebate` / `simulate=true`
@@ -698,8 +740,9 @@ def estimate_job_cost(gpu_model: str, duration_hours: float,
         "fund_rate": fund["fund_label"],
         "fund_reimbursable_cad": fund["reimbursable_amount_cad"],
         "effective_cost_cad": round(gross_cost - fund["reimbursable_amount_cad"], 2),
-        "savings_pct": round(fund["reimbursable_amount_cad"] / gross_cost * 100, 1)
-            if gross_cost > 0 else 0,
+        "savings_pct": (
+            round(fund["reimbursable_amount_cad"] / gross_cost * 100, 1) if gross_cost > 0 else 0
+        ),
     }
 
 

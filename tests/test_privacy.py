@@ -25,7 +25,6 @@ from privacy import (
     sanitize_log_output,
 )
 
-
 # ── PII Redaction ─────────────────────────────────────────────────────
 
 
@@ -283,9 +282,7 @@ class TestDataLifecycleManager:
 
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(
-            db_path=str(tmp_path / "privacy_test.db")
-        )
+        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "privacy_test.db"))
 
     def test_track_data_returns_record_id(self):
         rid = self.mgr.track_data("job_metadata", "job-1")
@@ -313,9 +310,7 @@ class TestDataLifecycleManager:
         rid = self.mgr.track_data("logs", "job-3", retention_override_sec=0)
         self.mgr.mark_purged(rid, reason="test")
         # Should no longer appear as expired
-        expired = self.mgr.get_expired_records(
-            before=time.time() + 86400
-        )
+        expired = self.mgr.get_expired_records(before=time.time() + 86400)
         ids = [r["record_id"] for r in expired]
         assert rid not in ids
 
@@ -335,9 +330,7 @@ class TestDataLifecycleManager:
 class TestConsent:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(
-            db_path=str(tmp_path / "consent_test.db")
-        )
+        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "consent_test.db"))
 
     def test_record_consent(self):
         cid = self.mgr.record_consent("user-1", "data_collection")
@@ -376,9 +369,7 @@ class TestConsent:
 class TestConfigPersistence:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(
-            db_path=str(tmp_path / "config_test.db")
-        )
+        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "config_test.db"))
 
     def test_save_and_load_config(self):
         cfg = PrivacyConfig(
@@ -413,9 +404,7 @@ class TestConfigPersistence:
 class TestRetentionSummary:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(
-            db_path=str(tmp_path / "summary_test.db")
-        )
+        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "summary_test.db"))
 
     def test_summary_with_data(self):
         self.mgr.track_data("logs", "j-1", retention_override_sec=0)

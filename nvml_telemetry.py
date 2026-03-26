@@ -32,6 +32,7 @@ _nvml_initialized = False
 
 try:
     import pynvml  # Provided by nvidia-ml-py
+
     _nvml_available = True
 except ImportError:
     pynvml = None  # type: ignore[assignment]
@@ -53,6 +54,7 @@ def _get_thermal_avg(gpu_index: int, current_temp: float) -> float:
 
 
 # ── NVML Lifecycle ────────────────────────────────────────────────────
+
 
 def nvml_init() -> bool:
     """Initialize NVML. Call once at startup. Safe to call multiple times."""
@@ -89,6 +91,7 @@ def is_nvml_available() -> bool:
 
 
 # ── Core Telemetry Collection ─────────────────────────────────────────
+
 
 def get_device_count() -> int:
     """Return the number of NVIDIA GPUs visible to NVML."""
@@ -167,8 +170,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
     # ── GPU Utilization (REPORT_FEATURE_1 §SM active %) ───────────────
     try:
         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-        result["utilization"] = util.gpu      # SM active %
-        result["memory_util"] = util.memory   # Memory controller %
+        result["utilization"] = util.gpu  # SM active %
+        result["memory_util"] = util.memory  # Memory controller %
     except Exception:
         result["utilization"] = 0
         result["memory_util"] = 0
@@ -195,15 +198,14 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
     # torch.cuda.memory_reserved() for fragmentation detection
     try:
         import torch
+
         if torch.cuda.is_available():
             result["torch_memory_allocated_bytes"] = torch.cuda.memory_allocated(gpu_index)
             result["torch_memory_reserved_bytes"] = torch.cuda.memory_reserved(gpu_index)
             reserved = result["torch_memory_reserved_bytes"]
             allocated = result["torch_memory_allocated_bytes"]
             if reserved > 0:
-                result["memory_fragmentation_pct"] = round(
-                    (1.0 - allocated / reserved) * 100, 1
-                )
+                result["memory_fragmentation_pct"] = round((1.0 - allocated / reserved) * 100, 1)
             else:
                 result["memory_fragmentation_pct"] = 0.0
         else:
@@ -249,13 +251,9 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
 
     # PCIe throughput (actual bytes/s, not just link info)
     try:
-        tx_bytes = pynvml.nvmlDeviceGetPcieThroughput(
-            handle, pynvml.NVML_PCIE_UTIL_TX_BYTES
-        )
-        rx_bytes = pynvml.nvmlDeviceGetPcieThroughput(
-            handle, pynvml.NVML_PCIE_UTIL_RX_BYTES
-        )
-        result["pcie_tx_mb_s"] = round(tx_bytes / 1024, 2)   # KB/s → MB/s
+        tx_bytes = pynvml.nvmlDeviceGetPcieThroughput(handle, pynvml.NVML_PCIE_UTIL_TX_BYTES)
+        rx_bytes = pynvml.nvmlDeviceGetPcieThroughput(handle, pynvml.NVML_PCIE_UTIL_RX_BYTES)
+        result["pcie_tx_mb_s"] = round(tx_bytes / 1024, 2)  # KB/s → MB/s
         result["pcie_rx_mb_s"] = round(rx_bytes / 1024, 2)
     except Exception:
         result["pcie_tx_mb_s"] = 0
@@ -333,6 +331,7 @@ def collect_all_gpus() -> list[dict]:
 # ── nvidia-smi Fallback ──────────────────────────────────────────────
 # Used when pynvml is not installed (dev machines, CI, etc.)
 
+
 def _fallback_nvidia_smi() -> list[dict]:
     """Query nvidia-smi as subprocess fallback.
 
@@ -351,7 +350,9 @@ def _fallback_nvidia_smi() -> list[dict]:
                 "memory.total,memory.used,memory.free",
                 "--format=csv,noheader,nounits",
             ],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode != 0:
             return []
@@ -364,36 +365,38 @@ def _fallback_nvidia_smi() -> list[dict]:
                 used_mb = float(parts[11]) if parts[11] not in ("[N/A]", "") else 0
                 free_mb = float(parts[12]) if parts[12] not in ("[N/A]", "") else 0
                 temp = float(parts[6]) if parts[6] not in ("[N/A]", "") else 0
-                gpus.append({
-                    "index": int(parts[0]),
-                    "utilization": float(parts[1]) if parts[1] not in ("[N/A]", "") else 0,
-                    "memory_util": float(parts[2]) if parts[2] not in ("[N/A]", "") else 0,
-                    "pcie_gen": parts[3],
-                    "pcie_width": parts[4],
-                    "power_draw_w": float(parts[5]) if parts[5] not in ("[N/A]", "") else 0,
-                    "temperature_c": temp,
-                    "temperature_avg_c": _get_thermal_avg(int(parts[0]), temp),
-                    "gpu_model": parts[7],
-                    "serial": parts[8] if parts[8] not in ("[N/A]", "") else "",
-                    "uuid": parts[9],
-                    "memory_total_gb": round(total_mb / 1024, 2),
-                    "memory_used_gb": round(used_mb / 1024, 2),
-                    "memory_free_gb": round(free_mb / 1024, 2),
-                    "memory_total_bytes": int(total_mb * 1024 * 1024),
-                    "memory_used_bytes": int(used_mb * 1024 * 1024),
-                    "memory_free_bytes": int(free_mb * 1024 * 1024),
-                    "pcie_tx_mb_s": 0,
-                    "pcie_rx_mb_s": 0,
-                    "memory_errors": 0,
-                    "compute_capability": "",
-                    "driver_version": "",
-                    "cuda_version": "",
-                    "torch_memory_allocated_bytes": 0,
-                    "torch_memory_reserved_bytes": 0,
-                    "memory_fragmentation_pct": 0.0,
-                    "pci_info": {"bus_id": "", "device_id": "", "subsystem_id": ""},
-                    "timestamp": time.time(),
-                })
+                gpus.append(
+                    {
+                        "index": int(parts[0]),
+                        "utilization": float(parts[1]) if parts[1] not in ("[N/A]", "") else 0,
+                        "memory_util": float(parts[2]) if parts[2] not in ("[N/A]", "") else 0,
+                        "pcie_gen": parts[3],
+                        "pcie_width": parts[4],
+                        "power_draw_w": float(parts[5]) if parts[5] not in ("[N/A]", "") else 0,
+                        "temperature_c": temp,
+                        "temperature_avg_c": _get_thermal_avg(int(parts[0]), temp),
+                        "gpu_model": parts[7],
+                        "serial": parts[8] if parts[8] not in ("[N/A]", "") else "",
+                        "uuid": parts[9],
+                        "memory_total_gb": round(total_mb / 1024, 2),
+                        "memory_used_gb": round(used_mb / 1024, 2),
+                        "memory_free_gb": round(free_mb / 1024, 2),
+                        "memory_total_bytes": int(total_mb * 1024 * 1024),
+                        "memory_used_bytes": int(used_mb * 1024 * 1024),
+                        "memory_free_bytes": int(free_mb * 1024 * 1024),
+                        "pcie_tx_mb_s": 0,
+                        "pcie_rx_mb_s": 0,
+                        "memory_errors": 0,
+                        "compute_capability": "",
+                        "driver_version": "",
+                        "cuda_version": "",
+                        "torch_memory_allocated_bytes": 0,
+                        "torch_memory_reserved_bytes": 0,
+                        "memory_fragmentation_pct": 0.0,
+                        "pci_info": {"bus_id": "", "device_id": "", "subsystem_id": ""},
+                        "timestamp": time.time(),
+                    }
+                )
         return gpus
 
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
@@ -401,6 +404,7 @@ def _fallback_nvidia_smi() -> list[dict]:
 
 
 # ── Convenience: GPU Info for Host Registration ──────────────────────
+
 
 def get_gpu_info_nvml() -> Optional[dict]:
     """Get GPU model, total VRAM, free VRAM via NVML for host registration.
@@ -431,6 +435,7 @@ def get_gpu_info_nvml() -> Optional[dict]:
 
 # ── Convenience: Verification Report ─────────────────────────────────
 
+
 def build_verification_report(gpu_index: int = 0) -> Optional[dict]:
     """Build a complete verification report for verification.py to consume.
 
@@ -447,32 +452,26 @@ def build_verification_report(gpu_index: int = 0) -> Optional[dict]:
         "gpu_model": data.get("gpu_model", ""),
         "serial": data.get("serial", ""),
         "pci_info": data.get("pci_info", {}),
-
         # VRAM (nvmlDeviceGetMemoryInfo per report)
         "total_vram_gb": data.get("memory_total_gb", 0),
         "free_vram_gb": data.get("memory_free_gb", 0),
-
         # Thermal
         "gpu_temp_celsius": data.get("temperature_c", 0),
         "gpu_temp_avg_celsius": data.get("temperature_avg_c", 0),
-
         # PCIe
         "pcie_bandwidth_gbps": 0,  # Requires active transfer benchmark
         "pcie_gen": data.get("pcie_gen", 0),
         "pcie_width": data.get("pcie_width", 0),
         "pcie_tx_mb_s": data.get("pcie_tx_mb_s", 0),
         "pcie_rx_mb_s": data.get("pcie_rx_mb_s", 0),
-
         # CUDA / Driver
         "compute_capability": data.get("compute_capability", ""),
         "cuda_version": data.get("cuda_version", ""),
         "driver_version": data.get("driver_version", ""),
-
         # Memory fragmentation
         "torch_memory_allocated_bytes": data.get("torch_memory_allocated_bytes", 0),
         "torch_memory_reserved_bytes": data.get("torch_memory_reserved_bytes", 0),
         "memory_fragmentation_pct": data.get("memory_fragmentation_pct", 0),
-
         # ECC
         "memory_errors": data.get("memory_errors", 0),
     }

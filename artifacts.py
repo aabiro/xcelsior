@@ -32,11 +32,12 @@ log = logging.getLogger("xcelsior")
 
 # ── Storage Backends ─────────────────────────────────────────────────
 
+
 class StorageBackend(str, Enum):
-    B2 = "b2"           # Backblaze B2 — Canada East (Toronto)
-    R2 = "r2"           # Cloudflare R2 — zero egress
-    LOCAL = "local"     # Local filesystem / MinIO
-    S3 = "s3"           # Generic S3-compatible
+    B2 = "b2"  # Backblaze B2 — Canada East (Toronto)
+    R2 = "r2"  # Cloudflare R2 — zero egress
+    LOCAL = "local"  # Local filesystem / MinIO
+    S3 = "s3"  # Generic S3-compatible
 
 
 class ArtifactType(str, Enum):
@@ -51,24 +52,27 @@ class ArtifactType(str, Enum):
 
 class ResidencyPolicy(str, Enum):
     """Where artifacts should be stored based on compliance requirements."""
-    CANADA_ONLY = "canada_only"          # B2 CA East only
-    CANADA_PREFERRED = "canada_preferred" # B2 primary, R2 cache
-    ANY = "any"                          # R2 or B2, lowest cost
+
+    CANADA_ONLY = "canada_only"  # B2 CA East only
+    CANADA_PREFERRED = "canada_preferred"  # B2 primary, R2 cache
+    ANY = "any"  # R2 or B2, lowest cost
 
 
 # ── Configuration ────────────────────────────────────────────────────
 
+
 @dataclass
 class StorageConfig:
     """Configuration for a storage backend."""
+
     backend: str = StorageBackend.LOCAL
     endpoint_url: str = ""
     bucket: str = "xcelsior-artifacts"
     region: str = ""
     access_key_id: str = ""
     secret_access_key: str = ""
-    presign_expiry_sec: int = 3600    # 1 hour default
-    max_upload_size_mb: int = 10240   # 10 GB default
+    presign_expiry_sec: int = 3600  # 1 hour default
+    max_upload_size_mb: int = 10240  # 10 GB default
     residency: str = ResidencyPolicy.ANY
 
     @classmethod
@@ -89,12 +93,14 @@ class StorageConfig:
 
 # ── Artifact Metadata ────────────────────────────────────────────────
 
+
 @dataclass
 class ArtifactMeta:
     """Metadata for a stored artifact."""
+
     artifact_id: str = ""
     artifact_type: str = ArtifactType.JOB_OUTPUT
-    key: str = ""                     # S3 object key
+    key: str = ""  # S3 object key
     bucket: str = ""
     backend: str = StorageBackend.LOCAL
     size_bytes: int = 0
@@ -105,7 +111,7 @@ class ArtifactMeta:
     job_id: str = ""
     host_id: str = ""
     owner: str = ""
-    residency_region: str = ""        # Where the data physically resides
+    residency_region: str = ""  # Where the data physically resides
     residency_country: str = ""
     tags: dict = field(default_factory=dict)
 
@@ -116,6 +122,7 @@ class ArtifactMeta:
 # ── Storage Client ────────────────────────────────────────────────────
 # Abstracts S3-compatible operations. Uses boto3 if available,
 # falls back to urllib for presigned URL generation.
+
 
 class StorageClient:
     """S3-compatible storage client with presigned URL support.
@@ -132,6 +139,10 @@ class StorageClient:
         """Lazy-initialize boto3 S3 client."""
         if self._client is not None:
             return self._client
+
+        # Local backend doesn't use remote S3 — always use filesystem fallback
+        if self.config.backend == StorageBackend.LOCAL:
+            return None
 
         try:
             import boto3
@@ -155,8 +166,10 @@ class StorageClient:
             self._client = boto3.client(**kwargs)
             return self._client
         except ImportError:
-            log.warning("boto3 not installed — storage operations will fail. "
-                        "Install with: pip install boto3")
+            log.warning(
+                "boto3 not installed — storage operations will fail. "
+                "Install with: pip install boto3"
+            )
             return None
 
     def generate_upload_url(
@@ -368,17 +381,20 @@ class StorageClient:
                 key = os.path.relpath(full, base).replace(os.sep, "/")
                 if key.startswith(prefix):
                     stat = os.stat(full)
-                    results.append({
-                        "key": key,
-                        "size_bytes": stat.st_size,
-                        "last_modified": time.ctime(stat.st_mtime),
-                    })
+                    results.append(
+                        {
+                            "key": key,
+                            "size_bytes": stat.st_size,
+                            "last_modified": time.ctime(stat.st_mtime),
+                        }
+                    )
         return results
 
 
 # ── Artifact Manager ─────────────────────────────────────────────────
 # Higher-level interface that handles routing between storage backends
 # based on residency policy.
+
 
 class ArtifactManager:
     """Manages artifact storage with residency-aware backend routing.
