@@ -1,0 +1,80 @@
+---
+title: Security Model
+subtitle: 4-layer defense-in-depth for GPU workloads.
+slug: security
+---
+
+## Overview
+
+Xcelsior implements a **4-layer security model** to protect both providers and submitters. Every job runs in a sandboxed environment with strict isolation.
+
+## Layer 1: Version Gating
+
+Before a host can receive any work, its software versions are validated:
+
+| Component | Minimum | Why |
+|-----------|---------|-----|
+| NVIDIA Driver | 535.0 | CVE patches, CUDA 12 support |
+| Docker | 24.0 | BuildKit, rootless support |
+| runc | 1.1.14 | Container escape fixes |
+| nvidia-ctk | 1.17.8 | GPU isolation improvements |
+
+Hosts failing any check stay in `pending` state indefinitely.
+
+## Layer 2: Least-Privilege Docker
+
+Job containers run with minimal privileges:
+- No root access
+- Read-only root filesystem (where possible)
+- Dropped capabilities (no `SYS_ADMIN`, `NET_RAW`, etc.)
+- Memory and CPU limits enforced
+- PID namespace isolation
+
+## Layer 3: Egress Firewall
+
+Network access is tightly controlled:
+- **Allowed**: Scheduler API, artifact storage endpoints
+- **Blocked**: All other outbound traffic
+- **Logged**: Every egress attempt is recorded
+- **Configurable**: Per-job egress rules for special cases
+
+## Layer 4: Runtime Sandboxing
+
+### gVisor (Preferred)
+
+For `secure`, `regulated`, and `sovereign` tier jobs:
+- Kernel syscall interception via Sentry
+- Separate kernel implementation
+- No direct host kernel access from containers
+- ~10% performance overhead, massive security gain
+
+### Kata Containers (Alternative)
+
+For hardware-enforced isolation:
+- Lightweight VM per container
+- Hardware-level separation
+- Higher overhead but stronger guarantees
+
+### runc (Community Tier)
+
+For `community` tier jobs:
+- Standard OCI container runtime
+- Namespace + cgroup isolation
+- Acceptable for non-sensitive workloads
+
+## Trust-Based Isolation
+
+| Job Tier | Runtime | Network | Audit |
+|----------|---------|---------|-------|
+| `community` | runc | Standard egress rules | Basic logging |
+| `secure` | gVisor preferred | Strict egress | Enhanced logging |
+| `regulated` | gVisor required | Province-locked | Full audit trail |
+| `sovereign` | gVisor required | Province-locked | Tamper-evident logs |
+
+## Incident Response
+
+The platform automatically handles security events:
+- **Mining detected** → Job killed, provider penalized
+- **Version regression** → Host moved to `pending`
+- **Egress violation** → Job flagged, alert generated
+- **Container escape attempt** → Host isolated, investigation triggered

@@ -44,6 +44,7 @@ class DataCategory(str, Enum):
     LOGS = "logs"  # Job stdout/stderr
     NETWORK = "network"  # IP addresses, connection data
     LOCATION = "location"  # Geolocation, province, city
+    CHAT_MESSAGES = "chat_messages"  # AI chat conversation data
 
 
 # ── Retention Policies ────────────────────────────────────────────────
@@ -90,6 +91,11 @@ RETENTION_POLICIES = {
     DataCategory.LOCATION: {
         "retention_sec": 90 * 86400,  # 90 days
         "description": "Location data retained 90 days for residency traces",
+        "redact_on_completion": False,
+    },
+    DataCategory.CHAT_MESSAGES: {
+        "retention_sec": 30 * 86400,  # 30 days
+        "description": "Chat messages retained 30 days for quality monitoring",
         "redact_on_completion": False,
     },
 }

@@ -1,0 +1,100 @@
+---
+title: Jobs & Scheduling
+subtitle: Submit, schedule, and manage AI/ML compute jobs.
+slug: jobs
+---
+
+## Overview
+
+Jobs are the core unit of work on Xcelsior. Submitters create jobs specifying their compute requirements, and the scheduler matches them to available GPU hosts.
+
+## Submitting a Job
+
+```bash
+curl -X POST https://xcelsior.ca/job \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "llama-70b-inference",
+    "vram_needed_gb": 48,
+    "priority": 8,
+    "tier": "sovereign"
+  }'
+```
+
+### Job Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Job identifier |
+| `vram_needed_gb` | float | Required GPU VRAM in GB |
+| `priority` | int | 1-10 (higher = more urgent) |
+| `tier` | string | Isolation tier: `community`, `secure`, `regulated`, `sovereign` |
+
+## Job Lifecycle
+
+```
+queued → assigned → running → completed
+                  ↘ failed
+         ↘ cancelled
+```
+
+| Status | Description |
+|--------|-------------|
+| `queued` | Waiting for host allocation |
+| `assigned` | Matched to a host, starting |
+| `running` | Executing on GPU host |
+| `completed` | Finished successfully |
+| `failed` | Execution error |
+| `cancelled` | Cancelled by submitter |
+
+## Scheduling Algorithm
+
+The scheduler uses a 3-step filtering process:
+
+1. **VRAM Check** — Host must have enough free VRAM
+2. **Admission Gate** — Only `admitted = true` hosts considered
+3. **Isolation Tier** — Sovereign/regulated jobs prefer gVisor/Kata runtime
+
+Trigger scheduling manually:
+
+```bash
+POST /queue/process
+```
+
+## Spot Jobs
+
+Submit interruptible jobs at a bid price:
+
+```bash
+curl -X POST https://xcelsior.ca/spot/job \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -d '{
+    "name": "batch-embeddings",
+    "vram_needed_gb": 8,
+    "max_bid": 0.50
+  }'
+```
+
+Spot jobs can be preempted if a higher-priority job arrives. Run preemption cycles:
+
+```bash
+POST /spot/preemption-cycle
+```
+
+## Listing Jobs
+
+```bash
+GET /jobs                    # All jobs
+GET /job/{job_id}            # Single job details
+GET /api/slurm/jobs          # Slurm-compatible job listing
+```
+
+## Job Artifacts
+
+After completion, access job outputs:
+
+```bash
+GET /api/artifacts/{job_id}  # List artifacts
+POST /api/artifacts/download # Get presigned download URL
+```

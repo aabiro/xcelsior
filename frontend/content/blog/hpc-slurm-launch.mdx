@@ -1,0 +1,43 @@
+---
+title: "Introducing HPC & Slurm Integration"
+description: "Run traditional HPC workloads on Xcelsior's GPU marketplace. Full Slurm compatibility with Canadian sovereignty guarantees."
+date: "2026-02-15"
+author: "Xcelsior Team"
+tags: ["HPC", "Slurm", "compute", "new feature"]
+image: "/blog/hpc-slurm.jpg"
+---
+
+## HPC Meets Sovereign Cloud
+
+High-performance computing workflows — molecular dynamics, climate modelling, large-scale training — have traditionally required dedicated cluster access. That often means US-based cloud HPC services or months-long procurement for on-prem hardware.
+
+Today we're launching **HPC / Slurm integration** on Xcelsior, bringing familiar cluster computing workflows to our sovereign GPU marketplace.
+
+## What's New
+
+- **Cluster Profiles** — Choose from pre-configured cluster profiles optimised for different workload types (ML training, inference, simulation, general HPC).
+- **Slurm-Compatible Job Submission** — Submit jobs using familiar Slurm parameters: nodes, GPUs per node, walltime, partitions.
+- **Real-Time Status** — Track job status from pending through running to completion, with live telemetry.
+- **Cancel & Resubmit** — Full job lifecycle management from the dashboard.
+
+## How It Works
+
+1. Navigate to **Dashboard → HPC / Slurm**
+2. Select a cluster profile that matches your workload
+3. Fill in job parameters (name, nodes, GPUs, walltime)
+4. Paste your job script
+5. Submit — Xcelsior's scheduler matches your job to available hardware
+
+Behind the scenes, our scheduler communicates with a Slurm adapter that translates between Xcelsior's marketplace model and standard Slurm job management. This means you get the flexibility of a shared marketplace with the familiarity of Slurm.
+
+## Sovereignty by Default
+
+Every HPC job on Xcelsior runs on Canadian hardware, under Canadian law, with province-level routing when required. Your simulation data, model checkpoints, and job artifacts never leave Canadian jurisdiction.
+
+## Get Started
+
+HPC / Slurm is available now for all Xcelsior accounts. Visit your [dashboard](/dashboard/hpc) to submit your first job.
+
+---
+
+*Have questions or feature requests? Reach out at [support@xcelsior.ca](mailto:support@xcelsior.ca).*

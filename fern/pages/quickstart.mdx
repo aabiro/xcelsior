@@ -1,0 +1,93 @@
+---
+title: Quick Start
+subtitle: Get Xcelsior running in 5 minutes.
+slug: quickstart
+---
+
+## Prerequisites
+
+| Component | Version |
+|-----------|---------|
+| Python | 3.12+ |
+| PostgreSQL | 16+ (production) |
+| Docker | 24.0+ (for GPU workers) |
+| NVIDIA Driver | 535.0+ (GPU workers) |
+
+## Installation
+
+```bash
+git clone https://github.com/aabiro/xcelsior.git
+cd xcelsior
+python3.12 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Edit `.env` with your configuration — at minimum set `XCELSIOR_API_TOKEN`.
+
+## Start the API Server
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The API server starts with:
+- Swagger UI at `http://localhost:8000/docs`
+- ReDoc at `http://localhost:8000/redoc`
+- Dashboard at `http://localhost:8000/dashboard`
+
+## Register a GPU Host
+
+In another terminal, start the worker agent:
+
+```bash
+export XCELSIOR_HOST_ID=my-gpu-01
+export XCELSIOR_SCHEDULER_URL=http://localhost:8000
+python worker_agent.py
+```
+
+The worker agent will:
+1. Gather local GPU info (CUDA driver, Docker version, runtimes)
+2. Register with the scheduler via `PUT /host`
+3. Submit version info via `POST /agent/versions`
+4. Start telemetry reporting every 5 seconds
+
+## Submit a Job
+
+Using the CLI:
+
+```bash
+python cli.py run my-model 8.0
+```
+
+Or via the API:
+
+```bash
+curl -X POST http://localhost:8000/job \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "llama-inference", "vram_needed_gb": 8.0, "priority": 5}'
+```
+
+## Trigger Scheduling
+
+```bash
+curl -X POST http://localhost:8000/queue/process \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN"
+```
+
+The scheduler will allocate the job to an admitted host with sufficient VRAM.
+
+## Production Deployment
+
+For production on `xcelsior.ca`:
+
+```bash
+# Uses Docker Compose with nginx reverse proxy
+docker compose up -d
+
+# Run database migrations
+alembic upgrade head
+```
+
+See the [Architecture](/guides/architecture) page for the full production topology.

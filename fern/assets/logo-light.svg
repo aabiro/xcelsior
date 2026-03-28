@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" fill="none">
+  <rect width="36" height="36" x="2" y="2" rx="8" fill="#0F172A"/>
+  <text x="20" y="28" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#38BDF8" text-anchor="middle">X</text>
+  <text x="52" y="28" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#0F172A">Xcelsior</text>
+</svg>

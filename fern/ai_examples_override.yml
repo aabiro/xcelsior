@@ -1,0 +1,506 @@
+paths:
+  /api/auth/me:
+    patch:
+      x-fern-examples:
+        - request:
+            name: Alex Johnson
+            role: Data Scientist
+            country: Canada
+            province: 'ON'
+  /api/auth/register:
+    post:
+      x-fern-examples:
+        - request:
+            email: jane.doe@example.com
+            password: Str0ngP@ssw0rd!
+  /api/auth/verify:
+    post:
+      x-fern-examples:
+        - request:
+            user_code: XCLSR-9F7B2
+    get:
+      x-fern-examples:
+        - response:
+            body: <html><head><title>Device Code Verification</title></head><body><h1>Enter Your Device Code</h1><form action="/api/auth/verify" method="post"><label for="device_code">Device Code:</label><input type="text" id="device_code" name="device_code" maxlength="8" pattern="[A-Z0-9]{8}" required><button type="submit">Verify</button></form></body></html>
+  /api/auth/change-password:
+    post:
+      x-fern-examples:
+        - request:
+            current_password: OldPassw0rd!
+            new_password: N3wSecur3P@ssw0rd
+  /build:
+    post:
+      x-fern-examples:
+        - request:
+            model: resnet50-v1.5
+            base_image: python:3.11-slim
+            quantize: int8
+            push: true
+  /api/billing/wallet/customer_id/deposit:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            customer_id: customer_id
+          request:
+            amount_cad: 150.75
+            description: Deposit for GPU usage credits
+  /api/pricing/reserve:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: c123e4567-e89b-12d3-a456-426614174000
+            gpu_model: NVIDIA A100
+            commitment_type: 12_months
+            quantity: 3
+            province: QC
+  /api/billing/refund:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: job_9f8b7c6d5e4a3b2c1d0e
+            exit_code: 137
+            failure_reason: User OOM (exit 137)
+  /job/job_id:
+    patch:
+      x-fern-examples:
+        - path-parameters:
+            job_id: job_id
+          request:
+            status: running
+            host_id: host-9f8b7c6d
+  /legacy/path:
+    get:
+      x-fern-examples:
+        - path-parameters:
+            path: dashboard
+          response:
+            body: <html><head><title>Legacy Dashboard</title></head><body><h1>Welcome to the Legacy Dashboard</h1><p>This dashboard is preserved at /legacy while the new Next.js app serves the root path.</p></body></html>
+  /job:
+    post:
+      x-fern-examples:
+        - request:
+            name: Image Classification Training
+            vram_needed_gb: 12.5
+            priority: 5
+            tier: premium
+            num_gpus: 4
+            nfs_server: 10.0.0.15
+            nfs_path: /mnt/shared/datasets
+            nfs_mount_point: /data
+            image: xcelsior/ml-training:2.2.0
+  /api/slurm/submit:
+    post:
+      x-fern-examples:
+        - request:
+            name: xcelsior-training-job-2024-06
+            vram_needed_gb: 24
+            priority: 5
+            tier: premium
+            num_gpus: 4
+            image: xcelsior/ml-training:latest
+            profile: gpu-optimized
+            dry_run: true
+  /api/auth/password-reset:
+    post:
+      x-fern-examples:
+        - request:
+            email: user@example.com
+          response:
+            body:
+              resetToken: 3f8a9b7c-1d2e-4f5a-9c8b-7d6e5f4a3b2c
+  /api/users/me/preferences:
+    put:
+      x-fern-examples:
+        - request:
+            theme: dark
+            notifications:
+              email: true
+              sms: false
+              push: true
+            language: en-CA
+            timezone: America/Toronto
+            privacy:
+              profileVisibility: friends-only
+              dataSharing: false
+  /api/teams:
+    post:
+      x-fern-examples:
+        - request:
+            name: Quantum AI Research
+  /canada:
+    put:
+      x-fern-examples:
+        - request:
+            enabled: true
+  /alerts/config:
+    put:
+      x-fern-examples:
+        - request:
+            email_enabled: true
+            smtp_host: smtp.mailtrap.io
+            smtp_port: 587
+            smtp_user: alert_user
+            smtp_pass: s3cr3tP@ssw0rd
+            email_from: alerts@xcelsior.ca
+            email_to: admin@xcelsior.ca
+            telegram_enabled: true
+            telegram_bot_token: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
+            telegram_chat_id: '-987654321'
+  /api/teams/team_id/members:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            team_id: team_id
+          request:
+            email: jane.doe@example.com
+            role: member
+  /legacy:
+    get:
+      x-fern-examples:
+        - response:
+            body: <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Xcelsior Legacy Dashboard</title></head><body><h1>Welcome to the Xcelsior Legacy Dashboard</h1><p>This dashboard is preserved at <code>/legacy</code> while the new Next.js app serves the root path.</p><nav><ul><li><a href="/legacy/metrics">Metrics</a></li><li><a href="/legacy/health">Health Checks</a></li><li><a href="/legacy/telemetry">GPU Telemetry</a></li></ul></nav></body></html>
+  /api/alerts/config:
+    put:
+      x-fern-examples:
+        - request:
+            email_enabled: true
+            smtp_host: smtp.mailtrap.io
+            smtp_port: 587
+            smtp_user: alertuser
+            smtp_pass: S3cur3P@ssw0rd!
+            email_from: alerts@xcelsior.ca
+            email_to: admin@xcelsior.ca
+            telegram_enabled: true
+            telegram_bot_token: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
+            telegram_chat_id: '-987654321'
+  /api/billing/payment-intent:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cus_J8x9v2L4mN7bQp
+            amount_cad: 150.75
+            description: Compute credits deposit
+          response:
+            body:
+              client_secret: pi_3Kq1X2L4mN7bQp_secret_4J8x9v2L4mN7bQp
+  /api/queue/process-sovereign:
+    post:
+      x-fern-examples:
+        - request:
+            canada_only: true
+            province: 'ON'
+            trust_tier: gold
+  /api/jurisdiction/hosts:
+    post:
+      x-fern-examples:
+        - request:
+            canada_only: true
+            province: 'ON'
+            trust_tier: gold
+  /api/auth/password-reset/confirm:
+    post:
+      x-fern-examples:
+        - request:
+            token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNDU2Nzg5MCIsImV4cCI6MTY5ODQ4MDAwMH0.4f7X9v8Jq3LzY2X9v1Q2W3e5R6T7Y8U9V0W1X2Y3Z4A
+            new_password: Str0ngP@ssw0rd2024!
+  /api/auth/token:
+    post:
+      x-fern-examples:
+        - request:
+            device_code: dvc_9f8b7c6a5e4d3f2a1b0c
+          response:
+            body:
+              access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkphbmUgRG9lIiwiaWF0IjoxNjg2MjQ4MDAwfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+  /api/pricing/estimate:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA A100 80GB
+            duration_hours: 12
+            spot: true
+            sovereignty: true
+            is_canadian: true
+          response:
+            body:
+              estimated_cost_cad: 145.75
+              rebate_cad: 43.73
+              total_cost_after_rebate_cad: 102.02
+              currency: CAD
+              gpu_model: NVIDIA A100 80GB
+              duration_hours: 12
+              spot: true
+              sovereignty: true
+              is_canadian: true
+              rebate_applied: true
+              timestamp: '2024-06-15T10:00:00Z'
+  /agent/lease/renew:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d
+            job_id: job-4a3e2f1b
+  /agent/benchmark:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d
+            gpu_model: NVIDIA RTX 3090
+            score: 9876.54
+            tflops: 35.6
+  /agent/mining-alert:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d
+            gpu_index: 0
+            confidence: 0.87
+            reason: Detected mining process consuming excessive GPU resources
+  /marketplace/list:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host_9f8b7c6d5e4a3b2c1d0e
+            gpu_model: NVIDIA RTX 4090
+            vram_gb: 24
+            price_per_hour: 12.5
+            description: High-performance rig with latest RTX 4090, ideal for deep learning workloads.
+            owner: alice_wong
+  /autoscale/pool:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d
+            ip: 192.168.10.45
+            gpu_model: NVIDIA A100 80GB
+            vram_gb: 80
+  /api/verify/host_id:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            host_id: host-9f8b7c6d5e4a3b2c
+  /api/compliance/quebec-pia-check:
+    post:
+      x-fern-examples:
+        - request:
+            data_origin_province: QC
+            processing_province: 'ON'
+            data_contains_pi: true
+  /host:
+    put:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d
+            ip: 192.168.1.45
+            gpu_model: NVIDIA RTX 3090
+            total_vram_gb: 24
+            free_vram_gb: 18.5
+            cost_per_hour: 0.35
+            country: CA
+            province: 'ON'
+            versions:
+              agent_version: 2.2.0
+              driver_version: 510.73.08
+              cuda_version: '11.7'
+            corporation_name: Maple AI Solutions Inc.
+            business_number: 123456789RT0001
+            gst_hst_number: GST1234567
+            legal_name: Maple AI Solutions Incorporated
+  /api/auth/login:
+    post:
+      x-fern-examples:
+        - request:
+            email: jane.doe@example.com
+            password: S3cureP@ssw0rd!
+          response:
+            body:
+              access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkphbmUgRG9lIiwiaWF0IjoxNjg2MjQ4MDAwLCJleHAiOjE2ODY4NTQ0MDB9.4f7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v1Q2X9v7X9v
+              token_type: Bearer
+              expires_in: 2592000
+  /api/reputation/verify:
+    post:
+      x-fern-examples:
+        - request:
+            entity_id: host_9f8b7c6d5e4a3b2c1d0e
+            verification_type: platinum
+  /agent/lease/release:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: job-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
+            reason: completed
+  /api/privacy/consent:
+    post:
+      x-fern-examples:
+        - request:
+            entity_id: user_9f8b7c6d5e4a3b2c1d0e
+            consent_type: email_marketing
+  /api/providers/provider_id/incorporation:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            provider_id: provider_id
+          request:
+            file_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f6c8a1e4b
+  /spot/job:
+    post:
+      x-fern-examples:
+        - request:
+            name: AI Model Training Job
+            vram_needed_gb: 16
+            max_bid: 3.75
+            priority: 5
+            tier: premium
+  /api/transparency/legal-request:
+    post:
+      x-fern-examples:
+        - request:
+            request_type: warrant
+            jurisdiction: CA-ON
+            authority: Ontario Provincial Police
+            scope: Access to user account data for investigation of fraud
+            notes: Urgent request related to ongoing financial crime investigation
+  /api/sla/enforce:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d5e4a3b2c1d0e
+            month: 2024-05
+            tier: premium
+            monthly_spend_cad: 1250.75
+  /agent/lease/claim:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
+            job_id: job-4a3b2c1d-5678-4f90-8e7d-9c0b1a2d3e4f
+  /agent/telemetry:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d
+            timestamp: 1687501234
+            metrics:
+              gpu_utilization_percent: 72.5
+              gpu_temperature_celsius: 65
+              memory_used_mb: 4096
+              memory_total_mb: 8192
+              power_draw_watts: 120.3
+              fan_speed_rpm: 3200
+  /api/privacy/config:
+    post:
+      x-fern-examples:
+        - request:
+            org_id: a1b2c3d4-e5f6-7890-ab12-cd34ef567890
+            privacy_level: strict
+            privacy_officer_name: Samantha Lee
+            privacy_officer_email: samantha.lee@xcelsior.ca
+            enable_identification: false
+            enable_location_tracking: false
+            enable_profiling: false
+            redact_pii_in_logs: true
+            redact_env_vars: true
+            redact_ip_addresses: true
+            log_retention_days: 90
+            telemetry_retention_days: 180
+  /api/inference:
+    post:
+      x-fern-examples:
+        - request:
+            model: distilbert-base-uncased-finetuned-sst-2-english
+            inputs:
+              - The movie was fantastic and I really enjoyed it!
+            gpu_model: NVIDIA A100
+            max_tokens: 256
+            temperature: 0.7
+            timeout_sec: 120
+  /agent/versions:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
+            versions:
+              cuda: '12.1'
+              runc: 1.1.0-patched
+              nvidia-container-toolkit: 1.11.0-patched
+              kernel: 5.15.0-60-generic
+              docker: 20.10.12
+              nvidia-driver: 525.60.13
+  /api/providers/register:
+    post:
+      x-fern-examples:
+        - request:
+            provider_id: prov_9f8d7c6b2a1e4d3f
+            email: contact@canadagpu.ca
+            provider_type: corporation
+            corporation_name: Canada GPU Solutions Inc.
+            business_number: 123456789RT0001
+            gst_hst_number: GST1234567
+            province: 'ON'
+            legal_name: Canada GPU Solutions Incorporated
+          response:
+            body:
+              onboarding_url: https://connect.stripe.com/setup/s/abc123def456ghi789
+  /api/artifacts/download:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f3c6a1e4b
+            filename: model_checkpoint_v12.pt
+          response:
+            body:
+              url: https://storage.xcelsior.ca/downloads/a3f47b9e-8c2d-4f1a-9b7e-2d5f3c6a1e4b/model_checkpoint_v12.pt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20240601%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240601T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+  /api/artifacts/upload:
+    post:
+      x-fern-examples:
+        - request:
+            job_id: a3f47b9e-8c2d-4f1a-bd3e-9f7c2a1d5e6b
+            filename: model_checkpoint_v12.pt
+            artifact_type: job_output
+            residency_policy: canada_only
+          response:
+            body:
+              upload_url: https://storage.xcelsior.ca/upload/a3f47b9e-8c2d-4f1a-bd3e-9f7c2a1d5e6b/model_checkpoint_v12.pt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20240601%2Fca%2Fs3%2Faws4_request&X-Amz-Date=20240601T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+  /api/providers/webhook:
+    post:
+      x-fern-examples:
+        - request:
+            payload: '{"id":"evt_1N2b3c4d5e6f7g8h9i0j","object":"event","api_version":"2023-05-15","created":1685000000,"data":{"object":{"id":"pi_1N2b3c4d5e6f7g8h9i0j","object":"payment_intent","amount":2500,"currency":"cad","status":"succeeded","customer":"cus_J0hN5m1tH3r3"}},"livemode":true,"pending_webhooks":1,"type":"payment_intent.succeeded"}'
+            signature: t=1685000000,v1=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890,v0=1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+  /dashboard:
+    get:
+      x-fern-examples:
+        - response:
+            body: '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Xcelsior Dashboard</title><style>body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; } header { background-color: #003366; color: white; padding: 10px 20px; } h1 { margin: 0; } section { margin-top: 20px; } .gpu-status { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); } .gpu-status h2 { margin-top: 0; } .gpu-list { list-style: none; padding: 0; } .gpu-list li { padding: 8px 0; border-bottom: 1px solid #ddd; } .gpu-list li:last-child { border-bottom: none; } </style></head><body><header><h1>Xcelsior GPU Dashboard</h1></header><section class="gpu-status"><h2>GPU Telemetry</h2><ul class="gpu-list"><li>GPU 0: NVIDIA A100 - Utilization: 72% - Temperature: 68°C - Memory Usage: 12.3 GB / 40 GB</li><li>GPU 1: NVIDIA A100 - Utilization: 55% - Temperature: 65°C - Memory Usage: 9.8 GB / 40 GB</li><li>GPU 2: NVIDIA A100 - Utilization: 0% - Temperature: 40°C - Memory Usage: 0 GB / 40 GB (Idle)</li></ul></section><section><h2>System Status</h2><p>Region: ON (Ontario, Canada)</p><p>Active Jobs: 14</p><p>Marketplace Billing: Connected via Stripe</p></section><script>function refreshTelemetry() { /* Placeholder for real-time telemetry fetch and update */ console.log(''Refreshing GPU telemetry...''); } setInterval(refreshTelemetry, 30000);</script></body></html>'
+  /agent/verify:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d-1234-4e56-8a9b-0c1d2e3f4a5b
+            report:
+              gpu:
+                id: GPU-0
+                model: NVIDIA A100 40GB
+                driver_version: 510.73.08
+                cuda_version: '11.4'
+                temperature_celsius: 65
+                power_draw_watts: 250
+                memory_total_mb: 40960
+                memory_used_mb: 10240
+                utilization_gpu_percent: 85
+                utilization_memory_percent: 40
+              network:
+                interface: eth0
+                ip_address: 192.168.1.100
+                mac_address: 00:1A:2B:3C:4D:5E
+                rx_bytes: 123456789
+                tx_bytes: 987654321
+                link_speed_mbps: 1000
+              system:
+                hostname: xcelsior-node-01
+                os: Ubuntu 22.04 LTS
+                kernel_version: 5.15.0-46-generic
+                uptime_seconds: 86400
+                cpu_model: Intel Xeon Gold 6338
+                cpu_cores: 32
+                memory_total_mb: 262144
+                memory_used_mb: 131072

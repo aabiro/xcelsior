@@ -1,0 +1,57 @@
+---
+title: "Quebec's Law 25 and GPU Compute: What You Need to Know"
+description: "Quebec's privacy law imposes strict data handling obligations that go beyond PIPEDA. Here's how Xcelsior helps you stay compliant."
+date: "2025-11-10"
+author: "Xcelsior Team"
+tags: ["Law 25", "Quebec", "privacy", "compliance"]
+image: "/blog/law-25.jpg"
+---
+
+## What Is Law 25?
+
+Quebec's **Act to Modernize Legislative Provisions as Regards the Protection of Personal Information** — commonly called **Law 25** — came into full force on September 22, 2024. It's the most comprehensive privacy law in Canada, and in some ways, the strictest in North America.
+
+For companies processing personal data of Quebec residents, Law 25 imposes obligations that go well beyond federal PIPEDA requirements:
+
+- **Privacy Impact Assessments (PIAs)** are mandatory before transferring data outside Quebec or using it for AI/ML training.
+- **Express consent** is required for profiling, automated decision-making, and cross-border transfers.
+- **Data portability** — individuals can demand their data in a structured, machine-readable format.
+- **Breach notification** within 72 hours to the CAI (Commission d'accès à l'information).
+- **Administrative penalties** up to $25 million or 4% of global turnover.
+
+## The Compute Problem
+
+If you're training a model on data that includes Quebec residents — patient records, financial transactions, customer interactions — the compute infrastructure itself falls under Law 25 scrutiny.
+
+Specifically, Section 17 requires a **Privacy Impact Assessment** before any transfer of personal information outside Quebec. Using a US-headquartered cloud provider counts as a cross-border transfer, regardless of where the physical servers sit — because the US CLOUD Act gives foreign legal authority over that data.
+
+This creates a compliance trap: you can use `ca-central-1` in Montreal and still trigger Law 25's PIA requirements because the data processor (AWS, Google, Azure) is controlled by a foreign entity.
+
+## How Xcelsior Solves This
+
+Xcelsior is Canadian-incorporated with no foreign parent entity. When your data stays on Xcelsior infrastructure:
+
+1. **No cross-border transfer**. The data processor is Canadian-controlled, so no PIA is triggered under Section 17.
+2. **No foreign legal exposure**. Canadian courts are the sole authority — the CLOUD Act doesn't apply.
+3. **Compliance automation**. Xcelsior's built-in jurisdiction engine flags data flows that would cross provincial or national boundaries.
+4. **Audit-ready logs**. Every data access, transfer, and processing event is logged with timestamps and jurisdiction metadata.
+
+## Practical Steps
+
+If you're processing data subject to Law 25, here's a compliance checklist for your compute infrastructure:
+
+- [ ] Confirm your compute provider has no foreign parent company
+- [ ] Verify data at rest and in transit stays within Canadian legal jurisdiction
+- [ ] Document your Privacy Impact Assessment for any AI/ML workloads
+- [ ] Ensure your provider supports data portability (export in standard formats)
+- [ ] Confirm breach notification timelines (72 hours to CAI)
+
+## The Bigger Picture
+
+Law 25 is a preview of where Canadian privacy regulation is heading. The federal government's proposed Consumer Privacy Protection Act (CPPA) includes similar provisions. Getting your compute infrastructure right today means you won't scramble when federal law catches up.
+
+Xcelsior was designed for this regulatory environment. Canadian data, Canadian law, Canadian infrastructure — with compliance built in, not bolted on.
+
+---
+
+*Need help with Law 25 compliance for your AI workloads? Contact us at [compliance@xcelsior.ca](mailto:compliance@xcelsior.ca).*

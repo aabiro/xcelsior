@@ -1,0 +1,29 @@
+"use client";
+
+import { useMemo } from "react";
+import * as api from "@/lib/api";
+
+/**
+ * Hook returning API functions. Auth is handled via httpOnly cookies —
+ * no token binding needed. The returned object is memoized so it can
+ * safely appear in useCallback / useEffect dependency arrays.
+ */
+export function useApi() {
+  return useMemo(() => ({
+    fetchHosts: api.fetchHosts,
+    registerHost: api.registerHost,
+    fetchJobs: api.fetchJobs,
+    submitJob: api.submitJob,
+    cancelJob: api.cancelJob,
+    fetchBilling: api.fetchBilling,
+    fetchWallet: api.fetchWallet,
+    fetchMarketplace: api.fetchMarketplace,
+    searchMarketplace: api.searchMarketplace,
+    fetchTelemetry: api.fetchTelemetry,
+    fetchPricingReference: api.fetchPricingReference,
+    fetchReservedPlans: api.fetchReservedPlans,
+    fetchSpotPrices: api.fetchSpotPrices,
+    fetchLeaderboard: api.fetchLeaderboard,
+    fetchAnalytics: api.fetchAnalytics,
+  }), []);
+}

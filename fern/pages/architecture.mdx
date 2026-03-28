@@ -1,0 +1,86 @@
+---
+title: Architecture
+subtitle: How Xcelsior's distributed GPU platform is built.
+slug: architecture
+---
+
+## System Overview
+
+```
+                    ┌──────────────────────────────────────────────────────┐
+                    │              xcelsior.ca  (VPS)                      │
+                    │  Nginx → Docker → FastAPI (9500) + Next.js (3000)   │
+                    └───────────────┬──────────────────────────────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────────┐
+              │                     │                         │
+   ┌──────────▼──────────┐  ┌──────▼──────────┐   ┌─────────▼─────────┐
+   │   PostgreSQL 16     │  │  Headscale Mesh  │   │   Next.js App     │
+   │  (hosts, jobs,      │  │  (private VPN)   │   │  (Dashboard)      │
+   │   billing, events)  │  │  100.x.y.z       │   │  SSE live stream  │
+   │  + SQLite auxiliar  │  └──────┬───────────┘   └───────────────────┘
+   └─────────────────────┘         │
+             ┌─────────────────────┼─────────────────────────┐
+             │                     │                         │
+  ┌──────────▼──────────┐ ┌───────▼─────────┐  ┌────────────▼────────┐
+  │  Worker Agent (GPU)  │ │ Worker Agent     │  │ Worker Agent        │
+  │  telemetry @ 5s     │ │ gVisor sandbox   │  │ Docker + runc       │
+  │  admission gated    │ │ egress firewall  │  │ NVML monitoring     │
+  └─────────────────────┘ └─────────────────┘  └─────────────────────┘
+```
+
+## Core Modules
+
+| Module | Purpose |
+|--------|---------|
+| `api.py` | FastAPI app — 175+ endpoints, SSE streaming, session auth |
+| `scheduler.py` | Job queue, host registry, allocation, spot pricing, preemption |
+| `worker_agent.py` | Pull-based GPU agent, telemetry, mining detection, Docker execution |
+| `security.py` | 4-layer defense: version gating, least-privilege, egress, gVisor |
+| `billing.py` | CAD pricing, 13-province GST/HST, wallets, escrow, Stripe Connect |
+| `events.py` | Append-only event store, tamper-evident hashing, state machine |
+| `verification.py` | GPU fingerprint verification, re-verification scheduling |
+| `jurisdiction.py` | Trust tiers, residency traces, CLOUD Act analysis |
+| `artifacts.py` | B2/R2 artifact storage, residency-aware routing, presigned URLs |
+| `reputation.py` | Multi-factor scoring, 7-day grace decay, Bronze→Platinum tiers |
+| `privacy.py` | PIPEDA/Law 25 consent, data retention, PIA triggers |
+| `db.py` | PostgreSQL + SQLite dual-write, connection pooling, LISTEN/NOTIFY |
+
+## Data Flow
+
+### Job Lifecycle
+
+1. **Submit** → `POST /job` creates job with `queued` status
+2. **Schedule** → `POST /queue/process` runs allocation algorithm
+3. **Assign** → Job matched to admitted host with sufficient VRAM
+4. **Execute** → Worker agent pulls job, runs in sandboxed container
+5. **Complete** → Results uploaded as artifacts, billing finalized
+6. **Settle** → Provider paid via Stripe Connect, platform fee deducted
+
+### Host Admission
+
+1. **Register** → Worker agent calls `PUT /host` (status: `pending`)
+2. **Version Check** → `POST /agent/versions` triggers `admit_node()`
+3. **Gate** → CUDA ≥535, Docker ≥24, runc ≥1.1.14, nvidia-ctk ≥1.17
+4. **Activate** → `admitted=True`, host enters allocation pool
+5. **Monitor** → Telemetry every 5s, mining detection active
+
+## Deployment
+
+### Production Stack
+
+| Service | Port | Container |
+|---------|------|-----------|
+| FastAPI API | 9500 | `xcelsior-api-1` |
+| Next.js Frontend | 3000 | `xcelsior-frontend-1` |
+| Scheduler Worker | — | `xcelsior-scheduler-worker-1` |
+| PostgreSQL | 5432 | System service |
+| Nginx | 80/443 | System service |
+
+### Networking
+
+- Nginx terminates TLS (Let's Encrypt)
+- Proxies `/api/*` to FastAPI on port 9500
+- Everything else to Next.js on port 3000
+- WebSocket upgrade support for future features
+- SSE streaming with no buffering / 24h timeout

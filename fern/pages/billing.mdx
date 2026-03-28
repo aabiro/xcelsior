@@ -1,0 +1,91 @@
+---
+title: Billing
+subtitle: CAD-native billing with 13-province tax support.
+slug: billing
+---
+
+## Overview
+
+Xcelsior handles all billing in **Canadian dollars (CAD)** with full 13-province GST/HST/QST support, wallet-based credits, and Stripe Connect payouts to providers.
+
+## Wallet Management
+
+### Check Balance
+
+```bash
+GET /api/billing/wallet/{customer_id}
+```
+
+### Deposit Credits
+
+```bash
+POST /api/billing/wallet/{customer_id}/deposit
+Content-Type: application/json
+
+{
+  "amount": 100.00,
+  "currency": "CAD"
+}
+```
+
+## Invoicing
+
+Generate a detailed invoice with provincial tax breakdown:
+
+```bash
+GET /api/billing/invoice/{customer_id}
+```
+
+### Tax Rates by Province
+
+| Province | Tax Type | Rate |
+|----------|----------|------|
+| ON | HST | 13% |
+| QC | GST + QST | 5% + 9.975% |
+| BC | GST + PST | 5% + 7% |
+| AB | GST | 5% |
+| NS, NB, NL, PE | HST | 15% |
+| SK | GST + PST | 5% + 6% |
+| MB | GST + PST | 5% + 7% |
+
+## CAF Export
+
+Export billing data in CRA Charities and Finance format:
+
+```bash
+GET /api/billing/export/caf/{customer_id}
+```
+
+Returns a CSV file suitable for Canadian tax filing.
+
+## Refunds
+
+Process refunds for failed jobs or disputes:
+
+```bash
+POST /api/billing/refund
+Content-Type: application/json
+
+{
+  "job_id": "job-123",
+  "reason": "host_failure",
+  "amount": 5.00
+}
+```
+
+Host-side failures result in **full automatic refunds**. Submitter-initiated cancellations may receive partial refunds based on compute consumed.
+
+## Provider Payouts
+
+Providers receive payouts via Stripe Connect:
+
+1. **Onboard** via `POST /api/providers/onboard` (KYC/KYB)
+2. **Earn** from completed jobs (minus platform fee)
+3. **Payout** automatically to connected bank account
+
+### Stripe Connect Flow
+
+```
+Submitter pays → Platform holds in escrow → Job completes →
+Provider gets (price - platform_fee) → Platform keeps fee
+```
