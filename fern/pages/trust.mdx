@@ -1,0 +1,75 @@
+---
+title: Trust & Reputation
+subtitle: Multi-factor trust scoring from Bronze to Platinum.
+slug: trust
+---
+
+## Overview
+
+Xcelsior uses a multi-factor reputation system to build trust between providers and submitters. Scores affect job allocation priority, marketplace visibility, and access to premium features.
+
+## Trust Tiers
+
+| Tier | Min Score | Requirements |
+|------|-----------|-------------|
+| **Bronze** | 0 | Email verified |
+| **Silver** | 50 | Phone verified, 10+ completed jobs |
+| **Gold** | 75 | Government ID verified, 50+ jobs, 95%+ uptime |
+| **Platinum** | 90 | Incorporation verified, 200+ jobs, 99%+ uptime |
+
+## Scoring Factors
+
+The reputation score (0-100) is calculated from:
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Job completion rate | 30% | Successful jobs / total jobs |
+| Uptime | 25% | Host availability percentage |
+| Response time | 15% | Average job pickup latency |
+| Verification level | 20% | Email → Phone → Gov ID → Incorporation |
+| Community rating | 10% | Peer reviews and disputes |
+
+### Grace Period
+
+New providers get a **7-day grace period** where score decay is suspended, allowing time to build a track record.
+
+## Verification
+
+Submit verification documents to increase your trust tier:
+
+```bash
+POST /api/reputation/verify
+Content-Type: application/json
+
+{
+  "entity_id": "provider-alice",
+  "type": "email",
+  "proof": "verified-token"
+}
+```
+
+### Verification Types
+
+| Type | Tier Unlock | Process |
+|------|------------|---------|
+| `email` | Bronze | Email confirmation link |
+| `phone` | Silver | SMS verification code |
+| `gov_id` | Gold | Government-issued ID scan |
+| `incorporation` | Platinum | Certificate of incorporation |
+
+## Leaderboard
+
+View top-rated providers:
+
+```bash
+GET /api/reputation/leaderboard
+```
+
+## Checking Your Score
+
+```bash
+GET /api/reputation/{entity_id}
+GET /api/reputation/me  # Authenticated shortcut
+```
+
+Returns your current score, tier, verification status, and scoring breakdown.

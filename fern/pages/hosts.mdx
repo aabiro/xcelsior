@@ -1,0 +1,100 @@
+---
+title: GPU Hosts
+subtitle: Register and manage GPU hosts on Xcelsior.
+slug: hosts
+---
+
+## Overview
+
+GPU hosts are the compute backbone of Xcelsior. Providers register their machines (consumer or data-center GPUs), and the platform handles admission gating, monitoring, and job allocation.
+
+## Host Registration
+
+Register a host via the API:
+
+```bash
+curl -X PUT https://xcelsior.ca/host \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "host_id": "my-gpu-01",
+    "ip": "100.64.0.5",
+    "gpu_model": "RTX 4090",
+    "vram_gb": 24,
+    "cost_per_hour": 1.20,
+    "country": "CA",
+    "province": "ON"
+  }'
+```
+
+New hosts start with `status: "pending"` and `admitted: false`.
+
+## Admission Gating
+
+Before a host can receive jobs, it must pass automated security checks:
+
+### Version Requirements
+
+| Component | Minimum Version |
+|-----------|----------------|
+| NVIDIA Driver | 535.0+ |
+| Docker | 24.0+ |
+| runc | 1.1.14+ |
+| nvidia-ctk | 1.17.8+ |
+
+### Admission Flow
+
+1. Worker agent gathers local versions
+2. Submits via `POST /agent/versions`
+3. Server runs `admit_node()` from `security.py`
+4. Checks all version minimums
+5. Recommends runtime (gVisor preferred, runc fallback)
+6. If all pass: `admitted = true`, `status = "active"`
+
+### Runtime Selection
+
+| GPU | Recommended Runtime |
+|-----|-------------------|
+| gVisor-supported GPUs | `runsc` (gVisor) |
+| Other GPUs | `runc` (standard) |
+
+## Host Management
+
+### List All Hosts
+
+```bash
+GET /hosts?active_only=true
+```
+
+### Remove a Host
+
+```bash
+DELETE /host/{host_id}
+```
+
+### Host Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Registered, awaiting admission |
+| `active` | Admitted, accepting jobs |
+| `draining` | No new jobs, finishing current work |
+| `offline` | Not responding to health checks |
+
+## Telemetry
+
+Active hosts report telemetry every 5 seconds:
+
+- GPU utilization (%)
+- Temperature (°C)
+- Memory usage (GB)
+- Power draw (W)
+- ECC error count
+- PCIe throughput
+
+### Mining Detection
+
+The platform monitors for cryptocurrency mining patterns:
+- Sustained GPU utilization above 95%
+- Low PCIe TX bandwidth (under 5MB/s)
+- Triggers immediate job termination and reputation penalty

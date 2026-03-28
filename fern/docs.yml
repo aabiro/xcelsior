@@ -1,0 +1,98 @@
+instances:
+  - url: https://xcelsior.docs.buildwithfern.com
+
+title: Xcelsior Docs
+
+logo:
+  light: ./assets/logo-light.svg
+  dark: ./assets/logo-dark.svg
+  href: https://xcelsior.ca
+
+colors:
+  accent-primary:
+    light: "#0F172A"
+    dark: "#38BDF8"
+  background:
+    light: "#FFFFFF"
+    dark: "#0F172A"
+
+favicon: ./assets/favicon.svg
+
+navbar-links:
+  - type: primary
+    text: Dashboard
+    url: https://xcelsior.ca/dashboard
+  - type: secondary
+    text: GitHub
+    url: https://github.com/aabiro/xcelsior
+  - type: secondary
+    text: Status
+    url: https://xcelsior.ca/healthz
+
+tabs:
+  guides:
+    display-name: Guides
+    icon: book-open
+  api-reference:
+    display-name: API Reference
+    icon: puzzle
+  sdk:
+    display-name: SDKs
+    icon: code
+
+navigation:
+  - tab: guides
+    layout:
+      - section: Getting Started
+        contents:
+          - page: Introduction
+            path: ./pages/introduction.mdx
+          - page: Quick Start
+            path: ./pages/quickstart.mdx
+          - page: Authentication
+            path: ./pages/authentication.mdx
+      - section: Platform
+        contents:
+          - page: Architecture
+            path: ./pages/architecture.mdx
+          - page: GPU Hosts
+            path: ./pages/hosts.mdx
+          - page: Jobs & Scheduling
+            path: ./pages/jobs.mdx
+          - page: Marketplace
+            path: ./pages/marketplace.mdx
+      - section: Billing & Compliance
+        contents:
+          - page: Billing
+            path: ./pages/billing.mdx
+          - page: Trust & Reputation
+            path: ./pages/trust.mdx
+          - page: Canadian Compliance
+            path: ./pages/compliance.mdx
+      - section: Infrastructure
+        contents:
+          - page: Worker Agent
+            path: ./pages/worker-agent.mdx
+          - page: Security Model
+            path: ./pages/security.mdx
+          - page: LLM Integration
+            path: ./pages/llm-integration.mdx
+
+  - tab: api-reference
+    layout:
+      - section: Overview
+        contents:
+          - page: API Overview
+            path: ./pages/api-overview.mdx
+      - api: API Reference
+
+  - tab: sdk
+    layout:
+      - section: SDKs
+        contents:
+          - page: TypeScript SDK
+            path: ./pages/typescript-sdk.mdx
+
+footer-links:
+  github: https://github.com/aabiro/xcelsior
+  website: https://xcelsior.ca

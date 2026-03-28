@@ -1,0 +1,82 @@
+---
+title: Authentication
+subtitle: How to authenticate with the Xcelsior API.
+slug: authentication
+---
+
+## Overview
+
+Xcelsior uses two authentication methods:
+
+1. **Bearer Token** — For API and CLI access
+2. **Session Cookie** — For the web dashboard (HttpOnly cookie)
+
+## Bearer Token Authentication
+
+All non-public API endpoints require a Bearer token in the `Authorization` header:
+
+```bash
+Authorization: Bearer <XCELSIOR_API_TOKEN>
+```
+
+### Setting Your Token
+
+Set the `XCELSIOR_API_TOKEN` environment variable in your `.env` file:
+
+```bash
+XCELSIOR_API_TOKEN=your-secret-token-here
+```
+
+### Example Request
+
+```bash
+curl -X GET https://xcelsior.ca/api/hosts \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN"
+```
+
+## Public Endpoints
+
+These endpoints do **not** require authentication:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Landing page |
+| `GET /docs` | Swagger UI |
+| `GET /redoc` | ReDoc |
+| `GET /openapi.json` | OpenAPI specification |
+| `GET /healthz` | Health check |
+| `GET /readyz` | Readiness probe |
+| `GET /metrics` | Prometheus metrics |
+| `GET /api/stream` | SSE event stream |
+| `GET /api/transparency/report` | Transparency report |
+| `GET /llms.txt` | LLM-optimized documentation |
+
+## Dashboard Authentication
+
+The web dashboard at `https://xcelsior.ca/dashboard` uses HTTP-only session cookies:
+
+1. Navigate to `https://xcelsior.ca/login`
+2. Sign in with email/password or OAuth (GitHub, Google, Hugging Face)
+3. A secure `xcelsior_session` cookie is set automatically
+4. All subsequent dashboard API calls include the cookie
+
+### OAuth Providers
+
+| Provider | Scopes |
+|----------|--------|
+| GitHub | `read:user`, `user:email` |
+| Google | `openid`, `email`, `profile` |
+| Hugging Face | `openid`, `profile` |
+
+## SDK Authentication
+
+When using the TypeScript SDK:
+
+```typescript
+import { XcelsiorClient } from "@xcelsior/sdk";
+
+const client = new XcelsiorClient({
+  token: process.env.XCELSIOR_API_TOKEN,
+  environment: "https://xcelsior.ca",
+});
+```

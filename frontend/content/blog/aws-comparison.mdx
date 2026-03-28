@@ -1,0 +1,97 @@
+---
+title: "Xcelsior vs. AWS Canada: A Practical Cost Comparison"
+description: "A real-world pricing comparison between Xcelsior and AWS for GPU compute workloads, including the AI Compute Access Fund rebate."
+date: "2026-01-20"
+author: "Xcelsior Team"
+tags: ["pricing", "AWS", "comparison", "CAD"]
+image: "/blog/aws-comparison.jpg"
+---
+
+## The Headline Number
+
+For a typical ML training workload running 8x A100 80GB GPUs over a one-month sprint, here's what you'd pay:
+
+| | **AWS (p4d.24xlarge)** | **Xcelsior** |
+|---|---|---|
+| On-demand hourly rate | $32.77 USD/hr | $15.12 CAD/hr |
+| Monthly cost (720 hrs) | $23,594 USD (~$32,130 CAD) | $10,886 CAD |
+| With AI Compute Fund (67%) | Not eligible | $3,592 CAD |
+
+That's **$32,130 vs. $3,592** for the same workload — a 89% reduction when you factor in the federal rebate.
+
+## Why the Gap Exists
+
+Three structural reasons explain the price difference:
+
+### 1. No Hyperscaler Margin
+
+AWS, Google, and Azure price GPU compute with 60-80% gross margins. Xcelsior operates as a marketplace connecting Canadian GPU owners directly with users. The platform takes a transparent commission, and competitive supply keeps prices down.
+
+### 2. Canadian Dollar Advantage
+
+AWS prices in USD. When the Canadian dollar sits at 0.72-0.74 USD (as it has for most of 2025-2026), every AWS bill comes with a built-in 30%+ currency penalty for Canadian businesses. Xcelsior prices natively in CAD.
+
+### 3. AI Compute Access Fund Eligibility
+
+The federal **AI Compute Access Fund** provides up to a 67% rebate on eligible compute costs — but only for workloads running on "Canadian-controlled infrastructure." AWS doesn't qualify for the maximum tier because it's US-controlled. Xcelsior is Canadian-incorporated, making every workload eligible for the full rebate.
+
+## Real-World Scenario: Fine-Tuning an LLM
+
+Let's walk through a concrete example. You're fine-tuning a 7B parameter model on a proprietary Canadian dataset:
+
+**Requirements:**
+- 4x A100 80GB
+- ~200 hours of training time
+- Data must stay in Canadian jurisdiction (PIPEDA requirement)
+
+**AWS (p4d.24xlarge, ca-central-1):**
+- You're forced into the full `p4d.24xlarge` (8x A100) since AWS doesn't offer 4-GPU configs
+- 200 hours × $32.77 USD = **$6,554 USD (~$8,930 CAD)**
+- CLOUD Act exposure on your training data
+- Not eligible for maximum AI Compute Fund rebate
+
+**Xcelsior:**
+- Select exactly 4x A100 80GB — pay only for what you need
+- 200 hours × $7.56 CAD = **$1,512 CAD**
+- With AI Compute Fund (67%): **$499 CAD**
+- Full Canadian jurisdiction — no CLOUD Act risk
+- PIPEDA and Law 25 compliant by default
+
+**Savings: $8,930 → $499 (94% reduction)**
+
+## Spot Pricing: Even Cheaper
+
+Xcelsior's spot pricing system lets you bid on idle GPU capacity at discounts of 40-70% below on-demand rates. For fault-tolerant workloads like hyperparameter sweeps, this pushes costs even lower.
+
+Current spot prices (as of writing):
+- RTX 4090: from $0.18 CAD/hr
+- A100 80GB: from $0.95 CAD/hr
+- H100 SXM: from $1.79 CAD/hr
+
+## What About Reserved Instances?
+
+AWS offers 1-year and 3-year reserved pricing that reduces costs by 30-60%. Even at the best reserved rate, Xcelsior's on-demand pricing is competitive — and with the AI Compute Fund rebate, there's no comparison.
+
+| | **AWS 1yr Reserved** | **AWS 3yr Reserved** | **Xcelsior On-Demand** | **Xcelsior + Fund** |
+|---|---|---|---|---|
+| A100 monthly (8x) | ~$19,200 CAD | ~$14,400 CAD | $10,886 CAD | $3,592 CAD |
+
+And with reserved instances, you're locked in. On Xcelsior, you scale up and down as needed.
+
+## The Full Picture
+
+Price matters. But the real value proposition is price **plus** sovereignty **plus** compliance:
+
+- **Legal protection**: Your model weights and training data are under Canadian law only
+- **Compliance**: Built-in PIPEDA, Law 25, and CPPA readiness
+- **Flexibility**: Pay by the hour, no long-term commitments
+- **Currency**: No CAD→USD conversion losses
+- **Rebates**: Full AI Compute Access Fund eligibility
+
+## Try It
+
+Sign up at [xcelsior.ca](https://xcelsior.ca) and run your first job. No credit card required for the free tier — 10 hours of RTX 4090 compute to test your workloads.
+
+---
+
+*Prices current as of January 2026. AWS pricing from aws.amazon.com/ec2/pricing. Exchange rate: 1 USD = 1.362 CAD. AI Compute Access Fund terms subject to federal program guidelines.*

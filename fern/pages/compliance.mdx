@@ -1,0 +1,85 @@
+---
+title: Canadian Compliance
+subtitle: PIPEDA, Quebec Law 25, and provincial data sovereignty.
+slug: compliance
+---
+
+## Overview
+
+Xcelsior is built **Canada-first** with full compliance for federal and provincial privacy laws. All data residency, consent management, and transparency features are built into the platform.
+
+## PIPEDA Compliance
+
+The Personal Information Protection and Electronic Documents Act (PIPEDA) governs how private-sector organizations collect, use, and disclose personal information.
+
+### Xcelsior's PIPEDA Controls
+
+- **Consent management** — Granular consent for data collection, storage, and processing
+- **Data minimization** — Only collect what's needed for the service
+- **Retention policies** — Automated data expiry and deletion schedules
+- **Access requests** — Users can request their data via the privacy API
+- **Breach notification** — Automated alerts for data breach scenarios
+
+## Quebec Law 25
+
+Quebec's *Act respecting the protection of personal information in the private sector* (Law 25) adds stricter requirements:
+
+- **Privacy Impact Assessments (PIA)** — Triggered automatically for sensitive operations
+- **De-identification** — Personal data anonymized for analytics
+- **Cross-border transfers** — Restricted without explicit consent
+- **Privacy officer** — Designated contact for privacy matters
+
+## Data Residency
+
+### Province-Level Filtering
+
+Jobs can be restricted to specific provinces:
+
+```bash
+POST /job
+{
+  "name": "sensitive-analysis",
+  "vram_needed_gb": 24,
+  "province": "QC",
+  "tier": "sovereign"
+}
+```
+
+The scheduler will only allocate to hosts physically located in the specified province.
+
+### Sovereignty Tiers
+
+| Tier | Data Residency | Runtime | Use Case |
+|------|---------------|---------|----------|
+| `community` | Any Canadian host | runc OK | Non-sensitive workloads |
+| `secure` | Canadian hosts only | gVisor preferred | Business data |
+| `regulated` | Province-locked | gVisor required | Healthcare, finance |
+| `sovereign` | Province-locked | gVisor + audit trail | Government, defense |
+
+## CLOUD Act Protection
+
+Xcelsior maintains a **CLOUD Act canary warrant** — a transparency mechanism that confirms no foreign government data requests have been received.
+
+```bash
+GET /api/transparency/report
+```
+
+## Tax Compliance
+
+Full 13-province tax rate support:
+
+```bash
+GET /api/compliance/provinces
+```
+
+Returns GST/HST/PST/QST rates for all provinces and territories.
+
+## Privacy API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/privacy/consents` | List user consents |
+| `POST /api/privacy/consent` | Record consent |
+| `GET /api/privacy/retention` | Data retention policy |
+| `POST /api/privacy/export` | Request data export |
+| `DELETE /api/privacy/data` | Request data deletion |

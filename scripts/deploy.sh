@@ -34,12 +34,14 @@ warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; exit 1; }
 
 # ── Helper Functions ──────────────────────────────────────────────────
+SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
+
 ssh_cmd() {
-    ssh -o StrictHostKeyChecking=accept-new "$REMOTE_USER@$REMOTE_HOST" "$@"
+    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$REMOTE_USER@$REMOTE_HOST" "$@"
 }
 
 scp_file() {
-    scp -o StrictHostKeyChecking=accept-new "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
+    scp -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
 }
 
 install_nginx_configs() {
@@ -191,11 +193,13 @@ sync_code() {
         --exclude='__pycache__' \
         --exclude='.pytest_cache' \
         --exclude='venv' \
+        --exclude='node_modules' \
+        --exclude='.next' \
         --exclude='*.db' \
         --exclude='*.db-*' \
         --exclude='*.log' \
         --exclude='data/*' \
-        --exclude='artifacts/*' \
+        --exclude='./artifacts/*' \
         -C "$PROJECT_DIR" .
     
     scp_file "$TARBALL" "/tmp/xcelsior_deploy.tar.gz"
@@ -204,7 +208,16 @@ sync_code() {
     ssh_cmd << 'EOF'
 set -e
 sudo mkdir -p /opt/xcelsior
+# Preserve server-specific files
+for f in .env docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/opt/xcelsior/$f" ] && cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
+done
 sudo tar -xzf /tmp/xcelsior_deploy.tar.gz -C /opt/xcelsior
+# Restore preserved files
+for f in .env docker-compose.override.yml docker-compose.prod.yml; do
+    [ -f "/tmp/xcelsior_preserve_$f" ] && cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior/$f" || true
+    rm -f "/tmp/xcelsior_preserve_$f"
+done
 sudo chown -R $USER:$USER /opt/xcelsior
 rm /tmp/xcelsior_deploy.tar.gz
 EOF
@@ -225,7 +238,7 @@ if [ ! -f .env ]; then
 fi
 
 # Build and deploy against the host Postgres instance
-docker compose build --pull --no-cache
+docker compose build --pull
 docker compose down --remove-orphans || true
 docker compose up -d
 
@@ -382,6 +395,7 @@ ${CYAN}Usage:${NC}
 ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_USER  SSH user (default: linuxuser)
   XCELSIOR_DEPLOY_HOST  VPS IP (default: 149.28.121.61)
+  XCELSIOR_SSH_KEY      SSH key path (default: ~/.ssh/xcelsior)
 
 ${CYAN}Examples:${NC}
   # First-time setup

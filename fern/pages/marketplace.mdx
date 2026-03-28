@@ -1,0 +1,82 @@
+---
+title: Marketplace
+subtitle: Browse and list GPU rigs for rent.
+slug: marketplace
+---
+
+## Overview
+
+The Xcelsior Marketplace lets GPU providers list their rigs for rent and submitters browse available compute. Pricing is in CAD with configurable platform fees.
+
+## Listing a Rig
+
+```bash
+curl -X POST https://xcelsior.ca/marketplace/list \
+  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -d '{
+    "host_id": "my-gpu-01",
+    "gpu_model": "RTX 4090",
+    "vram_gb": 24,
+    "price_per_hour": 1.20,
+    "description": "24GB VRAM, watercooled, 99.9% uptime"
+  }'
+```
+
+### Listing Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `host_id` | string | Registered host identifier |
+| `gpu_model` | string | GPU model name |
+| `vram_gb` | int | Available VRAM |
+| `price_per_hour` | float | Hourly rate in CAD |
+| `description` | string | Optional listing description |
+
+## Browsing the Marketplace
+
+```bash
+GET /marketplace
+```
+
+Returns all active listings with provider info, GPU specs, pricing, and uptime stats.
+
+### Response Example
+
+```json
+[
+  {
+    "host_id": "m1",
+    "gpu_model": "RTX 4090",
+    "vram_gb": 24,
+    "price_per_hour": 1.00,
+    "owner": "alice",
+    "platform_cut": 0.10,
+    "active": true,
+    "total_jobs": 42,
+    "total_earned": 156.80
+  }
+]
+```
+
+## Platform Fees
+
+The platform takes a configurable cut of each transaction:
+- Default: 10% platform fee
+- Provider receives: 90% of job revenue
+- Paid out via Stripe Connect
+
+## Unlisting a Rig
+
+```bash
+DELETE /marketplace/{host_id}
+```
+
+## Spot Pricing
+
+Dynamic spot prices fluctuate based on supply and demand:
+
+```bash
+GET /spot-prices
+```
+
+Returns current per-GPU-model spot rates. Providers can offer discounted spot capacity for interruptible workloads.

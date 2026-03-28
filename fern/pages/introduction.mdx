@@ -1,0 +1,59 @@
+---
+title: Introduction
+subtitle: Sovereign GPU compute for Canada. Ever upward.
+slug: introduction
+---
+
+## What is Xcelsior?
+
+Xcelsior is a distributed GPU orchestration platform that aggregates consumer and data-center GPUs into a managed compute marketplace. Built for **Canadian data sovereignty**, it provides PIPEDA and Quebec Law 25 compliance out of the box.
+
+### Key Features
+
+<Cards>
+  <Card title="GPU Marketplace" icon="gpu">
+    Browse and rent GPUs from providers across Canada. RTX 4090s, A100s, H100s — pay per hour in CAD.
+  </Card>
+  <Card title="Canadian Data Sovereignty" icon="shield">
+    PIPEDA and Quebec Law 25 compliant. Province-level data residency controls. CLOUD Act canary warrant.
+  </Card>
+  <Card title="Trust & Reputation" icon="star">
+    4-tier trust system (Bronze → Platinum) with automated hardware verification and reputation scoring.
+  </Card>
+  <Card title="Secure Isolation" icon="lock">
+    4-layer security: version gating, least-privilege Docker, egress firewall, gVisor/Kata sandboxing.
+  </Card>
+</Cards>
+
+## How It Works
+
+1. **Providers** register GPU hosts via the worker agent. Hosts undergo automated admission gating (driver versions, security checks).
+2. **Submitters** submit AI/ML jobs specifying VRAM requirements, priority, and isolation tier.
+3. **The scheduler** matches jobs to admitted hosts based on capacity, trust tier, and data residency rules.
+4. **Billing** handles CAD-native pricing with 13-province GST/HST, wallet credits, and Stripe Connect payouts.
+
+## Stack
+
+| Component | Technology |
+|-----------|------------|
+| API | Python 3.12, FastAPI |
+| Database | PostgreSQL 16 (primary), SQLite (auxiliary) |
+| Networking | Headscale mesh (private overlay) |
+| Containers | Docker + gVisor/Kata sandboxing |
+| Frontend | Next.js (App Router) |
+| Billing | Stripe Connect, CAD-native |
+| SDK | TypeScript (Fern-generated) |
+
+## Next Steps
+
+<Cards>
+  <Card title="Quick Start" icon="rocket" href="/guides/quickstart">
+    Get up and running in 5 minutes.
+  </Card>
+  <Card title="API Reference" icon="puzzle" href="/api-reference">
+    Explore all 175+ API endpoints.
+  </Card>
+  <Card title="TypeScript SDK" icon="code" href="/sdk/typescript-sdk">
+    Install the generated TypeScript client.
+  </Card>
+</Cards>

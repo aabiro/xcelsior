@@ -1,0 +1,95 @@
+---
+title: Worker Agent
+subtitle: GPU host agent for telemetry, job execution, and security.
+slug: worker-agent
+---
+
+## Overview
+
+The worker agent runs on each GPU host machine. It handles host registration, version reporting, telemetry, and job execution within sandboxed containers.
+
+## Installation
+
+```bash
+# On the GPU host machine
+git clone https://github.com/aabiro/xcelsior.git
+cd xcelsior
+pip install -r requirements.txt
+```
+
+## Configuration
+
+Set environment variables:
+
+```bash
+export XCELSIOR_HOST_ID=my-gpu-01
+export XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
+export XCELSIOR_API_TOKEN=your-token
+```
+
+## Starting the Agent
+
+```bash
+python worker_agent.py
+```
+
+The agent will:
+1. Detect local GPU hardware via NVML
+2. Register with the scheduler (`PUT /host`)
+3. Report software versions (`POST /agent/versions`)
+4. Begin telemetry loop (every 5 seconds)
+5. Poll for assigned jobs
+
+## Telemetry
+
+The agent reports these metrics every 5 seconds:
+
+| Metric | Unit | Description |
+|--------|------|-------------|
+| `gpu_utilization` | % | Current GPU compute usage |
+| `temperature` | °C | GPU die temperature |
+| `memory_used` | GB | GPU memory in use |
+| `memory_total` | GB | Total GPU memory |
+| `power_draw` | W | Current power consumption |
+| `ecc_errors` | count | ECC memory error count |
+| `pcie_tx` | MB/s | PCIe transmit bandwidth |
+| `pcie_rx` | MB/s | PCIe receive bandwidth |
+
+## Job Execution
+
+When a job is assigned:
+
+1. Agent pulls the job specification
+2. Downloads any required artifacts
+3. Starts a Docker container with GPU passthrough
+4. Applies isolation based on job tier:
+   - `community` → standard runc
+   - `secure`/`regulated`/`sovereign` → gVisor (runsc)
+5. Monitors execution, streams logs
+6. Uploads output artifacts on completion
+
+## Security Features
+
+### Mining Detection
+
+The agent monitors for cryptocurrency mining patterns:
+- GPU utilization sustained above 95%
+- PCIe TX bandwidth under 5MB/s (mining doesn't output much data)
+- Triggers: immediate job kill + reputation penalty
+
+### Egress Firewall
+
+Containers run with restricted network access:
+- Only allowed destinations: scheduler API, artifact storage
+- No direct internet access from job containers
+- All egress logged for audit
+
+### Version Gating
+
+The scheduler enforces minimum versions:
+- NVIDIA Driver ≥ 535.0
+- Docker ≥ 24.0
+- runc ≥ 1.1.14
+- nvidia-ctk ≥ 1.17.8
+
+Hosts failing version checks remain in `pending` state and cannot receive jobs.

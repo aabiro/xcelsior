@@ -338,6 +338,7 @@ class StripeConnectManager:
         intent_id = f"pi_{secrets.token_hex(12)}"
         amount_cents = int(amount_cad * 100)
         stripe_intent_id = ""
+        client_secret = ""
 
         if STRIPE_ENABLED and stripe:
             try:
@@ -351,10 +352,12 @@ class StripeConnectManager:
                     description=description,
                 )
                 stripe_intent_id = pi.id
+                client_secret = pi.client_secret
             except Exception as e:
                 log.error("Stripe PaymentIntent failed: %s", e)
         else:
             stripe_intent_id = f"pi_stub_{intent_id[:8]}"
+            client_secret = f"stub_secret_{intent_id}"
 
         with self._conn() as conn:
             conn.execute(
@@ -369,7 +372,7 @@ class StripeConnectManager:
             "intent_id": intent_id,
             "stripe_intent_id": stripe_intent_id,
             "amount_cad": amount_cad,
-            "client_secret": f"stub_secret_{intent_id}" if not STRIPE_ENABLED else "",
+            "client_secret": client_secret,
         }
 
     # ── Payout Splitting ──────────────────────────────────────────────

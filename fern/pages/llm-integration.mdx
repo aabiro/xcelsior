@@ -1,0 +1,77 @@
+---
+title: LLM Integration
+subtitle: AI agent-optimized documentation via llms.txt.
+slug: llm-integration
+---
+
+## Overview
+
+Xcelsior provides machine-readable documentation following the [llms.txt specification](https://llmstxt.org) for seamless integration with AI agents, copilots, and LLM-powered tools.
+
+## llms.txt Endpoint
+
+```bash
+GET https://xcelsior.ca/llms.txt
+```
+
+Returns a structured text document optimized for LLM consumption, covering:
+- API overview and authentication
+- All endpoint groups with request/response formats
+- Error codes and handling
+- Rate limiting details
+
+## OpenAPI Specification
+
+The full machine-readable API spec:
+
+```bash
+GET https://xcelsior.ca/openapi.json
+```
+
+Returns OpenAPI 3.1.0 with:
+- 175+ endpoint definitions
+- 50+ request/response schemas
+- Security scheme definitions
+- Server URLs (production + development)
+
+## Using with AI Agents
+
+### Claude / ChatGPT
+
+Point your AI agent to the llms.txt endpoint:
+
+```
+Read https://xcelsior.ca/llms.txt for the Xcelsior API documentation.
+```
+
+### Custom Integrations
+
+Use the OpenAPI spec to generate client code:
+
+```python
+import json
+import httpx
+
+spec = httpx.get("https://xcelsior.ca/openapi.json").json()
+# Use spec to drive API calls
+```
+
+### MCP Integration
+
+Xcelsior's API is designed to work with Model Context Protocol (MCP) servers. The OpenAPI spec can be used to create an MCP server that gives AI agents direct access to GPU compute:
+
+```json
+{
+  "name": "xcelsior",
+  "description": "GPU compute orchestration",
+  "api_spec": "https://xcelsior.ca/openapi.json"
+}
+```
+
+## Rate Limits
+
+When integrating AI agents, be aware of rate limits:
+- **30 requests/second** per IP address
+- **20 concurrent connections** per IP
+- **Burst**: up to 50 requests allowed in bursts
+- Health endpoints (`/healthz`, `/readyz`) are exempt

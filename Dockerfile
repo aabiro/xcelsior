@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.title="Xcelsior API" \
+      org.opencontainers.image.description="FastAPI backend for Xcelsior — Canadian sovereign GPU marketplace" \
+      org.opencontainers.image.url="https://xcelsior.ca" \
+      org.opencontainers.image.source="https://github.com/aabiro/xcelsior" \
+      org.opencontainers.image.vendor="Xcelsior" \
+      org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 # Install system deps for psycopg (libpq)

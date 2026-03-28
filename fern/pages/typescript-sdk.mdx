@@ -1,0 +1,156 @@
+---
+title: TypeScript SDK
+subtitle: Auto-generated TypeScript client for the Xcelsior API.
+slug: typescript-sdk
+---
+
+## Overview
+
+The Xcelsior TypeScript SDK is auto-generated from the OpenAPI specification using [Fern](https://buildwithfern.com). It provides type-safe access to all 175+ API endpoints.
+
+## Installation
+
+```bash
+npm install @xcelsior/sdk
+# or
+yarn add @xcelsior/sdk
+# or
+pnpm add @xcelsior/sdk
+```
+
+## Quick Start
+
+```typescript
+import { XcelsiorClient } from "@xcelsior/sdk";
+
+const client = new XcelsiorClient({
+  token: process.env.XCELSIOR_API_TOKEN!,
+  environment: "https://xcelsior.ca",
+});
+
+// List all GPU hosts
+const hosts = await client.hosts.list({ activeOnly: true });
+console.log(`${hosts.length} active hosts`);
+
+// Submit a job
+const job = await client.jobs.create({
+  name: "llama-inference",
+  vramNeededGb: 24,
+  priority: 5,
+  tier: "sovereign",
+});
+console.log(`Job ${job.jobId} created`);
+```
+
+## Configuration
+
+```typescript
+const client = new XcelsiorClient({
+  // Required
+  token: "your-api-token",
+
+  // Optional
+  environment: "https://xcelsior.ca", // default: production
+  timeoutInSeconds: 60,               // request timeout
+});
+```
+
+## Usage Examples
+
+### GPU Hosts
+
+```typescript
+// Register a host
+await client.hosts.register({
+  hostId: "my-gpu-01",
+  ip: "100.64.0.5",
+  gpuModel: "RTX 4090",
+  vramGb: 24,
+  costPerHour: 1.2,
+  country: "CA",
+  province: "ON",
+});
+
+// List active hosts
+const hosts = await client.hosts.list({ activeOnly: true });
+```
+
+### Job Management
+
+```typescript
+// Submit a job
+const job = await client.jobs.create({
+  name: "training-run",
+  vramNeededGb: 48,
+  priority: 8,
+});
+
+// Check status
+const status = await client.jobs.get(job.jobId);
+
+// List all jobs
+const jobs = await client.jobs.list();
+```
+
+### Billing
+
+```typescript
+// Check wallet balance
+const wallet = await client.billing.getWallet("customer-123");
+console.log(`Balance: $${wallet.balance} CAD`);
+
+// Deposit credits
+await client.billing.deposit("customer-123", {
+  amount: 100.0,
+  currency: "CAD",
+});
+
+// Generate invoice
+const invoice = await client.billing.getInvoice("customer-123");
+```
+
+### Marketplace
+
+```typescript
+// Browse available GPUs
+const listings = await client.marketplace.list();
+
+// List your rig
+await client.marketplace.create({
+  hostId: "my-gpu-01",
+  gpuModel: "RTX 4090",
+  vramGb: 24,
+  pricePerHour: 1.2,
+});
+```
+
+### Reputation
+
+```typescript
+// Check your trust score
+const rep = await client.reputation.get("my-entity-id");
+console.log(`Score: ${rep.score}, Tier: ${rep.tier}`);
+
+// View leaderboard
+const leaders = await client.reputation.leaderboard();
+```
+
+## Error Handling
+
+```typescript
+try {
+  const job = await client.jobs.create({ ... });
+} catch (error) {
+  if (error instanceof XcelsiorError) {
+    console.error(`API Error ${error.statusCode}: ${error.message}`);
+  }
+}
+```
+
+## TypeScript Support
+
+The SDK is fully typed. All request/response objects have TypeScript interfaces:
+
+```typescript
+import type { Job, Host, WalletBalance } from "@xcelsior/sdk";
+```
