@@ -74,7 +74,7 @@ export default function BillingPage() {
 
   // Check if BTC deposits are enabled
   useEffect(() => {
-    api.checkCryptoEnabled().then((r) => setBtcEnabled(r.enabled)).catch(() => {});
+    api.checkCryptoEnabled().then((r) => setBtcEnabled(r.enabled)).catch((e) => console.error("Failed to check crypto status", e));
   }, []);
 
   // CSV export from billing records

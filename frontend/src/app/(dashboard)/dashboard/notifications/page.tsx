@@ -58,7 +58,7 @@ export default function NotificationsPage() {
     setLoading(true);
     fetchNotifications(filter === "unread", 200)
       .then((r) => setNotifications(r.notifications))
-      .catch(() => {})
+      .catch((e) => console.error("Failed to load notifications", e))
       .finally(() => setLoading(false));
   }, [filter]);
 

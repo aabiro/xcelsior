@@ -8,8 +8,8 @@
 # - Platform commission split (default 10-15%)
 # - Provider incorporation verification
 #
-# NOTE: This module is a functional stub. Replace XCELSIOR_STRIPE_SECRET_KEY
-# in .env with a live Stripe key to activate real payment processing.
+# Requires XCELSIOR_STRIPE_SECRET_KEY to be set with a valid Stripe key.
+# Operations that require Stripe will raise errors if not configured.
 
 import os
 import time
@@ -239,10 +239,10 @@ class StripeConnectManager:
                 log.error("Stripe account creation failed for %s: %s", provider_id, e)
                 # Continue with local-only record
         else:
-            # Stub mode — generate placeholder
-            stripe_account_id = f"acct_stub_{provider_id[:8]}"
-            onboarding_url = f"https://xcelsior.ca/onboarding/stub?provider={provider_id}"
-            log.info("Stripe STUB: created placeholder account for %s", provider_id)
+            raise RuntimeError(
+                "Stripe Connect is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
+                "in .env with a valid Stripe secret key to enable provider onboarding."
+            )
 
         # Persist locally
         with self._conn() as conn:
@@ -356,8 +356,10 @@ class StripeConnectManager:
             except Exception as e:
                 log.error("Stripe PaymentIntent failed: %s", e)
         else:
-            stripe_intent_id = f"pi_stub_{intent_id[:8]}"
-            client_secret = f"stub_secret_{intent_id}"
+            raise RuntimeError(
+                "Stripe is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
+                "in .env to enable payment processing."
+            )
 
         with self._conn() as conn:
             conn.execute(
@@ -410,7 +412,10 @@ class StripeConnectManager:
                 except Exception as e:
                     log.error("Stripe Transfer failed for job %s: %s", job_id, e)
         else:
-            stripe_transfer_id = f"tr_stub_{job_id[:8]}"
+            raise RuntimeError(
+                "Stripe is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
+                "in .env to enable provider payouts."
+            )
 
         with self._conn() as conn:
             conn.execute(

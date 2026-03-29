@@ -162,23 +162,23 @@ export default function SettingsPage() {
         setCanadaOnly(prefs.canada_only_routing ?? false);
         setNotifications(prefs.notifications ?? true);
       })
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load preferences", e));
 
     // Load API keys
     api.fetchApiKeys()
       .then((res) => setApiKeys(res.keys || []))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load API keys", e));
 
     // Load SSH public key
     api.fetchSshPubKey()
       .then((res) => setSshPubKey(res.public_key || ""))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load SSH key", e));
 
     // Load consent records
     if (userId) {
       api.fetchConsent(userId)
         .then((res) => setConsents(res.consents || []))
-        .catch(() => {});
+        .catch((e) => console.error("Failed to load consent records", e));
     }
 
     // Load teams

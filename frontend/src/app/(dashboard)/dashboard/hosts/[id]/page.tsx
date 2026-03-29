@@ -37,16 +37,16 @@ export default function HostDetailPage() {
       .finally(() => setLoading(false));
 
     // Parallel secondary fetches — each can fail independently
-    fetchComputeScore(id).then((r) => setComputeScore(r.score)).catch(() => {});
-    fetchSlaStatus(id).then((r) => setSla(r)).catch(() => {});
-    fetchVerificationStatus(id).then((r) => setVerification(r)).catch(() => {});
-    fetchReputation(id).then((r) => setReputation(r.reputation)).catch(() => {});
+    fetchComputeScore(id).then((r) => setComputeScore(r.score)).catch((e) => console.error("Failed to load compute score", e));
+    fetchSlaStatus(id).then((r) => setSla(r)).catch((e) => console.error("Failed to load SLA status", e));
+    fetchVerificationStatus(id).then((r) => setVerification(r)).catch((e) => console.error("Failed to load verification", e));
+    fetchReputation(id).then((r) => setReputation(r.reputation)).catch((e) => console.error("Failed to load reputation", e));
     fetchTelemetry()
       .then((r) => {
         const data = r.telemetry?.[id];
         if (data) setTelemetry(data);
       })
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load telemetry", e));
   }, [id]);
 
   if (loading) {

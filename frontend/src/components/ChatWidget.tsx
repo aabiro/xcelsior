@@ -335,7 +335,7 @@ export function ChatWidget() {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message_id: msgId, vote }),
-    }).catch(() => {});
+    }).catch((e) => console.error("Failed to send feedback", e));
   }, []);
 
   const handleTalkToHuman = () => {

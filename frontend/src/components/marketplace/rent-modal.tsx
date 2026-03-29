@@ -63,7 +63,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
         const gpu = listing.gpu_model;
         if (prices[gpu] != null) setSpotPrice(prices[gpu]);
       })
-      .catch(() => {});
+      .catch((e) => console.error("Failed to fetch spot prices", e));
   }, [listing.gpu_model]);
 
   const handleSubmit = async () => {

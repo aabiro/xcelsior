@@ -89,10 +89,10 @@ export default function CompliancePage() {
         total_rate: info.rate ?? 0,
       }));
       setProvinces(provinceList);
-    }).catch(() => {});
+    }).catch((e) => console.error("Failed to load tax rates", e));
     api.checkQuebecPia({ data_origin_province: "QC", processing_province: "QC", data_contains_pi: true })
       .then((d) => setQuebecPia({ required: d.pia_required, reason: d.reason }))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to check Quebec PIA", e));
 
     // SLA data — transform Record to array
     api.fetchSlaTargets().then((d) => {
@@ -104,7 +104,7 @@ export default function CompliancePage() {
         penalty_rate: t.credit_pct_100 / 100,
       }));
       setSlaTiers(tierList);
-    }).catch(() => {});
+    }).catch((e) => console.error("Failed to load SLA tiers", e));
     api.fetchSlaHostsSummary().then((d) => {
       const hosts = (d.hosts || []).map((h) => ({
         host_id: h.host_id,
@@ -114,7 +114,7 @@ export default function CompliancePage() {
         violations: h.violation_count,
       }));
       setSlaHosts(hosts);
-    }).catch(() => {});
+    }).catch((e) => console.error("Failed to load SLA hosts", e));
   }, [loadChecks]);
 
   const pass = checks.filter((c) => c.status === "pass").length;
