@@ -562,6 +562,29 @@ export async function fetchSshPubKey() {
   return apiFetch<{ public_key: string }>("/api/ssh/pubkey");
 }
 
+export interface UserSshKey {
+  id: string;
+  name: string;
+  fingerprint: string;
+  public_key: string;
+  created_at: number;
+}
+
+export async function uploadSshKey(name: string, publicKey: string) {
+  return apiFetch<{ ok: boolean; id: string; name: string; fingerprint: string }>("/api/ssh/keys", {
+    method: "POST",
+    body: JSON.stringify({ name, public_key: publicKey }),
+  });
+}
+
+export async function listSshKeys() {
+  return apiFetch<{ ok: boolean; keys: UserSshKey[] }>("/api/ssh/keys");
+}
+
+export async function deleteSshKey(keyId: string) {
+  return apiFetch<{ ok: boolean }>(`/api/ssh/keys/${encodeURIComponent(keyId)}`, { method: "DELETE" });
+}
+
 // ── Privacy / Consent ─────────────────────────────────────────────────
 export async function fetchConsent(entityId: string) {
   return apiFetch<{ ok: boolean; consents: ConsentRecord[] }>(
