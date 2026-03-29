@@ -768,6 +768,20 @@ def _ensure_auth_tables(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_email, read, created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at)")
 
+    # ── User SSH Keys table ──────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_ssh_keys (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT 'default',
+            public_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            created_at REAL NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ssh_keys_email ON user_ssh_keys(email)")
+
 
 @contextmanager
 def auth_connection():
@@ -1085,6 +1099,48 @@ class UserStore:
                 (email,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # ── SSH Keys ──
+
+    @staticmethod
+    def add_ssh_key(key_data: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    key_data["id"],
+                    key_data["email"],
+                    key_data["user_id"],
+                    key_data.get("name", "default"),
+                    key_data["public_key"],
+                    key_data["fingerprint"],
+                    key_data.get("created_at", time.time()),
+                ),
+            )
+
+    @staticmethod
+    def list_ssh_keys(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_ssh_keys WHERE email = ? ORDER BY created_at DESC",
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def delete_ssh_key(email: str, key_id: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_ssh_keys WHERE id = ? AND email = ?",
+                (key_id, email),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_user_ssh_keys(email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM user_ssh_keys WHERE email = ?", (email,))
 
 
 class NotificationStore:

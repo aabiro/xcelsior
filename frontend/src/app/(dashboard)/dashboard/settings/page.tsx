@@ -12,7 +12,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { ApiKeyInfo, ConsentRecord, TeamInfo, TeamMember } from "@/lib/api";
+import type { ApiKeyInfo, ConsentRecord, TeamInfo, TeamMember, UserSshKey } from "@/lib/api";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -38,6 +38,10 @@ export default function SettingsPage() {
   // SSH
   const [sshPubKey, setSshPubKey] = useState("");
   const [generatingSsh, setGeneratingSsh] = useState(false);
+  const [userSshKeys, setUserSshKeys] = useState<UserSshKey[]>([]);
+  const [newSshKeyName, setNewSshKeyName] = useState("");
+  const [newSshKeyValue, setNewSshKeyValue] = useState("");
+  const [addingSshKey, setAddingSshKey] = useState(false);
 
   // Password
   const [currentPw, setCurrentPw] = useState("");
@@ -176,6 +180,11 @@ export default function SettingsPage() {
       .then((res) => setSshPubKey(res.public_key || ""))
       .catch((e) => console.error("Failed to load SSH key", e));
 
+    // Load user SSH keys
+    api.listSshKeys()
+      .then((res) => setUserSshKeys(res.keys || []))
+      .catch((e) => console.error("Failed to load user SSH keys", e));
+
     // Load consent records
     if (userId) {
       api.fetchConsent(userId)
@@ -232,6 +241,28 @@ export default function SettingsPage() {
       toast.success("SSH keypair generated");
     } catch { toast.error("Failed to generate SSH key"); }
     finally { setGeneratingSsh(false); }
+  };
+
+  const handleAddSshKey = async () => {
+    if (!newSshKeyValue.trim()) { toast.error("Paste your SSH public key"); return; }
+    setAddingSshKey(true);
+    try {
+      await api.uploadSshKey(newSshKeyName.trim() || "default", newSshKeyValue.trim());
+      toast.success("SSH key added");
+      setNewSshKeyName("");
+      setNewSshKeyValue("");
+      const res = await api.listSshKeys();
+      setUserSshKeys(res.keys || []);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to add SSH key"); }
+    finally { setAddingSshKey(false); }
+  };
+
+  const handleDeleteSshKey = async (keyId: string) => {
+    try {
+      await api.deleteSshKey(keyId);
+      setUserSshKeys((keys) => keys.filter((k) => k.id !== keyId));
+      toast.success("SSH key removed");
+    } catch { toast.error("Failed to remove SSH key"); }
   };
 
   // ── Change Password ──
@@ -429,30 +460,76 @@ export default function SettingsPage() {
           <CardTitle className="flex items-center gap-2"><Terminal className="h-4 w-4" /> {t("dash.settings.ssh_keys")}</CardTitle>
           <CardDescription>{t("dash.settings.ssh_desc")}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {sshPubKey ? (
-            <div>
-              <Label className="mb-1.5 block text-xs text-text-secondary">{t("dash.settings.public_key")}</Label>
-              <div className="flex items-start gap-2">
-                <code className="flex-1 rounded bg-background px-3 py-2 font-mono text-xs break-all max-h-20 overflow-y-auto">
-                  {sshPubKey}
-                </code>
-                <Button
-                  variant="outline" size="icon"
-                  onClick={() => { navigator.clipboard.writeText(sshPubKey); toast.success("Copied to clipboard"); }}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              <p className="text-xs text-text-muted mt-2">{t("dash.settings.ssh_note")}</p>
+        <CardContent className="space-y-6">
+          {/* User SSH Keys */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Your SSH Public Keys</Label>
+            <p className="text-xs text-text-muted">Add your SSH public keys for secure access to GPU hosts. Paste the contents of your <code className="bg-background px-1 rounded">~/.ssh/id_ed25519.pub</code> or <code className="bg-background px-1 rounded">~/.ssh/id_rsa.pub</code> file.</p>
+
+            {/* Add new key form */}
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <Input
+                placeholder="Key name (e.g. Work Laptop, Home Desktop)"
+                value={newSshKeyName}
+                onChange={(e) => setNewSshKeyName(e.target.value)}
+              />
+              <textarea
+                className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs placeholder:text-text-muted min-h-[80px] resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="ssh-ed25519 AAAA... user@host"
+                value={newSshKeyValue}
+                onChange={(e) => setNewSshKeyValue(e.target.value)}
+              />
+              <Button variant="outline" size="sm" onClick={handleAddSshKey} disabled={addingSshKey}>
+                {addingSshKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Add SSH Key
+              </Button>
             </div>
-          ) : (
-            <p className="text-sm text-text-muted">No SSH keypair generated yet</p>
-          )}
-          <Button variant="outline" size="sm" onClick={handleGenerateSsh} disabled={generatingSsh}>
-            {generatingSsh ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            {sshPubKey ? t("dash.settings.regen_keypair") : t("dash.settings.gen_keypair")}
-          </Button>
+
+            {/* Existing user keys */}
+            {userSshKeys.length > 0 && (
+              <div className="space-y-2">
+                {userSshKeys.map((k) => (
+                  <div key={k.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{k.name}</p>
+                      <p className="text-xs text-text-muted font-mono truncate">{k.fingerprint}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => handleDeleteSshKey(k.id)} className="text-accent-red hover:text-accent-red shrink-0 ml-2">
+                      <Trash2 className="h-3.5 w-3.5" /> Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Platform SSH Key (generate) */}
+          <div className="space-y-3 border-t border-border pt-4">
+            <Label className="text-sm font-medium">Platform SSH Key</Label>
+            <p className="text-xs text-text-muted">Generate a platform keypair for infrastructure access.</p>
+            {sshPubKey ? (
+              <div>
+                <div className="flex items-start gap-2">
+                  <code className="flex-1 rounded bg-background px-3 py-2 font-mono text-xs break-all max-h-20 overflow-y-auto">
+                    {sshPubKey}
+                  </code>
+                  <Button
+                    variant="outline" size="icon"
+                    onClick={() => { navigator.clipboard.writeText(sshPubKey); toast.success("Copied to clipboard"); }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <p className="text-xs text-text-muted mt-2">{t("dash.settings.ssh_note")}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-text-muted">No platform keypair generated yet</p>
+            )}
+            <Button variant="outline" size="sm" onClick={handleGenerateSsh} disabled={generatingSsh}>
+              {generatingSsh ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              {sshPubKey ? t("dash.settings.regen_keypair") : t("dash.settings.gen_keypair")}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
