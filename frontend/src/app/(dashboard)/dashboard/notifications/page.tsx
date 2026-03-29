@@ -47,6 +47,19 @@ function notificationHref(n: Notification): string | null {
   return null;
 }
 
+/** Build a type-based fallback route when no deep-link exists. */
+function notificationRoute(n: Notification): string {
+  return notificationHref(n) ?? routeForType(n.type);
+}
+
+function routeForType(type: string): string {
+  if (type.startsWith("job") || type === "preemption_scheduled") return "/dashboard/instances";
+  if (type.startsWith("host")) return "/dashboard/hosts";
+  if (type.startsWith("billing")) return "/dashboard/billing";
+  if (type.startsWith("security")) return "/dashboard/settings";
+  return "/dashboard/notifications";
+}
+
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,7 +179,7 @@ export default function NotificationsPage() {
           )}
           {filtered.map((n) => {
             const meta = getTypeMeta(n.type);
-            const href = notificationHref(n);
+            const href = notificationRoute(n);
 
             const inner = (
               <>
@@ -209,16 +222,12 @@ export default function NotificationsPage() {
 
             const cls = `flex items-start gap-3 py-3 px-2 rounded-md transition-colors ${
               !n.read ? "bg-accent-blue/5" : ""
-            } ${href ? "hover:bg-surface-hover cursor-pointer" : ""}`;
+            } hover:bg-surface-hover cursor-pointer`;
 
-            return href ? (
-              <Link key={n.id} href={href} className={cls}>
+            return (
+              <Link key={n.id} href={href} onClick={() => handleMarkRead(n.id)} className={cls}>
                 {inner}
               </Link>
-            ) : (
-              <div key={n.id} className={cls}>
-                {inner}
-              </div>
             );
           })}
         </CardContent>
