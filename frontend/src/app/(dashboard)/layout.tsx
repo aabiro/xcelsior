@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Server, Monitor, Activity, CreditCard,
   Store, DollarSign, ShieldCheck, Star, FileCheck,
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
-  ChevronRight, LogOut, Bell, Shield, Cpu, Menu, X, Key, ChevronDown
+  ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -17,6 +17,7 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[] }[] = [
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
@@ -218,9 +219,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <LocaleToggle />
             <ThemeToggle />
             <div className="h-5 w-px bg-border hidden sm:block" />
-            <button className="relative text-text-muted hover:text-text-primary">
-              <Bell className="h-5 w-5" />
-            </button>
+            <NotificationBell />
             <div className="h-6 w-px bg-border hidden sm:block" />
             <div className="relative" ref={profileRef}>
               <button

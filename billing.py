@@ -241,7 +241,10 @@ class BillingEngine:
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_billing.db")
+        self.db_path = db_path or os.environ.get(
+            "XCELSIOR_BILLING_DB_PATH",
+            os.path.join(os.path.dirname(__file__), "xcelsior_billing.db"),
+        )
         self._init_db()
 
     def _init_db(self):

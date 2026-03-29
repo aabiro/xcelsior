@@ -755,6 +755,42 @@ export function createEventSource(url: string = "/api/stream"): EventSource {
   return new EventSource(url, { withCredentials: true });
 }
 
+// ── Notifications ─────────────────────────────────────────────────────
+export interface Notification {
+  id: string;
+  user_email: string;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  read: number;
+  created_at: number;
+}
+
+export async function fetchNotifications(unread = false, limit = 50) {
+  const qs = `?unread=${unread}&limit=${limit}`;
+  return apiFetch<{ ok: boolean; notifications: Notification[]; unread_count: number }>(
+    `/api/notifications${qs}`,
+  );
+}
+
+export async function fetchUnreadCount() {
+  return apiFetch<{ ok: boolean; unread_count: number }>("/api/notifications/unread-count");
+}
+
+export async function markNotificationRead(notificationId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/notifications/${encodeURIComponent(notificationId)}/read`,
+    { method: "POST" },
+  );
+}
+
+export async function markAllNotificationsRead() {
+  return apiFetch<{ ok: boolean; marked: number }>("/api/notifications/read-all", {
+    method: "POST",
+  });
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 export interface Host {
   host_id: string;

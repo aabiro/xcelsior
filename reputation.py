@@ -222,7 +222,10 @@ class ReputationStore:
     """SQLite-backed reputation persistence."""
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_reputation.db")
+        self.db_path = db_path or os.environ.get(
+            "XCELSIOR_REPUTATION_DB_PATH",
+            os.path.join(os.path.dirname(__file__), "xcelsior_reputation.db"),
+        )
         self._init_db()
 
     def _init_db(self):

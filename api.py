@@ -11,7 +11,7 @@ import uuid
 from collections import defaultdict, deque
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
-from db import start_pg_listen, UserStore, emit_event
+from db import start_pg_listen, UserStore, NotificationStore, emit_event
 
 from scheduler import (
     register_host,
@@ -247,6 +247,63 @@ def broadcast_sse(event_type: str, data: dict):
                 dead.append(q)
         for q in dead:
             _sse_subscribers.remove(q)
+    # Deliver in-app notifications for user-facing events
+    _threading.Thread(target=_deliver_notifications, args=(event_type, data), daemon=True).start()
+
+
+# ── In-App Notification Delivery ──────────────────────────────────────
+# Maps SSE event types to per-user notification creation.
+# Runs in a daemon thread so it never blocks the API.
+
+_NOTIF_EVENT_MAP = {
+    "user_registered": ("system", "New User Registered", "{email} has joined the platform."),
+    "job_submitted": ("instance", "Instance Submitted", "Your instance {name} has been submitted."),
+    "job_status": ("instance", "Instance {status}", "Instance {job_id} is now {status}."),
+    "host_registered": ("host", "Host Registered", "A new host has been registered."),
+    "host_removed": ("host", "Host Removed", "Host {host_id} has been removed."),
+    "job_completed": ("instance", "Instance Completed", "Instance {job_id} completed successfully."),
+    "job_failed": ("instance", "Instance Failed", "Instance {job_id} has failed."),
+    "preemption_scheduled": ("instance", "Preemption Scheduled", "Instance {job_id} is being preempted."),
+}
+
+
+def _deliver_notifications(event_type: str, data: dict):
+    """Create per-user in-app notifications for relevant events."""
+    template = _NOTIF_EVENT_MAP.get(event_type)
+    if not template:
+        return
+    try:
+        notif_type, title_tmpl, body_tmpl = template
+        title = title_tmpl.format_map(defaultdict(str, **data))
+        body = body_tmpl.format_map(defaultdict(str, **data))
+
+        # Determine which users to notify based on event type
+        if _USE_PERSISTENT_AUTH:
+            # For job events, notify the submitter; for host/admin events, notify admins
+            if event_type in ("job_submitted", "job_status", "job_completed", "job_failed",
+                              "preemption_scheduled"):
+                # Find the job owner from the jobs list
+                job_id = data.get("job_id", "")
+                jobs = list_jobs()
+                job = next((j for j in jobs if j.get("job_id") == job_id), None)
+                owner_email = job.get("owner_email", job.get("user_email", "")) if job else ""
+                if owner_email:
+                    user = UserStore.get_user(owner_email)
+                    if user and user.get("notifications_enabled", 1):
+                        NotificationStore.create(owner_email, notif_type, title, body, data)
+                # Also notify admins for failures
+                if event_type == "job_failed":
+                    for u in UserStore.list_users():
+                        if u.get("role") == "admin" and u["email"] != owner_email:
+                            if u.get("notifications_enabled", 1):
+                                NotificationStore.create(u["email"], notif_type, title, body, data)
+            else:
+                # Host/system events → notify admins
+                for u in UserStore.list_users():
+                    if u.get("role") == "admin" and u.get("notifications_enabled", 1):
+                        NotificationStore.create(u["email"], notif_type, title, body, data)
+    except Exception as e:
+        log.debug("Notification delivery error: %s", e)
 
 
 # ── Bridge PgEventBus LISTEN/NOTIFY → SSE ────────────────────────────
@@ -813,6 +870,135 @@ def api_instance_logs(job_id: str, limit: int = 100):
     return {"ok": True, "job_id": job_id, "logs": buf[-limit:], "total": len(buf)}
 
 
+# ── WebSocket Instance Streaming ──────────────────────────────────────
+# Real-time bidirectional updates for individual instances.
+# Sends full instance snapshots on connect and on every status change,
+# plus filtered job_log events. Reconnect-friendly.
+
+_ws_connections: dict[str, set[WebSocket]] = defaultdict(set)  # job_id -> {ws, ...}
+
+
+def _validate_ws_auth(websocket: WebSocket) -> bool:
+    """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware)."""
+    if not AUTH_REQUIRED:
+        return True
+    api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    token = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
+    if not token:
+        token = websocket.query_params.get("token", "")
+    if not token:
+        return False
+    if api_token and hmac.compare_digest(token, api_token):
+        return True
+    if _USE_PERSISTENT_AUTH:
+        if UserStore.get_session(token):
+            return True
+        if UserStore.get_api_key(token):
+            return True
+    else:
+        with _user_lock:
+            if token in _sessions and _sessions[token]["expires_at"] > time.time():
+                return True
+            if token in _api_keys:
+                return True
+    return False
+
+
+@app.websocket("/ws/instances/{job_id}")
+async def ws_instance_stream(websocket: WebSocket, job_id: str):
+    """WebSocket endpoint for real-time instance updates.
+
+    Sends:
+    - ``instance`` — full instance snapshot on connect and on status changes
+    - ``job_log`` — individual log lines
+    - ``job_status`` — status change notifications
+    - ``ping`` — keepalive every 30 s
+
+    Client can send ``{"event": "pong"}`` or ``{"event": "refresh"}``
+    to request a fresh instance snapshot.
+    """
+    if not _validate_ws_auth(websocket):
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    await websocket.accept()
+
+    # Verify job exists and send initial snapshot
+    jobs = list_jobs()
+    instance = next((j for j in jobs if j["job_id"] == job_id), None)
+    if not instance:
+        await websocket.send_json({"event": "error", "data": {"message": "Instance not found"}})
+        await websocket.close(code=4004)
+        return
+
+    _ws_connections[job_id].add(websocket)
+    await websocket.send_json({"event": "instance", "data": instance})
+
+    # Replay buffered logs
+    for entry in list(_job_log_buffers.get(job_id, []))[-50:]:
+        await websocket.send_json({"event": "job_log", "data": {"job_id": job_id, **entry}})
+
+    # Subscribe to the broadcast SSE bus
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    with _sse_lock:
+        _sse_subscribers.append(queue)
+
+    closed = False
+
+    async def _send_loop():
+        nonlocal closed
+        while not closed:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=30)
+            except asyncio.TimeoutError:
+                await websocket.send_json({"event": "ping", "data": {"ts": time.time()}})
+                continue
+            event_type = msg.get("event", "message")
+            event_data = msg.get("data", {})
+            if event_data.get("job_id") != job_id:
+                continue
+            await websocket.send_json({"event": event_type, "data": event_data})
+            # On status change, send full instance snapshot
+            if event_type == "job_status":
+                fresh = next((j for j in list_jobs() if j["job_id"] == job_id), None)
+                if fresh:
+                    await websocket.send_json({"event": "instance", "data": fresh})
+
+    async def _recv_loop():
+        nonlocal closed
+        while not closed:
+            try:
+                raw = await websocket.receive_text()
+                data = json.loads(raw)
+                if data.get("event") == "refresh":
+                    fresh = next((j for j in list_jobs() if j["job_id"] == job_id), None)
+                    if fresh:
+                        await websocket.send_json({"event": "instance", "data": fresh})
+            except (WebSocketDisconnect, RuntimeError):
+                closed = True
+                break
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+    try:
+        done, pending = await asyncio.wait(
+            [asyncio.ensure_future(_send_loop()), asyncio.ensure_future(_recv_loop())],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        closed = True
+        _ws_connections[job_id].discard(websocket)
+        with _sse_lock:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
 # ── Billing endpoints ────────────────────────────────────────────────
 
 
@@ -1339,6 +1525,17 @@ def api_auth_register(body: RegisterRequest):
     session = _create_session(email, user)
     broadcast_sse("user_registered", {"email": email, "user_id": user_id})
 
+    # Welcome notification for the new user
+    try:
+        NotificationStore.create(
+            email, "system",
+            "Welcome to Xcelsior!",
+            "Your account is ready. Launch your first GPU instance or register a host to start earning.",
+            {"user_id": user_id},
+        )
+    except Exception:
+        pass
+
     body = {
         "ok": True,
         "access_token": session["token"],
@@ -1379,6 +1576,19 @@ def api_auth_login(body: LoginRequest):
         raise HTTPException(401, "Invalid email or password")
 
     session = _create_session(email, user)
+
+    # Ensure a welcome notification exists (checks ALL notifications, not just unread,
+    # so marking-all-read won't re-trigger on next login)
+    try:
+        if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
+            NotificationStore.create(
+                email, "system",
+                "Welcome to Xcelsior!",
+                "Your account is ready. Launch your first GPU instance or register a host to start earning.",
+                {"user_id": user["user_id"]},
+            )
+    except Exception:
+        pass
 
     body = {
         "ok": True,
@@ -1573,6 +1783,18 @@ def api_auth_oauth_callback(provider: str, request: Request):
             user["name"] = name
 
     session = _create_session(email, user)
+
+    # Ensure welcome notification exists
+    try:
+        if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
+            NotificationStore.create(
+                email, "system",
+                "Welcome to Xcelsior!",
+                "Your account is ready. Launch your first GPU instance or register a host to start earning.",
+                {"user_id": user["user_id"]},
+            )
+    except Exception:
+        pass
 
     # Set httpOnly cookie and redirect to dashboard
     resp = RedirectResponse("/dashboard", status_code=302)
@@ -4360,7 +4582,10 @@ def api_get_consents(entity_id: str):
 # "Log all access/subpoenas in DB; API /transparency/report"
 # Tracks legal requests, data disclosures, and CLOUD Act diligence.
 
-_transparency_db_path = os.path.join(os.path.dirname(__file__), "xcelsior_transparency.db")
+_transparency_db_path = os.environ.get(
+    "XCELSIOR_TRANSPARENCY_DB_PATH",
+    os.path.join(os.path.dirname(__file__), "xcelsior_transparency.db"),
+)
 
 
 def _get_transparency_db():
@@ -5283,8 +5508,9 @@ def api_get_user_preferences(request: Request):
     else:
         full_user = _users_db.get(user["email"], {})
     return {
-        "canada_only_routing": full_user.get("canada_only_routing", False),
-        "notifications": full_user.get("notifications", True),
+        "ok": True,
+        "canada_only_routing": bool(full_user.get("canada_only_routing", 0)),
+        "notifications": bool(full_user.get("notifications_enabled", 1)),
     }
 
 
@@ -5294,8 +5520,59 @@ def api_set_user_preferences(request: Request, body: dict):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    # Store preferences (best-effort — UserStore.update_user only allows certain fields)
+    updates: dict = {}
+    if "notifications" in body:
+        updates["notifications_enabled"] = 1 if body["notifications"] else 0
+    if "canada_only_routing" in body:
+        updates["canada_only_routing"] = 1 if body["canada_only_routing"] else 0
+    if updates and _USE_PERSISTENT_AUTH:
+        UserStore.update_user(user["email"], updates)
     return {"ok": True}
+
+
+# ── Notifications ─────────────────────────────────────────────────────
+
+
+@app.get("/api/notifications", tags=["Notifications"])
+def api_list_notifications(request: Request, unread: bool = False, limit: int = 50):
+    """List notifications for the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    notifications = NotificationStore.list_for_user(user["email"], unread_only=unread, limit=limit)
+    unread_count = NotificationStore.unread_count(user["email"])
+    return {"ok": True, "notifications": notifications, "unread_count": unread_count}
+
+
+@app.get("/api/notifications/unread-count", tags=["Notifications"])
+def api_notification_unread_count(request: Request):
+    """Get the unread notification count for the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    return {"ok": True, "unread_count": NotificationStore.unread_count(user["email"])}
+
+
+@app.post("/api/notifications/{notification_id}/read", tags=["Notifications"])
+def api_mark_notification_read(request: Request, notification_id: str):
+    """Mark a single notification as read."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ok = NotificationStore.mark_read(notification_id, user["email"])
+    if not ok:
+        raise HTTPException(404, "Notification not found")
+    return {"ok": True}
+
+
+@app.post("/api/notifications/read-all", tags=["Notifications"])
+def api_mark_all_read(request: Request):
+    """Mark all notifications as read for the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    count = NotificationStore.mark_all_read(user["email"])
+    return {"ok": True, "marked": count}
 
 
 @app.get("/api/admin/stats", tags=["Admin"])

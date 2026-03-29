@@ -7,6 +7,23 @@ services:
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
+      XCELSIOR_AUTH_DB_PATH: /data/auth.db
+      XCELSIOR_BILLING_DB_PATH: /data/xcelsior_billing.db
+      XCELSIOR_REPUTATION_DB_PATH: /data/xcelsior_reputation.db
+      XCELSIOR_INFERENCE_DB_PATH: /data/inference.db
+      XCELSIOR_CHAT_DB_PATH: /data/chat.db
+      XCELSIOR_TRANSPARENCY_DB_PATH: /data/xcelsior_transparency.db
+      XCELSIOR_SLA_DB: /data/xcelsior_sla.db
+      XCELSIOR_BTC_DB: /data/xcelsior_btc.db
+      XCELSIOR_STRIPE_DB: /data/xcelsior_stripe.db
+      XCELSIOR_HOSTS_FILE: /data/hosts.json
+      XCELSIOR_JOBS_FILE: /data/jobs.json
+      XCELSIOR_BILLING_FILE: /data/billing.json
+      XCELSIOR_MARKETPLACE_FILE: /data/marketplace.json
+      XCELSIOR_AUTOSCALE_FILE: /data/autoscale_pool.json
+      XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
+      XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
+      XCELSIOR_LOG_FILE: /data/xcelsior.log
       XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/xcelsior
       XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-sqlite}
       XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
@@ -40,6 +57,21 @@ services:
       XCELSIOR_BTC_RPC_PASS: ${XCELSIOR_BTC_RPC_PASS:-}
       XCELSIOR_BTC_CONFIRMATIONS: ${XCELSIOR_BTC_CONFIRMATIONS:-3}
       XCELSIOR_BTC_DEPOSIT_EXPIRY: ${XCELSIOR_BTC_DEPOSIT_EXPIRY:-1800}
+      # SLA / Chat / Inference / Slurm
+      XCELSIOR_SLURM_MAP: /data/slurm_jobs.json
+      XCELSIOR_BASE_URL: ${XCELSIOR_BASE_URL:-https://xcelsior.ca}
+      XCELSIOR_NFS_SERVER: ${XCELSIOR_NFS_SERVER:-}
+      XCELSIOR_NFS_PATH: ${XCELSIOR_NFS_PATH:-}
+      XCELSIOR_NFS_MOUNT: ${XCELSIOR_NFS_MOUNT:-/mnt/xcelsior-nfs}
+      # Chat LLM
+      CHAT_LLM_PROVIDER: ${CHAT_LLM_PROVIDER:-groq}
+      CHAT_LLM_API_KEY: ${CHAT_LLM_API_KEY:-}
+      CHAT_LLM_MODEL: ${CHAT_LLM_MODEL:-}
+      CHAT_MAX_RESPONSE_TOKENS: ${CHAT_MAX_RESPONSE_TOKENS:-1024}
+      CHAT_RATE_LIMIT: ${CHAT_RATE_LIMIT:-10}
+      CHAT_FALLBACK_PROVIDER: ${CHAT_FALLBACK_PROVIDER:-}
+      CHAT_FALLBACK_API_KEY: ${CHAT_FALLBACK_API_KEY:-}
+      CHAT_FALLBACK_MODEL: ${CHAT_FALLBACK_MODEL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -56,9 +88,33 @@ services:
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
       XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
       XCELSIOR_DB_PATH: /data/xcelsior.db
+      XCELSIOR_AUTH_DB_PATH: /data/auth.db
+      XCELSIOR_BILLING_DB_PATH: /data/xcelsior_billing.db
+      XCELSIOR_REPUTATION_DB_PATH: /data/xcelsior_reputation.db
+      XCELSIOR_SLA_DB: /data/xcelsior_sla.db
+      XCELSIOR_SLURM_MAP: /data/slurm_jobs.json
+      XCELSIOR_HOSTS_FILE: /data/hosts.json
+      XCELSIOR_JOBS_FILE: /data/jobs.json
+      XCELSIOR_BILLING_FILE: /data/billing.json
+      XCELSIOR_MARKETPLACE_FILE: /data/marketplace.json
+      XCELSIOR_AUTOSCALE_FILE: /data/autoscale_pool.json
+      XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
+      XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
+      XCELSIOR_LOG_FILE: /data/xcelsior.log
       XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/xcelsior
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
+      XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
+      XCELSIOR_SMTP_PORT: ${XCELSIOR_SMTP_PORT:-587}
+      XCELSIOR_SMTP_USER: ${XCELSIOR_SMTP_USER:-}
+      XCELSIOR_SMTP_PASS: ${XCELSIOR_SMTP_PASS:-}
+      XCELSIOR_EMAIL_FROM: ${XCELSIOR_EMAIL_FROM:-}
+      XCELSIOR_EMAIL_TO: ${XCELSIOR_EMAIL_TO:-}
+      XCELSIOR_TG_TOKEN: ${XCELSIOR_TG_TOKEN:-}
+      XCELSIOR_TG_CHAT_ID: ${XCELSIOR_TG_CHAT_ID:-}
+      XCELSIOR_SSH_KEY_PATH: ${XCELSIOR_SSH_KEY_PATH:-~/.ssh/xcelsior}
+      XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-xcelsior}
+      XCELSIOR_REGISTRY: ${XCELSIOR_REGISTRY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

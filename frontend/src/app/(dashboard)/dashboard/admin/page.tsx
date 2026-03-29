@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
+import { useEventStream } from "@/hooks/useEventStream";
 
 export default function AdminPage() {
   const { t } = useLocale();
@@ -65,6 +66,12 @@ function AdminContent() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Live updates — refresh stats on job/host/user changes
+  useEventStream({
+    eventTypes: ["job_status", "job_submitted", "host_registered", "host_removed", "user_registered"],
+    onEvent: () => { load(); },
+  });
 
   const handleVerifyAudit = async () => {
     setVerifyingAudit(true);

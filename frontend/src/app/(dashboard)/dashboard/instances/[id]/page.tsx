@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/ui/log-viewer";
 import {
-  ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal,
+  ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
 } from "lucide-react";
 import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
 import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
 
 const STATUS_STEPS = ["queued", "assigned", "running", "completed"] as const;
 
@@ -35,6 +36,14 @@ export default function InstanceDetailPage() {
   };
 
   useEffect(() => { load(); }, [id]);
+
+  // Live WebSocket updates for active instances
+  const isLive = instance?.status === "queued" || instance?.status === "assigned" || instance?.status === "running";
+  const onWsInstance = useCallback((i: Instance) => setInstance(i), []);
+  const wsState = useInstanceWebSocket(id, {
+    onInstance: onWsInstance,
+    enabled: isLive,
+  });
 
   async function handleCancel() {
     setConfirmCancel(false);
@@ -107,6 +116,15 @@ export default function InstanceDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={instance.status} />
+          {isLive && (
+            <span
+              className={`flex items-center gap-1 text-xs ${wsState.connected ? "text-emerald" : "text-text-muted"}`}
+              title={wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : "Disconnected"}
+            >
+              {wsState.connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : ""}
+            </span>
+          )}
           {isActive && (
             <Button variant="outline" size="sm" onClick={() => setConfirmCancel(true)} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
               <XCircle className="h-3.5 w-3.5" /> {t("dash.instances.cancel")}

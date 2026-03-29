@@ -48,9 +48,9 @@ from jurisdiction import (
 from billing import get_billing_engine
 from reputation import get_reputation_engine, score_to_tier
 
-HOSTS_FILE = os.path.join(os.path.dirname(__file__), "hosts.json")
-JOBS_FILE = os.path.join(os.path.dirname(__file__), "jobs.json")
-LOG_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.log")
+HOSTS_FILE = os.environ.get("XCELSIOR_HOSTS_FILE", os.path.join(os.path.dirname(__file__), "hosts.json"))
+JOBS_FILE = os.environ.get("XCELSIOR_JOBS_FILE", os.path.join(os.path.dirname(__file__), "jobs.json"))
+LOG_FILE = os.environ.get("XCELSIOR_LOG_FILE", os.path.join(os.path.dirname(__file__), "xcelsior.log"))
 DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
 
 
@@ -1239,7 +1239,7 @@ def kill_job_local(container_name):
 
 # ── Phase 8: Billing ─────────────────────────────────────────────────
 
-BILLING_FILE = os.path.join(os.path.dirname(__file__), "billing.json")
+BILLING_FILE = os.environ.get("XCELSIOR_BILLING_FILE", os.path.join(os.path.dirname(__file__), "billing.json"))
 DEFAULT_RATE = 0.20  # $/hr
 
 
@@ -1792,7 +1792,7 @@ def list_builds():
 
 # ── Phase 17: Marketplace ────────────────────────────────────────────
 
-MARKETPLACE_FILE = os.path.join(os.path.dirname(__file__), "marketplace.json")
+MARKETPLACE_FILE = os.environ.get("XCELSIOR_MARKETPLACE_FILE", os.path.join(os.path.dirname(__file__), "marketplace.json"))
 PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.20"))  # 20%
 
 
@@ -2073,7 +2073,7 @@ def process_queue_filtered(canada_only=None):
 AUTOSCALE_ENABLED = os.environ.get("XCELSIOR_AUTOSCALE", "").lower() in ("1", "true", "yes")
 AUTOSCALE_MAX_HOSTS = int(os.environ.get("XCELSIOR_AUTOSCALE_MAX", "20"))
 AUTOSCALE_PROVIDER = os.environ.get("XCELSIOR_AUTOSCALE_PROVIDER", "")  # e.g. "ssh", "api"
-AUTOSCALE_POOL_FILE = os.path.join(os.path.dirname(__file__), "autoscale_pool.json")
+AUTOSCALE_POOL_FILE = os.environ.get("XCELSIOR_AUTOSCALE_FILE", os.path.join(os.path.dirname(__file__), "autoscale_pool.json"))
 
 
 def load_autoscale_pool():
@@ -2326,7 +2326,7 @@ SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
 PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
 
-SPOT_PRICES_FILE = os.path.join(os.path.dirname(__file__), "spot_prices.json")
+SPOT_PRICES_FILE = os.environ.get("XCELSIOR_SPOT_PRICES_FILE", os.path.join(os.path.dirname(__file__), "spot_prices.json"))
 
 
 def load_spot_prices():
@@ -2560,7 +2560,7 @@ def start_spot_price_monitor(interval=None, callback=None):
 # Xcelsior Compute Unit: normalize GPU performance across consumer cards.
 # RTX 3090 and 4090 both have 24GB VRAM but 4090 has ~2x TFLOPS.
 
-COMPUTE_SCORES_FILE = os.path.join(os.path.dirname(__file__), "compute_scores.json")
+COMPUTE_SCORES_FILE = os.environ.get("XCELSIOR_COMPUTE_SCORES_FILE", os.path.join(os.path.dirname(__file__), "compute_scores.json"))
 
 # Reference TFLOPS for common GPUs (FP16 tensor core)
 GPU_REFERENCE_TFLOPS = {

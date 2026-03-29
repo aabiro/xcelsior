@@ -44,6 +44,8 @@ const nextConfig: NextConfig = {
       { source: "/jobs/:path*", destination: `${BACKEND}/jobs/:path*` },
       { source: "/job", destination: `${BACKEND}/job` },
       { source: "/job/:path*", destination: `${BACKEND}/job/:path*` },
+      { source: "/instance/:path*", destination: `${BACKEND}/instance/:path*` },
+      { source: "/instances/:path*", destination: `${BACKEND}/instances/:path*` },
       { source: "/marketplace", destination: `${BACKEND}/marketplace` },
       { source: "/marketplace/:path*", destination: `${BACKEND}/marketplace/:path*` },
       { source: "/billing", destination: `${BACKEND}/billing` },
