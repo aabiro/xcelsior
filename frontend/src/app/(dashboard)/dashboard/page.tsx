@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { StatCard } from "@/components/ui/stat-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Server, Briefcase, DollarSign, Activity, Zap, Users } from "lucide-reac
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host, Instance, ReputationEntry } from "@/lib/api";
+import { useEventStream } from "@/hooks/useEventStream";
 
 export default function DashboardOverview() {
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -18,7 +19,7 @@ export default function DashboardOverview() {
   const api = useApi();
   const { t } = useLocale();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     Promise.allSettled([
       api.fetchHosts(),
       api.fetchInstances(),
@@ -30,6 +31,14 @@ export default function DashboardOverview() {
       setLoading(false);
     });
   }, [api]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Live updates — re-fetch on job/host status changes
+  useEventStream({
+    eventTypes: ["job_status", "job_submitted", "host_registered", "host_removed"],
+    onEvent: () => { load(); },
+  });
 
   const activeHosts = hosts.filter((h) => h.status === "active").length;
   const runningInstances = instances.filter((j) => j.status === "running").length;

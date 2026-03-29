@@ -745,6 +745,29 @@ def _ensure_auth_tables(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_team_members_email ON team_members(email)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_users_team ON users(team_id)")
 
+    # Migration: add preference columns if missing
+    for col, default in [("notifications_enabled", "1"), ("canada_only_routing", "0")]:
+        try:
+            conn.execute(f"SELECT {col} FROM users LIMIT 1")
+        except Exception:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}")
+
+    # ── Notifications table ──────────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            user_email TEXT NOT NULL,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            data TEXT NOT NULL DEFAULT '{}',
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_email, read, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at)")
+
 
 @contextmanager
 def auth_connection():
@@ -820,6 +843,8 @@ class UserStore:
             "salt",
             "reset_token",
             "reset_token_expires",
+            "notifications_enabled",
+            "canada_only_routing",
         }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
@@ -1060,6 +1085,80 @@ class UserStore:
                 (email,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+
+class NotificationStore:
+    """Per-user in-app notification storage backed by the auth SQLite DB."""
+
+    @staticmethod
+    def create(user_email: str, notif_type: str, title: str, body: str = "",
+               data: dict | None = None) -> str:
+        import json as _json, uuid as _uuid
+        nid = f"notif-{_uuid.uuid4().hex[:12]}"
+        with auth_connection() as conn:
+            conn.execute(
+                "INSERT INTO notifications (id, user_email, type, title, body, data, read, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                (nid, user_email, notif_type, title, body,
+                 _json.dumps(data or {}), time.time()),
+            )
+        return nid
+
+    @staticmethod
+    def list_for_user(user_email: str, unread_only: bool = False,
+                      limit: int = 50) -> list[dict]:
+        import json as _json
+        with auth_connection() as conn:
+            sql = "SELECT * FROM notifications WHERE user_email = ?"
+            params: list = [user_email]
+            if unread_only:
+                sql += " AND read = 0"
+            sql += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["data"] = _json.loads(d["data"])
+                except Exception:
+                    d["data"] = {}
+                result.append(d)
+            return result
+
+    @staticmethod
+    def unread_count(user_email: str) -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM notifications WHERE user_email = ? AND read = 0",
+                (user_email,),
+            ).fetchone()
+            return row["c"] if row else 0
+
+    @staticmethod
+    def mark_read(notification_id: str, user_email: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE notifications SET read = 1 WHERE id = ? AND user_email = ?",
+                (notification_id, user_email),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def mark_all_read(user_email: str) -> int:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE notifications SET read = 1 WHERE user_email = ? AND read = 0",
+                (user_email,),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def delete_old(days: int = 30) -> int:
+        cutoff = time.time() - days * 86400
+        with auth_connection() as conn:
+            cur = conn.execute("DELETE FROM notifications WHERE created_at < ?", (cutoff,))
+            return cur.rowcount
 
 
 # Global event bus instance

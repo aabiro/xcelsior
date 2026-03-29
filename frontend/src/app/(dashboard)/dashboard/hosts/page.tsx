@@ -12,6 +12,7 @@ import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host } from "@/lib/api";
 import { toast } from "sonner";
+import { useEventStream } from "@/hooks/useEventStream";
 
 type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
 type SortDir = "asc" | "desc";
@@ -37,6 +38,12 @@ export default function HostsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Live updates — re-fetch list on host changes
+  useEventStream({
+    eventTypes: ["host_registered", "host_removed", "job_status"],
+    onEvent: () => { load(); },
+  });
 
   const filtered = hosts
     .filter((h) => {

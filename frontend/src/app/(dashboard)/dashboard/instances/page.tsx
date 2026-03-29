@@ -12,6 +12,7 @@ import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
+import { useEventStream } from "@/hooks/useEventStream";
 
 type SortKey = "name" | "gpu_type" | "status" | "created_at";
 type SortDir = "asc" | "desc";
@@ -36,6 +37,12 @@ export default function InstancesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Live updates — re-fetch list on job status changes
+  useEventStream({
+    eventTypes: ["job_status", "job_submitted"],
+    onEvent: () => { load(); },
+  });
 
   async function handleCancel(id: string) {
     try {

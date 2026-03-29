@@ -9,7 +9,10 @@ from contextlib import contextmanager
 from typing import Optional
 
 _INFERENCE_DB_DIR = os.path.join(os.path.dirname(__file__), "data")
-_INFERENCE_DB_PATH = os.path.join(_INFERENCE_DB_DIR, "inference.db")
+_INFERENCE_DB_PATH = os.environ.get(
+    "XCELSIOR_INFERENCE_DB_PATH",
+    os.path.join(_INFERENCE_DB_DIR, "inference.db"),
+)
 INFERENCE_JOB_TTL_SEC = int(os.environ.get("XCELSIOR_INFERENCE_TTL", "86400"))  # 24h
 
 
@@ -50,7 +53,7 @@ def _ensure_tables(conn: sqlite3.Connection):
 
 @contextmanager
 def _inference_db():
-    os.makedirs(_INFERENCE_DB_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(_INFERENCE_DB_PATH) or ".", exist_ok=True)
     conn = sqlite3.connect(_INFERENCE_DB_PATH, timeout=10, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

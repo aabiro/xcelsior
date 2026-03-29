@@ -110,7 +110,10 @@ PLATFORM DOCUMENTATION:
 # ── Persistent Conversation Storage (SQLite) ──────────────────────────
 
 _CHAT_DB_DIR = os.path.join(os.path.dirname(__file__), "data")
-_CHAT_DB_PATH = os.path.join(_CHAT_DB_DIR, "chat.db")
+_CHAT_DB_PATH = os.environ.get(
+    "XCELSIOR_CHAT_DB_PATH",
+    os.path.join(_CHAT_DB_DIR, "chat.db"),
+)
 MAX_HISTORY_MESSAGES = 20
 CONVERSATION_TTL_SEC = 7 * 86400  # 7 days
 
@@ -147,7 +150,7 @@ def _ensure_chat_tables(conn: sqlite3.Connection):
 
 @contextmanager
 def _chat_db():
-    os.makedirs(_CHAT_DB_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(_CHAT_DB_PATH) or ".", exist_ok=True)
     conn = sqlite3.connect(_CHAT_DB_PATH, timeout=10, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
