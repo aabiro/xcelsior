@@ -396,6 +396,9 @@ class StorageClient:
 # based on residency policy.
 
 
+_CACHE_AUTO = object()  # sentinel: auto-detect cache from env
+
+
 class ArtifactManager:
     """Manages artifact storage with residency-aware backend routing.
 
@@ -408,15 +411,15 @@ class ArtifactManager:
     def __init__(
         self,
         primary: Optional[StorageClient] = None,
-        cache: Optional[StorageClient] = None,
+        cache: Optional[StorageClient] = _CACHE_AUTO,
     ):
         self.primary = primary or StorageClient(StorageConfig.from_env("XCELSIOR_STORAGE"))
         # Cache backend (R2) — optional
-        cache_endpoint = os.environ.get("XCELSIOR_CACHE_ENDPOINT_URL", "")
-        if cache_endpoint:
-            self.cache = cache or StorageClient(StorageConfig.from_env("XCELSIOR_CACHE"))
+        if cache is _CACHE_AUTO:
+            cache_endpoint = os.environ.get("XCELSIOR_CACHE_ENDPOINT_URL", "")
+            self.cache = StorageClient(StorageConfig.from_env("XCELSIOR_CACHE")) if cache_endpoint else None
         else:
-            self.cache = None
+            self.cache = cache
 
     def _make_key(
         self,

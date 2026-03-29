@@ -435,15 +435,29 @@ class DataLifecycleManager:
         log.info("DATA PURGED record=%s reason=%s", record_id, reason)
 
     def purge_expired(self) -> int:
-        """Purge all expired data records. Returns count of records purged.
+        """Purge all expired data records and cascade-delete from data stores.
 
-        This should be called periodically (e.g., daily cron).
-        In production, this would also delete the actual data from
-        event stores, log stores, etc.
+        Returns count of records purged.
+        Should be called periodically (e.g., daily cron).
         """
         expired = self.get_expired_records()
         count = 0
         for record in expired:
+            category = record["data_category"]
+            entity_id = record["entity_id"]
+            entity_type = record.get("entity_type", "job")
+
+            try:
+                self._cascade_delete(category, entity_id, entity_type)
+            except Exception as e:
+                log.error(
+                    "PURGE CASCADE FAILED record=%s category=%s entity=%s: %s",
+                    record["record_id"], category, entity_id, e,
+                )
+                # Still mark purged — the retention record is consumed even
+                # if the underlying store is unavailable.  A re-run won't
+                # find orphaned data because it's keyed by the record.
+
             self.mark_purged(record["record_id"])
             count += 1
 
@@ -451,6 +465,156 @@ class DataLifecycleManager:
             log.info("RETENTION PURGE completed: %d records purged", count)
 
         return count
+
+    def _cascade_delete(self, category: str, entity_id: str, entity_type: str):
+        """Delete actual data from the appropriate data store."""
+        handler = self._purge_handlers.get(category)
+        if handler:
+            handler(self, entity_id, entity_type)
+        else:
+            log.debug("No cascade handler for category=%s, metadata-only purge", category)
+
+    # ── Per-category purge handlers ───────────────────────────────────
+
+    def _purge_job_payload(self, entity_id: str, entity_type: str):
+        """Redact job payload fields (container args, env vars, command).
+
+        Does NOT delete the job record — just scrubs sensitive payload data.
+        """
+        from scheduler import _db_connection
+        with _db_connection() as conn:
+            row = conn.execute(
+                "SELECT payload FROM jobs WHERE job_id = ?", (entity_id,)
+            ).fetchone()
+            if not row:
+                return
+            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            for field_name in ("container_command", "container_args", "env_vars",
+                               "docker_image", "nfs_path", "command"):
+                if field_name in payload:
+                    payload[field_name] = "[PURGED]"
+            conn.execute(
+                "UPDATE jobs SET payload = ? WHERE job_id = ?",
+                (json.dumps(payload), entity_id),
+            )
+        log.info("PURGE job_payload entity=%s", entity_id)
+
+    def _purge_job_metadata(self, entity_id: str, entity_type: str):
+        """Delete completed job records entirely."""
+        from scheduler import _db_connection
+        with _db_connection() as conn:
+            conn.execute("DELETE FROM jobs WHERE job_id = ?", (entity_id,))
+        log.info("PURGE job_metadata entity=%s", entity_id)
+
+    def _purge_telemetry(self, entity_id: str, entity_type: str):
+        """Delete telemetry event records for a host."""
+        from events import EventStore
+        store = EventStore()
+        with store._conn() as conn:
+            conn.execute(
+                "DELETE FROM events WHERE entity_id = ? AND event_type LIKE ?",
+                (entity_id, "%telemetry%"),
+            )
+        log.info("PURGE telemetry entity=%s", entity_id)
+
+    def _purge_logs(self, entity_id: str, entity_type: str):
+        """Delete log/event records for a job or entity."""
+        from events import EventStore
+        store = EventStore()
+        with store._conn() as conn:
+            conn.execute(
+                "DELETE FROM events WHERE entity_id = ?",
+                (entity_id,),
+            )
+        log.info("PURGE logs entity=%s", entity_id)
+
+    def _purge_network(self, entity_id: str, entity_type: str):
+        """Scrub network/IP data from host records."""
+        from scheduler import _db_connection
+        with _db_connection() as conn:
+            row = conn.execute(
+                "SELECT payload FROM hosts WHERE host_id = ?", (entity_id,)
+            ).fetchone()
+            if not row:
+                return
+            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            for field_name in ("ip", "public_ip", "private_ip", "headscale_ip"):
+                if field_name in payload:
+                    payload[field_name] = "[PURGED]"
+            conn.execute(
+                "UPDATE hosts SET payload = ? WHERE host_id = ?",
+                (json.dumps(payload), entity_id),
+            )
+        log.info("PURGE network entity=%s", entity_id)
+
+    def _purge_location(self, entity_id: str, entity_type: str):
+        """Scrub geolocation data from host records."""
+        from scheduler import _db_connection
+        with _db_connection() as conn:
+            row = conn.execute(
+                "SELECT payload FROM hosts WHERE host_id = ?", (entity_id,)
+            ).fetchone()
+            if not row:
+                return
+            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            for field_name in ("city", "province", "latitude", "longitude",
+                               "data_center_name", "country"):
+                if field_name in payload:
+                    payload[field_name] = "[PURGED]"
+            conn.execute(
+                "UPDATE hosts SET payload = ? WHERE host_id = ?",
+                (json.dumps(payload), entity_id),
+            )
+        log.info("PURGE location entity=%s", entity_id)
+
+    def _purge_chat_messages(self, entity_id: str, entity_type: str):
+        """Delete chat messages for a conversation."""
+        from chat import _chat_db
+        with _chat_db() as conn:
+            conn.execute(
+                "DELETE FROM chat_messages WHERE conversation_id = ?",
+                (entity_id,),
+            )
+            conn.execute(
+                "DELETE FROM chat_conversations WHERE conversation_id = ?",
+                (entity_id,),
+            )
+        log.info("PURGE chat_messages entity=%s", entity_id)
+
+    def _purge_billing_info(self, entity_id: str, entity_type: str):
+        """Delete billing records (invoices, usage meters) for a customer."""
+        from billing import get_billing_engine
+        be = get_billing_engine()
+        with be._conn() as conn:
+            conn.execute(
+                "DELETE FROM usage_meters WHERE customer_id = ?", (entity_id,)
+            )
+            conn.execute(
+                "DELETE FROM invoices WHERE customer_id = ?", (entity_id,)
+            )
+        log.info("PURGE billing_info entity=%s", entity_id)
+
+    def _purge_provider_identity(self, entity_id: str, entity_type: str):
+        """Delete provider/user identity records."""
+        from db import UserStore
+        try:
+            UserStore.delete_user(entity_id)
+        except Exception:
+            pass  # User may not exist in user store
+        log.info("PURGE provider_identity entity=%s", entity_id)
+
+    # Handler dispatch table
+    _purge_handlers = {
+        DataCategory.JOB_PAYLOAD: _purge_job_payload,
+        DataCategory.JOB_METADATA: _purge_job_metadata,
+        DataCategory.TELEMETRY: _purge_telemetry,
+        DataCategory.LOGS: _purge_logs,
+        DataCategory.NETWORK: _purge_network,
+        DataCategory.LOCATION: _purge_location,
+        DataCategory.CHAT_MESSAGES: _purge_chat_messages,
+        DataCategory.BILLING_INFO: _purge_billing_info,
+        DataCategory.PROVIDER_IDENTITY: _purge_provider_identity,
+    }
 
     # ── Consent management ────────────────────────────────────────────
 
