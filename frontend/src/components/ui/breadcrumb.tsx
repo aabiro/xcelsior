@@ -21,6 +21,7 @@ const ROUTE_LABELS: Record<string, string> = {
   events: "Events",
   settings: "Settings",
   admin: "Admin",
+  notifications: "Notifications",
   new: "New",
 };
 

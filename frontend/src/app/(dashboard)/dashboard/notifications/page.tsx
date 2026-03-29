@@ -167,7 +167,7 @@ export default function NotificationsPage() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm text-text-muted">
-            {loading ? "Loading..." : `${filtered.length} notification${filtered.length !== 1 ? "s" : ""}`}
+            {loading ? "Loading..." : `${filtered.length} Notification${filtered.length !== 1 ? "s" : ""}`}
           </CardTitle>
         </CardHeader>
         <CardContent className="divide-y divide-border">
