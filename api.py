@@ -1973,7 +1973,7 @@ VALID_KEY_SCOPES = {"full-access", "read-only"}
 
 
 @app.post("/api/keys/generate", tags=["Auth"])
-def api_generate_api_key(request: Request, name: str = "default", scope: str = "full-access"):
+async def api_generate_api_key(request: Request):
     """Generate a named API key for the authenticated user.
 
     API keys can be used as Bearer tokens for programmatic access.
@@ -1982,6 +1982,9 @@ def api_generate_api_key(request: Request, name: str = "default", scope: str = "
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    body = await request.json()
+    name = body.get("name", "default")
+    scope = body.get("scope", "full-access")
     if scope not in VALID_KEY_SCOPES:
         raise HTTPException(
             400, f"Invalid scope. Must be one of: {', '.join(sorted(VALID_KEY_SCOPES))}"

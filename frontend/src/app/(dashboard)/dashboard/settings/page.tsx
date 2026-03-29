@@ -45,6 +45,8 @@ export default function SettingsPage() {
   const [confirmPw, setConfirmPw] = useState("");
   const [changingPw, setChangingPw] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
 
   // Consent
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
@@ -479,11 +481,29 @@ export default function SettingsPage() {
           </div>
           <div className="space-y-2">
             <Label>{t("dash.settings.new_pw")}</Label>
-            <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("dash.settings.pw_min")} />
+            <div className="relative">
+              <Input type={showNewPw ? "text" : "password"} value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("dash.settings.pw_min")} />
+              <button
+                type="button"
+                onClick={() => setShowNewPw(!showNewPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              >
+                {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label>{t("dash.settings.confirm_pw")}</Label>
-            <Input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
+            <div className="relative">
+              <Input type={showConfirmPw ? "text" : "password"} value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPw(!showConfirmPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              >
+                {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             {confirmPw && newPw !== confirmPw && (
               <p className="text-xs text-accent-red">{t("dash.settings.pw_mismatch")}</p>
             )}
