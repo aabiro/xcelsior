@@ -21,12 +21,12 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function notifHref(notif: { type: string; data: Record<string, unknown> }): string | null {
+function notifHref(notif: { type: string; data: Record<string, unknown> }): string {
   const jobId = notif.data?.job_id as string | undefined;
   const hostId = notif.data?.host_id as string | undefined;
   if (notif.type === "instance" && jobId) return `/dashboard/instances/${jobId}`;
   if (notif.type === "host" && hostId) return `/dashboard/hosts/${hostId}`;
-  return null;
+  return "/dashboard/notifications";
 }
 
 export function NotificationBell() {
@@ -66,7 +66,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-xl border border-border bg-card shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-xl border border-border bg-surface shadow-xl z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h3 className="text-sm font-semibold">Notifications</h3>
@@ -92,14 +92,11 @@ export function NotificationBell() {
             ) : (
               notifications.map((n) => {
                 const href = notifHref(n);
-                const Wrapper = href ? Link : "div";
-                const wrapperProps = href
-                  ? { href, onClick: () => { markRead(n.id); setOpen(false); } }
-                  : {};
+                const wrapperProps = { href, onClick: () => { markRead(n.id); setOpen(false); } };
                 return (
-                  <Wrapper
+                  <Link
                     key={n.id}
-                    {...(wrapperProps as any)}
+                    {...wrapperProps}
                     className={cn(
                       "flex items-start gap-3 px-4 py-3 transition-colors cursor-pointer hover:bg-surface-hover",
                       !n.read && "bg-ice-blue/5",
@@ -130,9 +127,9 @@ export function NotificationBell() {
                           <Check className="h-3.5 w-3.5" />
                         </button>
                       )}
-                      {href && <ExternalLink className="h-3 w-3 text-text-muted" />}
+                      <ExternalLink className="h-3 w-3 text-text-muted" />
                     </div>
-                  </Wrapper>
+                  </Link>
                 );
               })
             )}
