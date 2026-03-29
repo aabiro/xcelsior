@@ -80,13 +80,13 @@ export default function CompliancePage() {
     // Province data — transform rates Record to array
     api.fetchTaxRates().then((d) => {
       const rates = d.rates || {};
-      const provinceList: Province[] = Object.entries(rates).map(([code, total]) => ({
+      const provinceList: Province[] = Object.entries(rates).map(([code, info]: [string, any]) => ({
         code,
         name: PROVINCE_NAMES[code] || code,
-        gst: 0.05,
-        pst: 0,
-        hst: 0,
-        total_rate: Number(total),
+        gst: info.gst ?? 0,
+        pst: info.pst ?? 0,
+        hst: info.hst ?? 0,
+        total_rate: info.rate ?? 0,
       }));
       setProvinces(provinceList);
     }).catch(() => {});

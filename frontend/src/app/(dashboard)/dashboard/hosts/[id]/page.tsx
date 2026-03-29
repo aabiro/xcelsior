@@ -172,7 +172,7 @@ export default function HostDetailPage() {
                 </Badge>
               </div>
               {reputation.jobs_completed != null && (
-                <p className="text-xs text-text-muted">{t("dash.hosts.jobs_completed", { count: reputation.jobs_completed })}</p>
+                <p className="text-xs text-text-muted">{t("dash.hosts.instances_completed", { count: reputation.jobs_completed })}</p>
               )}
             </div>
           ) : (

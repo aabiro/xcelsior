@@ -2919,3 +2919,66 @@ if __name__ == "__main__":
     for f in (HOSTS_FILE, JOBS_FILE, LOG_FILE, BILLING_FILE):
         if os.path.exists(f):
             os.remove(f)
+
+
+# ── Crypto Confirmation Watcher ───────────────────────────────────────
+
+
+def _process_crypto_confirmations():
+    """Check pending BTC deposits and credit wallets on confirmation."""
+    try:
+        import bitcoin as btc
+    except ImportError:
+        return []
+    if not btc.BTC_ENABLED:
+        return []
+
+    from billing import BillingEngine
+
+    credited = []
+    pending = btc.get_pending_deposits()
+    if not pending:
+        return credited
+
+    be = BillingEngine()
+
+    for dep in pending:
+        try:
+            updated = btc.check_and_update_deposit(dep)
+            if updated["status"] == "confirmed":
+                # Credit the CAD wallet
+                be.deposit(
+                    updated["customer_id"],
+                    updated["amount_cad"],
+                    f"Bitcoin deposit {updated['deposit_id']} ({updated['amount_btc']:.8f} BTC)",
+                )
+                btc.mark_credited(updated["deposit_id"])
+                credited.append(updated)
+                log.info(
+                    "BTC wallet credited: %s +$%.2f CAD (%s)",
+                    updated["customer_id"],
+                    updated["amount_cad"],
+                    updated["deposit_id"],
+                )
+        except Exception as e:
+            log.error("Crypto watcher error for %s: %s", dep["deposit_id"], e)
+
+    return credited
+
+
+def start_crypto_watcher(interval: int = 60, callback=None):
+    """Run BTC confirmation checks in a background thread."""
+    def loop():
+        while True:
+            try:
+                credited = _process_crypto_confirmations()
+                if callback and credited:
+                    callback(credited)
+            except Exception as e:
+                log.error("Crypto watcher error: %s", e)
+            time.sleep(interval)
+
+    t = threading.Thread(target=loop, daemon=True, name="crypto-watcher")
+    t.start()
+    log.info("Crypto confirmation watcher started (interval=%ds)", interval)
+    return t

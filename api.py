@@ -617,11 +617,11 @@ def api_check_hosts():
     return {"results": results}
 
 
-# ── Job endpoints ─────────────────────────────────────────────────────
+# ── Instance endpoints ─────────────────────────────────────────────────────
 
 
-@app.post("/job", tags=["Jobs"])
-def api_submit_job(j: JobIn):
+@app.post("/instance", tags=["Instances"])
+def api_submit_instance(j: JobIn):
     """Submit a job to the queue. Tier overrides priority.
 
     Multi-GPU: Set num_gpus > 1 for multi-GPU jobs.
@@ -639,27 +639,27 @@ def api_submit_job(j: JobIn):
         image=j.image,
     )
     broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
-    return {"ok": True, "job": job}
+    return {"ok": True, "instance": job}
 
 
-@app.get("/jobs", tags=["Jobs"])
-def api_list_jobs(status: str | None = None):
+@app.get("/instances", tags=["Instances"])
+def api_list_instances(status: str | None = None):
     """List jobs. Optional filter by status."""
-    return {"jobs": list_jobs(status=status)}
+    return {"instances": list_jobs(status=status)}
 
 
-@app.get("/job/{job_id}", tags=["Jobs"])
-def api_get_job(job_id: str):
-    """Get a specific job by ID."""
+@app.get("/instance/{job_id}", tags=["Instances"])
+def api_get_instance(job_id: str):
+    """Get a specific instance by ID."""
     jobs = list_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
-            return {"job": j}
-    raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+            return {"instance": j}
+    raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
 
-@app.patch("/job/{job_id}", tags=["Jobs"])
-def api_update_job(job_id: str, update: StatusUpdate):
+@app.patch("/instance/{job_id}", tags=["Instances"])
+def api_update_instance(job_id: str, update: StatusUpdate):
     """Update a job's status."""
     try:
         update_job_status(job_id, update.status, host_id=update.host_id)
@@ -669,7 +669,7 @@ def api_update_job(job_id: str, update: StatusUpdate):
     return {"ok": True, "job_id": job_id, "status": update.status}
 
 
-@app.post("/queue/process", tags=["Jobs"])
+@app.post("/queue/process", tags=["Instances"])
 def api_process_queue():
     """Process the job queue — assign jobs to hosts."""
     assigned = process_queue()
@@ -682,7 +682,7 @@ def api_process_queue():
 # ── Phase 14: Failover endpoints ──────────────────────────────────────
 
 
-@app.post("/failover", tags=["Jobs"])
+@app.post("/failover", tags=["Instances"])
 def api_failover():
     """Run a full failover cycle: check hosts, requeue orphaned jobs, reassign."""
     requeued, assigned = failover_and_reassign()
@@ -697,8 +697,8 @@ def api_failover():
     }
 
 
-@app.post("/job/{job_id}/requeue", tags=["Jobs"])
-def api_requeue_job(job_id: str):
+@app.post("/instance/{job_id}/requeue", tags=["Instances"])
+def api_requeue_instance(job_id: str):
     """Manually requeue a failed or stuck job."""
     result = requeue_job(job_id)
     if not result:
@@ -706,7 +706,7 @@ def api_requeue_job(job_id: str):
             status_code=400,
             detail=f"Could not requeue job {job_id} (max retries exceeded or not found)",
         )
-    return {"ok": True, "job": result}
+    return {"ok": True, "instance": result}
 
 
 # ── Per-Job SSE Log Streaming ─────────────────────────────────────────
@@ -773,8 +773,8 @@ async def _job_log_generator(request: Request, job_id: str):
                 _sse_subscribers.remove(queue)
 
 
-@app.get("/jobs/{job_id}/logs/stream", tags=["Jobs"])
-async def api_job_log_stream(request: Request, job_id: str):
+@app.get("/instances/{job_id}/logs/stream", tags=["Instances"])
+async def api_instance_log_stream(request: Request, job_id: str):
     """Stream real-time logs for a specific job via Server-Sent Events.
 
     Connect with `EventSource('/jobs/{job_id}/logs/stream')` in the browser
@@ -802,8 +802,8 @@ async def api_job_log_stream(request: Request, job_id: str):
     )
 
 
-@app.get("/jobs/{job_id}/logs", tags=["Jobs"])
-def api_job_logs(job_id: str, limit: int = 100):
+@app.get("/instances/{job_id}/logs", tags=["Instances"])
+def api_instance_logs(job_id: str, limit: int = 100):
     """Get buffered log lines for a job (non-streaming).
 
     Returns the last `limit` log lines from the in-memory buffer.
@@ -817,7 +817,7 @@ def api_job_logs(job_id: str, limit: int = 100):
 
 
 @app.post("/billing/bill/{job_id}", tags=["Billing"])
-def api_bill_job(job_id: str):
+def api_bill_instance(job_id: str):
     """Bill a specific completed job."""
     record = bill_job(job_id)
     if not record:
@@ -1968,6 +1968,77 @@ def api_auth_change_password(request: Request, req: ChangePasswordRequest):
 # Teams share billing, hosts, and job visibility
 
 
+def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str | None = None, cta_label: str = "Go to Dashboard"):
+    """Send a styled team notification email in a background thread. Best-effort.
+
+    Matches the dark-theme style from frontend/src/emails/layout.tsx.
+    """
+    from scheduler import ALERT_CONFIG
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    cfg = ALERT_CONFIG
+    if not cfg.get("email_enabled") or not cfg.get("smtp_host"):
+        return
+
+    # Build styled HTML matching the React email templates
+    cta_html = ""
+    if cta_url:
+        cta_html = f"""
+        <div style="text-align:center;margin:32px 0">
+          <a href="{cta_url}" style="display:inline-block;background-color:#dc2626;color:#ffffff;padding:12px 32px;border-radius:8px;font-size:16px;font-weight:600;text-decoration:none">{cta_label}</a>
+        </div>"""
+
+    # Convert newlines in body to styled paragraphs
+    paragraphs = "".join(
+        f'<p style="color:#94a3b8;font-size:16px;line-height:1.6;margin:0 0 16px">{line}</p>'
+        for line in body_text.strip().split("\n\n")
+        if line.strip()
+    )
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/></head>
+<body style="background-color:#0f172a;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0">
+<div style="max-width:600px;margin:0 auto;padding:40px 24px">
+  <div style="margin-bottom:32px">
+    <span style="display:inline-block;width:36px;height:36px;line-height:36px;text-align:center;border-radius:8px;background-color:#dc2626;color:#fff;font-weight:800;font-size:20px;vertical-align:middle">X</span>
+    <a href="https://xcelsior.ca" style="font-size:22px;font-weight:700;color:#f8fafc;text-decoration:none;vertical-align:middle;margin-left:12px">Xcelsior</a>
+  </div>
+  <h1 style="color:#f8fafc;font-size:24px;font-weight:700;line-height:1.3;margin:0 0 16px">{subject}</h1>
+  {paragraphs}
+  {cta_html}
+  <hr style="border:none;border-top:1px solid #334155;margin:32px 0"/>
+  <p style="color:#64748b;font-size:13px;line-height:1.5">
+    Xcelsior Computing Inc. · Canada<br/>
+    <a href="https://xcelsior.ca/privacy" style="color:#38bdf8;text-decoration:underline">Privacy Policy</a> ·
+    <a href="https://xcelsior.ca/terms" style="color:#38bdf8;text-decoration:underline">Terms</a>
+  </p>
+</div>
+</body></html>"""
+
+    def _do_send():
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"[Xcelsior] {subject}"
+            msg["From"] = cfg["email_from"]
+            msg["To"] = to_email
+            # Plain text fallback
+            msg.attach(MIMEText(body_text, "plain"))
+            # Styled HTML
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
+                server.starttls()
+                server.login(cfg["smtp_user"], cfg["smtp_pass"])
+                server.send_message(msg)
+            log.info("TEAM EMAIL SENT: %s -> %s", subject, to_email)
+        except Exception as e:
+            log.warning("TEAM EMAIL FAILED: %s -> %s | %s", subject, to_email, e)
+
+    import threading
+    threading.Thread(target=_do_send, daemon=True).start()
+
+
 class CreateTeamRequest(BaseModel):
     name: str
     plan: str = "free"  # free | pro | enterprise
@@ -1976,6 +2047,10 @@ class CreateTeamRequest(BaseModel):
 class AddTeamMemberRequest(BaseModel):
     email: str
     role: str = "member"  # admin | member | viewer
+
+
+class UpdateTeamMemberRoleRequest(BaseModel):
+    role: str  # admin | member | viewer
 
 
 @app.post("/api/teams", tags=["Teams"])
@@ -2061,6 +2136,14 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
         raise HTTPException(400, "Team is at member capacity")
 
     broadcast_sse("team_member_added", {"team_id": team_id, "email": body.email})
+    # Send email notification (best-effort, non-blocking)
+    _send_team_email(
+        body.email,
+        f"You've been added to team {team['name']}",
+        f"You've been added to the team \"{team['name']}\" on Xcelsior as a {body.role}.\n\nYou can now collaborate with your team, share billing, and manage GPU instances together.",
+        cta_url="https://xcelsior.ca/dashboard/settings",
+        cta_label="View Your Team",
+    )
     return {"ok": True, "message": f"{body.email} added to team as {body.role}"}
 
 
@@ -2089,7 +2172,43 @@ def api_remove_team_member(team_id: str, email: str, request: Request):
         raise HTTPException(400, "Cannot remove team owner")
 
     UserStore.remove_team_member(team_id, email)
+    # Send email notification (best-effort, non-blocking)
+    _send_team_email(
+        email,
+        f"You've been removed from team {team['name']}",
+        f"You've been removed from the team \"{team['name']}\" on Xcelsior.\n\nIf you believe this was a mistake, contact the team owner.",
+        cta_url="https://xcelsior.ca/dashboard/settings",
+        cta_label="Go to Dashboard",
+    )
     return {"ok": True, "message": f"{email} removed from team"}
+
+
+@app.patch("/api/teams/{team_id}/members/{email}", tags=["Teams"])
+def api_update_team_member_role(team_id: str, email: str, body: UpdateTeamMemberRoleRequest, request: Request):
+    """Update a team member's role. Only admins can change roles."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    if body.role not in ("admin", "member", "viewer"):
+        raise HTTPException(400, "Role must be admin, member, or viewer")
+
+    team = UserStore.get_team(team_id)
+    if not team:
+        raise HTTPException(404, "Team not found")
+
+    members = UserStore.list_team_members(team_id)
+    requester = next((m for m in members if m["email"] == user["email"]), None)
+    if not requester or requester["role"] != "admin":
+        raise HTTPException(403, "Only team admins can change roles")
+
+    if email == team["owner_email"]:
+        raise HTTPException(400, "Cannot change the team owner's role")
+
+    if not UserStore.update_team_member_role(team_id, email, body.role):
+        raise HTTPException(404, f"{email} is not a member of this team")
+
+    return {"ok": True, "message": f"{email} role updated to {body.role}"}
 
 
 @app.delete("/api/teams/{team_id}", tags=["Teams"])
@@ -2107,6 +2226,7 @@ def api_delete_team(team_id: str, request: Request):
         raise HTTPException(403, "Only the team owner can delete this team")
 
     UserStore.delete_team(team_id)
+    broadcast_sse("team_deleted", {"team_id": team_id})
     return {"ok": True, "message": "Team deleted"}
 
 
@@ -2254,7 +2374,7 @@ def api_nfs_config():
     }
 
 
-@app.get("/tiers", tags=["Jobs"])
+@app.get("/tiers", tags=["Instances"])
 def api_list_tiers():
     """List all priority tiers with their multipliers."""
     return {"tiers": list_tiers()}
@@ -2527,7 +2647,7 @@ def api_agent_work(host_id: str):
     jobs = pending + queued_work
     if not jobs:
         return JSONResponse(status_code=204, content=None)
-    return {"ok": True, "jobs": jobs}
+    return {"ok": True, "instances": jobs}
 
 
 @app.get("/agent/preempt/{host_id}", tags=["Agent"])
@@ -2800,8 +2920,8 @@ def api_update_spot_prices():
     return {"ok": True, "prices": prices}
 
 
-@app.post("/spot/job", tags=["Spot Pricing"])
-def api_submit_spot_job(j: SpotJobIn):
+@app.post("/spot/instance", tags=["Spot Pricing"])
+def api_submit_spot_instance(j: SpotJobIn):
     """Submit a spot job with a maximum bid price."""
     job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier)
     broadcast_sse(
@@ -2812,7 +2932,7 @@ def api_submit_spot_job(j: SpotJobIn):
             "max_bid": j.max_bid,
         },
     )
-    return {"ok": True, "job": job}
+    return {"ok": True, "instance": job}
 
 
 @app.post("/spot/preemption-cycle", tags=["Spot Pricing"])
@@ -3386,6 +3506,75 @@ def api_process_refund(req: RefundRequest):
     return {"ok": True, **result}
 
 
+# ── Bitcoin Deposits ──────────────────────────────────────────────────
+
+try:
+    import bitcoin as _btc_mod
+except ImportError:
+    _btc_mod = None  # type: ignore[assignment]
+
+
+class CryptoDepositRequest(BaseModel):
+    customer_id: str
+    amount_cad: float
+
+
+@app.post("/api/billing/crypto/deposit", tags=["Billing"])
+def api_crypto_deposit(req: CryptoDepositRequest):
+    """Create a BTC deposit request. Returns address, amount, and QR data."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    if req.amount_cad < 1 or req.amount_cad > 10000:
+        raise HTTPException(400, "Amount must be between $1 and $10,000 CAD")
+    try:
+        result = _btc_mod.create_deposit(req.customer_id, req.amount_cad)
+        return {"ok": True, **result}
+    except Exception as e:
+        log.error("Crypto deposit error: %s", e)
+        raise HTTPException(502, "Failed to create BTC deposit — node may be unreachable")
+
+
+@app.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
+def api_crypto_deposit_status(deposit_id: str):
+    """Poll deposit confirmation status."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    dep = _btc_mod.get_deposit(deposit_id)
+    if not dep:
+        raise HTTPException(404, "Deposit not found")
+    return {"ok": True, **dep}
+
+
+@app.get("/api/billing/crypto/rate", tags=["Billing"])
+def api_crypto_rate():
+    """Get current BTC/CAD exchange rate."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    try:
+        rate = _btc_mod.get_btc_cad_rate()
+        return {"ok": True, "btc_cad": rate, "currency": "CAD"}
+    except Exception as e:
+        raise HTTPException(502, f"Unable to fetch rate: {e}")
+
+
+@app.post("/api/billing/crypto/refresh/{deposit_id}", tags=["Billing"])
+def api_crypto_refresh(deposit_id: str):
+    """Refresh an expired deposit with a new BTC/CAD rate."""
+    if not _btc_mod or not _btc_mod.BTC_ENABLED:
+        raise HTTPException(503, "Bitcoin deposits are not enabled")
+    dep = _btc_mod.refresh_deposit(deposit_id)
+    if not dep:
+        raise HTTPException(404, "Deposit not found")
+    return {"ok": True, **dep}
+
+
+@app.get("/api/billing/crypto/enabled", tags=["Billing"])
+def api_crypto_enabled():
+    """Check if Bitcoin deposits are enabled."""
+    enabled = bool(_btc_mod and _btc_mod.BTC_ENABLED)
+    return {"ok": True, "enabled": enabled}
+
+
 # ── Reputation ────────────────────────────────────────────────────────
 
 
@@ -3923,16 +4112,76 @@ def api_process_queue_sovereign(req: SovereignQueueRequest):
 
 @app.get("/api/compliance/status", tags=["Compliance"])
 def api_compliance_status():
-    """Return high-level compliance check summary."""
+    """Return high-level compliance check summary with live verification."""
+    from billing import PROVINCE_TAX_RATES
     from jurisdiction import TRUST_TIER_REQUIREMENTS
-    checks = [
-        {"id": "gst_registered", "name": "GST/HST Registration", "status": "pass", "description": "Platform is registered for Canadian GST/HST collection."},
-        {"id": "province_matrix", "name": "Province Tax Matrix", "status": "pass", "description": "Tax rates configured for all provinces and territories."},
-        {"id": "data_residency", "name": "Data Residency", "status": "pass", "description": "Job metadata stored on Canadian infrastructure."},
-        {"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "pass", "description": "All trust tiers defined with requirements."},
-        {"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass", "description": "Privacy Impact Assessment check available for QC data transfers."},
-        {"id": "audit_trail", "name": "Audit Trail", "status": "pass", "description": "Event logging enabled for regulated-tier workloads."},
-    ]
+
+    checks = []
+
+    # 1. Province Tax Matrix — verify all 13 provinces/territories are configured
+    expected_provinces = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
+    configured = set(PROVINCE_TAX_RATES.keys())
+    missing = expected_provinces - configured
+    if not missing:
+        checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "pass",
+                        "description": f"Tax rates configured for all {len(configured)} provinces and territories."})
+    else:
+        checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "fail",
+                        "description": f"Missing tax rates for: {', '.join(sorted(missing))}"})
+
+    # 2. Data Residency — check CANADA_ONLY enforcement availability
+    canada_only = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
+    try:
+        from jurisdiction import host_meets_constraint
+        checks.append({"id": "data_residency", "name": "Data Residency", "status": "pass",
+                        "description": "Jurisdiction-aware scheduling active." + (" CANADA_ONLY enforced." if canada_only else " Per-job residency constraints available.")})
+    except ImportError:
+        checks.append({"id": "data_residency", "name": "Data Residency", "status": "fail",
+                        "description": "Jurisdiction module not available."})
+
+    # 3. Trust Tiers — verify all 4 tiers are defined
+    expected_tiers = 4
+    tier_count = len(TRUST_TIER_REQUIREMENTS)
+    if tier_count >= expected_tiers:
+        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "pass",
+                        "description": f"{tier_count} trust tiers defined (Community → Regulated)."})
+    else:
+        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
+                        "description": f"Only {tier_count}/{expected_tiers} trust tiers defined."})
+
+    # 4. Québec Law 25 (PIA) — verify function is available
+    try:
+        from privacy import requires_quebec_pia
+        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
+                        "description": "Privacy Impact Assessment check available for QC data transfers."})
+    except ImportError:
+        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "fail",
+                        "description": "Privacy module not available — cannot enforce Law 25."})
+
+    # 5. Audit Trail — verify event store is operational
+    try:
+        store = get_event_store()
+        recent = store.get_events(limit=1)
+        checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "pass",
+                        "description": "Tamper-evident event logging active with hash-chain integrity."})
+    except Exception:
+        checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "fail",
+                        "description": "Event store unavailable — audit logging disabled."})
+
+    # 6. Stripe / Payment Processing — verify payment rails are active
+    try:
+        mgr = get_stripe_manager()
+        from stripe_connect import STRIPE_ENABLED
+        if STRIPE_ENABLED:
+            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "pass",
+                            "description": "Stripe Connect active for provider payouts and customer billing."})
+        else:
+            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
+                            "description": "Stripe running in stub mode — real payments disabled."})
+    except Exception:
+        checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
+                        "description": "Payment processing module unavailable."})
+
     return {"ok": True, "checks": checks}
 
 
@@ -3954,12 +4203,22 @@ def api_compliance_provinces():
 @app.get("/api/compliance/tax-rates", tags=["Compliance"])
 def api_tax_rates():
     """Canadian GST/HST/PST rates by province for billing."""
-    return {
-        "rates": {
-            code: {"rate": rate, "description": desc}
-            for code, (rate, desc) in PROVINCE_TAX_RATES.items()
-        }
-    }
+    # HST provinces have a single harmonized rate (no separate GST/PST)
+    HST_PROVINCES = {"NB": 0.15, "NL": 0.15, "NS": 0.15, "ON": 0.13, "PE": 0.15}
+    # PST/RST/QST provinces have GST + provincial component
+    PST_PROVINCES = {"BC": 0.07, "MB": 0.07, "SK": 0.06, "QC": 0.09975}
+
+    rates = {}
+    for code, (total, desc) in PROVINCE_TAX_RATES.items():
+        if code in HST_PROVINCES:
+            rates[code] = {"rate": total, "description": desc, "gst": 0, "pst": 0, "hst": HST_PROVINCES[code]}
+        elif code in PST_PROVINCES:
+            rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": PST_PROVINCES[code], "hst": 0}
+        else:
+            # GST-only (AB, territories)
+            rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": 0, "hst": 0}
+
+    return {"rates": rates}
 
 
 @app.get("/api/compliance/trust-tier-requirements", tags=["Compliance"])
@@ -4281,8 +4540,8 @@ def api_verify_event_chain():
     return {"ok": True, "chain_integrity": result}
 
 
-@app.get("/api/audit/job/{job_id}", tags=["Events"])
-def api_job_audit_trail(job_id: str):
+@app.get("/api/audit/instance/{job_id}", tags=["Events"])
+def api_instance_audit_trail(job_id: str):
     """Full auditable trail for a job — every event with hash chain.
 
     This is the dispute-resolution artifact: every state change,
@@ -4994,8 +5253,8 @@ def api_list_all_artifacts():
         return {"ok": True, "artifacts": []}
 
 
-@app.get("/api/slurm/jobs", tags=["Infrastructure"])
-def api_slurm_list_jobs():
+@app.get("/api/slurm/instances", tags=["Infrastructure"])
+def api_slurm_list_instances():
     """List all tracked Slurm jobs."""
     from slurm_adapter import _load_slurm_map, get_slurm_job_status
     job_map = _load_slurm_map()

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createJobLogStream, fetchJobLogs } from "@/lib/api";
-import type { JobLog } from "@/lib/api";
+import { createInstanceLogStream, fetchInstanceLogs } from "@/lib/api";
+import type { InstanceLog } from "@/lib/api";
 
 interface LogViewerProps {
   jobId: string;
@@ -18,7 +18,7 @@ const LEVEL_COLORS: Record<string, string> = {
 };
 
 export function LogViewer({ jobId, live = false }: LogViewerProps) {
-  const [logs, setLogs] = useState<JobLog[]>([]);
+  const [logs, setLogs] = useState<InstanceLog[]>([]);
   const [connected, setConnected] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,7 +26,7 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
 
   // Load historical logs
   useEffect(() => {
-    fetchJobLogs(jobId, 500)
+    fetchInstanceLogs(jobId, 500)
       .then((r) => setLogs(r.logs || []))
       .catch(() => {});
   }, [jobId]);
@@ -35,7 +35,7 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
   useEffect(() => {
     if (!live) return;
 
-    const es = createJobLogStream(jobId);
+    const es = createInstanceLogStream(jobId);
 
     es.addEventListener("connected", () => setConnected(true));
 

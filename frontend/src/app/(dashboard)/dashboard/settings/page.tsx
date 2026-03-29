@@ -63,6 +63,8 @@ export default function SettingsPage() {
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+  const [deletingTeam, setDeletingTeam] = useState(false);
+  const [deleteTeamConfirm, setDeleteTeamConfirm] = useState(false);
 
   const loadTeams = useCallback(async () => {
     try {
@@ -121,6 +123,34 @@ export default function SettingsPage() {
       setTeamMembers((prev) => prev.filter((m) => m.email !== email));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to remove");
+    }
+  };
+
+  const handleDeleteTeam = async () => {
+    if (!activeTeam) return;
+    setDeletingTeam(true);
+    try {
+      await api.deleteTeam(activeTeam.team_id);
+      toast.success(`Team "${activeTeam.name}" deleted`);
+      setActiveTeam(null);
+      setTeamMembers([]);
+      setDeleteTeamConfirm(false);
+      await loadTeams();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete team");
+    } finally { setDeletingTeam(false); }
+  };
+
+  const handleRoleChange = async (memberEmail: string, newRole: string) => {
+    if (!activeTeam) return;
+    try {
+      await api.updateMemberRole(activeTeam.team_id, memberEmail, newRole);
+      toast.success(`${memberEmail} role updated to ${newRole}`);
+      setTeamMembers((prev) =>
+        prev.map((m) => m.email === memberEmail ? { ...m, role: newRole } : m)
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update role");
     }
   };
 
@@ -548,35 +578,64 @@ export default function SettingsPage() {
                         {activeTeam.plan} plan &middot; {teamMembers.length}/{activeTeam.max_members} members
                       </p>
                     </div>
-                    <span className="text-xs font-mono text-text-muted">{activeTeam.team_id}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-text-muted">{activeTeam.team_id}</span>
+                      {activeTeam.owner_email === email && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteTeamConfirm(true)}
+                          className="text-accent-red hover:text-accent-red"
+                          title="Delete team"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Members list */}
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Members</p>
-                    {teamMembers.map((m) => (
-                      <div key={m.email} className="flex items-center justify-between rounded-lg border border-border p-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-ice-blue/10 text-xs font-bold text-ice-blue">
-                            {m.email.charAt(0).toUpperCase()}
+                    {teamMembers.map((m) => {
+                      const isOwner = m.email === activeTeam.owner_email;
+                      const iAmAdmin = teamMembers.find((x) => x.email === email)?.role === "admin";
+                      return (
+                        <div key={m.email} className="flex items-center justify-between rounded-lg border border-border p-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-ice-blue/10 text-xs font-bold text-ice-blue">
+                              {m.email.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm">{m.email}{isOwner && <span className="ml-1.5 text-[10px] text-accent-gold font-medium">OWNER</span>}</p>
+                              {iAmAdmin && !isOwner ? (
+                                <Select
+                                  value={m.role}
+                                  onChange={(e) => handleRoleChange(m.email, e.target.value)}
+                                  className="mt-0.5 h-6 w-24 text-xs py-0"
+                                >
+                                  <option value="admin">Admin</option>
+                                  <option value="member">Member</option>
+                                  <option value="viewer">Viewer</option>
+                                </Select>
+                              ) : (
+                                <p className="text-xs text-text-muted capitalize">{m.role}</p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm">{m.email}</p>
-                            <p className="text-xs text-text-muted capitalize">{m.role}</p>
-                          </div>
+                          {iAmAdmin && m.email !== email && !isOwner && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setRemoveTarget(m.email)}
+                              className="text-accent-red hover:text-accent-red"
+                            >
+                              <UserMinus className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
-                        {m.email !== email && m.role !== "admin" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setRemoveTarget(m.email)}
-                            className="text-accent-red hover:text-accent-red"
-                          >
-                            <UserMinus className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Invite member */}
@@ -671,6 +730,16 @@ export default function SettingsPage() {
         variant="danger"
         onConfirm={() => removeTarget && handleRemoveMember(removeTarget)}
         onCancel={() => setRemoveTarget(null)}
+      />
+      <ConfirmDialog
+        open={deleteTeamConfirm}
+        title="Delete Team"
+        description={`Are you sure you want to delete "${activeTeam?.name}"? All members will be removed and this cannot be undone.`}
+        confirmLabel={deletingTeam ? "Deleting…" : "Delete Team"}
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={handleDeleteTeam}
+        onCancel={() => setDeleteTeamConfirm(false)}
       />
     </div>
   );

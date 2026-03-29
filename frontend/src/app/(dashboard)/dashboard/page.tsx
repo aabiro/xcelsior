@@ -8,11 +8,11 @@ import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { Server, Briefcase, DollarSign, Activity, Zap, Users } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
-import type { Host, Job, ReputationEntry } from "@/lib/api";
+import type { Host, Instance, ReputationEntry } from "@/lib/api";
 
 export default function DashboardOverview() {
   const [hosts, setHosts] = useState<Host[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [instances, setInstances] = useState<Instance[]>([]);
   const [leaderboard, setLeaderboard] = useState<ReputationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const api = useApi();
@@ -21,19 +21,19 @@ export default function DashboardOverview() {
   useEffect(() => {
     Promise.allSettled([
       api.fetchHosts(),
-      api.fetchJobs(),
+      api.fetchInstances(),
       api.fetchLeaderboard(),
     ]).then(([h, j, l]) => {
       if (h.status === "fulfilled") setHosts(h.value.hosts || []);
-      if (j.status === "fulfilled") setJobs(j.value.jobs || []);
+      if (j.status === "fulfilled") setInstances(j.value.instances || []);
       if (l.status === "fulfilled") setLeaderboard(l.value.leaderboard || []);
       setLoading(false);
     });
   }, [api]);
 
   const activeHosts = hosts.filter((h) => h.status === "active").length;
-  const runningJobs = jobs.filter((j) => j.status === "running").length;
-  const queuedJobs = jobs.filter((j) => j.status === "queued").length;
+  const runningInstances = instances.filter((j) => j.status === "running").length;
+  const queuedInstances = instances.filter((j) => j.status === "queued").length;
 
   if (loading) {
     return (
@@ -55,32 +55,32 @@ export default function DashboardOverview() {
       {/* Stats Row */}
       <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StaggerItem><StatCard label={t("dash.overview.active_hosts")} value={activeHosts} icon={Server} /></StaggerItem>
-        <StaggerItem><StatCard label={t("dash.overview.running_jobs")} value={runningJobs} icon={Briefcase} /></StaggerItem>
+        <StaggerItem><StatCard label={t("dash.overview.running_instances")} value={runningInstances} icon={Briefcase} /></StaggerItem>
         <StaggerItem><StatCard label={t("dash.overview.total_hosts")} value={hosts.length} icon={DollarSign} /></StaggerItem>
-        <StaggerItem><StatCard label={t("dash.overview.queued")} value={queuedJobs} icon={Activity} /></StaggerItem>
+        <StaggerItem><StatCard label={t("dash.overview.queued")} value={queuedInstances} icon={Activity} /></StaggerItem>
       </StaggerList>
 
       <FadeIn delay={0.25} className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Recent Jobs */}
+        {/* Recent Instances */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Briefcase className="h-4 w-4" /> {t("dash.overview.recent_jobs")}
+              <Briefcase className="h-4 w-4" /> {t("dash.overview.recent_instances")}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {jobs.length === 0 ? (
-              <p className="text-sm text-text-muted">{t("dash.overview.no_jobs")}</p>
+            {instances.length === 0 ? (
+              <p className="text-sm text-text-muted">{t("dash.overview.no_instances")}</p>
             ) : (
               <div className="space-y-3">
-                {jobs.slice(0, 5).map((job) => (
-                  <div key={job.job_id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                {instances.slice(0, 5).map((inst) => (
+                  <div key={inst.job_id} className="flex items-center justify-between rounded-lg border border-border p-3">
                     <div>
-                      <p className="text-sm font-medium">{job.name || job.job_id}</p>
-                      <p className="text-xs text-text-muted">{job.gpu_type || job.gpu_model}</p>
+                      <p className="text-sm font-medium">{inst.name || inst.job_id}</p>
+                      <p className="text-xs text-text-muted">{inst.gpu_type || inst.gpu_model}</p>
                     </div>
-                    <Badge variant={job.status === "running" ? "active" : job.status === "completed" ? "completed" : job.status === "queued" ? "queued" : "default"}>
-                      {job.status}
+                    <Badge variant={inst.status === "running" ? "active" : inst.status === "completed" ? "completed" : inst.status === "queued" ? "queued" : "default"}>
+                      {inst.status}
                     </Badge>
                   </div>
                 ))}

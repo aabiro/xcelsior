@@ -135,9 +135,14 @@ export default function MarketplacePage() {
                 )}
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-lg font-bold font-mono">
-                  ${(listing.price_per_hour_cad || listing.price_per_hour)?.toFixed(2) || "—"}<span className="text-xs text-text-muted">{t("dash.market.per_hr")}</span>
-                </span>
+                <div>
+                  <span className="text-lg font-bold font-mono">
+                    ${(listing.price_per_hour_cad || listing.price_per_hour)?.toFixed(2) || "—"}<span className="text-xs text-text-muted">{t("dash.market.per_hr")}</span>
+                  </span>
+                  <p className="text-xs text-emerald font-mono">
+                    ~${((listing.price_per_hour_cad || listing.price_per_hour || 0) * 0.7).toFixed(2)}/hr spot
+                  </p>
+                </div>
                 <Button size="sm" onClick={() => setRentListing(listing)}>{t("dash.market.rent")}</Button>
               </div>
             </Card>

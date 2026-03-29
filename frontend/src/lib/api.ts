@@ -95,19 +95,19 @@ export async function registerHost(data: Record<string, unknown>) {
   return apiFetch("/host", { method: "PUT", body: JSON.stringify(data) });
 }
 
-// ── Jobs ──────────────────────────────────────────────────────────────
-export async function fetchJobs() {
-  return apiFetch<{ ok: boolean; jobs: Job[] }>("/jobs");
+// ── Instances ─────────────────────────────────────────────────────────
+export async function fetchInstances() {
+  return apiFetch<{ ok: boolean; instances: Instance[] }>("/instances");
 }
 
-export async function submitJob(data: Record<string, unknown>) {
-  return apiFetch<{ ok: boolean; job_id?: string; id?: string }>(
-    "/job", { method: "POST", body: JSON.stringify(data) },
+export async function submitInstance(data: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean; instance_id?: string; id?: string }>(
+    "/instance", { method: "POST", body: JSON.stringify(data) },
   );
 }
 
-export async function cancelJob(jobId: string) {
-  return apiFetch(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+export async function cancelInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/cancel`, { method: "POST" });
 }
 
 // ── Billing ───────────────────────────────────────────────────────────
@@ -145,6 +145,57 @@ export async function createPaymentIntent(customerId: string, amountCad: number,
   }>("/api/billing/payment-intent", {
     method: "POST",
     body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad, description }),
+  });
+}
+
+// ── Bitcoin Deposits ─────────────────────────────────────────────────
+
+export async function checkCryptoEnabled() {
+  return apiFetch<{ ok: boolean; enabled: boolean }>("/api/billing/crypto/enabled");
+}
+
+export async function createCryptoDeposit(customerId: string, amountCad: number) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    btc_address: string;
+    amount_btc: number;
+    amount_cad: number;
+    btc_cad_rate: number;
+    expires_at: number;
+    qr_data: string;
+  }>("/api/billing/crypto/deposit", {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad }),
+  });
+}
+
+export async function checkCryptoDeposit(depositId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    status: string;
+    confirmations: number;
+    amount_cad: number;
+    amount_btc: number;
+    balance_after_cad?: number;
+  }>(`/api/billing/crypto/deposit/${encodeURIComponent(depositId)}`);
+}
+
+export async function getCryptoRate() {
+  return apiFetch<{ ok: boolean; btc_cad: number; currency: string }>("/api/billing/crypto/rate");
+}
+
+export async function refreshCryptoDeposit(depositId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    amount_btc: number;
+    btc_cad_rate: number;
+    expires_at: number;
+    qr_data?: string;
+  }>(`/api/billing/crypto/refresh/${encodeURIComponent(depositId)}`, {
+    method: "POST",
   });
 }
 
@@ -318,7 +369,16 @@ export async function fetchReservedPlans() {
 
 // ── Spot ──────────────────────────────────────────────────────────────
 export async function fetchSpotPrices() {
-  return apiFetch<{ ok: boolean; spot_prices: Record<string, number> }>("/spot-prices");
+  return apiFetch<{ ok: boolean; spot_prices: Record<string, number>; prices?: Record<string, number> }>("/spot-prices");
+}
+
+export async function submitSpotInstance(data: {
+  name: string; vram_needed_gb: number; max_bid: number;
+  priority?: number; tier?: string;
+}) {
+  return apiFetch<{ ok: boolean; instance: { job_id: string; name: string } }>(
+    "/spot/instance", { method: "POST", body: JSON.stringify(data) },
+  );
 }
 
 // ── Reputation ────────────────────────────────────────────────────────
@@ -360,23 +420,23 @@ export async function fetchAnalytics(params?: Record<string, string>) {
   return apiFetch(`/api/analytics/usage${qs}`);
 }
 
-// ── Job Detail ────────────────────────────────────────────────────────
-export async function fetchJob(jobId: string) {
-  return apiFetch<{ ok: boolean; job: Job }>(`/job/${encodeURIComponent(jobId)}`);
+// ── Instance Detail ───────────────────────────────────────────────────
+export async function fetchInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}`);
 }
 
-export async function fetchJobLogs(jobId: string, limit = 100) {
-  return apiFetch<{ ok: boolean; job_id: string; logs: JobLog[]; total: number }>(
-    `/jobs/${encodeURIComponent(jobId)}/logs?limit=${limit}`,
+export async function fetchInstanceLogs(instanceId: string, limit = 100) {
+  return apiFetch<{ ok: boolean; instance_id: string; logs: InstanceLog[]; total: number }>(
+    `/instances/${encodeURIComponent(instanceId)}/logs?limit=${limit}`,
   );
 }
 
-export function createJobLogStream(jobId: string): EventSource {
-  return new EventSource(`/jobs/${encodeURIComponent(jobId)}/logs/stream`, { withCredentials: true });
+export function createInstanceLogStream(instanceId: string): EventSource {
+  return new EventSource(`/instances/${encodeURIComponent(instanceId)}/logs/stream`, { withCredentials: true });
 }
 
-export async function requeueJob(jobId: string) {
-  return apiFetch<{ ok: boolean; job: Job }>(`/job/${encodeURIComponent(jobId)}/requeue`, {
+export async function requeueInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}/requeue`, {
     method: "POST",
   });
 }
@@ -531,7 +591,7 @@ export async function fetchRetentionPolicies() {
 
 // ── Compliance ────────────────────────────────────────────────────────
 export async function fetchTaxRates() {
-  return apiFetch<{ ok: boolean; rates: Record<string, number> }>("/api/compliance/tax-rates");
+  return apiFetch<{ ok: boolean; rates: Record<string, { rate: number; description: string; gst: number; pst: number; hst: number }> }>("/api/compliance/tax-rates");
 }
 
 export async function checkQuebecPia(data: { data_origin_province: string; processing_province: string; data_contains_pi: boolean }) {
@@ -598,6 +658,20 @@ export async function removeTeamMember(teamId: string, email: string) {
   );
 }
 
+export async function deleteTeam(teamId: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/teams/${encodeURIComponent(teamId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function updateMemberRole(teamId: string, email: string, role: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(email)}`,
+    { method: "PATCH", body: JSON.stringify({ role }) },
+  );
+}
+
 // ── Artifacts ─────────────────────────────────────────────────────────
 export async function uploadArtifact(data: { job_id: string; filename: string; artifact_type: string; residency_policy?: string }) {
   return apiFetch<{ ok: boolean; upload_url: string; artifact_id: string }>(
@@ -655,11 +729,11 @@ export async function fetchSlurmProfiles() {
   );
 }
 
-export async function submitSlurmJob(data: {
+export async function submitSlurmInstance(data: {
   name: string; vram_needed_gb: number; priority: string;
   tier?: string; num_gpus?: number; image?: string; profile?: string; dry_run?: boolean;
 }) {
-  return apiFetch<{ ok: boolean; slurm_job_id: string; job_id?: string }>(
+  return apiFetch<{ ok: boolean; slurm_job_id: string; instance_id?: string }>(
     "/api/slurm/submit", { method: "POST", body: JSON.stringify(data) },
   );
 }
@@ -701,7 +775,7 @@ export interface Host {
   compute_score?: number;
 }
 
-export interface Job {
+export interface Instance {
   job_id: string;
   id?: string;
   name?: string;
@@ -717,6 +791,9 @@ export interface Job {
   submitted_at: string;
   created_at?: string;
 }
+
+/** @deprecated Use Instance instead */
+export type Job = Instance;
 
 export interface BillingRecord {
   id?: string;
@@ -797,12 +874,15 @@ export interface ReputationEntry {
   uptime?: number;
 }
 
-export interface JobLog {
+export interface InstanceLog {
   timestamp: string;
   level?: string;
   message: string;
   stream?: string;
 }
+
+/** @deprecated Use InstanceLog instead */
+export type JobLog = InstanceLog;
 
 export interface VerifiedHost {
   host_id: string;

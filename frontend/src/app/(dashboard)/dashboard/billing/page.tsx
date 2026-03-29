@@ -6,9 +6,11 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DepositModal } from "@/components/billing/deposit-modal";
+import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
+  Bitcoin,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -34,6 +36,8 @@ export default function BillingPage() {
   }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
+  const [btcEnabled, setBtcEnabled] = useState(false);
   const [cafLoading, setCafLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
@@ -67,6 +71,11 @@ export default function BillingPage() {
   }, [customerId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Check if BTC deposits are enabled
+  useEffect(() => {
+    api.checkCryptoEnabled().then((r) => setBtcEnabled(r.enabled)).catch(() => {});
+  }, []);
 
   // CSV export from billing records
   const handleCsvExport = async () => {
@@ -243,6 +252,30 @@ export default function BillingPage() {
             </Card>
           </div>
 
+          {/* Bitcoin Deposit */}
+          {btcEnabled && (
+            <Card className="border-amber-500/20 bg-amber-500/5">
+              <CardContent className="flex items-center justify-between p-5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Bitcoin className="h-4 w-4 text-amber-500" />
+                    <p className="font-medium text-amber-500">Bitcoin Deposits</p>
+                  </div>
+                  <p className="text-xs text-text-secondary">
+                    Pay with BTC — zero processing fees, settled in CAD
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-amber-500 hover:bg-amber-600 text-black"
+                  onClick={() => setShowCryptoDeposit(true)}
+                >
+                  <Bitcoin className="h-3.5 w-3.5" /> Deposit BTC
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Reserved Plans */}
           {reservedTiers && (
             <div>
@@ -404,6 +437,19 @@ export default function BillingPage() {
           onSuccess={(newBalance) => {
             setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
             setShowDeposit(false);
+            load();
+          }}
+        />
+      )}
+
+      {/* Crypto Deposit Modal */}
+      {showCryptoDeposit && customerId && (
+        <CryptoDepositModal
+          customerId={customerId}
+          onClose={() => setShowCryptoDeposit(false)}
+          onSuccess={(newBalance) => {
+            setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
+            setShowCryptoDeposit(false);
             load();
           }}
         />

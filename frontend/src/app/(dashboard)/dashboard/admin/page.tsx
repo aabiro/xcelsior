@@ -135,7 +135,7 @@ function AdminContent() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label={t("dash.admin.total_users")} value={stats?.total_users ?? "—"} icon={Users} />
         <StatCard label={t("dash.admin.active_hosts")} value={stats?.active_hosts ?? "—"} icon={Server} />
-        <StatCard label={t("dash.admin.running_jobs")} value={stats?.running_jobs ?? "—"} icon={Activity} />
+        <StatCard label={t("dash.admin.running_instances")} value={stats?.running_jobs ?? "—"} icon={Activity} />
         <StatCard label={t("dash.admin.revenue_mtd")} value={`$${stats?.revenue_mtd?.toFixed(2) || "0.00"}`} icon={Shield} />
       </div>
 

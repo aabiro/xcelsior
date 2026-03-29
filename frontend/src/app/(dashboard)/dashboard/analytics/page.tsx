@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Calendar, Download } from "lucide-react";
+import { BarChart3, RefreshCw, Calendar, Download, TrendingUp, Clock, Cpu } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
@@ -42,6 +42,15 @@ export default function AnalyticsPage() {
 
   const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" };
 
+  // Derive chart data from the API response shape: {analytics: [...], summary: {...}}
+  const analytics: any[] = data?.analytics || [];
+  const summary = data?.summary || {};
+  const hasData = analytics.length > 0 || (summary.total_jobs != null && summary.total_jobs > 0);
+
+  // Build chart-friendly arrays from the analytics time-series
+  const jobsOverTime = analytics.map((r: any) => ({ date: r.period, count: r.job_count }));
+  const spendOverTime = analytics.map((r: any) => ({ date: r.period, amount: r.total_cost_cad }));
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -61,11 +70,9 @@ export default function AnalyticsPage() {
             ))}
           </div>
           <Button variant="outline" size="sm" onClick={() => {
-            if (!data) return;
-            const breakdown = data.breakdown || data.daily_breakdown || [];
-            if (breakdown.length === 0) { toast.error("No data to export"); return; }
-            const keys = Object.keys(breakdown[0]);
-            const csv = [keys.join(","), ...breakdown.map((r: Record<string, unknown>) => keys.map((k) => `"${r[k] ?? ""}"`).join(","))].join("\n");
+            if (!analytics.length) { toast.error("No data to export"); return; }
+            const keys = Object.keys(analytics[0]);
+            const csv = [keys.join(","), ...analytics.map((r: Record<string, unknown>) => keys.map((k) => `"${r[k] ?? ""}"`).join(","))].join("\n");
             const blob = new Blob([csv], { type: "text/csv" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a"); a.href = url; a.download = `analytics-${range}d.csv`; a.click();
@@ -83,43 +90,67 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {[...Array(4)].map((_, i) => <div key={i} className="h-64 rounded-xl bg-surface skeleton-pulse" />)}
         </div>
-      ) : !data ? (
-        <Card className="p-12 text-center">
-          <BarChart3 className="mx-auto h-12 w-12 text-text-muted mb-4" />
-          <h3 className="text-lg font-semibold mb-1">{t("dash.analytics.empty")}</h3>
-          <p className="text-sm text-text-secondary">{t("dash.analytics.empty_desc")}</p>
-        </Card>
+      ) : !hasData ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
+            <BarChart3 className="h-10 w-10 text-text-muted" />
+          </div>
+          <h3 className="text-xl font-semibold mb-2">{t("dash.analytics.empty")}</h3>
+          <p className="text-sm text-text-secondary max-w-md text-center mb-6">
+            {t("dash.analytics.empty_desc")}
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 w-full max-w-lg">
+            <Card className="p-4 text-center border-dashed">
+              <TrendingUp className="h-5 w-5 text-text-muted mx-auto mb-2" />
+              <p className="text-xs text-text-muted">Spend trends</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+            </Card>
+            <Card className="p-4 text-center border-dashed">
+              <Cpu className="h-5 w-5 text-text-muted mx-auto mb-2" />
+              <p className="text-xs text-text-muted">GPU hours</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+            </Card>
+            <Card className="p-4 text-center border-dashed">
+              <Clock className="h-5 w-5 text-text-muted mx-auto mb-2" />
+              <p className="text-xs text-text-muted">Avg duration</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+            </Card>
+          </div>
+          <p className="text-xs text-text-muted mt-6">
+            Launch an instance to start collecting analytics data
+          </p>
+        </div>
       ) : (
         <>
           {/* Summary Stats */}
-          {(data.summary_stats || data.totals) && (() => {
-            const s = data.summary_stats || data.totals || {};
-            return (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {s.total_jobs != null && (
-                  <Card className="p-4"><p className="text-2xl font-bold font-mono">{s.total_jobs}</p><p className="text-xs text-text-muted">{t("dash.analytics.total_jobs")}</p></Card>
-                )}
-                {s.total_spend != null && (
-                  <Card className="p-4"><p className="text-2xl font-bold font-mono">${Number(s.total_spend).toFixed(2)}</p><p className="text-xs text-text-muted">{t("dash.analytics.total_spend")}</p></Card>
-                )}
-                {s.gpu_hours != null && (
-                  <Card className="p-4"><p className="text-2xl font-bold font-mono">{Number(s.gpu_hours).toFixed(1)}</p><p className="text-xs text-text-muted">{t("dash.analytics.gpu_hours")}</p></Card>
-                )}
-                {s.avg_job_duration != null && (
-                  <Card className="p-4"><p className="text-2xl font-bold font-mono">{Number(s.avg_job_duration).toFixed(0)}m</p><p className="text-xs text-text-muted">{t("dash.analytics.avg_duration")}</p></Card>
-                )}
-              </div>
-            );
-          })()}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Card className="p-4">
+              <p className="text-2xl font-bold font-mono">{summary.total_jobs ?? 0}</p>
+              <p className="text-xs text-text-muted">{t("dash.analytics.total_jobs")}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-2xl font-bold font-mono">${Number(summary.total_spend_cad ?? 0).toFixed(2)}</p>
+              <p className="text-xs text-text-muted">{t("dash.analytics.total_spend")}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-2xl font-bold font-mono">{Number(summary.total_gpu_hours ?? 0).toFixed(1)}</p>
+              <p className="text-xs text-text-muted">{t("dash.analytics.gpu_hours")}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-2xl font-bold font-mono">{Number(summary.avg_gpu_utilization_pct ?? 0).toFixed(1)}%</p>
+              <p className="text-xs text-text-muted">{t("dash.analytics.avg_util")}</p>
+            </Card>
+          </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {data.jobs_over_time && (
+            {/* Jobs Over Time */}
+            {jobsOverTime.length > 0 && (
               <Card>
                 <CardHeader><CardTitle className="text-sm">{t("dash.analytics.chart_jobs")}</CardTitle></CardHeader>
                 <CardContent>
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data.jobs_over_time}>
+                      <LineChart data={jobsOverTime}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                         <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
                         <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
@@ -132,13 +163,14 @@ export default function AnalyticsPage() {
               </Card>
             )}
 
-            {data.spend_over_time && (
+            {/* Spend Over Time */}
+            {spendOverTime.length > 0 && (
               <Card>
                 <CardHeader><CardTitle className="text-sm">{t("dash.analytics.chart_spend")}</CardTitle></CardHeader>
                 <CardContent>
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={data.spend_over_time}>
+                      <BarChart data={spendOverTime}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                         <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
                         <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
@@ -150,52 +182,10 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
             )}
-
-            {data.gpu_distribution && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">{t("dash.analytics.chart_gpu")}</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-56">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={data.gpu_distribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                          {data.gpu_distribution.map((_: any, i: number) => (
-                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
-                        <Tooltip contentStyle={tooltipStyle} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {data.region_distribution && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">{t("dash.analytics.chart_region")}</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-56">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={data.region_distribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                          {data.region_distribution.map((_: any, i: number) => (
-                            <Cell key={i} fill={COLORS[(i + 2) % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} />
-                        <Tooltip contentStyle={tooltipStyle} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Breakdown Table */}
-          {data.breakdown && data.breakdown.length > 0 && (
+          {analytics.length > 0 && (
             <Card>
               <CardHeader><CardTitle className="text-sm">{t("dash.analytics.breakdown")}</CardTitle></CardHeader>
               <CardContent>
@@ -210,12 +200,12 @@ export default function AnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.breakdown.map((row: any, i: number) => (
+                      {analytics.map((row: any, i: number) => (
                         <tr key={i} className="border-b border-border/50 hover:bg-surface/50">
-                          <td className="py-2 pr-4 font-medium">{row.category || row.name || row.gpu_type || "Other"}</td>
-                          <td className="py-2 pr-4 text-right font-mono text-xs">{row.jobs ?? "—"}</td>
-                          <td className="py-2 pr-4 text-right font-mono text-xs">{row.gpu_hours?.toFixed(1) ?? "—"}</td>
-                          <td className="py-2 text-right font-mono text-xs">{row.spend != null ? `$${Number(row.spend).toFixed(2)}` : "—"}</td>
+                          <td className="py-2 pr-4 font-medium">{row.period || "—"}</td>
+                          <td className="py-2 pr-4 text-right font-mono text-xs">{row.job_count ?? "—"}</td>
+                          <td className="py-2 pr-4 text-right font-mono text-xs">{row.total_gpu_hours?.toFixed(1) ?? "—"}</td>
+                          <td className="py-2 text-right font-mono text-xs">{row.total_cost_cad != null ? `$${Number(row.total_cost_cad).toFixed(2)}` : "—"}</td>
                         </tr>
                       ))}
                     </tbody>

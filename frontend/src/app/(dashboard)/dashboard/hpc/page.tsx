@@ -104,14 +104,14 @@ function HpcContent() {
     if (!selectedProfile) { toast.error("Select a cluster profile"); return; }
     setSubmitting(true);
     try {
-      const res = await api.submitSlurmJob({
+      const res = await api.submitSlurmInstance({
         name: jobName.trim(),
         vram_needed_gb: Number(gpus) * 24,
         priority: "normal",
         profile: selectedProfile,
         num_gpus: Number(gpus) * Number(nodes),
       });
-      toast.success(`Job submitted: ${res.slurm_job_id || res.job_id || "submitted"}`);
+      toast.success(`Instance submitted: ${res.slurm_job_id || res.instance_id || "submitted"}`);
       setJobName("");
       setTab("jobs");
       load();

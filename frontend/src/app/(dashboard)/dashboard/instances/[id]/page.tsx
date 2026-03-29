@@ -10,27 +10,27 @@ import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal,
 } from "lucide-react";
-import { fetchJob, cancelJob, requeueJob } from "@/lib/api";
-import type { Job } from "@/lib/api";
+import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
+import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const STATUS_STEPS = ["queued", "assigned", "running", "completed"] as const;
 
-export default function JobDetailPage() {
+export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { t } = useLocale();
-  const [job, setJob] = useState<Job | null>(null);
+  const [instance, setInstance] = useState<Instance | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   const load = () => {
     setLoading(true);
-    fetchJob(id)
-      .then((r) => setJob(r.job))
-      .catch(() => toast.error("Failed to load job"))
+    fetchInstance(id)
+      .then((r) => setInstance(r.instance))
+      .catch(() => toast.error("Failed to load instance"))
       .finally(() => setLoading(false));
   };
 
@@ -39,8 +39,8 @@ export default function JobDetailPage() {
   async function handleCancel() {
     setConfirmCancel(false);
     try {
-      await cancelJob(id);
-      toast.success("Job cancelled");
+      await cancelInstance(id);
+      toast.success("Instance cancelled");
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Cancel failed");
@@ -49,11 +49,11 @@ export default function JobDetailPage() {
 
   async function handleRequeue() {
     try {
-      const res = await requeueJob(id);
-      toast.success("Job requeued");
-      const newId = res.job?.job_id;
+      const res = await requeueInstance(id);
+      toast.success("Instance requeued");
+      const newId = res.instance?.job_id;
       if (newId && newId !== id) {
-        router.push(`/dashboard/jobs/${newId}`);
+        router.push(`/dashboard/instances/${newId}`);
       } else {
         load();
       }
@@ -72,22 +72,22 @@ export default function JobDetailPage() {
     );
   }
 
-  if (!job) {
+  if (!instance) {
     return (
       <Card className="p-12 text-center">
-        <h2 className="text-xl font-semibold mb-2">{t("dash.jobs.not_found")}</h2>
-        <p className="text-text-secondary mb-4">{t("dash.jobs.not_found_desc")}</p>
-        <Link href="/dashboard/jobs"><Button variant="outline">{t("dash.jobs.back")}</Button></Link>
+        <h2 className="text-xl font-semibold mb-2">{t("dash.instances.not_found")}</h2>
+        <p className="text-text-secondary mb-4">{t("dash.instances.not_found_desc")}</p>
+        <Link href="/dashboard/instances"><Button variant="outline">{t("dash.instances.back")}</Button></Link>
       </Card>
     );
   }
 
-  const isActive = job.status === "queued" || job.status === "running" || job.status === "assigned";
-  const isFailed = job.status === "failed";
+  const isActive = instance.status === "queued" || instance.status === "running" || instance.status === "assigned";
+  const isFailed = instance.status === "failed";
 
   // Status timeline step
   const currentStepIdx = STATUS_STEPS.indexOf(
-    (job.status === "failed" || job.status === "cancelled") ? "running" : (job.status as typeof STATUS_STEPS[number]),
+    (instance.status === "failed" || instance.status === "cancelled") ? "running" : (instance.status as typeof STATUS_STEPS[number]),
   );
 
   return (
@@ -95,26 +95,26 @@ export default function JobDetailPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Link href="/dashboard/jobs">
+          <Link href="/dashboard/instances">
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold">{job.name || job.job_id}</h1>
-            <p className="text-sm font-mono text-text-muted">{job.job_id}</p>
+            <h1 className="text-2xl font-bold">{instance.name || instance.job_id}</h1>
+            <p className="text-sm font-mono text-text-muted">{instance.job_id}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <StatusBadge status={job.status} />
+          <StatusBadge status={instance.status} />
           {isActive && (
             <Button variant="outline" size="sm" onClick={() => setConfirmCancel(true)} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
-              <XCircle className="h-3.5 w-3.5" /> {t("dash.jobs.cancel")}
+              <XCircle className="h-3.5 w-3.5" /> {t("dash.instances.cancel")}
             </Button>
           )}
           {isFailed && (
             <Button variant="outline" size="sm" onClick={handleRequeue}>
-              <RotateCcw className="h-3.5 w-3.5" /> {t("dash.jobs.requeue")}
+              <RotateCcw className="h-3.5 w-3.5" /> {t("dash.instances.requeue")}
             </Button>
           )}
         </div>
@@ -122,7 +122,7 @@ export default function JobDetailPage() {
 
       {/* Status Timeline */}
       <Card>
-        <h2 className="text-sm font-semibold text-text-secondary mb-4">{t("dash.jobs.timeline")}</h2>
+        <h2 className="text-sm font-semibold text-text-secondary mb-4">{t("dash.instances.timeline")}</h2>
         <div className="flex items-center gap-1">
           {STATUS_STEPS.map((step, i) => {
             const reached = i <= currentStepIdx;
@@ -133,7 +133,7 @@ export default function JobDetailPage() {
                   <div
                     className={`h-3 w-3 rounded-full border-2 ${
                       reached
-                        ? isCurrent && (job.status === "failed" || job.status === "cancelled")
+                        ? isCurrent && (instance.status === "failed" || instance.status === "cancelled")
                           ? "border-accent-red bg-accent-red"
                           : "border-emerald bg-emerald"
                         : "border-border bg-navy"
@@ -150,12 +150,12 @@ export default function JobDetailPage() {
             );
           })}
         </div>
-        {(job.status === "failed" || job.status === "cancelled") && (
+        {(instance.status === "failed" || instance.status === "cancelled") && (
           <div className="mt-3 flex items-center gap-2">
-            <Badge variant={job.status === "failed" ? "failed" : "cancelled"}>
-              {job.status}
+            <Badge variant={instance.status === "failed" ? "failed" : "cancelled"}>
+              {instance.status}
             </Badge>
-            <span className="text-xs text-text-muted">{t("dash.jobs.during_exec", { status: job.status })}</span>
+            <span className="text-xs text-text-muted">{t("dash.instances.during_exec", { status: instance.status })}</span>
           </div>
         )}
       </Card>
@@ -167,8 +167,8 @@ export default function JobDetailPage() {
             <Cpu className="h-5 w-5 text-ice-blue" />
           </div>
           <div>
-            <p className="text-xs text-text-muted">{t("dash.jobs.label_gpu")}</p>
-            <p className="font-medium">{job.gpu_type || job.gpu_model || t("dash.jobs.auto")}</p>
+            <p className="text-xs text-text-muted">{t("dash.instances.label_gpu")}</p>
+            <p className="font-medium">{instance.gpu_type || instance.gpu_model || t("dash.instances.auto")}</p>
           </div>
         </Card>
 
@@ -177,12 +177,12 @@ export default function JobDetailPage() {
             <Clock className="h-5 w-5 text-emerald" />
           </div>
           <div>
-            <p className="text-xs text-text-muted">{t("dash.jobs.label_duration")}</p>
+            <p className="text-xs text-text-muted">{t("dash.instances.label_duration")}</p>
             <p className="font-medium font-mono">
-              {job.duration_sec
-                ? `${(job.duration_sec / 3600).toFixed(1)}h`
-                : job.elapsed_sec
-                  ? `${(job.elapsed_sec / 60).toFixed(0)}m`
+              {instance.duration_sec
+                ? `${(instance.duration_sec / 3600).toFixed(1)}h`
+                : instance.elapsed_sec
+                  ? `${(instance.elapsed_sec / 60).toFixed(0)}m`
                   : "—"}
             </p>
           </div>
@@ -193,9 +193,9 @@ export default function JobDetailPage() {
             <DollarSign className="h-5 w-5 text-accent-gold" />
           </div>
           <div>
-            <p className="text-xs text-text-muted">{t("dash.jobs.label_cost")}</p>
+            <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-medium font-mono">
-              {job.cost_cad != null ? `$${job.cost_cad.toFixed(2)} CAD` : "—"}
+              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)} CAD` : "—"}
             </p>
           </div>
         </Card>
@@ -205,14 +205,14 @@ export default function JobDetailPage() {
             <Server className="h-5 w-5 text-accent-red" />
           </div>
           <div>
-            <p className="text-xs text-text-muted">{t("dash.jobs.label_host")}</p>
+            <p className="text-xs text-text-muted">{t("dash.instances.label_host")}</p>
             <p className="font-medium">
-              {job.host_id ? (
-                <Link href={`/dashboard/hosts/${job.host_id}`} className="text-ice-blue hover:underline">
-                  {job.host_id.slice(0, 12)}
+              {instance.host_id ? (
+                <Link href={`/dashboard/hosts/${instance.host_id}`} className="text-ice-blue hover:underline">
+                  {instance.host_id.slice(0, 12)}
                 </Link>
               ) : (
-                t("dash.jobs.unassigned")
+                t("dash.instances.unassigned")
               )}
             </p>
           </div>
@@ -221,23 +221,23 @@ export default function JobDetailPage() {
 
       {/* Metadata */}
       <Card>
-        <h2 className="text-sm font-semibold text-text-secondary mb-3">{t("dash.jobs.details")}</h2>
+        <h2 className="text-sm font-semibold text-text-secondary mb-3">{t("dash.instances.details")}</h2>
         <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
           <div className="flex justify-between sm:block">
-            <dt className="text-text-muted">{t("dash.jobs.docker_image")}</dt>
-            <dd className="font-mono">{job.docker_image || "—"}</dd>
+            <dt className="text-text-muted">{t("dash.instances.docker_image")}</dt>
+            <dd className="font-mono">{instance.docker_image || "—"}</dd>
           </div>
           <div className="flex justify-between sm:block">
-            <dt className="text-text-muted">{t("dash.jobs.pricing_tier")}</dt>
-            <dd className="capitalize">{job.tier || "on-demand"}</dd>
+            <dt className="text-text-muted">{t("dash.instances.pricing_tier")}</dt>
+            <dd className="capitalize">{instance.tier || "on-demand"}</dd>
           </div>
           <div className="flex justify-between sm:block">
-            <dt className="text-text-muted">{t("dash.jobs.submitted")}</dt>
-            <dd>{(job.submitted_at || job.created_at) ? new Date(job.submitted_at || job.created_at!).toLocaleString() : "—"}</dd>
+            <dt className="text-text-muted">{t("dash.instances.submitted")}</dt>
+            <dd>{(instance.submitted_at || instance.created_at) ? new Date(instance.submitted_at || instance.created_at!).toLocaleString() : "—"}</dd>
           </div>
           <div className="flex justify-between sm:block">
-            <dt className="text-text-muted">{t("dash.jobs.job_id")}</dt>
-            <dd className="font-mono text-text-muted">{job.job_id}</dd>
+            <dt className="text-text-muted">{t("dash.instances.job_id")}</dt>
+            <dd className="font-mono text-text-muted">{instance.job_id}</dd>
           </div>
         </dl>
       </Card>
@@ -246,19 +246,19 @@ export default function JobDetailPage() {
       <Card>
         <div className="flex items-center gap-2 mb-3">
           <Terminal className="h-4 w-4 text-text-muted" />
-          <h2 className="text-sm font-semibold text-text-secondary">{t("dash.jobs.logs")}</h2>
+          <h2 className="text-sm font-semibold text-text-secondary">{t("dash.instances.logs")}</h2>
         </div>
         <LogViewer
           jobId={id}
-          live={job.status === "running" || job.status === "assigned"}
+          live={instance.status === "running" || instance.status === "assigned"}
         />
       </Card>
 
       <ConfirmDialog
         open={confirmCancel}
-        title={t("dash.jobs.cancel_title")}
-        description={t("dash.jobs.cancel_desc")}
-        confirmLabel={t("dash.jobs.cancel")}
+        title={t("dash.instances.cancel_title")}
+        description={t("dash.instances.cancel_desc")}
+        confirmLabel={t("dash.instances.cancel")}
         cancelLabel={t("common.cancel")}
         variant="danger"
         onConfirm={handleCancel}
