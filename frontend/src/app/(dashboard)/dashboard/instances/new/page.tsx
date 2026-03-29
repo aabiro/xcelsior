@@ -39,10 +39,10 @@ export default function NewInstancePage() {
   useEffect(() => {
     fetchPricingReference()
       .then((r) => setPricing(r.reference || []))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load pricing", e));
     fetchProvinces()
       .then((r) => setProvinces(r.provinces || {}))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load provinces", e));
   }, []);
 
   // GPU model options from pricing reference

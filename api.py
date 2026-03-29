@@ -76,6 +76,8 @@ from scheduler import (
     # v2.1 additions
     allocate_jurisdiction_aware,
     process_queue_sovereign,
+    start_autoscale_monitor,
+    AUTOSCALE_ENABLED,
 )
 
 from security import admit_node, check_node_versions
@@ -312,6 +314,20 @@ def _deliver_notifications(event_type: str, data: dict):
 # This bridges scheduler events (db.emit_event) into SSE delivery.
 
 start_pg_listen(broadcast_sse)
+
+# ── Autoscale Monitor ─────────────────────────────────────────────────
+# Start background autoscale loop if enabled. Provisions/deprovisions
+# hosts from the autoscale pool based on queue demand every 15 seconds.
+
+if AUTOSCALE_ENABLED:
+    start_autoscale_monitor(
+        interval=15,
+        callback=lambda p, a, d: broadcast_sse(
+            "autoscale",
+            {"provisioned": len(p), "assigned": len(a), "deprovisioned": len(d)},
+        ),
+    )
+    log.info("AUTOSCALE MONITOR started (interval=15s)")
 
 XCELSIOR_ENV = os.environ.get("XCELSIOR_ENV", "dev").lower()
 AUTH_REQUIRED = XCELSIOR_ENV not in {"dev", "development", "test"}
@@ -3829,12 +3845,6 @@ def api_reputation_me(request: Request):
     return {"ok": True, **score.to_dict()}
 
 
-@app.get("/api/reputation/verify", tags=["Reputation"])
-def api_reputation_verify_get():
-    """Placeholder — use POST /api/reputation/verify."""
-    raise HTTPException(status_code=405, detail="Use POST")
-
-
 @app.get("/api/reputation/{entity_id}", tags=["Reputation"])
 def api_get_reputation(entity_id: str):
     """Get reputation score and tier for a host or user."""
@@ -4010,7 +4020,7 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
         "status": "active",
     }
 
-    # Deposit placeholder — in production, charge upfront or set up recurring billing
+    # Charge upfront or set up recurring billing via Stripe
     billing = get_billing_engine()
     monthly_estimate = discounted_rate * req.quantity * 24 * 30
     commitment["monthly_estimate_cad"] = round(monthly_estimate, 2)
@@ -4399,7 +4409,7 @@ def api_compliance_status():
                             "description": "Stripe Connect active for provider payouts and customer billing."})
         else:
             checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Stripe running in stub mode — real payments disabled."})
+                            "description": "Stripe not configured — set XCELSIOR_STRIPE_SECRET_KEY to enable payments."})
     except Exception:
         checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
                         "description": "Payment processing module unavailable."})

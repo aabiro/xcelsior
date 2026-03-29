@@ -32,7 +32,7 @@ export function useNotifications(): UseNotificationsReturn {
   const refreshCount = useCallback(() => {
     fetchUnreadCount()
       .then((r) => setUnreadCount(r.unread_count))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to fetch unread count", e));
   }, []);
 
   const refresh = useCallback(() => {
@@ -42,7 +42,7 @@ export function useNotifications(): UseNotificationsReturn {
         setNotifications(r.notifications);
         setUnreadCount(r.unread_count);
       })
-      .catch(() => {})
+      .catch((e) => console.error("Failed to fetch notifications", e))
       .finally(() => setLoading(false));
   }, []);
 

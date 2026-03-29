@@ -548,7 +548,7 @@ def cmd_provider_register(args):
     )
     print(f"Provider registered: {args.provider_id}")
     print(f"  Status: {result.get('status')}")
-    print(f"  Stripe ID: {result.get('stripe_account_id', 'stub')}")
+    print(f"  Stripe ID: {result.get('stripe_account_id', 'not configured')}")
     url = result.get("onboarding_url", "")
     if url:
         print(f"  Onboarding URL: {url}")

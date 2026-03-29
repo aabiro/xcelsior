@@ -165,12 +165,8 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
       const { intent } = await createPaymentIntent(customerId, numericAmount);
       const clientSecret = intent.client_secret;
 
-      if (!clientSecret || clientSecret.startsWith("stub_")) {
-        // Stub mode — directly credit wallet
-        await depositWallet(customerId, numericAmount);
-        toast.success(`$${numericAmount.toFixed(2)} CAD added to wallet`);
-        setStep("success");
-        setTimeout(() => onSuccess(numericAmount), 1200);
+      if (!clientSecret) {
+        toast.error("Payment processing unavailable — Stripe is not configured on the server.");
         return;
       }
 

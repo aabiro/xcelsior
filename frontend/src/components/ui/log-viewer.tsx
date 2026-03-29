@@ -28,7 +28,7 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
   useEffect(() => {
     fetchInstanceLogs(jobId, 500)
       .then((r) => setLogs(r.logs || []))
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load logs", e));
   }, [jobId]);
 
   // SSE live stream

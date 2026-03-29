@@ -496,16 +496,22 @@ def allocate(job, hosts):
                 job.get("name", "?"),
             )
 
-    # Prioritize: GPU count match > available VRAM > speed (low latency) > lowest cost
-    best = max(
-        candidates,
-        key=lambda h: (
-            min(h.get("gpu_count", 1), num_gpus_needed),  # prefer hosts with enough GPUs
-            h.get("free_vram_gb", 0),
-            -h.get("latency_ms", 999),
-            -h.get("cost_per_hour", 999),
-        ),
-    )
+    # Prioritize: GPU count match > compute efficiency > VRAM > speed > cost
+    # Uses compute scores when available, and spot-adjusted cost for price comparison.
+    def _host_score(h):
+        gpu_match = min(h.get("gpu_count", 1), num_gpus_needed)
+        vram = h.get("free_vram_gb", 0)
+        latency = h.get("latency_ms", 999)
+        base_cost = h.get("cost_per_hour", 999)
+
+        # Compute efficiency: XCU per dollar (higher = better GPU per dollar)
+        compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
+        price = max(base_cost, 0.01)
+        efficiency = compute / price
+
+        return (gpu_match, efficiency, vram, -latency, -base_cost)
+
+    best = max(candidates, key=_host_score)
     log.info(
         "ALLOCATE job=%s -> host=%s (%s, %sGB free, %d GPUs, admitted=%s, runtime=%s)",
         job.get("name", "?"),
@@ -999,13 +1005,31 @@ def process_queue():
     The loop. Walk the queue by priority. Find a host. Assign it.
     If no host fits a job, skip it — try the next one.
     If no hosts left, stop.
+
+    Spot jobs are only scheduled when max_bid >= current spot price.
     """
     assigned = []
+    spot_prices = get_current_spot_prices()
 
     queued = list_jobs(status="queued")
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:
+        # Spot job gating: skip if bid is below current spot price
+        if job.get("spot") and job.get("max_bid") is not None:
+            # Spot jobs need at least one GPU type within their bid
+            if spot_prices:
+                affordable = any(
+                    job["max_bid"] >= price for price in spot_prices.values()
+                )
+                if not affordable:
+                    log.debug(
+                        "QUEUE SKIP spot job %s: max_bid $%s below all spot prices",
+                        job.get("job_id"),
+                        job["max_bid"],
+                    )
+                    continue
+
         hosts = list_hosts()
         if not hosts:
             break
@@ -2130,8 +2154,7 @@ def remove_from_pool(host_id):
 def provision_host(pool_entry):
     """
     Provision a host from the pool — make it active.
-    In a real setup, this would spin up a cloud VM or wake a bare-metal node.
-    For now: register it as active.
+    SSH provider: connects to the host and starts the worker agent container.
     """
     entry = register_host(
         pool_entry["host_id"],
@@ -2156,6 +2179,48 @@ def provision_host(pool_entry):
             break
     save_autoscale_pool(pool)
 
+    # SSH into host and start the worker agent container
+    if AUTOSCALE_PROVIDER == "ssh":
+        ip = pool_entry["ip"]
+        host_id = pool_entry["host_id"]
+        base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+        registry = os.environ.get("XCELSIOR_REGISTRY", "")
+        image = f"{registry}/xcelsior-worker:latest" if registry else "xcelsior-worker:latest"
+        docker_cmd = (
+            f"docker pull {image} 2>/dev/null; "
+            f"docker rm -f xcelsior-worker 2>/dev/null; "
+            f"docker run -d --restart unless-stopped --name xcelsior-worker "
+            f"--gpus all "
+            f"-e XCELSIOR_HOST_ID={host_id} "
+            f"-e XCELSIOR_SCHEDULER_URL={base_url} "
+            f"-e XCELSIOR_API_TOKEN={API_TOKEN} "
+            f"-e XCELSIOR_COST_PER_HOUR={pool_entry.get('cost_per_hour', 0.20)} "
+            f"-v /var/run/docker.sock:/var/run/docker.sock "
+            f"{image}"
+        )
+        rc, stdout, stderr = ssh_exec(ip, docker_cmd)
+        if rc != 0:
+            log.error(
+                "AUTOSCALE SSH PROVISION FAILED host=%s ip=%s rc=%d stderr=%s",
+                host_id, ip, rc, stderr,
+            )
+        else:
+            log.info("AUTOSCALE SSH PROVISION OK host=%s container=%s", host_id, stdout[:12])
+
+            # Wait for the worker to register via heartbeat (up to 90s)
+            for _ in range(18):
+                time.sleep(5)
+                hosts = load_hosts(active_only=True)
+                for h in hosts:
+                    if h["host_id"] == host_id and h.get("last_heartbeat", 0) > time.time() - 30:
+                        log.info("AUTOSCALE WORKER READY host=%s", host_id)
+                        break
+                else:
+                    continue
+                break
+            else:
+                log.warning("AUTOSCALE WORKER TIMEOUT host=%s — no heartbeat after 90s", host_id)
+
     log.info(
         "AUTOSCALE PROVISIONED %s | %s | %sGB",
         pool_entry["host_id"],
@@ -2167,9 +2232,24 @@ def provision_host(pool_entry):
 
 def deprovision_host(host_id):
     """
-    Deprovision: remove from active hosts, mark pool entry as unprovisioned.
-    Called when scaling down.
+    Deprovision: stop worker container, remove from active hosts,
+    mark pool entry as unprovisioned.
     """
+    # SSH into host and stop the worker container before removing
+    if AUTOSCALE_PROVIDER == "ssh":
+        pool = load_autoscale_pool()
+        ip = None
+        for p in pool:
+            if p["host_id"] == host_id:
+                ip = p.get("ip")
+                break
+        if ip:
+            rc, _, stderr = ssh_exec(ip, "docker stop xcelsior-worker && docker rm xcelsior-worker")
+            if rc != 0:
+                log.warning("AUTOSCALE SSH DEPROVISION warn host=%s: %s", host_id, stderr)
+            else:
+                log.info("AUTOSCALE SSH DEPROVISION OK host=%s", host_id)
+
     remove_host(host_id)
 
     pool = load_autoscale_pool()
@@ -2660,33 +2740,10 @@ def get_compute_score(host_id):
 
 
 def allocate_compute_aware(job, hosts):
-    """Enhanced allocation: filter by VRAM, sort by (ComputeScore / Price).
-
-    This replaces the simple VRAM > latency > cost algorithm with one
-    that considers actual GPU performance per dollar.
-    """
-    if not hosts:
-        return None
-
-    candidates = [h for h in hosts if h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)]
-    if not candidates:
-        return None
-
-    def compute_efficiency(h):
-        score = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
-        price = h.get("cost_per_hour", 0.20) or 0.20
-        return score / price
-
-    best = max(candidates, key=compute_efficiency)
-    log.info(
-        "ALLOCATE (compute-aware) job=%s -> host=%s (%s, %sGB free, %.2f XCU/$/hr)",
-        job.get("name", "?"),
-        best["host_id"],
-        best.get("gpu_model"),
-        best.get("free_vram_gb"),
-        compute_efficiency(best),
-    )
-    return best
+    """Compute-aware allocation — delegates to allocate() which already
+    includes XCU/dollar efficiency scoring alongside admission gating,
+    GPU count, isolation tier, and VRAM checks."""
+    return allocate(job, hosts)
 
 
 # ── v2.1: Jurisdiction-Aware Allocation ───────────────────────────────
