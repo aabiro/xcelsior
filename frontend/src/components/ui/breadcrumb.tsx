@@ -7,7 +7,7 @@ import { ChevronRight, Home } from "lucide-react";
 const ROUTE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   hosts: "Hosts",
-  jobs: "Jobs",
+  instances: "Instances",
   telemetry: "Telemetry",
   billing: "Billing",
   marketplace: "Marketplace",

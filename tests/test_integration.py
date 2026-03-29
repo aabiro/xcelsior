@@ -80,16 +80,16 @@ def test_job_lifecycle_and_billing_via_api():
     )
     _admit_host("h-int-1")
 
-    create = client.post("/job", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium"})
-    job_id = create.json()["job"]["job_id"]
+    create = client.post("/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium"})
+    job_id = create.json()["instance"]["job_id"]
 
     process = client.post("/queue/process")
     assert process.status_code == 200
     assert len(process.json()["assigned"]) == 1
 
-    client.patch(f"/job/{job_id}", json={"status": "running", "host_id": "h-int-1"})
+    client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "h-int-1"})
     time.sleep(1.1)
-    client.patch(f"/job/{job_id}", json={"status": "completed", "host_id": "h-int-1"})
+    client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "h-int-1"})
 
     billed = client.post(f"/billing/bill/{job_id}")
     assert billed.status_code == 200
@@ -147,13 +147,13 @@ class TestFullJobLifecycle:
         _admit_host("lc-h1")
 
         job = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "lifecycle-job",
                 "vram_needed_gb": 16,
                 "tier": "premium",
             },
-        ).json()["job"]
+        ).json()["instance"]
         job_id = job["job_id"]
         assert job["status"] == "queued"
 
@@ -162,9 +162,9 @@ class TestFullJobLifecycle:
         assert len(resp.json()["assigned"]) == 1
 
         # Run and complete
-        client.patch(f"/job/{job_id}", json={"status": "running", "host_id": "lc-h1"})
+        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "lc-h1"})
         time.sleep(1.1)
-        client.patch(f"/job/{job_id}", json={"status": "completed", "host_id": "lc-h1"})
+        client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "lc-h1"})
 
         # Bill
         bill = client.post(f"/billing/bill/{job_id}")
@@ -172,8 +172,8 @@ class TestFullJobLifecycle:
         assert bill.json()["bill"]["cost"] > 0
 
         # Verify job is completed
-        detail = client.get(f"/job/{job_id}")
-        assert detail.json()["job"]["status"] == "completed"
+        detail = client.get(f"/instance/{job_id}")
+        assert detail.json()["instance"]["status"] == "completed"
 
 
 # ── 7.3.1 — Sovereign Job Routing ───────────────────────────────────
@@ -217,17 +217,17 @@ class TestSovereignRouting:
 
         # Submit sovereign-tier job
         job = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "sovereign-job",
                 "vram_needed_gb": 16,
                 "tier": "sovereign",
             },
-        ).json()["job"]
+        ).json()["instance"]
 
         client.post("/queue/process")
-        detail = client.get(f"/job/{job['job_id']}")
-        assigned = detail.json()["job"].get("host_id")
+        detail = client.get(f"/instance/{job['job_id']}")
+        assigned = detail.json()["instance"].get("host_id")
         # Sovereign should prefer CA host (if jurisdiction-aware allocator is used)
         # At minimum the job should be assigned to some host
         assert assigned is not None
@@ -291,13 +291,13 @@ class TestSpotPricingLifecycle:
 
         # Normal job
         normal = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "normal-job",
                 "vram_needed_gb": 8,
                 "tier": "premium",
             },
-        ).json()["job"]
+        ).json()["instance"]
 
         # Spot job via scheduler
         spot = scheduler.submit_spot_job("spot-job", 8, max_bid=0.50)
@@ -499,17 +499,17 @@ class TestSecurityAdmission:
         # Don't admit
 
         job = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "sec-job",
                 "vram_needed_gb": 8,
             },
-        ).json()["job"]
+        ).json()["instance"]
 
         client.post("/queue/process")
 
-        detail = client.get(f"/job/{job['job_id']}")
-        assert detail.json()["job"]["status"] == "queued"
+        detail = client.get(f"/instance/{job['job_id']}")
+        assert detail.json()["instance"]["status"] == "queued"
 
     def test_admitted_host_receives_work(self):
         """Admitted host → job assigned."""
@@ -528,17 +528,17 @@ class TestSecurityAdmission:
         _admit_host("sec-h2")
 
         job = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "admitted-job",
                 "vram_needed_gb": 16,
             },
-        ).json()["job"]
+        ).json()["instance"]
 
         client.post("/queue/process")
 
-        detail = client.get(f"/job/{job['job_id']}")
-        assert detail.json()["job"]["status"] == "running"
+        detail = client.get(f"/instance/{job['job_id']}")
+        assert detail.json()["instance"]["status"] == "running"
 
     def test_version_report_via_api(self):
         """POST /agent/versions reports node versions and gets admission result."""

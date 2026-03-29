@@ -561,7 +561,7 @@ def poll_for_work():
         )
         if resp.status_code == 200:
             data = resp.json()
-            return data.get("jobs", [])
+            return data.get("instances", [])
         elif resp.status_code == 204:
             return []
         else:
@@ -594,14 +594,14 @@ def check_preemption():
 def report_job_status(job_id, status, host_id=None):
     """Update job status on the scheduler.
 
-    PATCH /job/{job_id}
+    PATCH /instance/{job_id}
     """
     data = {"status": status}
     if host_id:
         data["host_id"] = host_id
     try:
         resp = requests.patch(
-            _api_url(f"/job/{job_id}"),
+            _api_url(f"/instance/{job_id}"),
             json=data,
             headers=_api_headers(),
             timeout=10,

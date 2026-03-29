@@ -10,14 +10,14 @@ import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Briefcase, Plus, Search, RefreshCw, XCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
-import type { Job } from "@/lib/api";
+import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
 
 type SortKey = "name" | "gpu_type" | "status" | "created_at";
 type SortDir = "asc" | "desc";
 
-export default function JobsPage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
+export default function InstancesPage() {
+  const [instances, setInstances] = useState<Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -29,9 +29,9 @@ export default function JobsPage() {
 
   const load = () => {
     setLoading(true);
-    api.fetchJobs()
-      .then((res) => setJobs(res.jobs || []))
-      .catch(() => toast.error("Failed to load jobs"))
+    api.fetchInstances()
+      .then((res) => setInstances(res.instances || []))
+      .catch(() => toast.error("Failed to load instances"))
       .finally(() => setLoading(false));
   };
 
@@ -39,15 +39,15 @@ export default function JobsPage() {
 
   async function handleCancel(id: string) {
     try {
-      await api.cancelJob(id);
-      toast.success("Job cancelled");
+      await api.cancelInstance(id);
+      toast.success("Instance cancelled");
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Cancel failed");
     }
   }
 
-  const filtered = jobs
+  const filtered = instances
     .filter((j) => {
       if (statusFilter !== "all" && j.status !== statusFilter) return false;
       if (search) {
@@ -90,13 +90,13 @@ export default function JobsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("dash.jobs.title")}</h1>
+        <h1 className="text-2xl font-bold">{t("dash.instances.title")}</h1>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>
-          <Link href="/dashboard/jobs/new">
-            <Button size="sm"><Plus className="h-3.5 w-3.5" /> {t("dash.jobs.submit")}</Button>
+          <Link href="/dashboard/instances/new">
+            <Button size="sm"><Plus className="h-3.5 w-3.5" /> {t("dash.instances.submit")}</Button>
           </Link>
         </div>
       </div>
@@ -105,15 +105,15 @@ export default function JobsPage() {
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-          <Input className="pl-9" placeholder={t("dash.jobs.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="pl-9" placeholder={t("dash.instances.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="all">{t("dash.jobs.all_status")}</option>
-          <option value="queued">{t("dash.jobs.queued")}</option>
-          <option value="running">{t("dash.jobs.running")}</option>
-          <option value="completed">{t("dash.jobs.completed")}</option>
-          <option value="failed">{t("dash.jobs.failed")}</option>
-          <option value="cancelled">{t("dash.jobs.cancelled")}</option>
+          <option value="all">{t("dash.instances.all_status")}</option>
+          <option value="queued">{t("dash.instances.queued")}</option>
+          <option value="running">{t("dash.instances.running")}</option>
+          <option value="completed">{t("dash.instances.completed")}</option>
+          <option value="failed">{t("dash.instances.failed")}</option>
+          <option value="cancelled">{t("dash.instances.cancelled")}</option>
         </Select>
       </div>
 
@@ -126,8 +126,8 @@ export default function JobsPage() {
       ) : filtered.length === 0 ? (
         <Card className="p-12 text-center">
           <Briefcase className="mx-auto h-12 w-12 text-text-muted mb-4" />
-          <h3 className="text-lg font-semibold mb-1">{t("dash.jobs.empty")}</h3>
-          <p className="text-sm text-text-secondary">{t("dash.jobs.empty_desc")}</p>
+          <h3 className="text-lg font-semibold mb-1">{t("dash.instances.empty")}</h3>
+          <p className="text-sm text-text-secondary">{t("dash.instances.empty_desc")}</p>
         </Card>
       ) : (
         <div className="overflow-x-auto">
@@ -135,40 +135,40 @@ export default function JobsPage() {
             <thead>
               <tr className="border-b border-border text-text-secondary">
                 <th className="py-3 pr-4 text-left font-medium cursor-pointer select-none" onClick={() => toggleSort("name")}>
-                  <span className="inline-flex items-center gap-1">{t("dash.jobs.col_job")} <SortIcon col="name" /></span>
+                  <span className="inline-flex items-center gap-1">{t("dash.instances.col_job")} <SortIcon col="name" /></span>
                 </th>
                 <th className="py-3 px-4 text-left font-medium cursor-pointer select-none" onClick={() => toggleSort("gpu_type")}>
-                  <span className="inline-flex items-center gap-1">{t("dash.jobs.col_gpu")} <SortIcon col="gpu_type" /></span>
+                  <span className="inline-flex items-center gap-1">{t("dash.instances.col_gpu")} <SortIcon col="gpu_type" /></span>
                 </th>
                 <th className="py-3 px-4 text-center font-medium cursor-pointer select-none" onClick={() => toggleSort("status")}>
-                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.jobs.col_status")} <SortIcon col="status" /></span>
+                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.instances.col_status")} <SortIcon col="status" /></span>
                 </th>
                 <th className="py-3 px-4 text-center font-medium cursor-pointer select-none" onClick={() => toggleSort("created_at")}>
-                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.jobs.col_created")} <SortIcon col="created_at" /></span>
+                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.instances.col_created")} <SortIcon col="created_at" /></span>
                 </th>
-                <th className="py-3 px-4 text-right font-medium">{t("dash.jobs.col_actions")}</th>
+                <th className="py-3 px-4 text-right font-medium">{t("dash.instances.col_actions")}</th>
               </tr>
             </thead>
             <tbody>
-              {pageItems.map((job) => (
-                <tr key={job.job_id} className="border-b border-border/50 hover:bg-surface-hover transition-colors">
+              {pageItems.map((inst) => (
+                <tr key={inst.job_id} className="border-b border-border/50 hover:bg-surface-hover transition-colors">
                   <td className="py-3 pr-4">
-                    <Link href={`/dashboard/jobs/${job.job_id}`} className="font-medium text-ice-blue hover:underline">
-                      {job.name || job.job_id}
+                    <Link href={`/dashboard/instances/${inst.job_id}`} className="font-medium text-ice-blue hover:underline">
+                      {inst.name || inst.job_id}
                     </Link>
                   </td>
-                  <td className="py-3 px-4 text-text-secondary">{job.gpu_type || job.gpu_model || "—"}</td>
-                  <td className="py-3 px-4 text-center"><StatusBadge status={job.status} /></td>
+                  <td className="py-3 px-4 text-text-secondary">{inst.gpu_type || inst.gpu_model || "—"}</td>
+                  <td className="py-3 px-4 text-center"><StatusBadge status={inst.status} /></td>
                   <td className="py-3 px-4 text-center text-text-muted">
-                    {(job.created_at || job.submitted_at) ? new Date(job.created_at || job.submitted_at).toLocaleDateString() : "—"}
+                    {(inst.created_at || inst.submitted_at) ? new Date(inst.created_at || inst.submitted_at).toLocaleDateString() : "—"}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex justify-end gap-1">
-                      <Link href={`/dashboard/jobs/${job.job_id}`}>
+                      <Link href={`/dashboard/instances/${inst.job_id}`}>
                         <Button variant="ghost" size="sm">View</Button>
                       </Link>
-                      {(job.status === "queued" || job.status === "running") && (
-                        <Button variant="ghost" size="sm" onClick={() => handleCancel(job.job_id)} className="text-accent-red hover:text-accent-red">
+                      {(inst.status === "queued" || inst.status === "running") && (
+                        <Button variant="ghost" size="sm" onClick={() => handleCancel(inst.job_id)} className="text-accent-red hover:text-accent-red">
                           <XCircle className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -179,7 +179,7 @@ export default function JobsPage() {
             </tbody>
           </table>
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-text-muted">{t("dash.jobs.count", { count: filtered.length })}</span>
+            <span className="text-xs text-text-muted">{t("dash.instances.count", { count: filtered.length })}</span>
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
         </div>

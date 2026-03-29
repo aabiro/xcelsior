@@ -52,21 +52,19 @@ export default function EarningsPage() {
     if (!providerId && !customerId) return;
     setLoading(true);
     try {
+      // Try providerId first, fall back to customerId for provider lookup
+      // (registerProvider uses customerId as provider_id when no providerId exists)
+      const pid = providerId || customerId;
       const promises: Promise<any>[] = [];
-      if (providerId) {
-        promises.push(api.fetchProviderEarnings(providerId));
-        promises.push(api.fetchProvider(providerId));
-      } else {
-        promises.push(Promise.reject("no-provider"));
-        promises.push(Promise.reject("no-provider"));
-      }
+      promises.push(api.fetchProviderEarnings(pid).catch(() => null));
+      promises.push(api.fetchProvider(pid).catch(() => null));
       promises.push(api.fetchGstThreshold(customerId || providerId));
       const [earningsRes, providerRes, gstRes] = await Promise.allSettled(promises);
-      if (earningsRes.status === "fulfilled") {
+      if (earningsRes.status === "fulfilled" && earningsRes.value) {
         setEarnings(earningsRes.value.earnings);
         setPayouts(earningsRes.value.recent_payouts || []);
       }
-      if (providerRes.status === "fulfilled") {
+      if (providerRes.status === "fulfilled" && providerRes.value?.provider) {
         setProvider(providerRes.value.provider as ProviderInfo);
       }
       if (gstRes.status === "fulfilled") {
@@ -164,7 +162,7 @@ export default function EarningsPage() {
               icon={Percent}
             />
             <StatCard
-              label={t("dash.earnings.jobs_completed")}
+              label={t("dash.earnings.instances_completed")}
               value={earnings?.total_jobs ?? 0}
               icon={ArrowUpRight}
             />

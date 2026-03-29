@@ -16,7 +16,7 @@ export default function JobCompleteEmail({
   jobName = "llama-finetune-v3",
   duration = "14h 23m",
   cost = "$108.42 CAD",
-  dashboardUrl = "https://xcelsior.ca/dashboard/jobs",
+  dashboardUrl = "https://xcelsior.ca/dashboard/instances",
 }: JobCompleteProps) {
   return (
     <EmailLayout preview={`Job ${jobName} completed`}>

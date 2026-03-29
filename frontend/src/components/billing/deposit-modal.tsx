@@ -34,6 +34,96 @@ const CARD_ELEMENT_OPTIONS = {
   },
 };
 
+function DirectDepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
+  const [amount, setAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [step, setStep] = useState<"amount" | "success">("amount");
+
+  const numericAmount = parseFloat(amount);
+  const isValid = !isNaN(numericAmount) && numericAmount >= 1 && numericAmount <= 10000;
+
+  const handleDeposit = useCallback(async () => {
+    if (!isValid || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await depositWallet(customerId, numericAmount);
+      toast.success(`$${numericAmount.toFixed(2)} CAD added to wallet`);
+      setStep("success");
+      setTimeout(() => onSuccess(res.balance_cad), 1200);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Deposit failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [customerId, numericAmount, isValid, submitting, onSuccess]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald/10">
+              <CreditCard className="h-5 w-5 text-emerald" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Add Credits</h2>
+              <p className="text-xs text-text-muted">
+                {step === "amount" ? "Choose deposit amount" : "Payment complete"}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-text-muted hover:bg-background hover:text-text-primary transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {step === "success" ? (
+          <div className="flex flex-col items-center py-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10 mb-4">
+              <CheckCircle className="h-8 w-8 text-emerald" />
+            </div>
+            <p className="text-lg font-semibold">Payment Successful</p>
+            <p className="text-sm text-text-muted mt-1">${numericAmount.toFixed(2)} CAD has been added to your wallet</p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-4">
+              <Label className="mb-2 block text-text-secondary text-xs">Quick select</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setAmount(String(p))}
+                    className={`rounded-lg border px-3 py-2.5 text-sm font-mono transition-colors ${
+                      amount === String(p) ? "border-emerald bg-emerald/10 text-emerald" : "border-border bg-background text-text-secondary hover:border-text-muted"
+                    }`}
+                  >
+                    ${p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mb-6">
+              <Label htmlFor="amount" className="mb-1.5 block text-text-secondary text-xs">Custom amount (CAD)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted font-mono text-sm">$</span>
+                <Input id="amount" type="number" min="1" max="10000" step="0.01" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="pl-8 font-mono" />
+              </div>
+              {amount && !isValid && <p className="text-xs text-accent-red mt-1">Enter between $1.00 and $10,000.00</p>}
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button variant="success" className="flex-1" onClick={handleDeposit} disabled={!isValid || submitting}>
+                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Deposit ${isValid ? numericAmount.toFixed(2) : "0.00"}</>}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -257,8 +347,8 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
 
 export function DepositModal(props: DepositModalProps) {
   if (!stripePromise) {
-    // Stripe not configured — still allow direct wallet deposit
-    return <DepositForm {...props} />;
+    // Stripe not configured — direct wallet deposit only
+    return <DirectDepositForm {...props} />;
   }
   return (
     <Elements stripe={stripePromise}>

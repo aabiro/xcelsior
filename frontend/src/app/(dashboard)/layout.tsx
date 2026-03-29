@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Server, Briefcase, Activity, CreditCard,
+  LayoutDashboard, Server, Monitor, Activity, CreditCard,
   Store, DollarSign, ShieldCheck, Star, FileCheck,
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
   ChevronRight, LogOut, Bell, Shield, Cpu, Menu, X, Key, ChevronDown
@@ -21,7 +21,7 @@ import { ChatWidget } from "@/components/ChatWidget";
 const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[] }[] = [
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
   { href: "/dashboard/hosts", key: "dash.hosts", icon: Server },
-  { href: "/dashboard/jobs", key: "dash.jobs", icon: Briefcase },
+  { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
   { href: "/dashboard/telemetry", key: "dash.telemetry", icon: Activity },
   { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard },
   { href: "/dashboard/marketplace", key: "dash.marketplace", icon: Store },
@@ -260,6 +260,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       >
                         <Settings className="h-4 w-4" />
                         {t("dash.settings")}
+                      </Link>
+                      <Link
+                        href="/dashboard/billing"
+                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                        onClick={() => setProfileOpen(false)}
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        {t("dash.billing")}
                       </Link>
                       <Link
                         href="/dashboard/settings#api-keys"

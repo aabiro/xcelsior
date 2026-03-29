@@ -200,6 +200,7 @@ sync_code() {
         --exclude='*.log' \
         --exclude='data/*' \
         --exclude='./artifacts/*' \
+        --exclude='.env' \
         -C "$PROJECT_DIR" .
     
     scp_file "$TARBALL" "/tmp/xcelsior_deploy.tar.gz"
@@ -210,13 +211,13 @@ set -e
 sudo mkdir -p /opt/xcelsior
 # Preserve server-specific files
 for f in .env docker-compose.override.yml docker-compose.prod.yml; do
-    [ -f "/opt/xcelsior/$f" ] && cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
+    [ -f "/opt/xcelsior/$f" ] && sudo cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
 done
 sudo tar -xzf /tmp/xcelsior_deploy.tar.gz -C /opt/xcelsior
 # Restore preserved files
 for f in .env docker-compose.override.yml docker-compose.prod.yml; do
-    [ -f "/tmp/xcelsior_preserve_$f" ] && cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior/$f" || true
-    rm -f "/tmp/xcelsior_preserve_$f"
+    [ -f "/tmp/xcelsior_preserve_$f" ] && sudo cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior/$f" || true
+    sudo rm -f "/tmp/xcelsior_preserve_$f"
 done
 sudo chown -R $USER:$USER /opt/xcelsior
 rm /tmp/xcelsior_deploy.tar.gz

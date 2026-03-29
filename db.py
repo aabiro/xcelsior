@@ -1032,6 +1032,16 @@ class UserStore:
             )
 
     @staticmethod
+    def update_team_member_role(team_id: str, email: str, role: str) -> bool:
+        """Update a team member's role. Returns False if member not found."""
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE team_members SET role = ? WHERE team_id = ? AND email = ?",
+                (role, team_id, email),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
     def delete_team(team_id: str) -> None:
         with auth_connection() as conn:
             conn.execute("UPDATE users SET team_id = NULL WHERE team_id = ?", (team_id,))

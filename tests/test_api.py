@@ -105,7 +105,7 @@ def _submit_job(name="llama3", vram=16, **extra):
     """Helper to submit a job."""
     data = {"name": name, "vram_needed_gb": vram}
     data.update(extra)
-    return client.post("/job", json=data)
+    return client.post("/instance", json=data)
 
 
 @pytest.fixture(autouse=True)
@@ -301,58 +301,58 @@ class TestJobEndpoints:
         r = _submit_job("llama3", 16)
         assert r.status_code == 200
         assert r.json()["ok"]
-        assert r.json()["job"]["status"] == "queued"
+        assert r.json()["instance"]["status"] == "queued"
 
     def test_submit_job_returns_job_id(self):
         r = _submit_job("test-model", 8)
-        assert "job_id" in r.json()["job"]
-        assert len(r.json()["job"]["job_id"]) > 0
+        assert "job_id" in r.json()["instance"]
+        assert len(r.json()["instance"]["job_id"]) > 0
 
     def test_submit_job_validation_empty_name(self):
         """Empty name should fail validation."""
-        r = client.post("/job", json={"name": "", "vram_needed_gb": 8})
+        r = client.post("/instance", json={"name": "", "vram_needed_gb": 8})
         assert r.status_code == 422
 
     def test_submit_job_validation_zero_vram(self):
         """Zero VRAM should fail validation."""
-        r = client.post("/job", json={"name": "test", "vram_needed_gb": 0})
+        r = client.post("/instance", json={"name": "test", "vram_needed_gb": 0})
         assert r.status_code == 422
 
     def test_list_jobs(self):
         _submit_job("llama3", 16)
-        r = client.get("/jobs")
-        assert len(r.json()["jobs"]) == 1
+        r = client.get("/instances")
+        assert len(r.json()["instances"]) == 1
 
     def test_list_jobs_filter_by_status(self):
         """GET /jobs?status=running filters correctly."""
         _submit_job("model-a", 16)
-        r = client.get("/jobs?status=running")
+        r = client.get("/instances?status=running")
         # Nothing is running, so should be empty
         assert r.status_code == 200
-        assert len(r.json()["jobs"]) == 0
+        assert len(r.json()["instances"]) == 0
 
     def test_list_jobs_filter_queued(self):
         """GET /jobs?status=queued returns queued jobs."""
         _submit_job("model-a", 16)
-        r = client.get("/jobs?status=queued")
-        assert len(r.json()["jobs"]) == 1
+        r = client.get("/instances?status=queued")
+        assert len(r.json()["instances"]) == 1
 
     def test_get_job(self):
         resp = _submit_job("llama3", 16)
-        job_id = resp.json()["job"]["job_id"]
-        r = client.get(f"/job/{job_id}")
+        job_id = resp.json()["instance"]["job_id"]
+        r = client.get(f"/instance/{job_id}")
         assert r.status_code == 200
-        assert r.json()["job"]["name"] == "llama3"
+        assert r.json()["instance"]["name"] == "llama3"
 
     def test_get_nonexistent_job(self):
-        r = client.get("/job/nonexistent")
+        r = client.get("/instance/nonexistent")
         assert r.status_code == 404
 
     def test_update_job_status(self):
         """PATCH /job/{id}/status transitions correctly."""
         resp = _submit_job("test", 8)
-        job_id = resp.json()["job"]["job_id"]
-        r = client.patch(f"/job/{job_id}", json={"status": "completed"})
+        job_id = resp.json()["instance"]["job_id"]
+        r = client.patch(f"/instance/{job_id}", json={"status": "completed"})
         assert r.status_code == 200
         assert r.json()["status"] == "completed"
 
@@ -367,7 +367,7 @@ class TestJobEndpoints:
         """Multi-GPU job support (num_gpus > 1)."""
         r = _submit_job("large-model", 40, num_gpus=4)
         assert r.status_code == 200
-        job = r.json()["job"]
+        job = r.json()["instance"]
         assert job.get("num_gpus") == 4
 
     def test_submit_job_with_nfs(self):
@@ -380,22 +380,22 @@ class TestJobEndpoints:
             nfs_mount_point="/mnt/models",
         )
         assert r.status_code == 200
-        job = r.json()["job"]
+        job = r.json()["instance"]
         assert job.get("nfs_server") == "10.0.0.5"
 
     def test_submit_job_with_image(self):
         """Docker image override in job submission."""
         r = _submit_job("custom", 8, image="nvcr.io/nvidia/pytorch:24.01-py3")
         assert r.status_code == 200
-        assert r.json()["job"].get("image") == "nvcr.io/nvidia/pytorch:24.01-py3"
+        assert r.json()["instance"].get("image") == "nvcr.io/nvidia/pytorch:24.01-py3"
 
 
 class TestJobStatusApiValidation:
     def test_invalid_status_returns_400(self):
         """PATCH /job/{id} with invalid status should return 400, not 200."""
         resp = _submit_job("test", 8)
-        job_id = resp.json()["job"]["job_id"]
-        r = client.patch(f"/job/{job_id}", json={"status": "totally_bogus_status"})
+        job_id = resp.json()["instance"]["job_id"]
+        r = client.patch(f"/instance/{job_id}", json={"status": "totally_bogus_status"})
         assert r.status_code == 400
         assert "Invalid status" in r.json()["error"]["message"]
 
@@ -842,9 +842,9 @@ class TestSpotPricingEndpoints:
         assert r.status_code == 200
 
     def test_submit_spot_job(self):
-        """POST /spot/job submits interruptible job."""
+        """POST /spot/instance submits interruptible job."""
         r = client.post(
-            "/spot/job",
+            "/spot/instance",
             json={
                 "name": "spot-test",
                 "vram_needed_gb": 8,
@@ -985,10 +985,10 @@ class TestFailover:
     def test_requeue_job(self):
         """POST /job/{id}/requeue re-queues a running job."""
         resp = _submit_job("requeue-test", 8)
-        job_id = resp.json()["job"]["job_id"]
+        job_id = resp.json()["instance"]["job_id"]
         # Must transition to running before requeue is allowed
-        client.patch(f"/job/{job_id}", json={"status": "running", "host_id": "h1"})
-        r = client.post(f"/job/{job_id}/requeue")
+        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "h1"})
+        r = client.post(f"/instance/{job_id}/requeue")
         assert r.status_code == 200
 
 

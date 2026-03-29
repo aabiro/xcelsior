@@ -12,9 +12,9 @@ export function useApi() {
   return useMemo(() => ({
     fetchHosts: api.fetchHosts,
     registerHost: api.registerHost,
-    fetchJobs: api.fetchJobs,
-    submitJob: api.submitJob,
-    cancelJob: api.cancelJob,
+    fetchInstances: api.fetchInstances,
+    submitInstance: api.submitInstance,
+    cancelInstance: api.cancelInstance,
     fetchBilling: api.fetchBilling,
     fetchWallet: api.fetchWallet,
     fetchMarketplace: api.fetchMarketplace,

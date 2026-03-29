@@ -269,7 +269,7 @@ class TestPollForWork:
         _patch_base(monkeypatch)
 
         def fake_get(url, headers, timeout):
-            return _FakeResp(200, {"jobs": [{"job_id": "j-1", "image": "ubuntu:22.04"}]})
+            return _FakeResp(200, {"instances": [{"job_id": "j-1", "image": "ubuntu:22.04"}]})
 
         monkeypatch.setattr(worker_agent.requests, "get", fake_get)
         jobs = worker_agent.poll_for_work()
@@ -391,7 +391,7 @@ class TestReportJobStatus:
         monkeypatch.setattr(worker_agent.requests, "patch", fake_patch)
         ok = worker_agent.report_job_status("j-42", "completed")
         assert ok is True
-        assert "/job/j-42" in captured["url"]
+        assert "/instance/j-42" in captured["url"]
         assert captured["json"]["status"] == "completed"
 
     def test_with_host_id(self, monkeypatch):

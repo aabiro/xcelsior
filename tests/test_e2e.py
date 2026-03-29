@@ -175,7 +175,7 @@ class TestAddHostViaAPI:
         _admit_host("e2e-admit")
 
         job_resp = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "e2e-job",
                 "vram_needed_gb": 8,
@@ -183,14 +183,14 @@ class TestAddHostViaAPI:
             },
         )
         assert job_resp.status_code == 200
-        job_id = job_resp.json()["job"]["job_id"]
+        job_id = job_resp.json()["instance"]["job_id"]
 
         process_resp = client.post("/queue/process")
         assert process_resp.status_code == 200
         assert len(process_resp.json()["assigned"]) == 1
 
-        job_detail = client.get(f"/job/{job_id}")
-        assert job_detail.json()["job"]["status"] == "running"
+        job_detail = client.get(f"/instance/{job_id}")
+        assert job_detail.json()["instance"]["status"] == "running"
 
 
 # ── 7.6.4 — Export CAF CSV ──────────────────────────────────────────
@@ -247,19 +247,19 @@ class TestExportCAFCSV:
 
         # Submit, process, run, complete, bill
         job_resp = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "caf-job",
                 "vram_needed_gb": 8,
                 "tier": "premium",
             },
         )
-        job_id = job_resp.json()["job"]["job_id"]
+        job_id = job_resp.json()["instance"]["job_id"]
 
         client.post("/queue/process")
-        client.patch(f"/job/{job_id}", json={"status": "running", "host_id": "caf-h1"})
+        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "caf-h1"})
         time.sleep(1.1)
-        client.patch(f"/job/{job_id}", json={"status": "completed", "host_id": "caf-h1"})
+        client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "caf-h1"})
 
         bill_resp = client.post(f"/billing/bill/{job_id}")
         assert bill_resp.status_code == 200
@@ -318,7 +318,7 @@ class TestFullJobLifecycleE2E:
 
         # Submit job
         job_resp = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "e2e-lifecycle",
                 "vram_needed_gb": 16,
@@ -326,7 +326,7 @@ class TestFullJobLifecycleE2E:
             },
         )
         assert job_resp.status_code == 200
-        job_id = job_resp.json()["job"]["job_id"]
+        job_id = job_resp.json()["instance"]["job_id"]
 
         # Process queue
         process_resp = client.post("/queue/process")
@@ -334,13 +334,13 @@ class TestFullJobLifecycleE2E:
         assert len(assigned) == 1
 
         # Run → Complete
-        client.patch(f"/job/{job_id}", json={"status": "running", "host_id": "e2e-lc-h1"})
+        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "e2e-lc-h1"})
         time.sleep(1.1)
-        client.patch(f"/job/{job_id}", json={"status": "completed", "host_id": "e2e-lc-h1"})
+        client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "e2e-lc-h1"})
 
         # Verify completed
-        detail = client.get(f"/job/{job_id}")
-        assert detail.json()["job"]["status"] == "completed"
+        detail = client.get(f"/instance/{job_id}")
+        assert detail.json()["instance"]["status"] == "completed"
 
         # Bill the job
         bill = client.post(f"/billing/bill/{job_id}")
@@ -366,17 +366,17 @@ class TestFullJobLifecycleE2E:
 
         # Submit job needing 40GB — only mh-2 and mh-3 can handle it
         job_resp = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "big-job",
                 "vram_needed_gb": 40,
             },
         )
-        job_id = job_resp.json()["job"]["job_id"]
+        job_id = job_resp.json()["instance"]["job_id"]
 
         client.post("/queue/process")
-        detail = client.get(f"/job/{job_id}")
-        assigned_host = detail.json()["job"].get("host_id")
+        detail = client.get(f"/instance/{job_id}")
+        assigned_host = detail.json()["instance"].get("host_id")
         assert assigned_host in ("mh-2", "mh-3")
 
     def test_no_admitted_hosts_job_stays_queued(self):
@@ -396,14 +396,14 @@ class TestFullJobLifecycleE2E:
         # Don't admit the host
 
         job_resp = client.post(
-            "/job",
+            "/instance",
             json={
                 "name": "blocked-job",
                 "vram_needed_gb": 8,
             },
         )
-        job_id = job_resp.json()["job"]["job_id"]
+        job_id = job_resp.json()["instance"]["job_id"]
 
         client.post("/queue/process")
-        detail = client.get(f"/job/{job_id}")
-        assert detail.json()["job"]["status"] == "queued"
+        detail = client.get(f"/instance/{job_id}")
+        assert detail.json()["instance"]["status"] == "queued"
