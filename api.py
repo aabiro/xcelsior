@@ -331,7 +331,7 @@ if AUTOSCALE_ENABLED:
 
 XCELSIOR_ENV = os.environ.get("XCELSIOR_ENV", "dev").lower()
 AUTH_REQUIRED = XCELSIOR_ENV not in {"dev", "development", "test"}
-RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "120"))
+RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
 RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
 _RATE_BUCKETS = defaultdict(deque)
 
