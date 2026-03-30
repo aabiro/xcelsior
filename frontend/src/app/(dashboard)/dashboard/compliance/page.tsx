@@ -6,11 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   RefreshCw, CheckCircle, AlertTriangle, XCircle, MapPin,
-  Shield, Target, Loader2, Info,
+  Shield, Target, Loader2, Info, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
+import Link from "next/link";
 
 const PROVINCE_NAMES: Record<string, string> = {
   AB: "Alberta", BC: "British Columbia", MB: "Manitoba", NB: "New Brunswick",
@@ -24,6 +25,7 @@ interface ComplianceCheck {
   name: string;
   status: "pass" | "warn" | "fail";
   description: string;
+  action?: { label: string; href: string };
   last_checked?: string;
 }
 
@@ -200,6 +202,14 @@ export default function CompliancePage() {
                       <div>
                         <p className="text-sm font-medium">{check.name}</p>
                         <p className="text-xs text-text-secondary mt-0.5">{check.description}</p>
+                        {check.action && (
+                          <Link
+                            href={check.action.href}
+                            className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-ice-blue hover:text-ice-blue/80 transition-colors"
+                          >
+                            {check.action.label} <ArrowRight className="h-3 w-3" />
+                          </Link>
+                        )}
                       </div>
                     </div>
                     <Badge variant={check.status === "pass" ? "completed" : check.status === "warn" ? "warning" : "failed"}>
