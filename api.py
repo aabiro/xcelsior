@@ -4530,7 +4530,7 @@ def api_compliance_status(request: Request):
                         "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system."})
     elif tier_count >= expected_tiers:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"{tier_count} tiers defined but you have no active hosts. Register a GPU host to participate in the trust tier system.",
+                        "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
                         "action": {"label": "Register a host", "href": "/dashboard/hosts"}})
     else:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
@@ -4580,26 +4580,26 @@ def api_compliance_status(request: Request):
                             "description": "Payment processing is not configured on this platform. Stripe Connect is required for provider payouts and customer billing.",
                             "action": {"label": "View billing", "href": "/dashboard/billing"}})
         elif user_provider_id:
-            # User has a linked account — check Stripe onboarding status
+            # User is a provider — check if they've completed Stripe onboarding
             provider = mgr.get_provider(user_provider_id)
             if provider and provider.get("stripe_account_id"):
                 status = provider.get("status", "pending")
                 if status == "active":
                     checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "pass",
-                                    "description": "Stripe Connect onboarded. Your account is active and ready to receive payouts."})
+                                    "description": "Stripe Connect onboarded. Your provider account is active and ready to receive payouts."})
                 else:
                     checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                                    "description": f"Stripe Connect account status: {status}. Finish setup to start receiving payouts for your GPU time.",
-                                    "action": {"label": "Complete setup", "href": "/dashboard/earnings"}})
+                                    "description": f"Stripe Connect account status: {status}. Complete your onboarding to start receiving provider payouts.",
+                                    "action": {"label": "Complete onboarding", "href": "/dashboard/earnings"}})
             else:
                 checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                                "description": "Your account is registered but Stripe Connect is not linked yet. Connect Stripe to receive payouts.",
-                                "action": {"label": "Connect Stripe", "href": "/dashboard/earnings"}})
+                                "description": "You are registered as a provider but have not completed Stripe Connect onboarding. Complete it to receive payouts.",
+                                "action": {"label": "Set up Stripe Connect", "href": "/dashboard/earnings"}})
         else:
-            # No account linked yet
+            # Not a provider — check from customer perspective
             checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Stripe Connect is not set up yet. Connect Stripe on the Earnings page to start earning from your GPU resources.",
-                            "action": {"label": "Connect Stripe", "href": "/dashboard/earnings"}})
+                            "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
+                            "action": {"label": "Become a provider", "href": "/dashboard/earnings"}})
     except Exception:
         checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
                         "description": "Payment processing module unavailable. Contact support.",

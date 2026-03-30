@@ -201,7 +201,10 @@ export default function EarningsPage() {
                   </div>
                 ) : (
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-text-muted">No account linked yet</p>
+                    <div>
+                      <p className="text-sm font-medium">Become a Provider</p>
+                      <p className="text-xs text-text-muted">Connect Stripe to earn from your GPU resources</p>
+                    </div>
                     <Button variant="gold" size="sm" onClick={handleStripeConnect} disabled={onboarding}>
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Setting up…</>
