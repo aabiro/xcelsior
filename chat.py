@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 import os
-import sqlite3
 import time
 import uuid
 from collections import defaultdict, deque
@@ -107,58 +106,25 @@ PLATFORM DOCUMENTATION:
 {context}"""
 
 
-# ── Persistent Conversation Storage (SQLite) ──────────────────────────
+# ── Persistent Conversation Storage (PostgreSQL) ──────────────────────
 
-_CHAT_DB_DIR = os.path.join(os.path.dirname(__file__), "data")
-_CHAT_DB_PATH = os.environ.get(
-    "XCELSIOR_CHAT_DB_PATH",
-    os.path.join(_CHAT_DB_DIR, "chat.db"),
-)
 MAX_HISTORY_MESSAGES = 20
 CONVERSATION_TTL_SEC = 7 * 86400  # 7 days
 
 
-def _ensure_chat_tables(conn: sqlite3.Connection):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS chat_conversations (
-            conversation_id TEXT PRIMARY KEY,
-            ip_hash TEXT,
-            user_email TEXT,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS chat_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conversation_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            FOREIGN KEY (conversation_id) REFERENCES chat_conversations(conversation_id)
-        )
-    """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chat_msgs_conv "
-        "ON chat_messages(conversation_id, created_at ASC)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chat_conv_updated "
-        "ON chat_conversations(updated_at)"
-    )
-
-
 @contextmanager
 def _chat_db():
-    os.makedirs(os.path.dirname(_CHAT_DB_PATH) or ".", exist_ok=True)
-    conn = sqlite3.connect(_CHAT_DB_PATH, timeout=10, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    _ensure_chat_tables(conn)
-    try:
-        yield conn
-    finally:
-        conn.close()
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def _purge_expired():
@@ -166,12 +132,12 @@ def _purge_expired():
     cutoff = time.time() - CONVERSATION_TTL_SEC
     with _chat_db() as conn:
         expired = conn.execute(
-            "SELECT conversation_id FROM chat_conversations WHERE updated_at < ?",
+            "SELECT conversation_id FROM chat_conversations WHERE updated_at < %s",
             (cutoff,),
         ).fetchall()
         for row in expired:
-            conn.execute("DELETE FROM chat_messages WHERE conversation_id = ?", (row["conversation_id"],))
-            conn.execute("DELETE FROM chat_conversations WHERE conversation_id = ?", (row["conversation_id"],))
+            conn.execute("DELETE FROM chat_messages WHERE conversation_id = %s", (row["conversation_id"],))
+            conn.execute("DELETE FROM chat_conversations WHERE conversation_id = %s", (row["conversation_id"],))
 
 
 def get_or_create_conversation(
@@ -183,16 +149,16 @@ def get_or_create_conversation(
     with _chat_db() as conn:
         if conversation_id:
             row = conn.execute(
-                "SELECT conversation_id FROM chat_conversations WHERE conversation_id = ?",
+                "SELECT conversation_id FROM chat_conversations WHERE conversation_id = %s",
                 (conversation_id,),
             ).fetchone()
             if row:
                 conn.execute(
-                    "UPDATE chat_conversations SET updated_at = ? WHERE conversation_id = ?",
+                    "UPDATE chat_conversations SET updated_at = %s WHERE conversation_id = %s",
                     (time.time(), conversation_id),
                 )
                 msgs = conn.execute(
-                    "SELECT role, content FROM chat_messages WHERE conversation_id = ? ORDER BY created_at ASC",
+                    "SELECT role, content FROM chat_messages WHERE conversation_id = %s ORDER BY created_at ASC",
                     (conversation_id,),
                 ).fetchall()
                 history = [{"role": m["role"], "content": m["content"]} for m in msgs]
@@ -204,7 +170,7 @@ def get_or_create_conversation(
         now = time.time()
         ip_hash = _hash_ip(ip) if ip else None
         conn.execute(
-            "INSERT INTO chat_conversations (conversation_id, ip_hash, user_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO chat_conversations (conversation_id, ip_hash, user_email, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
             (cid, ip_hash, user_email, now, now),
         )
         return cid, []
@@ -214,11 +180,11 @@ def append_message(conversation_id: str, role: str, content: str):
     """Append a message to a conversation. Persisted to disk."""
     with _chat_db() as conn:
         conn.execute(
-            "INSERT INTO chat_messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO chat_messages (conversation_id, role, content, created_at) VALUES (%s, %s, %s, %s)",
             (conversation_id, role, content, time.time()),
         )
         conn.execute(
-            "UPDATE chat_conversations SET updated_at = ? WHERE conversation_id = ?",
+            "UPDATE chat_conversations SET updated_at = %s WHERE conversation_id = %s",
             (time.time(), conversation_id),
         )
 
@@ -228,14 +194,14 @@ def get_conversation_messages(conversation_id: str) -> Optional[list[dict]]:
     _purge_expired()
     with _chat_db() as conn:
         row = conn.execute(
-            "SELECT conversation_id FROM chat_conversations WHERE conversation_id = ?",
+            "SELECT conversation_id FROM chat_conversations WHERE conversation_id = %s",
             (conversation_id,),
         ).fetchone()
         if not row:
             return None
         msgs = conn.execute(
             "SELECT role, content, created_at FROM chat_messages "
-            "WHERE conversation_id = ? ORDER BY created_at ASC",
+            "WHERE conversation_id = %s ORDER BY created_at ASC",
             (conversation_id,),
         ).fetchall()
         return [
@@ -250,14 +216,14 @@ def get_user_conversations(user_email: str, limit: int = 20) -> list[dict]:
     with _chat_db() as conn:
         rows = conn.execute(
             "SELECT conversation_id, updated_at FROM chat_conversations "
-            "WHERE user_email = ? ORDER BY updated_at DESC LIMIT ?",
+            "WHERE user_email = %s ORDER BY updated_at DESC LIMIT %s",
             (user_email, limit),
         ).fetchall()
         result = []
         for row in rows:
             cid = row["conversation_id"]
             first_user_msg = conn.execute(
-                "SELECT content FROM chat_messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at ASC LIMIT 1",
+                "SELECT content FROM chat_messages WHERE conversation_id = %s AND role = 'user' ORDER BY created_at ASC LIMIT 1",
                 (cid,),
             ).fetchone()
             preview = first_user_msg["content"][:80] if first_user_msg else ""
@@ -271,15 +237,7 @@ def record_feedback(message_id: str, vote: str):
     """Store thumbs-up / thumbs-down feedback. Fire-and-forget."""
     with _chat_db() as conn:
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS chat_feedback ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  message_id TEXT NOT NULL,"
-            "  vote TEXT NOT NULL,"
-            "  created_at REAL NOT NULL"
-            ")"
-        )
-        conn.execute(
-            "INSERT INTO chat_feedback (message_id, vote, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO chat_feedback (message_id, vote, created_at) VALUES (%s, %s, %s)",
             (message_id, vote, time.time()),
         )
 

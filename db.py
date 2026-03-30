@@ -28,7 +28,7 @@ log = logging.getLogger("xcelsior")
 DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
 
 # Database backend: "sqlite", "postgres", or "dual" (dual-write migration mode)
-DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND", "sqlite").lower()
+DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
 
 # PostgreSQL connection string (used when backend is "postgres" or "dual")
 POSTGRES_DSN = os.environ.get(
@@ -664,158 +664,40 @@ class PgEventBus:
 
 # ── Persistent Auth Storage ────────────────────────────────────────────
 
+# Legacy compat — kept for tests that monkeypatch this value
 AUTH_DB_FILE = os.environ.get("XCELSIOR_AUTH_DB_PATH", "data/auth.db")
-
-
-def _auth_db_path():
-    return AUTH_DB_FILE
-
-
-def _ensure_auth_tables(conn):
-    """Create auth tables for users, sessions, API keys, and teams."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            email TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL DEFAULT '',
-            password_hash TEXT NOT NULL DEFAULT '',
-            salt TEXT NOT NULL DEFAULT '',
-            role TEXT NOT NULL DEFAULT 'submitter',
-            customer_id TEXT,
-            provider_id TEXT,
-            country TEXT DEFAULT 'CA',
-            province TEXT DEFAULT 'ON',
-            oauth_provider TEXT,
-            team_id TEXT,
-            created_at REAL NOT NULL,
-            reset_token TEXT,
-            reset_token_expires REAL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            token TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'submitter',
-            name TEXT NOT NULL DEFAULT '',
-            created_at REAL NOT NULL,
-            expires_at REAL NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS api_keys (
-            key TEXT PRIMARY KEY,
-            name TEXT NOT NULL DEFAULT 'default',
-            email TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'submitter',
-            scope TEXT NOT NULL DEFAULT 'full-access',
-            created_at REAL NOT NULL,
-            last_used REAL
-        )
-    """)
-    # Migration: add scope column if missing
-    try:
-        conn.execute("SELECT scope FROM api_keys LIMIT 1")
-    except Exception:
-        conn.execute("ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'full-access'")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS teams (
-            team_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            owner_email TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            plan TEXT NOT NULL DEFAULT 'free',
-            max_members INTEGER NOT NULL DEFAULT 5
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS team_members (
-            team_id TEXT NOT NULL,
-            email TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'member',
-            joined_at REAL NOT NULL,
-            PRIMARY KEY (team_id, email)
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_email ON sessions(email)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_team_members_email ON team_members(email)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_team ON users(team_id)")
-
-    # Migration: add preference columns if missing
-    for col, default in [("notifications_enabled", "1"), ("canada_only_routing", "0")]:
-        try:
-            conn.execute(f"SELECT {col} FROM users LIMIT 1")
-        except Exception:
-            conn.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}")
-
-    # ── Notifications table ──────────────────────────────────────────
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            id TEXT PRIMARY KEY,
-            user_email TEXT NOT NULL,
-            type TEXT NOT NULL,
-            title TEXT NOT NULL,
-            body TEXT NOT NULL DEFAULT '',
-            data TEXT NOT NULL DEFAULT '{}',
-            read INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_email, read, created_at DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at)")
-
-    # ── User SSH Keys table ──────────────────────────────────────────
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_ssh_keys (
-            id TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            name TEXT NOT NULL DEFAULT 'default',
-            public_key TEXT NOT NULL,
-            fingerprint TEXT NOT NULL,
-            created_at REAL NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ssh_keys_email ON user_ssh_keys(email)")
 
 
 @contextmanager
 def auth_connection():
-    """SQLite connection to the auth database."""
-    path = _auth_db_path()
-    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    _ensure_auth_tables(conn)
-    try:
-        yield conn
-    finally:
-        conn.close()
+    """PostgreSQL connection for auth tables (users, sessions, API keys, teams, notifications, SSH keys)."""
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 class UserStore:
-    """Persistent user/session/API key storage backed by SQLite.
-
-    Replaces in-memory _users_db, _sessions, _api_keys dicts to survive restarts.
-    """
+    """Persistent user/session/API key storage backed by PostgreSQL."""
 
     # ── Users ──
 
     @staticmethod
     def get_user(email: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
             return dict(row) if row else None
 
     @staticmethod
     def get_user_by_id(user_id: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE user_id = %s", (user_id,)).fetchone()
             return dict(row) if row else None
 
     @staticmethod
@@ -825,7 +707,7 @@ class UserStore:
                 """
                 INSERT INTO users (email, user_id, name, password_hash, salt, role,
                     customer_id, provider_id, country, province, oauth_provider, team_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     user["email"],
@@ -863,29 +745,29 @@ class UserStore:
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
             return
-        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
         values = list(fields.values()) + [email]
         with auth_connection() as conn:
-            conn.execute(f"UPDATE users SET {set_clause} WHERE email = ?", values)
+            conn.execute(f"UPDATE users SET {set_clause} WHERE email = %s", values)
 
     @staticmethod
     def delete_user(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM users WHERE email = ?", (email,))
-            conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
-            conn.execute("DELETE FROM api_keys WHERE email = ?", (email,))
+            conn.execute("DELETE FROM users WHERE email = %s", (email,))
+            conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
+            conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
 
     @staticmethod
     def user_exists(email: str) -> bool:
         with auth_connection() as conn:
-            row = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+            row = conn.execute("SELECT 1 FROM users WHERE email = %s", (email,)).fetchone()
             return row is not None
 
     @staticmethod
     def list_users(team_id: str | None = None) -> list[dict]:
         with auth_connection() as conn:
             if team_id:
-                rows = conn.execute("SELECT * FROM users WHERE team_id = ?", (team_id,)).fetchall()
+                rows = conn.execute("SELECT * FROM users WHERE team_id = %s", (team_id,)).fetchall()
             else:
                 rows = conn.execute("SELECT * FROM users").fetchall()
             return [dict(r) for r in rows]
@@ -898,7 +780,7 @@ class UserStore:
             conn.execute(
                 """
                 INSERT INTO sessions (token, email, user_id, role, name, created_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     session["token"],
@@ -915,7 +797,7 @@ class UserStore:
     def get_session(token: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM sessions WHERE token = ? AND expires_at > ?",
+                "SELECT * FROM sessions WHERE token = %s AND expires_at > %s",
                 (token, time.time()),
             ).fetchone()
             return dict(row) if row else None
@@ -923,17 +805,17 @@ class UserStore:
     @staticmethod
     def delete_session(token: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.execute("DELETE FROM sessions WHERE token = %s", (token,))
 
     @staticmethod
     def delete_user_sessions(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
+            conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
 
     @staticmethod
     def cleanup_expired_sessions() -> int:
         with auth_connection() as conn:
-            cursor = conn.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+            cursor = conn.execute("DELETE FROM sessions WHERE expires_at < %s", (time.time(),))
             return cursor.rowcount
 
     # ── API Keys ──
@@ -944,7 +826,7 @@ class UserStore:
             conn.execute(
                 """
                 INSERT INTO api_keys (key, name, email, user_id, role, scope, created_at, last_used)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     key_data["key"],
@@ -961,34 +843,34 @@ class UserStore:
     @staticmethod
     def get_api_key(key: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute("SELECT * FROM api_keys WHERE key = ?", (key,)).fetchone()
+            row = conn.execute("SELECT * FROM api_keys WHERE key = %s", (key,)).fetchone()
             if row:
                 d = dict(row)
-                conn.execute("UPDATE api_keys SET last_used = ? WHERE key = ?", (time.time(), key))
+                conn.execute("UPDATE api_keys SET last_used = %s WHERE key = %s", (time.time(), key))
                 return d
             return None
 
     @staticmethod
     def list_api_keys(email: str) -> list[dict]:
         with auth_connection() as conn:
-            rows = conn.execute("SELECT * FROM api_keys WHERE email = ?", (email,)).fetchall()
+            rows = conn.execute("SELECT * FROM api_keys WHERE email = %s", (email,)).fetchall()
             return [dict(r) for r in rows]
 
     @staticmethod
     def delete_api_key_by_preview(email: str, preview: str) -> bool:
         with auth_connection() as conn:
-            rows = conn.execute("SELECT key FROM api_keys WHERE email = ?", (email,)).fetchall()
+            rows = conn.execute("SELECT key FROM api_keys WHERE email = %s", (email,)).fetchall()
             for row in rows:
                 k = row["key"]
                 if (k[:12] + "..." + k[-4:]) == preview:
-                    conn.execute("DELETE FROM api_keys WHERE key = ?", (k,))
+                    conn.execute("DELETE FROM api_keys WHERE key = %s", (k,))
                     return True
             return False
 
     @staticmethod
     def delete_user_api_keys(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM api_keys WHERE email = ?", (email,))
+            conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
 
     # ── Teams ──
 
@@ -998,7 +880,7 @@ class UserStore:
             conn.execute(
                 """
                 INSERT INTO teams (team_id, name, owner_email, created_at, plan, max_members)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """,
                 (
                     team["team_id"],
@@ -1013,7 +895,7 @@ class UserStore:
             conn.execute(
                 """
                 INSERT INTO team_members (team_id, email, role, joined_at)
-                VALUES (?, ?, 'admin', ?)
+                VALUES (%s, %s, 'admin', %s)
             """,
                 (team["team_id"], team["owner_email"], time.time()),
             )
@@ -1021,7 +903,7 @@ class UserStore:
     @staticmethod
     def get_team(team_id: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute("SELECT * FROM teams WHERE team_id = ?", (team_id,)).fetchone()
+            row = conn.execute("SELECT * FROM teams WHERE team_id = %s", (team_id,)).fetchone()
             return dict(row) if row else None
 
     @staticmethod
@@ -1031,7 +913,7 @@ class UserStore:
                 """
                 SELECT tm.email, tm.role, tm.joined_at, u.name, u.user_id
                 FROM team_members tm LEFT JOIN users u ON tm.email = u.email
-                WHERE tm.team_id = ?
+                WHERE tm.team_id = %s
             """,
                 (team_id,),
             ).fetchall()
@@ -1041,33 +923,34 @@ class UserStore:
     def add_team_member(team_id: str, email: str, role: str = "member") -> bool:
         with auth_connection() as conn:
             team = conn.execute(
-                "SELECT max_members FROM teams WHERE team_id = ?", (team_id,)
+                "SELECT max_members FROM teams WHERE team_id = %s", (team_id,)
             ).fetchone()
             if not team:
                 return False
             count = conn.execute(
-                "SELECT COUNT(*) as c FROM team_members WHERE team_id = ?", (team_id,)
+                "SELECT COUNT(*) as c FROM team_members WHERE team_id = %s", (team_id,)
             ).fetchone()["c"]
             if count >= team["max_members"]:
                 return False
             conn.execute(
                 """
-                INSERT OR REPLACE INTO team_members (team_id, email, role, joined_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO team_members (team_id, email, role, joined_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (team_id, email) DO UPDATE SET role = EXCLUDED.role, joined_at = EXCLUDED.joined_at
             """,
                 (team_id, email, role, time.time()),
             )
-            conn.execute("UPDATE users SET team_id = ? WHERE email = ?", (team_id, email))
+            conn.execute("UPDATE users SET team_id = %s WHERE email = %s", (team_id, email))
             return True
 
     @staticmethod
     def remove_team_member(team_id: str, email: str) -> None:
         with auth_connection() as conn:
             conn.execute(
-                "DELETE FROM team_members WHERE team_id = ? AND email = ?", (team_id, email)
+                "DELETE FROM team_members WHERE team_id = %s AND email = %s", (team_id, email)
             )
             conn.execute(
-                "UPDATE users SET team_id = NULL WHERE email = ? AND team_id = ?", (email, team_id)
+                "UPDATE users SET team_id = NULL WHERE email = %s AND team_id = %s", (email, team_id)
             )
 
     @staticmethod
@@ -1075,7 +958,7 @@ class UserStore:
         """Update a team member's role. Returns False if member not found."""
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE team_members SET role = ? WHERE team_id = ? AND email = ?",
+                "UPDATE team_members SET role = %s WHERE team_id = %s AND email = %s",
                 (role, team_id, email),
             )
             return cur.rowcount > 0
@@ -1083,9 +966,9 @@ class UserStore:
     @staticmethod
     def delete_team(team_id: str) -> None:
         with auth_connection() as conn:
-            conn.execute("UPDATE users SET team_id = NULL WHERE team_id = ?", (team_id,))
-            conn.execute("DELETE FROM team_members WHERE team_id = ?", (team_id,))
-            conn.execute("DELETE FROM teams WHERE team_id = ?", (team_id,))
+            conn.execute("UPDATE users SET team_id = NULL WHERE team_id = %s", (team_id,))
+            conn.execute("DELETE FROM team_members WHERE team_id = %s", (team_id,))
+            conn.execute("DELETE FROM teams WHERE team_id = %s", (team_id,))
 
     @staticmethod
     def get_user_teams(email: str) -> list[dict]:
@@ -1094,7 +977,7 @@ class UserStore:
                 """
                 SELECT t.*, tm.role as member_role
                 FROM teams t JOIN team_members tm ON t.team_id = tm.team_id
-                WHERE tm.email = ?
+                WHERE tm.email = %s
             """,
                 (email,),
             ).fetchall()
@@ -1107,7 +990,7 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (
                     key_data["id"],
                     key_data["email"],
@@ -1123,7 +1006,7 @@ class UserStore:
     def list_ssh_keys(email: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM user_ssh_keys WHERE email = ? ORDER BY created_at DESC",
+                "SELECT * FROM user_ssh_keys WHERE email = %s ORDER BY created_at DESC",
                 (email,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -1132,7 +1015,7 @@ class UserStore:
     def delete_ssh_key(email: str, key_id: str) -> bool:
         with auth_connection() as conn:
             cur = conn.execute(
-                "DELETE FROM user_ssh_keys WHERE id = ? AND email = ?",
+                "DELETE FROM user_ssh_keys WHERE id = %s AND email = %s",
                 (key_id, email),
             )
             return cur.rowcount > 0
@@ -1140,53 +1023,45 @@ class UserStore:
     @staticmethod
     def delete_user_ssh_keys(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM user_ssh_keys WHERE email = ?", (email,))
+            conn.execute("DELETE FROM user_ssh_keys WHERE email = %s", (email,))
 
 
 class NotificationStore:
-    """Per-user in-app notification storage backed by the auth SQLite DB."""
+    """Per-user in-app notification storage backed by PostgreSQL."""
 
     @staticmethod
     def create(user_email: str, notif_type: str, title: str, body: str = "",
                data: dict | None = None) -> str:
-        import json as _json, uuid as _uuid
+        from psycopg.types.json import Jsonb
+        import uuid as _uuid
         nid = f"notif-{_uuid.uuid4().hex[:12]}"
         with auth_connection() as conn:
             conn.execute(
                 "INSERT INTO notifications (id, user_email, type, title, body, data, read, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                "VALUES (%s, %s, %s, %s, %s, %s, 0, %s)",
                 (nid, user_email, notif_type, title, body,
-                 _json.dumps(data or {}), time.time()),
+                 Jsonb(data or {}), time.time()),
             )
         return nid
 
     @staticmethod
     def list_for_user(user_email: str, unread_only: bool = False,
                       limit: int = 50) -> list[dict]:
-        import json as _json
         with auth_connection() as conn:
-            sql = "SELECT * FROM notifications WHERE user_email = ?"
+            sql = "SELECT * FROM notifications WHERE user_email = %s"
             params: list = [user_email]
             if unread_only:
                 sql += " AND read = 0"
-            sql += " ORDER BY created_at DESC LIMIT ?"
+            sql += " ORDER BY created_at DESC LIMIT %s"
             params.append(limit)
             rows = conn.execute(sql, params).fetchall()
-            result = []
-            for r in rows:
-                d = dict(r)
-                try:
-                    d["data"] = _json.loads(d["data"])
-                except Exception:
-                    d["data"] = {}
-                result.append(d)
-            return result
+            return [dict(r) for r in rows]
 
     @staticmethod
     def unread_count(user_email: str) -> int:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) as c FROM notifications WHERE user_email = ? AND read = 0",
+                "SELECT COUNT(*) as c FROM notifications WHERE user_email = %s AND read = 0",
                 (user_email,),
             ).fetchone()
             return row["c"] if row else 0
@@ -1195,7 +1070,7 @@ class NotificationStore:
     def mark_read(notification_id: str, user_email: str) -> bool:
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE notifications SET read = 1 WHERE id = ? AND user_email = ?",
+                "UPDATE notifications SET read = 1 WHERE id = %s AND user_email = %s",
                 (notification_id, user_email),
             )
             return cur.rowcount > 0
@@ -1204,7 +1079,7 @@ class NotificationStore:
     def mark_all_read(user_email: str) -> int:
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE notifications SET read = 1 WHERE user_email = ? AND read = 0",
+                "UPDATE notifications SET read = 1 WHERE user_email = %s AND read = 0",
                 (user_email,),
             )
             return cur.rowcount
@@ -1213,7 +1088,7 @@ class NotificationStore:
     def delete_old(days: int = 30) -> int:
         cutoff = time.time() - days * 86400
         with auth_connection() as conn:
-            cur = conn.execute("DELETE FROM notifications WHERE created_at < ?", (cutoff,))
+            cur = conn.execute("DELETE FROM notifications WHERE created_at < %s", (cutoff,))
             return cur.rowcount
 
 

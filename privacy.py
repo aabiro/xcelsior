@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -303,62 +302,21 @@ class DataLifecycleManager:
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_privacy.db")
-        self._init_db()
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS retention_records (
-                    record_id TEXT PRIMARY KEY,
-                    data_category TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    entity_type TEXT DEFAULT 'job',
-                    created_at REAL NOT NULL,
-                    expires_at REAL NOT NULL,
-                    purged_at REAL DEFAULT 0,
-                    purge_reason TEXT DEFAULT '',
-                    metadata TEXT DEFAULT '{}'
-                );
-                CREATE INDEX IF NOT EXISTS idx_retention_expiry
-                    ON retention_records(expires_at);
-                CREATE INDEX IF NOT EXISTS idx_retention_entity
-                    ON retention_records(entity_id);
-                CREATE INDEX IF NOT EXISTS idx_retention_category
-                    ON retention_records(data_category);
-
-                CREATE TABLE IF NOT EXISTS consent_records (
-                    consent_id TEXT PRIMARY KEY,
-                    entity_id TEXT NOT NULL,
-                    consent_type TEXT NOT NULL,
-                    granted_at REAL NOT NULL,
-                    revoked_at REAL DEFAULT 0,
-                    is_active INTEGER DEFAULT 1,
-                    details TEXT DEFAULT '{}'
-                );
-                CREATE INDEX IF NOT EXISTS idx_consent_entity
-                    ON consent_records(entity_id);
-
-                CREATE TABLE IF NOT EXISTS privacy_configs (
-                    org_id TEXT PRIMARY KEY,
-                    config TEXT NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-            """)
+        self.db_path = db_path  # Legacy compat
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     # ── Retention tracking ────────────────────────────────────────────
 
@@ -398,7 +356,7 @@ class DataLifecycleManager:
                 """INSERT INTO retention_records
                    (record_id, data_category, entity_id, entity_type,
                     created_at, expires_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
                 (record_id, data_category, entity_id, entity_type, now, expires_at),
             )
 
@@ -417,7 +375,7 @@ class DataLifecycleManager:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM retention_records
-                   WHERE expires_at <= ? AND purged_at = 0
+                   WHERE expires_at <= %s AND purged_at = 0
                    ORDER BY expires_at""",
                 (cutoff,),
             ).fetchall()
@@ -428,8 +386,8 @@ class DataLifecycleManager:
         with self._conn() as conn:
             conn.execute(
                 """UPDATE retention_records
-                   SET purged_at = ?, purge_reason = ?
-                   WHERE record_id = ?""",
+                   SET purged_at = %s, purge_reason = %s
+                   WHERE record_id = %s""",
                 (time.time(), reason, record_id),
             )
         log.info("DATA PURGED record=%s reason=%s", record_id, reason)
@@ -484,7 +442,7 @@ class DataLifecycleManager:
         from scheduler import _db_connection
         with _db_connection() as conn:
             row = conn.execute(
-                "SELECT payload FROM jobs WHERE job_id = ?", (entity_id,)
+                "SELECT payload FROM jobs WHERE job_id = %s", (entity_id,)
             ).fetchone()
             if not row:
                 return
@@ -494,7 +452,7 @@ class DataLifecycleManager:
                 if field_name in payload:
                     payload[field_name] = "[PURGED]"
             conn.execute(
-                "UPDATE jobs SET payload = ? WHERE job_id = ?",
+                "UPDATE jobs SET payload = %s WHERE job_id = %s",
                 (json.dumps(payload), entity_id),
             )
         log.info("PURGE job_payload entity=%s", entity_id)
@@ -503,7 +461,7 @@ class DataLifecycleManager:
         """Delete completed job records entirely."""
         from scheduler import _db_connection
         with _db_connection() as conn:
-            conn.execute("DELETE FROM jobs WHERE job_id = ?", (entity_id,))
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (entity_id,))
         log.info("PURGE job_metadata entity=%s", entity_id)
 
     def _purge_telemetry(self, entity_id: str, entity_type: str):
@@ -512,7 +470,7 @@ class DataLifecycleManager:
         store = EventStore()
         with store._conn() as conn:
             conn.execute(
-                "DELETE FROM events WHERE entity_id = ? AND event_type LIKE ?",
+                "DELETE FROM events WHERE entity_id = %s AND event_type LIKE %s",
                 (entity_id, "%telemetry%"),
             )
         log.info("PURGE telemetry entity=%s", entity_id)
@@ -523,7 +481,7 @@ class DataLifecycleManager:
         store = EventStore()
         with store._conn() as conn:
             conn.execute(
-                "DELETE FROM events WHERE entity_id = ?",
+                "DELETE FROM events WHERE entity_id = %s",
                 (entity_id,),
             )
         log.info("PURGE logs entity=%s", entity_id)
@@ -533,7 +491,7 @@ class DataLifecycleManager:
         from scheduler import _db_connection
         with _db_connection() as conn:
             row = conn.execute(
-                "SELECT payload FROM hosts WHERE host_id = ?", (entity_id,)
+                "SELECT payload FROM hosts WHERE host_id = %s", (entity_id,)
             ).fetchone()
             if not row:
                 return
@@ -542,7 +500,7 @@ class DataLifecycleManager:
                 if field_name in payload:
                     payload[field_name] = "[PURGED]"
             conn.execute(
-                "UPDATE hosts SET payload = ? WHERE host_id = ?",
+                "UPDATE hosts SET payload = %s WHERE host_id = %s",
                 (json.dumps(payload), entity_id),
             )
         log.info("PURGE network entity=%s", entity_id)
@@ -552,7 +510,7 @@ class DataLifecycleManager:
         from scheduler import _db_connection
         with _db_connection() as conn:
             row = conn.execute(
-                "SELECT payload FROM hosts WHERE host_id = ?", (entity_id,)
+                "SELECT payload FROM hosts WHERE host_id = %s", (entity_id,)
             ).fetchone()
             if not row:
                 return
@@ -562,7 +520,7 @@ class DataLifecycleManager:
                 if field_name in payload:
                     payload[field_name] = "[PURGED]"
             conn.execute(
-                "UPDATE hosts SET payload = ? WHERE host_id = ?",
+                "UPDATE hosts SET payload = %s WHERE host_id = %s",
                 (json.dumps(payload), entity_id),
             )
         log.info("PURGE location entity=%s", entity_id)
@@ -572,11 +530,11 @@ class DataLifecycleManager:
         from chat import _chat_db
         with _chat_db() as conn:
             conn.execute(
-                "DELETE FROM chat_messages WHERE conversation_id = ?",
+                "DELETE FROM chat_messages WHERE conversation_id = %s",
                 (entity_id,),
             )
             conn.execute(
-                "DELETE FROM chat_conversations WHERE conversation_id = ?",
+                "DELETE FROM chat_conversations WHERE conversation_id = %s",
                 (entity_id,),
             )
         log.info("PURGE chat_messages entity=%s", entity_id)
@@ -587,10 +545,10 @@ class DataLifecycleManager:
         be = get_billing_engine()
         with be._conn() as conn:
             conn.execute(
-                "DELETE FROM usage_meters WHERE customer_id = ?", (entity_id,)
+                "DELETE FROM usage_meters WHERE customer_id = %s", (entity_id,)
             )
             conn.execute(
-                "DELETE FROM invoices WHERE customer_id = ?", (entity_id,)
+                "DELETE FROM invoices WHERE customer_id = %s", (entity_id,)
             )
         log.info("PURGE billing_info entity=%s", entity_id)
 
@@ -632,7 +590,7 @@ class DataLifecycleManager:
             conn.execute(
                 """INSERT INTO consent_records
                    (consent_id, entity_id, consent_type, granted_at, details)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s)""",
                 (consent_id, entity_id, consent_type, time.time(), json.dumps(details or {})),
             )
         log.info("CONSENT RECORDED entity=%s type=%s", entity_id, consent_type)
@@ -643,8 +601,8 @@ class DataLifecycleManager:
         with self._conn() as conn:
             conn.execute(
                 """UPDATE consent_records
-                   SET revoked_at = ?, is_active = 0
-                   WHERE entity_id = ? AND consent_type = ? AND is_active = 1""",
+                   SET revoked_at = %s, is_active = 0
+                   WHERE entity_id = %s AND consent_type = %s AND is_active = 1""",
                 (time.time(), entity_id, consent_type),
             )
         log.info("CONSENT REVOKED entity=%s type=%s", entity_id, consent_type)
@@ -654,7 +612,7 @@ class DataLifecycleManager:
         with self._conn() as conn:
             row = conn.execute(
                 """SELECT COUNT(*) as cnt FROM consent_records
-                   WHERE entity_id = ? AND consent_type = ? AND is_active = 1""",
+                   WHERE entity_id = %s AND consent_type = %s AND is_active = 1""",
                 (entity_id, consent_type),
             ).fetchone()
         return (row["cnt"] or 0) > 0
@@ -664,7 +622,7 @@ class DataLifecycleManager:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM consent_records
-                   WHERE entity_id = ? ORDER BY granted_at DESC""",
+                   WHERE entity_id = %s ORDER BY granted_at DESC""",
                 (entity_id,),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -675,8 +633,9 @@ class DataLifecycleManager:
         """Save privacy configuration for an organization."""
         with self._conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO privacy_configs
-                   (org_id, config, updated_at) VALUES (?, ?, ?)""",
+                """INSERT INTO privacy_configs
+                   (org_id, config, updated_at) VALUES (%s, %s, %s)
+                   ON CONFLICT (org_id) DO UPDATE SET config = EXCLUDED.config, updated_at = EXCLUDED.updated_at""",
                 (org_id, json.dumps(config.to_dict()), time.time()),
             )
 
@@ -684,7 +643,7 @@ class DataLifecycleManager:
         """Load privacy config for an org. Returns STRICT defaults if none set."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT config FROM privacy_configs WHERE org_id = ?",
+                "SELECT config FROM privacy_configs WHERE org_id = %s",
                 (org_id,),
             ).fetchone()
 
@@ -704,7 +663,7 @@ class DataLifecycleManager:
                 """SELECT data_category,
                           COUNT(*) as total,
                           SUM(CASE WHEN purged_at > 0 THEN 1 ELSE 0 END) as purged,
-                          SUM(CASE WHEN purged_at = 0 AND expires_at <= ? THEN 1 ELSE 0 END) as expired_pending
+                          SUM(CASE WHEN purged_at = 0 AND expires_at <= %s THEN 1 ELSE 0 END) as expired_pending
                    FROM retention_records
                    GROUP BY data_category""",
                 (time.time(),),

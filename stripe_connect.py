@@ -14,7 +14,7 @@
 import os
 import time
 import logging
-import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Optional
@@ -122,60 +122,21 @@ class StripeConnectManager:
     """Manages Stripe Connect accounts, payments, and payouts."""
 
     def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
-        self._init_db()
+        self.db_path = db_path  # Legacy compat
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS provider_accounts (
-                    provider_id TEXT PRIMARY KEY,
-                    provider_type TEXT DEFAULT 'individual',
-                    stripe_account_id TEXT DEFAULT '',
-                    status TEXT DEFAULT 'pending',
-                    corporation_name TEXT DEFAULT '',
-                    business_number TEXT DEFAULT '',
-                    incorporation_file_id TEXT DEFAULT '',
-                    gst_hst_number TEXT DEFAULT '',
-                    email TEXT DEFAULT '',
-                    legal_name TEXT DEFAULT '',
-                    country TEXT DEFAULT 'CA',
-                    province TEXT DEFAULT '',
-                    created_at REAL DEFAULT (strftime('%s', 'now')),
-                    onboarded_at REAL DEFAULT 0,
-                    default_currency TEXT DEFAULT 'cad',
-                    payout_schedule TEXT DEFAULT 'weekly'
-                );
-                CREATE TABLE IF NOT EXISTS payment_intents (
-                    intent_id TEXT PRIMARY KEY,
-                    customer_id TEXT NOT NULL,
-                    amount_cents INTEGER NOT NULL,
-                    currency TEXT DEFAULT 'cad',
-                    status TEXT DEFAULT 'created',
-                    stripe_intent_id TEXT DEFAULT '',
-                    description TEXT DEFAULT '',
-                    created_at REAL DEFAULT (strftime('%s', 'now'))
-                );
-                CREATE TABLE IF NOT EXISTS payout_splits (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_id TEXT NOT NULL,
-                    provider_id TEXT NOT NULL,
-                    total_cad REAL NOT NULL,
-                    provider_share_cad REAL NOT NULL,
-                    platform_share_cad REAL NOT NULL,
-                    gst_hst_cad REAL DEFAULT 0,
-                    stripe_transfer_id TEXT DEFAULT '',
-                    created_at REAL DEFAULT (strftime('%s', 'now'))
-                );
-                CREATE INDEX IF NOT EXISTS idx_payouts_provider
-                    ON payout_splits(provider_id, created_at);
-            """)
+    @contextmanager
+    def _conn(self):
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     # ── Provider Onboarding ───────────────────────────────────────────
 
@@ -247,11 +208,17 @@ class StripeConnectManager:
         # Persist locally
         with self._conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO provider_accounts
+                """INSERT INTO provider_accounts
                    (provider_id, provider_type, stripe_account_id, status,
                     corporation_name, business_number, gst_hst_number,
                     email, legal_name, country, province, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CA', ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'CA', %s, %s)
+                   ON CONFLICT (provider_id) DO UPDATE SET
+                     provider_type = EXCLUDED.provider_type, stripe_account_id = EXCLUDED.stripe_account_id,
+                     status = EXCLUDED.status, corporation_name = EXCLUDED.corporation_name,
+                     business_number = EXCLUDED.business_number, gst_hst_number = EXCLUDED.gst_hst_number,
+                     email = EXCLUDED.email, legal_name = EXCLUDED.legal_name,
+                     province = EXCLUDED.province, created_at = EXCLUDED.created_at""",
                 (
                     provider_id,
                     provider_type,
@@ -282,7 +249,7 @@ class StripeConnectManager:
         """
         with self._conn() as conn:
             conn.execute(
-                "UPDATE provider_accounts SET incorporation_file_id=? WHERE provider_id=?",
+                "UPDATE provider_accounts SET incorporation_file_id=%s WHERE provider_id=%s",
                 (file_id, provider_id),
             )
         log.info("Incorporation file %s linked to provider %s", file_id, provider_id)
@@ -292,7 +259,7 @@ class StripeConnectManager:
         """Get provider account details."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM provider_accounts WHERE provider_id=?",
+                "SELECT * FROM provider_accounts WHERE provider_id=%s",
                 (provider_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -302,7 +269,7 @@ class StripeConnectManager:
         with self._conn() as conn:
             if status:
                 rows = conn.execute(
-                    "SELECT * FROM provider_accounts WHERE status=? ORDER BY created_at DESC",
+                    "SELECT * FROM provider_accounts WHERE status=%s ORDER BY created_at DESC",
                     (status,),
                 ).fetchall()
             else:
@@ -316,7 +283,7 @@ class StripeConnectManager:
         now = time.time()
         with self._conn() as conn:
             conn.execute(
-                "UPDATE provider_accounts SET status='active', onboarded_at=? WHERE provider_id=?",
+                "UPDATE provider_accounts SET status='active', onboarded_at=%s WHERE provider_id=%s",
                 (now, provider_id),
             )
         log.info("Provider %s onboarding COMPLETE", provider_id)
@@ -366,7 +333,7 @@ class StripeConnectManager:
                 """INSERT INTO payment_intents
                    (intent_id, customer_id, amount_cents, currency, status,
                     stripe_intent_id, description, created_at)
-                   VALUES (?, ?, ?, 'cad', 'created', ?, ?, ?)""",
+                   VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)""",
                 (intent_id, customer_id, amount_cents, stripe_intent_id, description, time.time()),
             )
 
@@ -422,7 +389,7 @@ class StripeConnectManager:
                 """INSERT INTO payout_splits
                    (job_id, provider_id, total_cad, provider_share_cad,
                     platform_share_cad, gst_hst_cad, stripe_transfer_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                 (
                     job_id,
                     provider_id,
@@ -449,7 +416,7 @@ class StripeConnectManager:
         """Get payout history for a provider."""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM payout_splits WHERE provider_id=? ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM payout_splits WHERE provider_id=%s ORDER BY created_at DESC LIMIT %s",
                 (provider_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -463,7 +430,7 @@ class StripeConnectManager:
                     COALESCE(SUM(provider_share_cad), 0) as total_earned_cad,
                     COALESCE(SUM(platform_share_cad), 0) as total_platform_cad,
                     COALESCE(SUM(gst_hst_cad), 0) as total_tax_cad
-                   FROM payout_splits WHERE provider_id=?""",
+                   FROM payout_splits WHERE provider_id=%s""",
                 (provider_id,),
             ).fetchone()
             return (

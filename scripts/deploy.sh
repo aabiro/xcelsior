@@ -19,6 +19,32 @@ REMOTE_HOST="${XCELSIOR_DEPLOY_HOST:-149.28.121.61}"
 DOMAIN="xcelsior.ca"
 BACKUP_DIR="/opt/xcelsior-backups"
 
+# ── Environment Selection ─────────────────────────────────────────────
+# .env       = production config (deployed to VPS)
+# .env.test  = test config (used locally for testing)
+TARGET_ENV="${XCELSIOR_TARGET_ENV:-prod}"
+
+resolve_env() {
+    case "$TARGET_ENV" in
+        prod|production)
+            TARGET_ENV="prod"
+            ENV_FILE="$PROJECT_DIR/.env"
+            ;;
+        test|testing)
+            TARGET_ENV="test"
+            ENV_FILE="$PROJECT_DIR/.env.test"
+            ;;
+        *)
+            error "Unknown environment: $TARGET_ENV. Use 'prod' or 'test'."
+            ;;
+    esac
+
+    if [[ ! -f "$ENV_FILE" ]]; then
+        error "Environment file not found: $ENV_FILE"
+    fi
+    log "Environment: ${BOLD}$TARGET_ENV${NC} ($ENV_FILE)"
+}
+
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -209,24 +235,29 @@ sync_code() {
     ssh_cmd << 'EOF'
 set -e
 sudo mkdir -p /opt/xcelsior
-# Preserve server-specific files
-for f in .env docker-compose.override.yml docker-compose.prod.yml; do
+# Preserve server-specific files (but NOT .env — we'll send the right one)
+for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/opt/xcelsior/$f" ] && sudo cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
 done
 sudo tar -xzf /tmp/xcelsior_deploy.tar.gz -C /opt/xcelsior
 # Restore preserved files
-for f in .env docker-compose.override.yml docker-compose.prod.yml; do
+for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/tmp/xcelsior_preserve_$f" ] && sudo cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior/$f" || true
     sudo rm -f "/tmp/xcelsior_preserve_$f"
 done
 sudo chown -R $USER:$USER /opt/xcelsior
 rm /tmp/xcelsior_deploy.tar.gz
 EOF
-    success "Code synced"
+
+    # Send the correct env file as .env on the server
+    log "Sending $TARGET_ENV environment config..."
+    scp_file "$ENV_FILE" "/tmp/xcelsior_env"
+    ssh_cmd "sudo cp /tmp/xcelsior_env /opt/xcelsior/.env && sudo chown \$USER:\$USER /opt/xcelsior/.env && rm /tmp/xcelsior_env"
+    success "Code synced (env=$TARGET_ENV)"
 }
 
 deploy_docker() {
-    log "Deploying with Docker Compose..."
+    log "Deploying with Docker Compose ($TARGET_ENV)..."
     
     ssh_cmd << 'EOF'
 set -e
@@ -340,6 +371,52 @@ EOF
     success "Rollback complete"
 }
 
+# ── Local Test Deployment ──────────────────────────────────────────────
+deploy_test_local() {
+    log "Deploying test environment locally..."
+
+    # Run Alembic migrations on the test database
+    log "Running test database migrations..."
+    (
+        cd "$PROJECT_DIR"
+        export XCELSIOR_POSTGRES_DSN
+        XCELSIOR_POSTGRES_DSN=$(grep '^XCELSIOR_POSTGRES_DSN=' "$ENV_FILE" | cut -d= -f2-)
+        source venv/bin/activate 2>/dev/null || true
+        alembic upgrade head
+    )
+    success "Test database migrated"
+
+    # Start with docker compose using the test env file
+    log "Starting test containers..."
+    cd "$PROJECT_DIR"
+    docker compose --env-file .env.test -p xcelsior-test up -d --build
+
+    # Wait for health
+    local api_port
+    api_port=$(grep '^XCELSIOR_BASE_URL=' "$ENV_FILE" | grep -oP ':\K[0-9]+' || echo "9501")
+    log "Waiting for test API on port $api_port..."
+    for i in {1..20}; do
+        if curl -sf "http://localhost:$api_port/healthz" > /dev/null 2>&1; then
+            success "Test API is healthy at http://localhost:$api_port"
+            break
+        fi
+        if [[ $i -eq 20 ]]; then
+            warn "Test API not responding. Check: docker compose -p xcelsior-test logs"
+        fi
+        sleep 2
+    done
+
+    docker compose -p xcelsior-test ps
+    success "Test environment running"
+}
+
+stop_test_local() {
+    log "Stopping test environment..."
+    cd "$PROJECT_DIR"
+    docker compose --env-file .env.test -p xcelsior-test down --remove-orphans
+    success "Test environment stopped"
+}
+
 # ── Health Check ──────────────────────────────────────────────────────
 health_check() {
     log "Running health checks..."
@@ -384,14 +461,20 @@ print_usage() {
 ${BOLD}Xcelsior Deployment Script${NC}
 
 ${CYAN}Usage:${NC}
-  $0                    Full deploy (backup, sync, build, restart)
-  $0 --quick            Quick deploy (sync + restart, no rebuild)
+  $0                    Full production deploy (backup, sync, build, restart)
+  $0 --quick            Quick prod deploy (sync + restart, no rebuild)
+  $0 --test             Deploy test environment locally (Docker)
+  $0 --test-stop        Stop local test environment
   $0 --setup            First-time server setup
   $0 --ssl              Setup SSL certificates
   $0 --rollback         Rollback to previous backup
   $0 --health           Run health checks
   $0 --systemd          Deploy using systemd instead of Docker
   $0 --help             Show this help
+
+${CYAN}Environment files:${NC}
+  .env                  Production config → deployed to VPS
+  .env.test             Test config → used locally for testing
 
 ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_USER  SSH user (default: linuxuser)
@@ -404,11 +487,17 @@ ${CYAN}Examples:${NC}
   ./scripts/deploy.sh --ssl
   ./scripts/deploy.sh
 
-  # Normal deployment
+  # Normal production deployment
   ./scripts/deploy.sh
 
-  # Quick update (no rebuild)
+  # Quick production update (no rebuild)
   ./scripts/deploy.sh --quick
+
+  # Run test environment locally
+  ./scripts/deploy.sh --test
+
+  # Stop test environment
+  ./scripts/deploy.sh --test-stop
 EOF
 }
 
@@ -425,18 +514,34 @@ main() {
             print_usage
             exit 0
             ;;
+        --test)
+            TARGET_ENV="test"
+            resolve_env
+            deploy_test_local
+            ;;
+        --test-stop)
+            TARGET_ENV="test"
+            resolve_env
+            stop_test_local
+            ;;
         --setup)
+            TARGET_ENV="prod"
+            resolve_env
             check_ssh
             setup_server
             setup_systemd
             success "Setup complete. Run --ssl next, then deploy."
             ;;
         --ssl)
+            TARGET_ENV="prod"
+            resolve_env
             check_ssh
             setup_ssl
             success "SSL setup complete. Ready for deployment."
             ;;
         --quick)
+            TARGET_ENV="prod"
+            resolve_env
             check_ssh
             sync_code
             install_nginx_configs
@@ -453,6 +558,8 @@ main() {
             health_check
             ;;
         --systemd)
+            TARGET_ENV="prod"
+            resolve_env
             check_ssh
             backup_current
             sync_code
@@ -461,6 +568,8 @@ main() {
             health_check
             ;;
         ""|--docker)
+            TARGET_ENV="prod"
+            resolve_env
             check_ssh
             backup_current
             sync_code

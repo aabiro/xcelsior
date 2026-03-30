@@ -1,11 +1,11 @@
 services:
   api:
     build: .
-    command: uvicorn api:app --host 0.0.0.0 --port 9500
+    command: uvicorn api:app --host 0.0.0.0 --port ${XCELSIOR_API_PORT:-9500}
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
-      XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
+      XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
       XCELSIOR_DB_PATH: /data/xcelsior.db
       XCELSIOR_AUTH_DB_PATH: /data/auth.db
       XCELSIOR_BILLING_DB_PATH: /data/xcelsior_billing.db
@@ -24,8 +24,8 @@ services:
       XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
       XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
       XCELSIOR_LOG_FILE: /data/xcelsior.log
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/xcelsior
-      XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-sqlite}
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-postgres}
       XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
       XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
@@ -77,7 +77,7 @@ services:
     volumes:
       - xcelsior-data:/data
     ports:
-      - "9500:9500"
+      - "${XCELSIOR_API_PORT:-9500}:${XCELSIOR_API_PORT:-9500}"
     restart: unless-stopped
 
   scheduler-worker:
@@ -86,7 +86,7 @@ services:
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
-      XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-dual}
+      XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
       XCELSIOR_DB_PATH: /data/xcelsior.db
       XCELSIOR_AUTH_DB_PATH: /data/auth.db
       XCELSIOR_BILLING_DB_PATH: /data/xcelsior_billing.db
@@ -101,7 +101,7 @@ services:
       XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
       XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
       XCELSIOR_LOG_FILE: /data/xcelsior.log
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/xcelsior
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
       XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
@@ -131,7 +131,7 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
     ports:
-      - "3000:3000"
+      - "${XCELSIOR_FRONTEND_PORT:-3000}:3000"
     depends_on:
       - api
     restart: unless-stopped
