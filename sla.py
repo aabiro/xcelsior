@@ -8,9 +8,9 @@
 # - Host auto-demotion on persistent SLA breach
 
 import os
-import sqlite3
 import time
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
@@ -154,55 +154,21 @@ class SLAEngine:
     """Tracks uptime, detects violations, calculates credits."""
 
     def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
-        self._init_db()
+        self.db_path = db_path  # Legacy compat
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS sla_downtime (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    host_id TEXT NOT NULL,
-                    start_ts REAL NOT NULL,
-                    end_ts REAL DEFAULT 0,
-                    reason TEXT DEFAULT '',
-                    resolved INTEGER DEFAULT 0,
-                    created_at REAL DEFAULT (strftime('%s', 'now'))
-                );
-                CREATE TABLE IF NOT EXISTS sla_monthly (
-                    host_id TEXT NOT NULL,
-                    month TEXT NOT NULL,
-                    tier TEXT NOT NULL DEFAULT 'community',
-                    total_seconds REAL DEFAULT 0,
-                    downtime_seconds REAL DEFAULT 0,
-                    incidents INTEGER DEFAULT 0,
-                    credit_pct REAL DEFAULT 0,
-                    credit_cad REAL DEFAULT 0,
-                    enforced INTEGER DEFAULT 0,
-                    PRIMARY KEY (host_id, month)
-                );
-                CREATE TABLE IF NOT EXISTS sla_violations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    host_id TEXT NOT NULL,
-                    violation_type TEXT NOT NULL,
-                    severity TEXT NOT NULL,
-                    metric_value REAL,
-                    threshold REAL,
-                    timestamp REAL,
-                    details TEXT DEFAULT '',
-                    created_at REAL DEFAULT (strftime('%s', 'now'))
-                );
-                CREATE INDEX IF NOT EXISTS idx_downtime_host
-                    ON sla_downtime(host_id, start_ts);
-                CREATE INDEX IF NOT EXISTS idx_violations_host
-                    ON sla_violations(host_id, timestamp);
-            """)
+    @contextmanager
+    def _conn(self):
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     # ── Downtime Tracking ─────────────────────────────────────────────
 
@@ -211,31 +177,31 @@ class SLAEngine:
         with self._conn() as conn:
             # Check if there's already an open downtime for this host
             row = conn.execute(
-                "SELECT id FROM sla_downtime WHERE host_id=? AND resolved=0 ORDER BY start_ts DESC LIMIT 1",
+                "SELECT id FROM sla_downtime WHERE host_id=%s AND resolved=0 ORDER BY start_ts DESC LIMIT 1",
                 (host_id,),
             ).fetchone()
             if row:
                 return row["id"]  # Already tracking
             cur = conn.execute(
-                "INSERT INTO sla_downtime (host_id, start_ts, reason) VALUES (?, ?, ?)",
+                "INSERT INTO sla_downtime (host_id, start_ts, reason) VALUES (%s, %s, %s) RETURNING id",
                 (host_id, time.time(), reason),
             )
             log.warning("SLA: host %s DOWN — reason=%s", host_id, reason)
-            return cur.lastrowid
+            return cur.fetchone()["id"]
 
     def record_downtime_end(self, host_id: str) -> Optional[float]:
         """Mark host as recovered. Returns downtime duration in seconds."""
         now = time.time()
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT id, start_ts FROM sla_downtime WHERE host_id=? AND resolved=0 ORDER BY start_ts DESC LIMIT 1",
+                "SELECT id, start_ts FROM sla_downtime WHERE host_id=%s AND resolved=0 ORDER BY start_ts DESC LIMIT 1",
                 (host_id,),
             ).fetchone()
             if not row:
                 return None
             duration = now - row["start_ts"]
             conn.execute(
-                "UPDATE sla_downtime SET end_ts=?, resolved=1 WHERE id=?",
+                "UPDATE sla_downtime SET end_ts=%s, resolved=1 WHERE id=%s",
                 (now, row["id"]),
             )
             log.info("SLA: host %s RECOVERED after %.0fs", host_id, duration)
@@ -249,7 +215,7 @@ class SLAEngine:
             conn.execute(
                 """INSERT INTO sla_violations
                    (host_id, violation_type, severity, metric_value, threshold, timestamp, details)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                 (
                     v.host_id,
                     v.violation_type,
@@ -358,7 +324,7 @@ class SLAEngine:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT start_ts, end_ts, resolved FROM sla_downtime
-                   WHERE host_id=? AND start_ts < ? AND (end_ts > ? OR resolved=0)""",
+                   WHERE host_id=%s AND start_ts < %s AND (end_ts > %s OR resolved=0)""",
                 (host_id, month_end, month_start),
             ).fetchall()
 
@@ -391,10 +357,15 @@ class SLAEngine:
         # Persist
         with self._conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO sla_monthly
+                """INSERT INTO sla_monthly
                    (host_id, month, tier, total_seconds, downtime_seconds,
                     incidents, credit_pct, credit_cad, enforced)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (host_id, month) DO UPDATE SET
+                     tier = EXCLUDED.tier, total_seconds = EXCLUDED.total_seconds,
+                     downtime_seconds = EXCLUDED.downtime_seconds, incidents = EXCLUDED.incidents,
+                     credit_pct = EXCLUDED.credit_pct, credit_cad = EXCLUDED.credit_cad,
+                     enforced = EXCLUDED.enforced""",
                 (
                     host_id,
                     month,
@@ -426,7 +397,7 @@ class SLAEngine:
         """Get the SLA record for a host in a given month."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM sla_monthly WHERE host_id=? AND month=?",
+                "SELECT * FROM sla_monthly WHERE host_id=%s AND month=%s",
                 (host_id, month),
             ).fetchone()
             if not row:
@@ -437,7 +408,7 @@ class SLAEngine:
         """Get violation history for a host."""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM sla_violations WHERE host_id=? AND timestamp>=? ORDER BY timestamp DESC LIMIT 100",
+                "SELECT * FROM sla_violations WHERE host_id=%s AND timestamp>=%s ORDER BY timestamp DESC LIMIT 100",
                 (host_id, since),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -457,7 +428,7 @@ class SLAEngine:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT start_ts, end_ts, resolved FROM sla_downtime
-                   WHERE host_id=? AND (end_ts > ? OR resolved=0) AND start_ts < ?""",
+                   WHERE host_id=%s AND (end_ts > %s OR resolved=0) AND start_ts < %s""",
                 (host_id, cutoff, now),
             ).fetchall()
         downtime = 0.0

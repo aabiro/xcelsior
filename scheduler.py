@@ -9,7 +9,6 @@ import math
 import os
 import re
 import shlex
-import sqlite3
 import smtplib
 import subprocess
 import threading
@@ -22,8 +21,6 @@ from email.mime.text import MIMEText
 from db import (
     get_engine,
     DatabaseOps,
-    sqlite_connection,
-    sqlite_transaction,
     emit_event,
     DB_BACKEND,
 )
@@ -138,58 +135,31 @@ def _read_legacy_json_file(path):
 
 
 def _ensure_storage_tables(conn):
-    """Ensure all scheduler persistence tables and indexes exist."""
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS state (namespace TEXT PRIMARY KEY, payload TEXT NOT NULL)"
-    )
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS jobs (
-            job_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            priority INTEGER NOT NULL,
-            submitted_at REAL NOT NULL,
-            host_id TEXT,
-            payload TEXT NOT NULL
-        )
-        """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS hosts (
-            host_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            registered_at REAL NOT NULL,
-            payload TEXT NOT NULL
-        )
-        """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, priority DESC, submitted_at ASC)"
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_hosts_status ON hosts(status, registered_at ASC)")
+    """No-op: tables created by Alembic migrations."""
+    pass
 
 
 @contextmanager
 def _db_connection():
-    """Shared DB connection wrapper with WAL enabled."""
-    conn = sqlite3.connect(_db_path(), timeout=30, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    _ensure_storage_tables(conn)
-    try:
-        yield conn
-    finally:
-        conn.close()
+    """Shared DB connection wrapper using PostgreSQL pool."""
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 @contextmanager
 def _atomic_mutation():
-    """Execute a mutation in a single SQLite write transaction."""
+    """Execute a mutation in a single PostgreSQL transaction."""
     with _db_connection() as conn:
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            yield conn
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        yield conn
 
 
 def _namespace_key(path):
@@ -199,17 +169,20 @@ def _namespace_key(path):
 def _load_legacy_namespace(conn, path):
     """Read namespace data from state table first, then fallback JSON."""
     row = conn.execute(
-        "SELECT payload FROM state WHERE namespace = ?", (_namespace_key(path),)
+        "SELECT payload FROM state WHERE namespace = %s", (_namespace_key(path),)
     ).fetchone()
     if row:
         try:
-            return _coerce_list(json.loads(row["payload"]))
+            data = row["payload"]
+            return _coerce_list(data if isinstance(data, (list, dict)) else json.loads(data))
         except json.JSONDecodeError:
             pass
     return _read_legacy_json_file(path)
 
 
 def _decode_payload(payload):
+    if isinstance(payload, (dict, list)):
+        return payload
     try:
         return json.loads(payload)
     except (TypeError, json.JSONDecodeError):
@@ -217,6 +190,7 @@ def _decode_payload(payload):
 
 
 def _upsert_job_row(conn, job):
+    from psycopg.types.json import Jsonb
     job_id = str(job.get("job_id", "")).strip()
     if not job_id:
         return
@@ -226,7 +200,7 @@ def _upsert_job_row(conn, job):
     conn.execute(
         """
         INSERT INTO jobs(job_id, status, priority, submitted_at, host_id, payload)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT(job_id) DO UPDATE SET
             status = excluded.status,
             priority = excluded.priority,
@@ -240,12 +214,13 @@ def _upsert_job_row(conn, job):
             priority,
             submitted_at,
             job.get("host_id"),
-            json.dumps(job),
+            Jsonb(job),
         ),
     )
 
 
 def _upsert_host_row(conn, host):
+    from psycopg.types.json import Jsonb
     host_id = str(host.get("host_id", "")).strip()
     if not host_id:
         return
@@ -254,7 +229,7 @@ def _upsert_host_row(conn, host):
     conn.execute(
         """
         INSERT INTO hosts(host_id, status, registered_at, payload)
-        VALUES (?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s)
         ON CONFLICT(host_id) DO UPDATE SET
             status = excluded.status,
             registered_at = excluded.registered_at,
@@ -264,20 +239,20 @@ def _upsert_host_row(conn, host):
             host_id,
             status,
             registered_at,
-            json.dumps(host),
+            Jsonb(host),
         ),
     )
 
 
 def _get_job_by_id_conn(conn, job_id):
-    row = conn.execute("SELECT payload FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    row = conn.execute("SELECT payload FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
     if not row:
         return None
     return _decode_payload(row["payload"])
 
 
 def _get_host_by_id_conn(conn, host_id):
-    row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
+    row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
     if not row:
         return None
     return _decode_payload(row["payload"])
@@ -303,7 +278,7 @@ def _load_jobs_from_conn(conn, status=None):
             """
             SELECT payload
             FROM jobs
-            WHERE status = ?
+            WHERE status = %s
             ORDER BY submitted_at ASC, job_id ASC
             """,
             (status,),
@@ -390,10 +365,11 @@ def _load_json(path):
     """Load persisted list data from SQLite, with one-time migration from JSON files."""
     namespace = _namespace_key(path)
     with _db_connection() as conn:
-        row = conn.execute("SELECT payload FROM state WHERE namespace = ?", (namespace,)).fetchone()
+        row = conn.execute("SELECT payload FROM state WHERE namespace = %s", (namespace,)).fetchone()
         if row:
             try:
-                return _coerce_list(json.loads(row["payload"]))
+                data = row["payload"]
+                return _coerce_list(data if isinstance(data, (list, dict)) else json.loads(data))
             except json.JSONDecodeError:
                 return []
 
@@ -406,14 +382,14 @@ def _load_json(path):
 
 
 def _save_json(path, data):
-    """Persist list data to SQLite while preserving JSON-compatible interfaces."""
+    """Persist list data to PostgreSQL while preserving JSON-compatible interfaces."""
+    from psycopg.types.json import Jsonb
     namespace = _namespace_key(path)
-    payload = json.dumps(data)
     with _atomic_mutation() as conn:
         conn.execute(
-            "INSERT INTO state(namespace, payload) VALUES (?, ?) "
+            "INSERT INTO state(namespace, payload) VALUES (%s, %s) "
             "ON CONFLICT(namespace) DO UPDATE SET payload = excluded.payload",
-            (namespace, payload),
+            (namespace, Jsonb(data)),
         )
 
     # Keep a legacy JSON mirror for backward compatibility/tests.
@@ -600,7 +576,7 @@ def remove_host(host_id):
     """Host is dead. Remove it. No funeral."""
     with _atomic_mutation() as conn:
         _migrate_hosts_if_needed(conn)
-        conn.execute("DELETE FROM hosts WHERE host_id = ?", (host_id,))
+        conn.execute("DELETE FROM hosts WHERE host_id = %s", (host_id,))
 
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.delete_host, host_id)
@@ -2363,19 +2339,14 @@ def start_autoscale_monitor(interval=15, callback=None):
 
 
 def storage_healthcheck():
-    """Basic readiness check for SQLite persistence."""
-    db_file = _db_path()
+    """Basic readiness check for PostgreSQL persistence."""
     try:
-        with sqlite3.connect(db_file, timeout=5) as conn:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS healthcheck (id INTEGER PRIMARY KEY, checked_at REAL)"
-            )
-            conn.execute("INSERT INTO healthcheck(checked_at) VALUES (?)", (time.time(),))
-            conn.commit()
-        return {"ok": True, "db_path": db_file}
+        with _db_connection() as conn:
+            conn.execute("SELECT 1")
+        return {"ok": True, "backend": "postgresql"}
     except Exception as exc:
-        log.error("STORAGE HEALTHCHECK FAILED db=%s err=%s", db_file, exc)
-        return {"ok": False, "db_path": db_file, "error": str(exc)}
+        log.error("STORAGE HEALTHCHECK FAILED err=%s", exc)
+        return {"ok": False, "backend": "postgresql", "error": str(exc)}
 
 
 def get_metrics_snapshot():

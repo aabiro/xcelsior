@@ -15,7 +15,6 @@
 import hashlib
 import json
 import logging
-import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
@@ -188,76 +187,28 @@ class Lease:
 
 
 class EventStore:
-    """Append-only event store backed by SQLite.
+    """Append-only event store backed by PostgreSQL.
 
     Events are immutable. They are the sole source of truth for auditing,
     billing, SLA enforcement, and dispute resolution.
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        import os
-
-        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_events.db")
-        self._init_db()
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS events (
-                    event_id TEXT PRIMARY KEY,
-                    event_type TEXT NOT NULL,
-                    entity_type TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    actor TEXT DEFAULT '',
-                    data TEXT DEFAULT '{}',
-                    metadata TEXT DEFAULT '{}',
-                    prev_hash TEXT DEFAULT '',
-                    event_hash TEXT DEFAULT ''
-                );
-                CREATE INDEX IF NOT EXISTS idx_events_entity
-                    ON events(entity_type, entity_id);
-                CREATE INDEX IF NOT EXISTS idx_events_type
-                    ON events(event_type);
-                CREATE INDEX IF NOT EXISTS idx_events_ts
-                    ON events(timestamp);
-
-                CREATE TABLE IF NOT EXISTS leases (
-                    lease_id TEXT PRIMARY KEY,
-                    job_id TEXT NOT NULL UNIQUE,
-                    host_id TEXT NOT NULL,
-                    granted_at REAL NOT NULL,
-                    expires_at REAL NOT NULL,
-                    last_renewed REAL NOT NULL,
-                    duration_sec INTEGER DEFAULT 300,
-                    status TEXT DEFAULT 'active'
-                );
-                CREATE INDEX IF NOT EXISTS idx_leases_job
-                    ON leases(job_id);
-                CREATE INDEX IF NOT EXISTS idx_leases_status
-                    ON leases(status);
-            """)
-            # Add prev_hash and event_hash columns if upgrading from old schema
-            try:
-                conn.execute("SELECT prev_hash FROM events LIMIT 0")
-            except sqlite3.OperationalError:
-                conn.execute("ALTER TABLE events ADD COLUMN prev_hash TEXT DEFAULT ''")
-                conn.execute("ALTER TABLE events ADD COLUMN event_hash TEXT DEFAULT ''")
+        self.db_path = db_path  # Legacy compat
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def append(self, event: Event) -> Event:
         """Append an event with tamper-evident hash chaining.
@@ -266,6 +217,7 @@ class EventStore:
         event in the store. This forms a verifiable chain — any modification
         to a past event breaks every subsequent hash.
         """
+        from psycopg.types.json import Jsonb
         with self._conn() as conn:
             # Get the hash of the most recent event (chain link)
             row = conn.execute(
@@ -280,7 +232,7 @@ class EventStore:
                 """INSERT INTO events
                    (event_id, event_type, entity_type, entity_id,
                     timestamp, actor, data, metadata, prev_hash, event_hash)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     event.event_id,
                     event.event_type,
@@ -288,8 +240,8 @@ class EventStore:
                     event.entity_id,
                     event.timestamp,
                     event.actor,
-                    json.dumps(event.data),
-                    json.dumps(event.metadata),
+                    Jsonb(event.data),
+                    Jsonb(event.metadata),
                     event.prev_hash,
                     event.event_hash,
                 ),
@@ -302,10 +254,14 @@ class EventStore:
         Returns {"valid": bool, "events_checked": int, "broken_at": event_id or None}.
         """
         with self._conn() as conn:
-            query = "SELECT * FROM events ORDER BY timestamp ASC, rowid ASC"
             if limit > 0:
-                query += f" LIMIT {limit}"
-            rows = conn.execute(query).fetchall()
+                rows = conn.execute(
+                    "SELECT * FROM events ORDER BY timestamp ASC LIMIT %s", (limit,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM events ORDER BY timestamp ASC"
+                ).fetchall()
 
         if not rows:
             return {"valid": True, "events_checked": 0, "broken_at": None}
@@ -337,8 +293,8 @@ class EventStore:
                 entity_id=row["entity_id"],
                 timestamp=row["timestamp"],
                 actor=row["actor"],
-                data=json.loads(row["data"]),
-                metadata=json.loads(row["metadata"]),
+                data=row["data"] if isinstance(row["data"], dict) else json.loads(row["data"]),
+                metadata=row["metadata"] if isinstance(row["metadata"], dict) else json.loads(row["metadata"]),
                 prev_hash=row["prev_hash"] or "",
             )
             recomputed = evt.compute_hash()
@@ -366,16 +322,16 @@ class EventStore:
         clauses = []
         params = []
         if entity_type:
-            clauses.append("entity_type = ?")
+            clauses.append("entity_type = %s")
             params.append(entity_type)
         if entity_id:
-            clauses.append("entity_id = ?")
+            clauses.append("entity_id = %s")
             params.append(entity_id)
         if event_type:
-            clauses.append("event_type = ?")
+            clauses.append("event_type = %s")
             params.append(event_type)
         if since:
-            clauses.append("timestamp >= ?")
+            clauses.append("timestamp >= %s")
             params.append(since)
 
         where = " AND ".join(clauses) if clauses else "1=1"
@@ -383,7 +339,7 @@ class EventStore:
 
         with self._conn() as conn:
             rows = conn.execute(
-                f"SELECT * FROM events WHERE {where} ORDER BY timestamp ASC LIMIT ?",
+                f"SELECT * FROM events WHERE {where} ORDER BY timestamp ASC LIMIT %s",
                 params,
             ).fetchall()
             return [
@@ -394,10 +350,10 @@ class EventStore:
                     entity_id=r["entity_id"],
                     timestamp=r["timestamp"],
                     actor=r["actor"],
-                    data=json.loads(r["data"]),
-                    metadata=json.loads(r["metadata"]),
-                    prev_hash=r["prev_hash"] if "prev_hash" in r.keys() else "",
-                    event_hash=r["event_hash"] if "event_hash" in r.keys() else "",
+                    data=r["data"] if isinstance(r["data"], dict) else json.loads(r["data"]),
+                    metadata=r["metadata"] if isinstance(r["metadata"], dict) else json.loads(r["metadata"]),
+                    prev_hash=r.get("prev_hash", ""),
+                    event_hash=r.get("event_hash", ""),
                 )
                 for r in rows
             ]
@@ -420,14 +376,14 @@ class EventStore:
         with self._conn() as conn:
             # Expire any existing lease for this job
             conn.execute(
-                "UPDATE leases SET status = 'released' WHERE job_id = ? AND status = 'active'",
+                "UPDATE leases SET status = 'released' WHERE job_id = %s AND status = 'active'",
                 (job_id,),
             )
             conn.execute(
                 """INSERT INTO leases
                    (lease_id, job_id, host_id, granted_at, expires_at,
                     last_renewed, duration_sec, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     lease.lease_id,
                     lease.job_id,
@@ -466,7 +422,7 @@ class EventStore:
         """Renew an active lease. Returns None if no active lease found."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM leases WHERE job_id = ? AND host_id = ? AND status = 'active'",
+                "SELECT * FROM leases WHERE job_id = %s AND host_id = %s AND status = 'active'",
                 (job_id, host_id),
             ).fetchone()
             if not row:
@@ -485,14 +441,14 @@ class EventStore:
 
             if lease.is_expired:
                 conn.execute(
-                    "UPDATE leases SET status = 'expired' WHERE lease_id = ?",
+                    "UPDATE leases SET status = 'expired' WHERE lease_id = %s",
                     (lease.lease_id,),
                 )
                 return None
 
             new_expiry = lease.renew()
             conn.execute(
-                "UPDATE leases SET expires_at = ?, last_renewed = ? WHERE lease_id = ?",
+                "UPDATE leases SET expires_at = %s, last_renewed = %s WHERE lease_id = %s",
                 (lease.expires_at, lease.last_renewed, lease.lease_id),
             )
 
@@ -515,13 +471,13 @@ class EventStore:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM leases
-                   WHERE status = 'active' AND expires_at + ? < ?""",
+                   WHERE status = 'active' AND expires_at + %s < %s""",
                 (LEASE_RENEWAL_GRACE_SEC, now),
             ).fetchall()
 
             for row in rows:
                 conn.execute(
-                    "UPDATE leases SET status = 'expired' WHERE lease_id = ?",
+                    "UPDATE leases SET status = 'expired' WHERE lease_id = %s",
                     (row["lease_id"],),
                 )
                 expired_jobs.append(row["job_id"])
@@ -553,7 +509,7 @@ class EventStore:
         """Get the active lease for a job, if any."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM leases WHERE job_id = ? AND status = 'active'",
+                "SELECT * FROM leases WHERE job_id = %s AND status = 'active'",
                 (job_id,),
             ).fetchone()
             if not row:
@@ -573,7 +529,7 @@ class EventStore:
         """Release a lease (job completed/failed/preempted)."""
         with self._conn() as conn:
             result = conn.execute(
-                "UPDATE leases SET status = 'released' WHERE job_id = ? AND status = 'active'",
+                "UPDATE leases SET status = 'released' WHERE job_id = %s AND status = 'active'",
                 (job_id,),
             )
             return result.rowcount > 0

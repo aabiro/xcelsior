@@ -10,7 +10,6 @@
 import json
 import logging
 import os
-import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
@@ -241,97 +240,21 @@ class BillingEngine:
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.environ.get(
-            "XCELSIOR_BILLING_DB_PATH",
-            os.path.join(os.path.dirname(__file__), "xcelsior_billing.db"),
-        )
-        self._init_db()
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS usage_meters (
-                    meter_id TEXT PRIMARY KEY,
-                    job_id TEXT NOT NULL,
-                    host_id TEXT DEFAULT '',
-                    owner TEXT DEFAULT '',
-                    started_at REAL DEFAULT 0,
-                    completed_at REAL DEFAULT 0,
-                    duration_sec REAL DEFAULT 0,
-                    gpu_seconds REAL DEFAULT 0,
-                    gpu_model TEXT DEFAULT '',
-                    vram_gb REAL DEFAULT 0,
-                    gpu_utilization_pct REAL DEFAULT 0,
-                    xcu_score REAL DEFAULT 0,
-                    country TEXT DEFAULT '',
-                    province TEXT DEFAULT '',
-                    is_canadian_compute INTEGER DEFAULT 0,
-                    trust_tier TEXT DEFAULT 'community',
-                    base_rate_per_hour REAL DEFAULT 0,
-                    tier_multiplier REAL DEFAULT 1.0,
-                    spot_discount REAL DEFAULT 0,
-                    total_cost_cad REAL DEFAULT 0,
-                    created_at REAL DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_meters_job
-                    ON usage_meters(job_id);
-                CREATE INDEX IF NOT EXISTS idx_meters_owner
-                    ON usage_meters(owner);
-                CREATE INDEX IF NOT EXISTS idx_meters_time
-                    ON usage_meters(started_at);
-
-                CREATE TABLE IF NOT EXISTS invoices (
-                    invoice_id TEXT PRIMARY KEY,
-                    customer_id TEXT NOT NULL,
-                    customer_name TEXT DEFAULT '',
-                    currency TEXT DEFAULT 'CAD',
-                    period_start REAL DEFAULT 0,
-                    period_end REAL DEFAULT 0,
-                    line_items TEXT DEFAULT '[]',
-                    subtotal_cad REAL DEFAULT 0,
-                    tax_rate REAL DEFAULT 0,
-                    tax_amount_cad REAL DEFAULT 0,
-                    total_cad REAL DEFAULT 0,
-                    canadian_compute_total_cad REAL DEFAULT 0,
-                    non_canadian_compute_total_cad REAL DEFAULT 0,
-                    fund_eligible_reimbursement_cad REAL DEFAULT 0,
-                    effective_cost_after_fund_cad REAL DEFAULT 0,
-                    created_at REAL DEFAULT 0,
-                    status TEXT DEFAULT 'draft',
-                    notes TEXT DEFAULT ''
-                );
-                CREATE INDEX IF NOT EXISTS idx_invoices_customer
-                    ON invoices(customer_id);
-                CREATE INDEX IF NOT EXISTS idx_invoices_status
-                    ON invoices(status);
-
-                CREATE TABLE IF NOT EXISTS payout_ledger (
-                    payout_id TEXT PRIMARY KEY,
-                    provider_id TEXT NOT NULL,
-                    job_id TEXT DEFAULT '',
-                    amount_cad REAL DEFAULT 0,
-                    platform_fee_cad REAL DEFAULT 0,
-                    provider_payout_cad REAL DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    created_at REAL DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_payouts_provider
-                    ON payout_ledger(provider_id);
-            """)
+        self.db_path = db_path  # Legacy compat — no longer used
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def meter_job(
         self,
@@ -398,13 +321,18 @@ class BillingEngine:
         # Persist
         with self._conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO usage_meters
+                """INSERT INTO usage_meters
                    (meter_id, job_id, host_id, owner, started_at, completed_at,
                     duration_sec, gpu_seconds, gpu_model, vram_gb,
                     gpu_utilization_pct, xcu_score, country, province,
                     is_canadian_compute, trust_tier, base_rate_per_hour,
                     tier_multiplier, spot_discount, total_cost_cad, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (meter_id) DO UPDATE SET
+                     job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id, owner = EXCLUDED.owner,
+                     started_at = EXCLUDED.started_at, completed_at = EXCLUDED.completed_at,
+                     duration_sec = EXCLUDED.duration_sec, gpu_seconds = EXCLUDED.gpu_seconds,
+                     total_cost_cad = EXCLUDED.total_cost_cad, created_at = EXCLUDED.created_at""",
                 (
                     meter.meter_id,
                     meter.job_id,
@@ -466,7 +394,7 @@ class BillingEngine:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM usage_meters
-                   WHERE owner = ? AND started_at >= ? AND completed_at <= ?
+                   WHERE owner = %s AND started_at >= %s AND completed_at <= %s
                    ORDER BY started_at""",
                 (customer_id, period_start, period_end),
             ).fetchall()
@@ -529,6 +457,7 @@ class BillingEngine:
 
         # Persist
         with self._conn() as conn:
+            from psycopg.types.json import Jsonb
             conn.execute(
                 """INSERT INTO invoices
                    (invoice_id, customer_id, customer_name, currency,
@@ -537,7 +466,7 @@ class BillingEngine:
                     canadian_compute_total_cad, non_canadian_compute_total_cad,
                     fund_eligible_reimbursement_cad, effective_cost_after_fund_cad,
                     created_at, status, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     invoice.invoice_id,
                     invoice.customer_id,
@@ -545,7 +474,7 @@ class BillingEngine:
                     invoice.currency,
                     invoice.period_start,
                     invoice.period_end,
-                    json.dumps(invoice.line_items),
+                    Jsonb(invoice.line_items),
                     invoice.subtotal_cad,
                     invoice.tax_rate,
                     invoice.tax_amount_cad,
@@ -593,7 +522,7 @@ class BillingEngine:
                 """INSERT INTO payout_ledger
                    (payout_id, provider_id, job_id, amount_cad,
                     platform_fee_cad, provider_payout_cad, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     payout_id,
                     provider_id,
@@ -645,7 +574,7 @@ class BillingEngine:
                     COUNT(DISTINCT host_id) as hosts_used,
                     COUNT(DISTINCT trust_tier) as tiers_used
                 FROM usage_meters
-                WHERE owner = ? AND started_at >= ? AND completed_at <= ?""",
+                WHERE owner = %s AND started_at >= %s AND completed_at <= %s""",
                 (customer_id, period_start, period_end),
             ).fetchone()
 
@@ -684,7 +613,7 @@ class BillingEngine:
         """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM usage_meters WHERE job_id = ?",
+                "SELECT * FROM usage_meters WHERE job_id = %s",
                 (job_id,),
             ).fetchone()
 
@@ -751,43 +680,14 @@ class BillingEngine:
     # ── Credit/Wallet System (REPORT_FEATURE_1.md) ────────────────────
 
     def _ensure_wallet_table(self):
-        """Create wallet tables if they don't exist."""
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS wallets (
-                    customer_id TEXT PRIMARY KEY,
-                    balance_cad REAL DEFAULT 0,
-                    total_deposited_cad REAL DEFAULT 0,
-                    total_spent_cad REAL DEFAULT 0,
-                    total_refunded_cad REAL DEFAULT 0,
-                    grace_until REAL DEFAULT 0,
-                    status TEXT DEFAULT 'active',
-                    created_at REAL DEFAULT 0,
-                    updated_at REAL DEFAULT 0
-                );
-
-                CREATE TABLE IF NOT EXISTS wallet_transactions (
-                    tx_id TEXT PRIMARY KEY,
-                    customer_id TEXT NOT NULL,
-                    tx_type TEXT NOT NULL,
-                    amount_cad REAL DEFAULT 0,
-                    balance_after_cad REAL DEFAULT 0,
-                    description TEXT DEFAULT '',
-                    job_id TEXT DEFAULT '',
-                    created_at REAL DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_wallet_tx_customer
-                    ON wallet_transactions(customer_id);
-                CREATE INDEX IF NOT EXISTS idx_wallet_tx_time
-                    ON wallet_transactions(created_at);
-            """)
+        pass  # Tables managed by Alembic migrations
 
     def get_wallet(self, customer_id: str) -> dict:
         """Get or create a customer wallet."""
         self._ensure_wallet_table()
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM wallets WHERE customer_id = ?",
+                "SELECT * FROM wallets WHERE customer_id = %s",
                 (customer_id,),
             ).fetchone()
             if row:
@@ -800,7 +700,7 @@ class BillingEngine:
                    (customer_id, balance_cad, total_deposited_cad,
                     total_spent_cad, total_refunded_cad,
                     grace_until, status, created_at, updated_at)
-                   VALUES (?, 0, 0, 0, 0, 0, 'active', ?, ?)""",
+                   VALUES (%s, 0, 0, 0, 0, 0, 'active', %s, %s)""",
                 (customer_id, now, now),
             )
             return {
@@ -825,17 +725,17 @@ class BillingEngine:
         with self._conn() as conn:
             conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = ?,
-                       total_deposited_cad = total_deposited_cad + ?,
-                       updated_at = ?
-                   WHERE customer_id = ?""",
+                   SET balance_cad = %s,
+                       total_deposited_cad = total_deposited_cad + %s,
+                       updated_at = %s
+                   WHERE customer_id = %s""",
                 (new_balance, amount_cad, time.time(), customer_id),
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, created_at)
-                   VALUES (?, ?, 'deposit', ?, ?, ?, ?)""",
+                   VALUES (%s, %s, 'deposit', %s, %s, %s, %s)""",
                 (tx_id, customer_id, amount_cad, new_balance, description, time.time()),
             )
 
@@ -868,7 +768,7 @@ class BillingEngine:
                 grace_end = now + GRACE_PERIOD_SEC
                 with self._conn() as conn:
                     conn.execute(
-                        "UPDATE wallets SET grace_until = ?, updated_at = ? WHERE customer_id = ?",
+                        "UPDATE wallets SET grace_until = %s, updated_at = %s WHERE customer_id = %s",
                         (grace_end, now, customer_id),
                     )
                 log.warning(
@@ -888,7 +788,7 @@ class BillingEngine:
                 # Grace expired — auto-stop instances
                 with self._conn() as conn:
                     conn.execute(
-                        "UPDATE wallets SET status = 'suspended', updated_at = ? WHERE customer_id = ?",
+                        "UPDATE wallets SET status = 'suspended', updated_at = %s WHERE customer_id = %s",
                         (now, customer_id),
                     )
                 log.warning("WALLET %s grace period expired — account suspended", customer_id)
@@ -908,18 +808,18 @@ class BillingEngine:
         with self._conn() as conn:
             conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = ?,
-                       total_spent_cad = total_spent_cad + ?,
+                   SET balance_cad = %s,
+                       total_spent_cad = total_spent_cad + %s,
                        grace_until = 0,
-                       updated_at = ?
-                   WHERE customer_id = ?""",
+                       updated_at = %s
+                   WHERE customer_id = %s""",
                 (new_balance, amount_cad, time.time(), customer_id),
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, job_id, created_at)
-                   VALUES (?, ?, 'charge', ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, 'charge', %s, %s, %s, %s, %s)""",
                 (tx_id, customer_id, -amount_cad, new_balance, description, job_id, time.time()),
             )
 
@@ -944,17 +844,17 @@ class BillingEngine:
         with self._conn() as conn:
             conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = ?,
-                       total_refunded_cad = total_refunded_cad + ?,
-                       updated_at = ?
-                   WHERE customer_id = ?""",
+                   SET balance_cad = %s,
+                       total_refunded_cad = total_refunded_cad + %s,
+                       updated_at = %s
+                   WHERE customer_id = %s""",
                 (new_balance, amount_cad, time.time(), customer_id),
             )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, created_at)
-                   VALUES (?, ?, 'refund', ?, ?, ?, ?)""",
+                   VALUES (%s, %s, 'refund', %s, %s, %s, %s)""",
                 (tx_id, customer_id, amount_cad, new_balance, description, time.time()),
             )
 
@@ -964,8 +864,8 @@ class BillingEngine:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM wallet_transactions
-                   WHERE customer_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
+                   WHERE customer_id = %s
+                   ORDER BY created_at DESC LIMIT %s""",
                 (customer_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -989,7 +889,7 @@ class BillingEngine:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM usage_meters
-                   WHERE owner = ? AND started_at >= ? AND completed_at <= ?
+                   WHERE owner = %s AND started_at >= %s AND completed_at <= %s
                    ORDER BY started_at""",
                 (customer_id, period_start, period_end),
             ).fetchall()

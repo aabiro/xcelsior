@@ -9,6 +9,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict, deque
+from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -2254,7 +2255,7 @@ def api_auth_password_reset_confirm(req: PasswordResetConfirm):
 
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT email, reset_token_expires FROM users WHERE reset_token = ?", (req.token,)
+                "SELECT email, reset_token_expires FROM users WHERE reset_token = %s", (req.token,)
             ).fetchone()
             if not row:
                 raise HTTPException(400, "Invalid or expired reset token")
@@ -2263,7 +2264,7 @@ def api_auth_password_reset_confirm(req: PasswordResetConfirm):
             salt = secrets.token_hex(16)
             new_hash, _ = _hash_password(req.new_password, salt)
             conn.execute(
-                "UPDATE users SET password_hash=?, salt=?, reset_token=NULL, reset_token_expires=NULL WHERE email=?",
+                "UPDATE users SET password_hash=%s, salt=%s, reset_token=NULL, reset_token_expires=NULL WHERE email=%s",
                 (new_hash, salt, row["email"]),
             )
             UserStore.delete_user_sessions(row["email"])
@@ -4191,16 +4192,16 @@ def api_gst_threshold_status():
         with billing._conn() as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(total_cost_cad), 0) AS total "
-                "FROM usage_meters WHERE started_at >= ?",
+                "FROM usage_meters WHERE started_at >= %s",
                 (one_year_ago,),
             ).fetchone()
             total_rev = row["total"] if row else 0.0
 
             # Count distinct quarters
             qrow = conn.execute(
-                "SELECT COUNT(DISTINCT (CAST(strftime('%%Y', started_at, 'unixepoch') AS INT) * 4 "
-                "+ CAST(strftime('%%m', started_at, 'unixepoch') AS INT) / 4)) AS q_count "
-                "FROM usage_meters WHERE started_at >= ?",
+                "SELECT COUNT(DISTINCT (EXTRACT(YEAR FROM to_timestamp(started_at))::int * 4 "
+                "+ EXTRACT(MONTH FROM to_timestamp(started_at))::int / 4)) AS q_count "
+                "FROM usage_meters WHERE started_at >= %s",
                 (one_year_ago,),
             ).fetchone()
             quarters = qrow["q_count"] if qrow else 0
@@ -4242,7 +4243,7 @@ def api_provider_gst_threshold(provider_id: str):
         with billing._conn() as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total "
-                "FROM payout_ledger WHERE provider_id = ? AND created_at >= ?",
+                "FROM payout_ledger WHERE provider_id = %s AND created_at >= %s",
                 (provider_id, one_year_ago),
             ).fetchone()
             total_payouts = row["total"] if row else 0.0
@@ -4296,20 +4297,20 @@ def api_usage_analytics(
     since = now - (days * 86400)
 
     group_sql = {
-        "day": "date(started_at, 'unixepoch') AS period",
-        "week": "strftime('%%Y-W%%W', started_at, 'unixepoch') AS period",
+        "day": "to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS period",
+        "week": "to_char(to_timestamp(started_at), 'IYYY-\"W\"IW') AS period",
         "gpu_model": "gpu_model AS period",
         "province": "province AS period",
-    }.get(group_by, "date(started_at, 'unixepoch') AS period")
+    }.get(group_by, "to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS period")
 
-    where_clauses = ["started_at >= ?"]
+    where_clauses = ["started_at >= %s"]
     params: list = [since]
     if customer_id:
-        where_clauses.append("owner = ?")
+        where_clauses.append("owner = %s")
         params.append(customer_id)
     # Provider filter: match host_id (providers are hosts)
     if provider_id:
-        where_clauses.append("host_id = ?")
+        where_clauses.append("host_id = %s")
         params.append(provider_id)
 
     where_sql = " AND ".join(where_clauses)
@@ -4716,48 +4717,20 @@ def api_get_consents(entity_id: str):
 # "Log all access/subpoenas in DB; API /transparency/report"
 # Tracks legal requests, data disclosures, and CLOUD Act diligence.
 
-_transparency_db_path = os.environ.get(
-    "XCELSIOR_TRANSPARENCY_DB_PATH",
-    os.path.join(os.path.dirname(__file__), "xcelsior_transparency.db"),
-)
-
-
-def _get_transparency_db():
-    """Lazy-init transparency SQLite DB."""
-    import sqlite3
-
-    conn = sqlite3.connect(_transparency_db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS legal_requests (
-            request_id TEXT PRIMARY KEY,
-            received_at REAL NOT NULL,
-            request_type TEXT NOT NULL,
-            jurisdiction TEXT DEFAULT '',
-            authority TEXT DEFAULT '',
-            scope TEXT DEFAULT '',
-            status TEXT DEFAULT 'received',
-            responded_at REAL DEFAULT 0,
-            complied INTEGER DEFAULT 0,
-            challenged INTEGER DEFAULT 0,
-            notes TEXT DEFAULT ''
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS data_disclosures (
-            disclosure_id TEXT PRIMARY KEY,
-            request_id TEXT,
-            disclosed_at REAL NOT NULL,
-            data_category TEXT DEFAULT '',
-            record_count INTEGER DEFAULT 0,
-            entities_affected INTEGER DEFAULT 0,
-            was_mandatory INTEGER DEFAULT 0,
-            notes TEXT DEFAULT ''
-        )
-    """)
-    conn.commit()
-    return conn
+@contextmanager
+def _transparency_db():
+    """PostgreSQL connection for transparency tables."""
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 class LegalRequestRecord(BaseModel):
@@ -4773,24 +4746,22 @@ def api_record_legal_request(req: LegalRequestRecord):
     """Record a legal request (subpoena, warrant, MLAT, etc.)."""
     import uuid
 
-    conn = _get_transparency_db()
-    request_id = str(uuid.uuid4())[:12]
-    conn.execute(
-        """INSERT INTO legal_requests
-           (request_id, received_at, request_type, jurisdiction, authority, scope, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (
-            request_id,
-            time.time(),
-            req.request_type,
-            req.jurisdiction,
-            req.authority,
-            req.scope,
-            req.notes,
-        ),
-    )
-    conn.commit()
-    conn.close()
+    with _transparency_db() as conn:
+        request_id = str(uuid.uuid4())[:12]
+        conn.execute(
+            """INSERT INTO legal_requests
+               (request_id, received_at, request_type, jurisdiction, authority, scope, notes)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (
+                request_id,
+                time.time(),
+                req.request_type,
+                req.jurisdiction,
+                req.authority,
+                req.scope,
+                req.notes,
+            ),
+        )
 
     # Also record as an auditable event in the hash chain
     store = get_event_store()
@@ -4812,15 +4783,13 @@ def api_respond_legal_request(
     request_id: str, complied: bool = False, challenged: bool = False, notes: str = ""
 ):
     """Record response to a legal request."""
-    conn = _get_transparency_db()
-    conn.execute(
-        """UPDATE legal_requests
-           SET status = 'responded', responded_at = ?, complied = ?, challenged = ?, notes = ?
-           WHERE request_id = ?""",
-        (time.time(), int(complied), int(challenged), notes, request_id),
-    )
-    conn.commit()
-    conn.close()
+    with _transparency_db() as conn:
+        conn.execute(
+            """UPDATE legal_requests
+               SET status = 'responded', responded_at = %s, complied = %s, challenged = %s, notes = %s
+               WHERE request_id = %s""",
+            (time.time(), int(complied), int(challenged), notes, request_id),
+        )
     return {"ok": True, "request_id": request_id}
 
 
@@ -4831,19 +4800,18 @@ def api_transparency_report(months: int = 12):
     Returns summary of all legal requests and data disclosures.
     Monthly JSON per REPORT_FEATURE_2.md Phase B §3.
     """
-    conn = _get_transparency_db()
-    since = time.time() - (months * 30 * 86400)
+    with _transparency_db() as conn:
+        since = time.time() - (months * 30 * 86400)
 
-    requests_rows = conn.execute(
-        "SELECT * FROM legal_requests WHERE received_at >= ? ORDER BY received_at DESC",
-        (since,),
-    ).fetchall()
+        requests_rows = conn.execute(
+            "SELECT * FROM legal_requests WHERE received_at >= %s ORDER BY received_at DESC",
+            (since,),
+        ).fetchall()
 
-    disclosures_rows = conn.execute(
-        "SELECT * FROM data_disclosures WHERE disclosed_at >= ? ORDER BY disclosed_at DESC",
-        (since,),
-    ).fetchall()
-    conn.close()
+        disclosures_rows = conn.execute(
+            "SELECT * FROM data_disclosures WHERE disclosed_at >= %s ORDER BY disclosed_at DESC",
+            (since,),
+        ).fetchall()
 
     requests_list = [dict(r) for r in requests_rows]
     disclosures_list = [dict(r) for r in disclosures_rows]

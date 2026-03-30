@@ -5,7 +5,6 @@
 import json
 import logging
 import os
-import sqlite3
 import time
 import urllib.request
 import uuid
@@ -22,7 +21,6 @@ BTC_RPC_PASS = os.environ.get("XCELSIOR_BTC_RPC_PASS", "")
 BTC_CONFIRMATIONS = int(os.environ.get("XCELSIOR_BTC_CONFIRMATIONS", "3"))
 BTC_DEPOSIT_EXPIRY = int(os.environ.get("XCELSIOR_BTC_DEPOSIT_EXPIRY", "1800"))  # 30 min
 BTC_ENABLED = os.environ.get("XCELSIOR_BTC_ENABLED", "false").lower() == "true"
-BTC_DB_PATH = os.environ.get("XCELSIOR_BTC_DB", os.path.join(os.path.dirname(__file__), "xcelsior_btc.db"))
 
 _rate_cache: dict = {"rate": 0.0, "fetched_at": 0.0}
 RATE_CACHE_TTL = 300  # 5 minutes
@@ -105,59 +103,22 @@ def get_btc_cad_rate() -> float:
         raise RuntimeError("Unable to fetch BTC/CAD rate") from e
 
 
-# ── SQLite Store ──────────────────────────────────────────────────────
+# ── PostgreSQL Store ───────────────────────────────────────────────────
 
 
 @contextmanager
 def _conn():
-    c = sqlite3.connect(BTC_DB_PATH)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL")
-    try:
-        yield c
-        c.commit()
-    except Exception:
-        c.rollback()
-        raise
-    finally:
-        c.close()
-
-
-def _ensure_tables():
-    with _conn() as c:
-        c.executescript("""
-            CREATE TABLE IF NOT EXISTS crypto_deposits (
-                deposit_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL,
-                btc_address TEXT NOT NULL,
-                amount_btc REAL NOT NULL,
-                amount_cad REAL NOT NULL,
-                btc_cad_rate REAL NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                confirmations INTEGER DEFAULT 0,
-                txid TEXT DEFAULT '',
-                created_at REAL NOT NULL,
-                expires_at REAL NOT NULL,
-                confirmed_at REAL DEFAULT 0,
-                credited_at REAL DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS idx_crypto_status
-                ON crypto_deposits(status);
-            CREATE INDEX IF NOT EXISTS idx_crypto_customer
-                ON crypto_deposits(customer_id);
-            CREATE INDEX IF NOT EXISTS idx_crypto_address
-                ON crypto_deposits(btc_address);
-        """)
-
-
-_tables_ready = False
-
-
-def _init():
-    global _tables_ready
-    if not _tables_ready:
-        _ensure_tables()
-        _tables_ready = True
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as c:
+        c.row_factory = dict_row
+        try:
+            yield c
+            c.commit()
+        except Exception:
+            c.rollback()
+            raise
 
 
 # ── Deposit API ───────────────────────────────────────────────────────
@@ -168,7 +129,6 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
 
     Generates a unique address, locks the BTC/CAD rate for 30 minutes.
     """
-    _init()
     rate = get_btc_cad_rate()
     amount_btc = round(amount_cad / rate, 8)
     address = get_new_address(f"xcelsior-{customer_id[:8]}")
@@ -180,7 +140,7 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
             """INSERT INTO crypto_deposits
                (deposit_id, customer_id, btc_address, amount_btc, amount_cad,
                 btc_cad_rate, status, confirmations, txid, created_at, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, '', ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', 0, '', %s, %s)""",
             (deposit_id, customer_id, address, amount_btc, amount_cad,
              rate, now, now + BTC_DEPOSIT_EXPIRY),
         )
@@ -203,10 +163,9 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
 
 def get_deposit(deposit_id: str) -> dict | None:
     """Get deposit status."""
-    _init()
     with _conn() as c:
         row = c.execute(
-            "SELECT * FROM crypto_deposits WHERE deposit_id = ?",
+            "SELECT * FROM crypto_deposits WHERE deposit_id = %s",
             (deposit_id,),
         ).fetchone()
         return dict(row) if row else None
@@ -214,10 +173,9 @@ def get_deposit(deposit_id: str) -> dict | None:
 
 def get_deposits_by_customer(customer_id: str, limit: int = 20) -> list[dict]:
     """Get deposit history for a customer."""
-    _init()
     with _conn() as c:
         rows = c.execute(
-            "SELECT * FROM crypto_deposits WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?",
+            "SELECT * FROM crypto_deposits WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
             (customer_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -225,7 +183,6 @@ def get_deposits_by_customer(customer_id: str, limit: int = 20) -> list[dict]:
 
 def refresh_deposit(deposit_id: str) -> dict | None:
     """Refresh an expired deposit with a new rate. Reuses the same address."""
-    _init()
     dep = get_deposit(deposit_id)
     if not dep:
         return None
@@ -239,9 +196,9 @@ def refresh_deposit(deposit_id: str) -> dict | None:
     with _conn() as c:
         c.execute(
             """UPDATE crypto_deposits
-               SET btc_cad_rate = ?, amount_btc = ?, status = 'pending',
-                   expires_at = ?, created_at = ?
-               WHERE deposit_id = ?""",
+               SET btc_cad_rate = %s, amount_btc = %s, status = 'pending',
+                   expires_at = %s, created_at = %s
+               WHERE deposit_id = %s""",
             (rate, amount_btc, now + BTC_DEPOSIT_EXPIRY, now, deposit_id),
         )
 
@@ -258,7 +215,6 @@ def refresh_deposit(deposit_id: str) -> dict | None:
 
 def get_pending_deposits() -> list[dict]:
     """Get all deposits that need confirmation checking."""
-    _init()
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM crypto_deposits WHERE status IN ('pending', 'confirming')",
@@ -271,7 +227,6 @@ def check_and_update_deposit(deposit: dict) -> dict:
 
     Returns the updated deposit dict.
     """
-    _init()
     deposit_id = deposit["deposit_id"]
     address = deposit["btc_address"]
     now = time.time()
@@ -282,7 +237,7 @@ def check_and_update_deposit(deposit: dict) -> dict:
         if received < deposit["amount_btc"] * 0.99:  # 1% tolerance
             with _conn() as c:
                 c.execute(
-                    "UPDATE crypto_deposits SET status = 'expired' WHERE deposit_id = ?",
+                    "UPDATE crypto_deposits SET status = 'expired' WHERE deposit_id = %s",
                     (deposit_id,),
                 )
             deposit["status"] = "expired"
@@ -314,8 +269,8 @@ def check_and_update_deposit(deposit: dict) -> dict:
     with _conn() as c:
         c.execute(
             """UPDATE crypto_deposits
-               SET status = ?, confirmations = ?, confirmed_at = ?
-               WHERE deposit_id = ? AND status IN ('pending', 'confirming')""",
+               SET status = %s, confirmations = %s, confirmed_at = %s
+               WHERE deposit_id = %s AND status IN ('pending', 'confirming')""",
             (new_status, confirmations, confirmed_at, deposit_id),
         )
 
@@ -332,11 +287,10 @@ def check_and_update_deposit(deposit: dict) -> dict:
 
 def mark_credited(deposit_id: str) -> None:
     """Mark a confirmed deposit as credited to the wallet."""
-    _init()
     with _conn() as c:
         c.execute(
             """UPDATE crypto_deposits
-               SET status = 'credited', credited_at = ?
-               WHERE deposit_id = ? AND status = 'confirmed'""",
+               SET status = 'credited', credited_at = %s
+               WHERE deposit_id = %s AND status = 'confirmed'""",
             (time.time(), deposit_id),
         )

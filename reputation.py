@@ -18,7 +18,6 @@
 
 import logging
 import os
-import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -219,72 +218,29 @@ TIER_PLATFORM_COMMISSION = {
 
 
 class ReputationStore:
-    """SQLite-backed reputation persistence."""
+    """PostgreSQL-backed reputation persistence."""
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.environ.get(
-            "XCELSIOR_REPUTATION_DB_PATH",
-            os.path.join(os.path.dirname(__file__), "xcelsior_reputation.db"),
-        )
-        self._init_db()
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS reputation_scores (
-                    entity_id TEXT PRIMARY KEY,
-                    entity_type TEXT DEFAULT 'host',
-                    verification_points REAL DEFAULT 0,
-                    activity_points REAL DEFAULT 0,
-                    penalty_points REAL DEFAULT 0,
-                    reliability_score REAL DEFAULT 1.0,
-                    raw_score REAL DEFAULT 0,
-                    final_score REAL DEFAULT 0,
-                    tier TEXT DEFAULT 'bronze',
-                    jobs_completed INTEGER DEFAULT 0,
-                    jobs_failed_host INTEGER DEFAULT 0,
-                    jobs_failed_user INTEGER DEFAULT 0,
-                    days_active INTEGER DEFAULT 0,
-                    last_activity_at REAL DEFAULT 0,
-                    verifications TEXT DEFAULT '[]',
-                    search_boost REAL DEFAULT 1.0,
-                    pricing_premium_pct REAL DEFAULT 0,
-                    updated_at REAL DEFAULT 0
-                );
-
-                CREATE TABLE IF NOT EXISTS reputation_events (
-                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entity_id TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    points_delta REAL DEFAULT 0,
-                    reason TEXT DEFAULT '',
-                    metadata TEXT DEFAULT '{}',
-                    created_at REAL DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_rep_events_entity
-                    ON reputation_events(entity_id);
-                CREATE INDEX IF NOT EXISTS idx_rep_events_time
-                    ON reputation_events(created_at);
-            """)
+        self.db_path = db_path  # Legacy compat
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def get_score(self, entity_id: str) -> Optional[dict]:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM reputation_scores WHERE entity_id = ?",
+                "SELECT * FROM reputation_scores WHERE entity_id = %s",
                 (entity_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -292,13 +248,23 @@ class ReputationStore:
     def save_score(self, score: ReputationScore):
         with self._conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO reputation_scores
+                """INSERT INTO reputation_scores
                    (entity_id, entity_type, verification_points, activity_points,
                     penalty_points, reliability_score, raw_score, final_score,
                     tier, jobs_completed, jobs_failed_host, jobs_failed_user,
                     days_active, last_activity_at, verifications,
                     search_boost, pricing_premium_pct, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (entity_id) DO UPDATE SET
+                     entity_type = EXCLUDED.entity_type, verification_points = EXCLUDED.verification_points,
+                     activity_points = EXCLUDED.activity_points, penalty_points = EXCLUDED.penalty_points,
+                     reliability_score = EXCLUDED.reliability_score, raw_score = EXCLUDED.raw_score,
+                     final_score = EXCLUDED.final_score, tier = EXCLUDED.tier,
+                     jobs_completed = EXCLUDED.jobs_completed, jobs_failed_host = EXCLUDED.jobs_failed_host,
+                     jobs_failed_user = EXCLUDED.jobs_failed_user, days_active = EXCLUDED.days_active,
+                     last_activity_at = EXCLUDED.last_activity_at, verifications = EXCLUDED.verifications,
+                     search_boost = EXCLUDED.search_boost, pricing_premium_pct = EXCLUDED.pricing_premium_pct,
+                     updated_at = EXCLUDED.updated_at""",
                 (
                     score.entity_id,
                     score.entity_type,
@@ -333,7 +299,7 @@ class ReputationStore:
             conn.execute(
                 """INSERT INTO reputation_events
                    (entity_id, event_type, points_delta, reason, metadata, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
                 (entity_id, event_type, points_delta, reason, metadata, time.time()),
             )
 
@@ -341,8 +307,8 @@ class ReputationStore:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM reputation_events
-                   WHERE entity_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
+                   WHERE entity_id = %s
+                   ORDER BY created_at DESC LIMIT %s""",
                 (entity_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -437,8 +403,8 @@ class ReputationEngine:
         with self.store._conn() as conn:
             conn.execute(
                 """UPDATE reputation_scores
-                   SET verification_points = ?, verifications = ?, updated_at = ?
-                   WHERE entity_id = ?""",
+                   SET verification_points = %s, verifications = %s, updated_at = %s
+                   WHERE entity_id = %s""",
                 (new_total, json.dumps(verifications), time.time(), entity_id),
             )
 
@@ -488,9 +454,9 @@ class ReputationEngine:
         with self.store._conn() as conn:
             conn.execute(
                 """UPDATE reputation_scores
-                   SET activity_points = ?, jobs_completed = jobs_completed + 1,
-                       last_activity_at = ?, updated_at = ?
-                   WHERE entity_id = ?""",
+                   SET activity_points = %s, jobs_completed = jobs_completed + 1,
+                       last_activity_at = %s, updated_at = %s
+                   WHERE entity_id = %s""",
                 (activity, time.time(), time.time(), entity_id),
             )
 
@@ -514,10 +480,10 @@ class ReputationEngine:
             with self.store._conn() as conn:
                 conn.execute(
                     """UPDATE reputation_scores
-                       SET penalty_points = penalty_points + ?,
+                       SET penalty_points = penalty_points + %s,
                            jobs_failed_host = jobs_failed_host + 1,
-                           last_activity_at = ?, updated_at = ?
-                       WHERE entity_id = ?""",
+                           last_activity_at = %s, updated_at = %s
+                       WHERE entity_id = %s""",
                     (penalty, time.time(), time.time(), entity_id),
                 )
             self.store.record_event(
@@ -532,8 +498,8 @@ class ReputationEngine:
                 conn.execute(
                     """UPDATE reputation_scores
                        SET jobs_failed_user = jobs_failed_user + 1,
-                           last_activity_at = ?, updated_at = ?
-                       WHERE entity_id = ?""",
+                           last_activity_at = %s, updated_at = %s
+                       WHERE entity_id = %s""",
                     (time.time(), time.time(), entity_id),
                 )
             self.store.record_event(
@@ -558,8 +524,8 @@ class ReputationEngine:
         with self.store._conn() as conn:
             conn.execute(
                 """UPDATE reputation_scores
-                   SET penalty_points = penalty_points + ?, updated_at = ?
-                   WHERE entity_id = ?""",
+                   SET penalty_points = penalty_points + %s, updated_at = %s
+                   WHERE entity_id = %s""",
                 (points, time.time(), entity_id),
             )
 
@@ -585,8 +551,8 @@ class ReputationEngine:
         with self.store._conn() as conn:
             conn.execute(
                 """UPDATE reputation_scores
-                   SET reliability_score = ?, updated_at = ?
-                   WHERE entity_id = ?""",
+                   SET reliability_score = %s, updated_at = %s
+                   WHERE entity_id = %s""",
                 (reliability, time.time(), entity_id),
             )
 
@@ -599,9 +565,9 @@ class ReputationEngine:
                 """SELECT entity_id, final_score, tier, jobs_completed,
                           reliability_score, search_boost, pricing_premium_pct
                    FROM reputation_scores
-                   WHERE entity_type = ?
+                   WHERE entity_type = %s
                    ORDER BY final_score DESC
-                   LIMIT ?""",
+                   LIMIT %s""",
                 (entity_type, limit),
             ).fetchall()
             return [dict(r) for r in rows]

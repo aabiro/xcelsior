@@ -22,7 +22,6 @@
 
 import json
 import logging
-import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
@@ -289,75 +288,27 @@ class VerificationStore:
     """Persistent store for host verification state and history."""
 
     def __init__(self, db_path: Optional[str] = None):
-        import os
-
-        self.db_path = db_path or os.path.join(os.path.dirname(__file__), "xcelsior_events.db")
-        self._init_db()
-
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS host_verifications (
-                    host_id TEXT PRIMARY KEY,
-                    verification_id TEXT NOT NULL,
-                    state TEXT NOT NULL DEFAULT 'unverified',
-                    verified_at REAL,
-                    deverified_at REAL,
-                    deverify_reason TEXT DEFAULT '',
-                    last_check_at REAL,
-                    next_check_at REAL,
-                    failure_count INTEGER DEFAULT 0,
-                    gpu_fingerprint TEXT DEFAULT '',
-                    overall_score REAL DEFAULT 0.0,
-                    checks TEXT DEFAULT '[]',
-                    updated_at REAL
-                );
-
-                CREATE TABLE IF NOT EXISTS verification_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    host_id TEXT NOT NULL,
-                    verification_id TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    checks TEXT DEFAULT '[]',
-                    score REAL DEFAULT 0.0,
-                    reason TEXT DEFAULT '',
-                    timestamp REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_vh_host
-                    ON verification_history(host_id);
-
-                CREATE TABLE IF NOT EXISTS job_failure_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    host_id TEXT NOT NULL,
-                    job_id TEXT NOT NULL,
-                    failed_at REAL NOT NULL,
-                    reason TEXT DEFAULT ''
-                );
-                CREATE INDEX IF NOT EXISTS idx_jfl_host
-                    ON job_failure_log(host_id);
-                CREATE INDEX IF NOT EXISTS idx_jfl_time
-                    ON job_failure_log(failed_at);
-            """)
+        self.db_path = db_path  # Legacy compat
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def get_verification(self, host_id: str) -> Optional[HostVerification]:
         """Get current verification state for a host."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM host_verifications WHERE host_id = ?",
+                "SELECT * FROM host_verifications WHERE host_id = %s",
                 (host_id,),
             ).fetchone()
             if not row:
@@ -374,11 +325,12 @@ class VerificationStore:
                 failure_count=row["failure_count"],
                 gpu_fingerprint=row["gpu_fingerprint"],
                 overall_score=row["overall_score"],
-                checks=json.loads(row["checks"]),
+                checks=row["checks"] if isinstance(row["checks"], list) else json.loads(row["checks"]),
             )
 
     def save_verification(self, v: HostVerification):
         """Upsert verification state."""
+        from psycopg.types.json import Jsonb
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO host_verifications
@@ -386,7 +338,7 @@ class VerificationStore:
                     deverified_at, deverify_reason, last_check_at,
                     next_check_at, failure_count, gpu_fingerprint,
                     overall_score, checks, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT(host_id) DO UPDATE SET
                     verification_id=excluded.verification_id,
                     state=excluded.state,
@@ -412,7 +364,7 @@ class VerificationStore:
                     v.failure_count,
                     v.gpu_fingerprint,
                     v.overall_score,
-                    json.dumps(v.checks),
+                    Jsonb(v.checks),
                     time.time(),
                 ),
             )
@@ -420,12 +372,12 @@ class VerificationStore:
             conn.execute(
                 """INSERT INTO verification_history
                    (host_id, verification_id, state, checks, score, reason, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                 (
                     v.host_id,
                     v.verification_id,
                     v.state,
-                    json.dumps(v.checks),
+                    Jsonb(v.checks),
                     v.overall_score,
                     v.deverify_reason,
                     time.time(),
@@ -436,7 +388,7 @@ class VerificationStore:
         """Record a job failure for deverification tracking."""
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO job_failure_log (host_id, job_id, failed_at, reason) VALUES (?, ?, ?, ?)",
+                "INSERT INTO job_failure_log (host_id, job_id, failed_at, reason) VALUES (%s, %s, %s, %s)",
                 (host_id, job_id, time.time(), reason),
             )
 
@@ -446,7 +398,7 @@ class VerificationStore:
         cutoff = time.time() - window
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM job_failure_log WHERE host_id = ? AND failed_at >= ?",
+                "SELECT COUNT(*) as cnt FROM job_failure_log WHERE host_id = %s AND failed_at >= %s",
                 (host_id, cutoff),
             ).fetchone()
             return row["cnt"] if row else 0
@@ -465,7 +417,7 @@ class VerificationStore:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT host_id FROM host_verifications
-                   WHERE state = 'verified' AND next_check_at IS NOT NULL AND next_check_at <= ?""",
+                   WHERE state = 'verified' AND next_check_at IS NOT NULL AND next_check_at <= %s""",
                 (now,),
             ).fetchall()
             return [r["host_id"] for r in rows]
