@@ -10,7 +10,7 @@ import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
-  Bitcoin, AlertTriangle,
+  Bitcoin,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -169,20 +169,8 @@ export default function BillingPage() {
     "1_year":  { label: "1 Year", accent: "text-emerald", icon: Leaf },
   };
 
-  const isTestMode = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test");
-
   return (
     <div className="space-y-6">
-      {/* Test Mode Banner */}
-      {isTestMode && (
-        <div className="flex items-center gap-3 rounded-lg border border-gold/30 bg-gold/5 px-4 py-3">
-          <AlertTriangle className="h-4 w-4 text-gold shrink-0" />
-          <p className="text-sm text-gold">
-            <span className="font-medium">Test Mode</span> — Payments are in sandbox mode. No real charges will be processed. We&apos;re working on enabling live payments shortly.
-          </p>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("dash.billing.title")}</h1>

@@ -1674,6 +1674,24 @@ def api_auth_register(body: RegisterRequest):
     except Exception:
         pass
 
+    # Welcome email
+    try:
+        display_name = user["name"]
+        _send_team_email(
+            email,
+            f"Welcome to Xcelsior, {display_name}!",
+            f"Hi {display_name},\n\n"
+            "Thanks for signing up for Xcelsior — Canada's sovereign GPU compute marketplace.\n\n"
+            "Your account is active and ready to go. From your dashboard you can browse available GPU hosts, "
+            "launch compute instances, and track your usage — all billed in CAD with full Canadian data residency.\n\n"
+            "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
+            "We'd love to hear from you.",
+            cta_url="https://xcelsior.ca/dashboard",
+            cta_label="Go to Dashboard",
+        )
+    except Exception:
+        pass
+
     body = {
         "ok": True,
         "access_token": session["token"],
