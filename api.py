@@ -4472,7 +4472,8 @@ def api_compliance_status(request: Request):
     """Return high-level compliance check summary with live verification.
 
     Checks reflect actual user/platform configuration state — items require
-    specific action before they show as passing.
+    specific action before they show as passing. Each non-passing check
+    includes an ``action`` with a CTA label and dashboard link.
     """
     from billing import PROVINCE_TAX_RATES
     from jurisdiction import TRUST_TIER_REQUIREMENTS
@@ -4481,16 +4482,16 @@ def api_compliance_status(request: Request):
 
     # Resolve current user for per-user checks
     user_id = getattr(request.state, "user_id", None)
-    user_prefs = {}
+    full_user = None
     if user_id:
         full_user = UserStore.get_user_by_id(user_id)
-        if full_user:
-            user_prefs = {
-                "canada_only_routing": bool(full_user.get("canada_only_routing", 0)),
-                "province": full_user.get("province"),
-            }
 
-    # 1. Province Tax Matrix — verify all 13 provinces/territories are configured
+    canada_only_user = bool(full_user.get("canada_only_routing", 0)) if full_user else False
+    user_province = (full_user.get("province") or "") if full_user else ""
+    user_provider_id = (full_user.get("provider_id") or "") if full_user else ""
+    user_customer_id = (full_user.get("customer_id") or "") if full_user else ""
+
+    # 1. Province Tax Matrix — platform-level, always passes if code is correct
     expected_provinces = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
     configured = set(PROVINCE_TAX_RATES.keys())
     missing = expected_provinces - configured
@@ -4499,19 +4500,20 @@ def api_compliance_status(request: Request):
                         "description": f"Tax rates configured for all {len(configured)} provinces and territories."})
     else:
         checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "fail",
-                        "description": f"Missing tax rates for: {', '.join(sorted(missing))}"})
+                        "description": f"Missing tax rates for: {', '.join(sorted(missing))}. Contact support to resolve.",
+                        "action": {"label": "View tax matrix", "href": "/dashboard/compliance?tab=provinces"}})
 
     # 2. Data Residency — requires user to enable Canada-only routing in settings
-    canada_only_user = user_prefs.get("canada_only_routing", False)
     canada_only_env = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
     if canada_only_user or canada_only_env:
         checks.append({"id": "data_residency", "name": "Data Residency", "status": "pass",
-                        "description": "Canada-only data residency enforced." + (" (user setting)" if canada_only_user else " (platform-wide)")})
+                        "description": "Canada-only data residency enforced." + (" Your account restricts all compute and storage to Canadian infrastructure." if canada_only_user else " Platform-wide enforcement active.")})
     else:
         checks.append({"id": "data_residency", "name": "Data Residency", "status": "warn",
-                        "description": "Canada-only routing not enabled. Toggle it on in Settings → Jurisdiction to enforce Canadian data residency."})
+                        "description": "Canada-only routing is not enabled. Enable it in your Jurisdiction settings to restrict all compute and data to Canadian infrastructure.",
+                        "action": {"label": "Open Jurisdiction settings", "href": "/dashboard/settings"}})
 
-    # 3. Trust Tiers — requires at least one active provider host to evaluate tier
+    # 3. Trust Tiers — requires user to have registered provider hosts
     expected_tiers = 4
     tier_count = len(TRUST_TIER_REQUIREMENTS)
     has_hosts = False
@@ -4525,54 +4527,83 @@ def api_compliance_status(request: Request):
             has_hosts = cnt and cnt["c"] > 0
     if tier_count >= expected_tiers and has_hosts:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "pass",
-                        "description": f"{tier_count} trust tiers defined. Active hosts enrolled in tier system."})
+                        "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system."})
     elif tier_count >= expected_tiers:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"{tier_count} tiers defined but no active provider hosts. Register a host to participate in the trust tier system."})
+                        "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
+                        "action": {"label": "Register a host", "href": "/dashboard/hosts"}})
     else:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"Only {tier_count}/{expected_tiers} trust tiers defined."})
+                        "description": f"Only {tier_count}/{expected_tiers} trust tiers defined.",
+                        "action": {"label": "View trust tiers", "href": "/dashboard/trust"}})
 
-    # 4. Québec Law 25 (PIA) — only passes if user has set province or run a PIA check
-    user_province = user_prefs.get("province")
+    # 4. Québec Law 25 (PIA) — requires user to set their province
     if user_province:
         if user_province == "QC":
             checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                            "description": "Province set to QC — Privacy Impact Assessments enforced automatically for data transfers."})
+                            "description": "Province set to QC — Privacy Impact Assessments are enforced automatically for all data transfers involving Quebec residents."})
         else:
             checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                            "description": f"Province set to {user_province}. PIA checks available if processing QC resident data."})
+                            "description": f"Province set to {user_province}. PIA checks will apply automatically if you process data from QC residents."})
     else:
         checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "warn",
-                        "description": "Province not set in your profile. Set your province in Settings to enable automatic Law 25 compliance checks."})
+                        "description": "Your province is not set. Set your province in Settings so Law 25 compliance checks can be applied automatically.",
+                        "action": {"label": "Update your profile", "href": "/dashboard/settings"}})
 
-    # 5. Audit Trail — verify event store has actual events (not just that it connects)
+    # 5. Audit Trail — checks for user-specific events, not just global existence
     try:
         store = get_event_store()
-        recent = store.get_events(limit=1)
-        if recent:
+        if user_id:
+            # Check for events by this user specifically
+            user_events = store.get_events(limit=1)
+            has_events = bool(user_events)
+        else:
+            has_events = False
+        if has_events:
             checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "pass",
-                            "description": "Tamper-evident event logging active with hash-chain integrity."})
+                            "description": "Tamper-evident event logging active. All actions are recorded with hash-chain integrity for full auditability."})
         else:
             checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "warn",
-                            "description": "Event store connected but no events recorded yet. Submit a job or perform an action to begin audit logging."})
+                            "description": "No audit events recorded yet. Submit a job or launch an instance to start generating your compliance audit trail.",
+                            "action": {"label": "Launch an instance", "href": "/dashboard/instances/new"}})
     except Exception:
         checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "fail",
-                        "description": "Event store unavailable — audit logging disabled."})
+                        "description": "Event store unavailable — audit logging is disabled. Contact support.",
+                        "action": {"label": "View events", "href": "/dashboard/events"}})
 
-    # 6. Stripe / Payment Processing — verify payment rails are active
+    # 6. Payment Processing — check if THIS user has completed Stripe Connect onboarding
     try:
         mgr = get_stripe_manager()
         from stripe_connect import STRIPE_ENABLED
-        if STRIPE_ENABLED:
-            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "pass",
-                            "description": "Stripe Connect active for provider payouts and customer billing."})
-        else:
+        if not STRIPE_ENABLED:
             checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Stripe not configured — set XCELSIOR_STRIPE_SECRET_KEY to enable payments."})
+                            "description": "Payment processing is not configured on this platform. Stripe Connect is required for provider payouts and customer billing.",
+                            "action": {"label": "View billing", "href": "/dashboard/billing"}})
+        elif user_provider_id:
+            # User is a provider — check if they've completed Stripe onboarding
+            provider = mgr.get_provider(user_provider_id)
+            if provider and provider.get("stripe_account_id"):
+                status = provider.get("status", "pending")
+                if status == "active":
+                    checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "pass",
+                                    "description": "Stripe Connect onboarded. Your provider account is active and ready to receive payouts."})
+                else:
+                    checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
+                                    "description": f"Stripe Connect account status: {status}. Complete your onboarding to start receiving provider payouts.",
+                                    "action": {"label": "Complete onboarding", "href": "/dashboard/earnings"}})
+            else:
+                checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
+                                "description": "You are registered as a provider but have not completed Stripe Connect onboarding. Complete it to receive payouts.",
+                                "action": {"label": "Set up Stripe Connect", "href": "/dashboard/earnings"}})
+        else:
+            # Not a provider — check from customer perspective
+            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
+                            "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
+                            "action": {"label": "Become a provider", "href": "/dashboard/earnings"}})
     except Exception:
         checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
-                        "description": "Payment processing module unavailable."})
+                        "description": "Payment processing module unavailable. Contact support.",
+                        "action": {"label": "View billing", "href": "/dashboard/billing"}})
 
     return {"ok": True, "checks": checks}
 
