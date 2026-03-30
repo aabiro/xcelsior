@@ -779,6 +779,7 @@ export default function SettingsPage() {
               <p className="text-xs text-text-secondary">Download all your billing data as CSV</p>
             </div>
             <Button variant="outline" size="sm" onClick={async () => {
+              if (!confirm("Export all your billing data as CSV?")) return;
               try {
                 const now = Math.floor(Date.now() / 1000);
                 const blob = await api.downloadInvoice(userId, "csv", now - 365 * 86400, now);

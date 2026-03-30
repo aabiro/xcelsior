@@ -4468,12 +4468,27 @@ def api_process_queue_sovereign(req: SovereignQueueRequest):
 
 
 @app.get("/api/compliance/status", tags=["Compliance"])
-def api_compliance_status():
-    """Return high-level compliance check summary with live verification."""
+def api_compliance_status(request: Request):
+    """Return high-level compliance check summary with live verification.
+
+    Checks reflect actual user/platform configuration state — items require
+    specific action before they show as passing.
+    """
     from billing import PROVINCE_TAX_RATES
     from jurisdiction import TRUST_TIER_REQUIREMENTS
 
     checks = []
+
+    # Resolve current user for per-user checks
+    user_id = getattr(request.state, "user_id", None)
+    user_prefs = {}
+    if user_id:
+        full_user = UserStore.get_user_by_id(user_id)
+        if full_user:
+            user_prefs = {
+                "canada_only_routing": bool(full_user.get("canada_only_routing", 0)),
+                "province": full_user.get("province"),
+            }
 
     # 1. Province Tax Matrix — verify all 13 provinces/territories are configured
     expected_provinces = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
@@ -4486,41 +4501,61 @@ def api_compliance_status():
         checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "fail",
                         "description": f"Missing tax rates for: {', '.join(sorted(missing))}"})
 
-    # 2. Data Residency — check CANADA_ONLY enforcement availability
-    canada_only = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
-    try:
-        from jurisdiction import host_meets_constraint
+    # 2. Data Residency — requires user to enable Canada-only routing in settings
+    canada_only_user = user_prefs.get("canada_only_routing", False)
+    canada_only_env = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
+    if canada_only_user or canada_only_env:
         checks.append({"id": "data_residency", "name": "Data Residency", "status": "pass",
-                        "description": "Jurisdiction-aware scheduling active." + (" CANADA_ONLY enforced." if canada_only else " Per-job residency constraints available.")})
-    except ImportError:
-        checks.append({"id": "data_residency", "name": "Data Residency", "status": "fail",
-                        "description": "Jurisdiction module not available."})
+                        "description": "Canada-only data residency enforced." + (" (user setting)" if canada_only_user else " (platform-wide)")})
+    else:
+        checks.append({"id": "data_residency", "name": "Data Residency", "status": "warn",
+                        "description": "Canada-only routing not enabled. Toggle it on in Settings → Jurisdiction to enforce Canadian data residency."})
 
-    # 3. Trust Tiers — verify all 4 tiers are defined
+    # 3. Trust Tiers — requires at least one active provider host to evaluate tier
     expected_tiers = 4
     tier_count = len(TRUST_TIER_REQUIREMENTS)
-    if tier_count >= expected_tiers:
+    has_hosts = False
+    if user_id:
+        from db import auth_connection
+        with auth_connection() as conn:
+            cnt = conn.execute(
+                "SELECT COUNT(*) AS c FROM hosts WHERE payload->>'user_id' = %s AND status = 'active'",
+                (user_id,),
+            ).fetchone()
+            has_hosts = cnt and cnt["c"] > 0
+    if tier_count >= expected_tiers and has_hosts:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "pass",
-                        "description": f"{tier_count} trust tiers defined (Community → Regulated)."})
+                        "description": f"{tier_count} trust tiers defined. Active hosts enrolled in tier system."})
+    elif tier_count >= expected_tiers:
+        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
+                        "description": f"{tier_count} tiers defined but no active provider hosts. Register a host to participate in the trust tier system."})
     else:
         checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
                         "description": f"Only {tier_count}/{expected_tiers} trust tiers defined."})
 
-    # 4. Québec Law 25 (PIA) — verify function is available
-    try:
-        from privacy import requires_quebec_pia
-        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                        "description": "Privacy Impact Assessment check available for QC data transfers."})
-    except ImportError:
-        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "fail",
-                        "description": "Privacy module not available — cannot enforce Law 25."})
+    # 4. Québec Law 25 (PIA) — only passes if user has set province or run a PIA check
+    user_province = user_prefs.get("province")
+    if user_province:
+        if user_province == "QC":
+            checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
+                            "description": "Province set to QC — Privacy Impact Assessments enforced automatically for data transfers."})
+        else:
+            checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
+                            "description": f"Province set to {user_province}. PIA checks available if processing QC resident data."})
+    else:
+        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "warn",
+                        "description": "Province not set in your profile. Set your province in Settings to enable automatic Law 25 compliance checks."})
 
-    # 5. Audit Trail — verify event store is operational
+    # 5. Audit Trail — verify event store has actual events (not just that it connects)
     try:
         store = get_event_store()
         recent = store.get_events(limit=1)
-        checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "pass",
-                        "description": "Tamper-evident event logging active with hash-chain integrity."})
+        if recent:
+            checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "pass",
+                            "description": "Tamper-evident event logging active with hash-chain integrity."})
+        else:
+            checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "warn",
+                            "description": "Event store connected but no events recorded yet. Submit a job or perform an action to begin audit logging."})
     except Exception:
         checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "fail",
                         "description": "Event store unavailable — audit logging disabled."})
