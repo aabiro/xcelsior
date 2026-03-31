@@ -381,6 +381,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         {t("dash.settings")}
                       </Link>
                       <Link
+                        href="/dashboard/settings#team"
+                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                        onClick={() => setProfileOpen(false)}
+                      >
+                        <Users className="h-4 w-4" />
+                        {t("dash.team") || "Team"}
+                      </Link>
+                      <Link
                         href="/dashboard/billing"
                         className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
                         onClick={() => setProfileOpen(false)}
