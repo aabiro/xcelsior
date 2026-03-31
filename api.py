@@ -4446,6 +4446,60 @@ def api_deposit(customer_id: str, req: DepositRequest):
     return {"ok": True, **result}
 
 
+_FREE_CREDIT_AMOUNT = 10.0  # CAD
+
+
+@app.post("/api/billing/free-credits/{customer_id}", tags=["Billing"])
+def api_claim_free_credits(customer_id: str, request: Request):
+    """Claim one-time $10 CAD signup bonus.
+
+    Uses an idempotency key derived from the customer_id so the bonus
+    can only be claimed once per customer.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    # Ensure the authenticated user matches the customer_id
+    uid = user.get("customer_id") or user.get("user_id") or ""
+    if uid != customer_id:
+        raise HTTPException(403, "You can only claim credits for your own account")
+
+    idempotency_key = f"free-credits-{customer_id}"
+    be = get_billing_engine()
+    result = be.deposit(
+        customer_id,
+        _FREE_CREDIT_AMOUNT,
+        "Welcome bonus — $10 free credits",
+        idempotency_key=idempotency_key,
+    )
+    already_claimed = result.get("dedup", False)
+    return {
+        "ok": True,
+        "amount_cad": _FREE_CREDIT_AMOUNT,
+        "balance_cad": result["balance_cad"],
+        "already_claimed": already_claimed,
+    }
+
+
+@app.get("/api/billing/free-credits/{customer_id}/status", tags=["Billing"])
+def api_free_credits_status(customer_id: str, request: Request):
+    """Check whether the customer has already claimed the free signup bonus."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    uid = user.get("customer_id") or user.get("user_id") or ""
+    if uid != customer_id:
+        raise HTTPException(403, "Forbidden")
+    be = get_billing_engine()
+    be._ensure_wallet_table()
+    with be._conn() as conn:
+        row = conn.execute(
+            "SELECT tx_id FROM wallet_transactions WHERE idempotency_key = %s",
+            (f"free-credits-{customer_id}",),
+        ).fetchone()
+    return {"ok": True, "claimed": row is not None}
+
+
 @app.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
 def api_wallet_history(customer_id: str, limit: int = 50):
     """Get transaction history for a wallet."""
@@ -7436,6 +7490,132 @@ def api_process_queue_binpack(canada_only: bool = False, province: str = ""):
         province=province or None,
     )
     return {"ok": True, "assigned": assigned, "count": len(assigned)}
+
+
+# ── AI Assistant Routes ────────────────────────────────────────────────
+
+from ai_assistant import (
+    FEATURE_AI_ASSISTANT,
+    check_ai_rate_limit,
+    create_conversation as ai_create_conversation,
+    get_conversation as ai_get_conversation,
+    list_conversations as ai_list_conversations,
+    delete_conversation as ai_delete_conversation,
+    get_conversation_messages as ai_get_messages,
+    stream_ai_response,
+    execute_confirmed_action,
+    get_suggestions as ai_get_suggestions,
+)
+
+
+def _require_ai_enabled():
+    if not FEATURE_AI_ASSISTANT:
+        raise HTTPException(404, "AI assistant is not enabled.")
+
+
+class AiChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: str | None = None
+    page_context: str = ""
+
+
+class AiConfirmRequest(BaseModel):
+    confirmation_id: str
+    approved: bool
+
+
+@app.post("/api/ai/chat", tags=["AI Assistant"])
+async def api_ai_chat(body: AiChatRequest, request: Request):
+    """Stream an AI assistant response with tool-calling support via SSE."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        raise HTTPException(429, "Rate limit exceeded. Please wait a moment.")
+
+    # Get or create conversation
+    conversation_id = body.conversation_id
+    if conversation_id:
+        conv = ai_get_conversation(conversation_id, user_id)
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        conversation_id = ai_create_conversation(user_id)
+
+    return StreamingResponse(
+        stream_ai_response(body.message, conversation_id, user, body.page_context),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/ai/conversations", tags=["AI Assistant"])
+def api_ai_list_conversations(request: Request, limit: int = 30):
+    """List the current user's AI assistant conversations."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    user_id = user.get("user_id", user.get("email", ""))
+    convs = ai_list_conversations(user_id, limit=limit)
+    return {"ok": True, "conversations": convs}
+
+
+@app.get("/api/ai/conversations/{conversation_id}", tags=["AI Assistant"])
+def api_ai_get_conversation(conversation_id: str, request: Request):
+    """Get messages for an AI assistant conversation."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    user_id = user.get("user_id", user.get("email", ""))
+    messages = ai_get_messages(conversation_id, user_id)
+    conv = ai_get_conversation(conversation_id, user_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return {"ok": True, "conversation": conv, "messages": messages}
+
+
+@app.delete("/api/ai/conversations/{conversation_id}", tags=["AI Assistant"])
+def api_ai_delete_conversation(conversation_id: str, request: Request):
+    """Delete an AI assistant conversation."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    user_id = user.get("user_id", user.get("email", ""))
+    deleted = ai_delete_conversation(conversation_id, user_id)
+    if not deleted:
+        raise HTTPException(404, "Conversation not found")
+    return {"ok": True}
+
+
+@app.post("/api/ai/confirm", tags=["AI Assistant"])
+async def api_ai_confirm(body: AiConfirmRequest, request: Request):
+    """Approve or reject a pending AI tool action."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    return StreamingResponse(
+        execute_confirmed_action(body.confirmation_id, user, body.approved),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/ai/suggestions", tags=["AI Assistant"])
+def api_ai_suggestions(request: Request):
+    """Get context-aware suggestion chips for the AI assistant."""
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    return {"ok": True, "suggestions": ai_get_suggestions(user)}
 
 
 if __name__ == "__main__":

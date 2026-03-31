@@ -8,7 +8,8 @@ import {
   Store, DollarSign, ShieldCheck, Star, FileCheck,
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
   ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown,
-  Zap, HardDrive, TrendingUp,
+  Zap, HardDrive, TrendingUp, BookOpen, Rocket, CheckCircle2, Circle,
+  ExternalLink, HelpCircle, Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -38,6 +39,7 @@ const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles
   { href: "/dashboard/artifacts", key: "dash.artifacts", icon: Package },
   { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin", "provider"] },
   { href: "/dashboard/events", key: "dash.events", icon: Calendar },
+  { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles },
   { href: "/dashboard/admin", key: "dash.admin", icon: Users, roles: ["admin"] },
 ];
 
@@ -45,7 +47,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [gearOpen, setGearOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const gearRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
@@ -58,7 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [authLoading, user, pathname]);
 
   // Close mobile drawer on route change
-  useEffect(() => { setMobileOpen(false); setProfileOpen(false); }, [pathname]);
+  useEffect(() => { setMobileOpen(false); setProfileOpen(false); setGearOpen(false); setOnboardingOpen(false); }, [pathname]);
 
   // Close profile dropdown on click outside
   useEffect(() => {
@@ -66,10 +71,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
         setProfileOpen(false);
       }
+      if (gearRef.current && !gearRef.current.contains(e.target as Node)) {
+        setGearOpen(false);
+        setOnboardingOpen(false);
+      }
     }
-    if (profileOpen) document.addEventListener("mousedown", handleClick);
+    if (profileOpen || gearOpen) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [profileOpen]);
+  }, [profileOpen, gearOpen]);
 
   // Show loading state while checking auth
   if (authLoading || !user) {
@@ -85,8 +94,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Logo */}
       <div className="flex h-14 items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
-            <svg viewBox="0 0 256 256" className="h-5 w-5" aria-hidden>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
+            <svg viewBox="0 0 256 256" className="h-7 w-7" aria-hidden>
               <defs>
                 <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#00d4ff" />
@@ -100,7 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           {(mobile || !collapsed) && (
             <>
-              <span className="font-bold tracking-tight">Xcelsior</span>
+              <span className="text-xl font-bold tracking-tight">Xcelsior</span>
               <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan">
                 Beta
               </span>
@@ -140,8 +149,99 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         })}
       </nav>
 
-      {/* Collapse Toggle (desktop only) */}
+      {/* Gear Popout + Collapse (desktop only) */}
       {!mobile && (
+        <div className="border-t border-border p-2 space-y-0.5">
+          <div className="relative" ref={gearRef}>
+            <button
+              onClick={() => setGearOpen(!gearOpen)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                gearOpen
+                  ? "bg-accent-cyan/8 text-accent-cyan"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              )}
+              title={collapsed ? t("gear.title") : undefined}
+            >
+              <HelpCircle className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>{t("gear.title")}</span>}
+            </button>
+
+            {/* Gear Popout Panel */}
+            <AnimatePresence>
+              {gearOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border/60 bg-surface shadow-xl z-50"
+                >
+                  {/* Quick links */}
+                  <div className="p-2">
+                    <Link
+                      href="/dashboard/settings"
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                      onClick={() => setGearOpen(false)}
+                    >
+                      <Settings className="h-4 w-4" />
+                      {t("gear.settings")}
+                    </Link>
+                    <a
+                      href="https://docs.xcelsior.ca"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                      onClick={() => setGearOpen(false)}
+                    >
+                      <BookOpen className="h-4 w-4" />
+                      {t("gear.docs")}
+                      <ExternalLink className="h-3 w-3 ml-auto text-text-muted" />
+                    </a>
+                    <button
+                      onClick={() => setOnboardingOpen(!onboardingOpen)}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                        onboardingOpen
+                          ? "bg-accent-cyan/8 text-accent-cyan"
+                          : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                      )}
+                    >
+                      <Rocket className="h-4 w-4" />
+                      {t("gear.onboarding")}
+                      <ChevronRight className="h-3.5 w-3.5 ml-auto" />
+                    </button>
+                  </div>
+
+                  {/* Onboarding sub-popout */}
+                  <AnimatePresence>
+                    {onboardingOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -8, scale: 0.96 }}
+                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                        exit={{ opacity: 0, x: -8, scale: 0.96 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute left-full bottom-0 ml-2 w-72 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
+                      >
+                        <GearOnboarding t={t} onNavigate={() => { setGearOpen(false); setOnboardingOpen(false); }} user={user} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            title={collapsed ? t("gear.expand") : t("gear.collapse")}
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
+      {/* Settings + Docs (mobile drawer) */}
+      {mobile && (
         <div className="border-t border-border p-2 space-y-0.5">
           <Link
             href="/dashboard/settings"
@@ -151,34 +251,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 ? "bg-accent-cyan/8 text-accent-cyan nav-active"
                 : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             )}
-            title={collapsed ? t("dash.settings") : undefined}
           >
             <Settings className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>{t("dash.settings")}</span>}
+            <span>{t("gear.settings")}</span>
           </Link>
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+          <a
+            href="https://docs.xcelsior.ca"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
           >
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </button>
-        </div>
-      )}
-      {/* Settings link (mobile drawer) */}
-      {mobile && (
-        <div className="border-t border-border p-2">
-          <Link
-            href="/dashboard/settings"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-              pathname.startsWith("/dashboard/settings")
-                ? "bg-accent-cyan/8 text-accent-cyan nav-active"
-                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-            )}
-          >
-            <Settings className="h-4 w-4 shrink-0" />
-            <span>{t("dash.settings")}</span>
-          </Link>
+            <BookOpen className="h-4 w-4 shrink-0" />
+            <span>{t("gear.docs")}</span>
+            <ExternalLink className="h-3 w-3 ml-auto text-text-muted" />
+          </a>
         </div>
       )}
     </>
@@ -266,7 +352,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 glass shadow-xl z-50 overflow-hidden"
+                    className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
                   >
                     <div className="px-3 py-2.5 border-b border-border">
                       <p className="text-sm font-medium truncate">{user?.name || user?.email}</p>
@@ -320,6 +406,112 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* AI Chat Assistant */}
       <ChatWidget />
+    </div>
+  );
+}
+
+/* ── Onboarding Checklist Component ─────────────────────────────────── */
+
+const ONBOARDING_STEPS = [
+  { key: "profile", labelKey: "gear.step_profile", descKey: "gear.step_profile_desc", href: "/dashboard/settings" },
+  { key: "jurisdiction", labelKey: "gear.step_jurisdiction", descKey: "gear.step_jurisdiction_desc", href: "/dashboard/settings" },
+  { key: "api_key", labelKey: "gear.step_api_key", descKey: "gear.step_api_key_desc", href: "/dashboard/settings#api-keys" },
+  { key: "browse", labelKey: "gear.step_browse", descKey: "gear.step_browse_desc", href: "/dashboard/marketplace" },
+  { key: "instance", labelKey: "gear.step_instance", descKey: "gear.step_instance_desc", href: "/dashboard/instances/new" },
+] as const;
+
+const STORAGE_KEY = "xcelsior-onboarding";
+
+function useOnboardingState() {
+  const [completed, setCompleted] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setCompleted(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggle = (key: string) => {
+    setCompleted((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  return { completed, toggle };
+}
+
+function GearOnboarding({
+  t,
+  onNavigate,
+  user,
+}: {
+  t: (key: string, vars?: Record<string, string | number>) => string;
+  onNavigate: () => void;
+  user: { name?: string; email?: string; role?: string } | null;
+}) {
+  const { completed, toggle } = useOnboardingState();
+  const doneCount = ONBOARDING_STEPS.filter((s) => completed[s.key]).length;
+  const allDone = doneCount === ONBOARDING_STEPS.length;
+
+  return (
+    <div className="p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Rocket className="h-4 w-4 text-accent-gold" />
+        <span className="text-sm font-semibold">{t("gear.onboarding")}</span>
+      </div>
+      <p className="text-xs text-text-muted mb-3 leading-relaxed">{t("gear.onboarding_desc")}</p>
+
+      {/* Progress bar */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+          <span>{allDone ? t("gear.all_done") : t("gear.progress", { done: doneCount, total: ONBOARDING_STEPS.length })}</span>
+          <span className="font-mono">{Math.round((doneCount / ONBOARDING_STEPS.length) * 100)}%</span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-surface-hover overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-accent-cyan to-accent-violet transition-all duration-300"
+            style={{ width: `${(doneCount / ONBOARDING_STEPS.length) * 100}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-1">
+        {ONBOARDING_STEPS.map((step) => {
+          const done = !!completed[step.key];
+          return (
+            <div key={step.key} className="flex items-start gap-2 group">
+              <button
+                onClick={() => toggle(step.key)}
+                className="mt-0.5 shrink-0"
+                aria-label={done ? "Mark incomplete" : "Mark complete"}
+              >
+                {done ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald" />
+                ) : (
+                  <Circle className="h-4 w-4 text-text-muted group-hover:text-accent-cyan transition-colors" />
+                )}
+              </button>
+              <div className="flex-1 min-w-0">
+                <Link
+                  href={step.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    "text-sm leading-tight transition-colors hover:text-accent-cyan",
+                    done ? "text-text-muted line-through" : "text-text-primary"
+                  )}
+                >
+                  {t(step.labelKey)}
+                </Link>
+                <p className="text-[11px] text-text-muted leading-snug mt-0.5">{t(step.descKey)}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
