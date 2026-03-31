@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -19,7 +19,10 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
+import { AiPanel } from "@/components/AiPanel";
 import { NotificationBell } from "@/components/NotificationBell";
+
+const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 
 const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[] }[] = [
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
@@ -49,11 +52,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [profileOpen, setProfileOpen] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
+
+  // Restore AI panel state from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(AI_PANEL_KEY);
+      if (stored === "true") setAiPanelOpen(true);
+    } catch { /* SSR */ }
+  }, []);
+
+  const toggleAiPanel = useCallback(() => {
+    setAiPanelOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(AI_PANEL_KEY, String(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+
+  const closeAiPanel = useCallback(() => {
+    setAiPanelOpen(false);
+    try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
+  }, []);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -404,8 +429,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
 
+      {/* AI Context Panel (right side) */}
+      <AnimatePresence>
+        {aiPanelOpen && (
+          <motion.aside
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 384, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="hidden md:flex flex-col border-l border-border/60 bg-background overflow-hidden"
+          >
+            <AiPanel onClose={closeAiPanel} />
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
       {/* AI Chat Assistant */}
-      <ChatWidget />
+      <ChatWidget onOpenAiPanel={toggleAiPanel} />
     </div>
   );
 }

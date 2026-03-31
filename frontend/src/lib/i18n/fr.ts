@@ -901,6 +901,13 @@ const fr: Record<string, string> = {
   "ai.approve": "Approuver",
   "ai.reject": "Refuser",
   "ai.action_submitted": "Décision soumise",
+  "ai.open_panel": "Ouvrir le panneau Xcel IA",
+  "ai.close_panel": "Fermer le panneau",
+  "ai.open_full": "Ouvrir Xcel IA complet",
+  "ai.panel_description": "Posez-moi n'importe quelle question sur Xcelsior — gérez vos charges, explorez la place de marché ou lancez-vous.",
+  "ai.onboard_rent": "Je veux louer des GPU",
+  "ai.onboard_provide": "Je veux fournir des GPU",
+  "ai.onboard_both": "Louer et fournir",
 };
 
 export default fr;
