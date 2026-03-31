@@ -131,14 +131,9 @@
       .ghost-lon{fill:none;stroke:#7c3aed;stroke-width:.4;stroke-opacity:.08;stroke-linejoin:round;stroke-linecap:round}
       .water{fill:none}
       .arc{fill:none;stroke:url(#arcGrad);stroke-width:1.6;opacity:.55;stroke-linecap:round;filter:url(#arcGlow)}
-      .core{filter:url(#dotGlow);animation:twinkle ease-in-out infinite}
+      .core{filter:url(#dotGlow)}
       .alaska{fill:url(#provinceFill);stroke:currentColor;stroke-width:1.0;stroke-opacity:.38;stroke-linejoin:round;stroke-linecap:round}
       .frame{fill:none;stroke:#00d4ff;stroke-width:.4;stroke-opacity:.08;rx:4}
-      .landing-dot{animation:landingPulse 4s ease-in-out infinite}
-      .energy-arc{fill:none;stroke-linecap:round;stroke-dasharray:250 5000;animation:energyFlow 5s linear infinite}
-      @keyframes twinkle{0%,100%{opacity:1}50%{opacity:.35}}
-      @keyframes landingPulse{0%,100%{opacity:1}50%{opacity:.25}}
-      @keyframes energyFlow{from{stroke-dashoffset:5250}to{stroke-dashoffset:0}}
     </style>
   </defs>
 
@@ -229,9 +224,6 @@
     <path d="M864.6,525.7 Q1600,280 2500,850" fill="none" stroke="url(#transArcCyanTaper)" stroke-width="3.5" stroke-linecap="round" filter="url(#arcGlow)"/>
     <!-- GREEN ARC (no dot): from Halifax, accentuated arch, crosses other arcs (2x longer) -->
     <path d="M875.9,640.5 Q1624,240 2724,280" fill="none" stroke="url(#transArcGreenGrad)" stroke-width="1.6" stroke-linecap="round" filter="url(#arcGlow)"/>
-    <!-- Energy flow overlays (streaming light streaks) -->
-    <path class="energy-arc" d="M864.6,525.7 Q1900,-300 3000,460" stroke="white" stroke-width="2.5" stroke-opacity="0.55" filter="url(#arcGlow)"/>
-    <path class="energy-arc" d="M875.9,640.5 Q1624,240 2724,280" stroke="white" stroke-width="2" stroke-opacity="0.45" filter="url(#arcGlow)" style="animation-delay:2.5s;animation-duration:6s"/>
   </g>
 
   <!-- Touchdown cluster: star formation + three colored dots -->
@@ -248,37 +240,37 @@
     <!-- Outer glow halo -->
     <circle cx="3000" cy="460" r="50" fill="url(#landingGlow)"/>
     <!-- Main green touchdown dot -->
-    <circle class="landing-dot" cx="3000" cy="460" r="4.5" fill="#10b981" filter="url(#starGlow)"/>
-    <circle class="landing-dot" cx="3000" cy="460" r="3" fill="#10b981" opacity="0.95"/>
+    <circle cx="3000" cy="460" r="4.5" fill="#10b981" filter="url(#starGlow)"/>
+    <circle cx="3000" cy="460" r="3" fill="#10b981" opacity="0.95"/>
     <!-- Cyan companion dot (nearby, strong glow) -->
     <circle cx="2920" cy="500" r="28" fill="url(#cyanLandingGlow)"/>
-    <circle class="landing-dot" cx="2920" cy="500" r="3.5" fill="#00d4ff" filter="url(#cyanGlow)" style="animation-delay:1.2s"/>
-    <circle class="landing-dot" cx="2920" cy="500" r="2" fill="#00d4ff" opacity="0.85" style="animation-delay:1.2s"/>
+    <circle cx="2920" cy="500" r="3.5" fill="#00d4ff" filter="url(#cyanGlow)"/>
+    <circle cx="2920" cy="500" r="2" fill="#00d4ff" opacity="0.85"/>
     <!-- Purple companion dot (halfway between current and viewport bottom) -->
     <circle cx="2960" cy="632" r="22" fill="url(#purpleLandingGlow)"/>
-    <circle class="landing-dot" cx="2960" cy="632" r="2.5" fill="#7c3aed" filter="url(#purpleGlow)" style="animation-delay:2.4s"/>
-    <circle class="landing-dot" cx="2960" cy="632" r="1.5" fill="#7c3aed" opacity="0.75" style="animation-delay:2.4s"/>
+    <circle cx="2960" cy="632" r="2.5" fill="#7c3aed" filter="url(#purpleGlow)"/>
+    <circle cx="2960" cy="632" r="1.5" fill="#7c3aed" opacity="0.75"/>
   </g>
 
   <!-- Cities -->
   <g>
     <!-- West (purple) -->
-    <circle class="core" cx="257.4" cy="647.5" r="4.5" fill="#7c3aed" style="animation-duration:2.8s"/>
-    <circle class="core" cx="178.2" cy="471.1" r="3" fill="#7c3aed" style="animation-duration:3.4s;animation-delay:.5s"/>
+    <circle class="core" cx="257.4" cy="647.5" r="4.5" fill="#7c3aed"/>
+    <circle class="core" cx="178.2" cy="471.1" r="3" fill="#7c3aed"/>
     <!-- Middle (cyan) -->
-    <circle class="core" cx="348.7" cy="620.8" r="3" fill="#00d4ff" style="animation-duration:2.6s;animation-delay:1.1s"/>
-    <circle class="core" cx="356.0" cy="584.7" r="2" fill="#00d4ff" style="animation-duration:3.2s;animation-delay:.3s"/>
-    <circle class="core" cx="353.5" cy="435.8" r="3" fill="#00d4ff" style="animation-duration:2.9s;animation-delay:1.5s"/>
-    <circle class="core" cx="522.4" cy="625.2" r="3" fill="#00d4ff" style="animation-duration:3.1s;animation-delay:.7s"/>
-    <circle class="core" cx="607.2" cy="636.7" r="2" fill="#00d4ff" style="animation-duration:2.7s;animation-delay:1.2s"/>
-    <circle class="core" cx="722.7" cy="680.8" r="4.5" fill="#00d4ff" style="animation-duration:3.5s;animation-delay:.2s"/>
-    <circle class="core" cx="755.0" cy="653.6" r="3" fill="#00d4ff" style="animation-duration:2.4s;animation-delay:.9s"/>
-    <circle class="core" cx="776.0" cy="648.9" r="4.5" fill="#00d4ff" style="animation-duration:3s;animation-delay:1.4s"/>
-    <circle class="core" cx="704.8" cy="691.8" r="2" fill="#00d4ff" style="animation-duration:2.5s;animation-delay:.6s"/>
+    <circle class="core" cx="348.7" cy="620.8" r="3" fill="#00d4ff"/>
+    <circle class="core" cx="356.0" cy="584.7" r="2" fill="#00d4ff"/>
+    <circle class="core" cx="353.5" cy="435.8" r="3" fill="#00d4ff"/>
+    <circle class="core" cx="522.4" cy="625.2" r="3" fill="#00d4ff"/>
+    <circle class="core" cx="607.2" cy="636.7" r="2" fill="#00d4ff"/>
+    <circle class="core" cx="722.7" cy="680.8" r="4.5" fill="#00d4ff"/>
+    <circle class="core" cx="755.0" cy="653.6" r="3" fill="#00d4ff"/>
+    <circle class="core" cx="776.0" cy="648.9" r="4.5" fill="#00d4ff"/>
+    <circle class="core" cx="704.8" cy="691.8" r="2" fill="#00d4ff"/>
     <!-- East (green) -->
-    <circle class="core" cx="794.5" cy="629.0" r="3" fill="#10b981" style="animation-duration:3.3s;animation-delay:1.1s"/>
-    <circle class="core" cx="864.6" cy="525.7" r="3" fill="#10b981" style="animation-duration:2.8s;animation-delay:.4s"/>
-    <circle class="core" cx="875.9" cy="640.5" r="3" fill="#10b981" style="animation-duration:3.1s;animation-delay:1.3s"/>
+    <circle class="core" cx="794.5" cy="629.0" r="3" fill="#10b981"/>
+    <circle class="core" cx="864.6" cy="525.7" r="3" fill="#10b981"/>
+    <circle class="core" cx="875.9" cy="640.5" r="3" fill="#10b981"/>
   </g>
 
   </g></g></g><!-- end mask groups -->

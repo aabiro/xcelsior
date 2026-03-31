@@ -24,22 +24,10 @@ export function Navbar() {
     <header className="sticky top-0 z-50 border-b border-border bg-navy/80 backdrop-blur-lg">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
-            <svg viewBox="0 0 256 256" className="h-7 w-7" aria-hidden>
-              <defs>
-                <linearGradient id="nav-lg" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#00d4ff" />
-                  <stop offset="60%" stopColor="#7c3aed" />
-                  <stop offset="100%" stopColor="#dc2626" />
-                </linearGradient>
-              </defs>
-              <path d="M60 56 L120 128 L60 200 L90 200 L128 152 L166 200 L196 200 L136 128 L196 56 L166 56 L128 104 L90 56Z" fill="url(#nav-lg)" />
-              <path d="M118 36 L128 20 L138 36Z" fill="#00d4ff" opacity="0.9" />
-            </svg>
-          </div>
-          <span className="text-2xl font-bold text-text-primary">
-            Xcelsior
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className="hidden dark:block h-11" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className="block dark:hidden h-11" />
           <span className="rounded bg-accent-red/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-red">
             Beta
           </span>

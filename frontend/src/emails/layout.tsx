@@ -113,8 +113,7 @@ export function EmailLayout({
         <Container style={baseStyles.container}>
           <Section style={baseStyles.logo}>
             <Link href="https://xcelsior.ca" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "12px" }}>
-              <Img src="https://xcelsior.ca/xcelsior-favicon.svg" width="36" height="36" alt="Xcelsior" style={{ borderRadius: "6px" }} />
-              <span style={baseStyles.logoText}>Xcelsior</span>
+              <Img src="https://xcelsior.ca/xcelsior-logo-wordmark-iconbg.svg" width="180" height="50" alt="Xcelsior" style={{ borderRadius: "6px" }} />
             </Link>
           </Section>
           {children}

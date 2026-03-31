@@ -61,7 +61,9 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
   icons: {
     icon: "/favicon.svg",
-    apple: "/logo.svg",
+    apple: [
+      { url: "/xcelsior_icon_180x180.png", sizes: "180x180", type: "image/png" },
+    ],
   },
 };
 
@@ -81,7 +83,7 @@ export default function RootLayout({
               "@type": "Organization",
               name: "Xcelsior Computing Inc.",
               url: "https://xcelsior.ca",
-              logo: "https://xcelsior.ca/logo.png",
+              logo: "https://xcelsior.ca/xcelsior_icon_512x512.png",
               description:
                 "Canadian-owned GPU compute marketplace with data sovereignty, compliance automation, and CAD pricing.",
               foundingDate: "2024",
