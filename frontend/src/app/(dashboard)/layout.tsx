@@ -119,26 +119,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Logo */}
       <div className="flex h-14 items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
-            <svg viewBox="0 0 256 256" className="h-7 w-7" aria-hidden>
-              <defs>
-                <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#00d4ff" />
-                  <stop offset="60%" stopColor="#7c3aed" />
-                  <stop offset="100%" stopColor="#dc2626" />
-                </linearGradient>
-              </defs>
-              <path d="M60 56 L120 128 L60 200 L90 200 L128 152 L166 200 L196 200 L136 128 L196 56 L166 56 L128 104 L90 56Z" fill="url(#lg)" />
-              <path d="M118 36 L128 20 L138 36Z" fill="#00d4ff" opacity="0.9" />
-            </svg>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className={cn("hidden dark:block", collapsed && !mobile ? "h-9 w-9 object-left object-cover overflow-hidden" : "h-11")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className={cn("block dark:hidden", collapsed && !mobile ? "h-9 w-9 object-left object-cover overflow-hidden" : "h-11")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
           {(mobile || !collapsed) && (
-            <>
-              <span className="text-xl font-bold tracking-tight">Xcelsior</span>
-              <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan">
-                Beta
-              </span>
-            </>
+            <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan">
+              Beta
+            </span>
           )}
         </Link>
         {mobile && (

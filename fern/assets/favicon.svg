@@ -1,12 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="6" fill="#060a13"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <defs>
-    <linearGradient id="fg" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="brandGrad" x1="100" y1="4" x2="100" y2="186" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="60%" stop-color="#7c3aed"/>
+      <stop offset="35%" stop-color="#7c3aed"/>
       <stop offset="100%" stop-color="#dc2626"/>
     </linearGradient>
+    <filter id="leafGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
   </defs>
-  <path d="M7.5 7 L15 16 L7.5 25 L11.25 25 L16 19 L20.75 25 L24.5 25 L17 16 L24.5 7 L20.75 7 L16 13 L11.25 7Z" fill="url(#fg)"/>
-  <path d="M14.75 4.5 L16 2.5 L17.25 4.5Z" fill="#00d4ff" opacity="0.9"/>
+  <rect width="32" height="32" rx="6" fill="#0a0e1a"/>
+  <g transform="translate(1, 1.71) scale(0.15)">
+    <!-- Leaf glow -->
+    <path d="M102.6,56.9 L117.4,59.5 L115.4,54.0 L115.8,52.8 L131.8,39.8 L128.1,38.1 L127.6,36.8 L130.8,27.0 L121.5,28.9 L120.2,28.2 L118.5,24.0 L111.2,31.8 L109.4,30.9 L112.8,12.9 L107.2,16.1 L105.6,15.6 L100.0,4.5 L94.4,15.6 L92.8,16.1 L87.2,12.9 L90.6,30.9 L88.8,31.8 L81.5,24.0 L79.8,28.2 L78.5,28.9 L69.2,27.0 L72.4,36.8 L71.9,38.1 L68.2,39.8 L84.2,52.8 L84.6,54.0 L82.6,59.5 L97.4,56.9 Z" fill="#00d4ff" opacity="0.35" filter="url(#leafGlow)"/>
+    <!-- Maple leaf -->
+    <path d="M102.6,56.9 L117.4,59.5 L115.4,54.0 L115.8,52.8 L131.8,39.8 L128.1,38.1 L127.6,36.8 L130.8,27.0 L121.5,28.9 L120.2,28.2 L118.5,24.0 L111.2,31.8 L109.4,30.9 L112.8,12.9 L107.2,16.1 L105.6,15.6 L100.0,4.5 L94.4,15.6 L92.8,16.1 L87.2,12.9 L90.6,30.9 L88.8,31.8 L81.5,24.0 L79.8,28.2 L78.5,28.9 L69.2,27.0 L72.4,36.8 L71.9,38.1 L68.2,39.8 L84.2,52.8 L84.6,54.0 L82.6,59.5 L97.4,56.9 Z" fill="url(#brandGrad)"/>
+    <!-- X letterform -->
+    <path d="M48,64 L72,64 L100,108 L128,64 L152,64 L112,124 L152,186 L128,186 L100,140 L72,186 L48,186 L88,124 Z" fill="url(#brandGrad)"/>
+  </g>
 </svg>

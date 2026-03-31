@@ -94,4 +94,9 @@ scripts/globe_transform.py
 
 frontend/public/xcelsior-*
 frontend/public/xcelsior_*
-tatus --short
+
+# ── Checkpoints (test artifacts) ─────────────────────────────────────────
+checkpoints/
+
+# ── Stray files ──────────────────────────────────────────────────────────
+tatus\ --short
