@@ -747,13 +747,31 @@ _TOOL_HANDLERS = {
 
 # ── System Prompt Builder ─────────────────────────────────────────────
 
-def build_ai_system_prompt(user: dict) -> str:
-    """Build a context-rich system prompt including user details and platform docs."""
+def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
+    """Build a context-rich system prompt including user details, platform docs, and onboarding detection."""
     from chat import _load_llms_txt
     context = _load_llms_txt()
 
     role = user.get("role", "user")
+
+    # ── Smart onboarding detection ────────────────────────────────────
+    has_hosts = False
+    has_jobs = False
+    try:
+        from scheduler import list_jobs, list_hosts
+        user_id = user.get("user_id", user.get("email", ""))
+        all_hosts = list_hosts(active_only=False)
+        has_hosts = any(h.get("owner") == user_id or h.get("user_id") == user_id for h in all_hosts)
+        all_jobs = list_jobs()
+        has_jobs = any(j.get("submitted_by") == user_id or j.get("user_id") == user_id for j in all_jobs)
+    except Exception:
+        pass  # Detection failure is non-fatal
+
+    is_new_user = not has_hosts and not has_jobs
+
     role_context = ""
+    onboarding_context = ""
+
     if role in ("provider", "admin"):
         role_context = """
 The user is a GPU PROVIDER on Xcelsior. They may want help with:
@@ -769,6 +787,67 @@ The user is a GPU RENTER on Xcelsior. They may want help with:
 - Understanding billing and cost optimisation
 - API integration and SDK setup"""
 
+    if is_new_user:
+        onboarding_context = """
+ONBOARDING DETECTION:
+This appears to be a new user with no hosts or jobs yet. If this is their FIRST message
+in the conversation, proactively offer to help them get started. Ask if they want to:
+1. 🖥️ **Rent GPU compute** — for AI/ML training, inference, rendering, etc.
+2. 🏗️ **Provide GPUs** — earn money by sharing their hardware on the marketplace
+3. 🔄 **Both** — use and provide compute
+
+Based on their choice, guide them through the appropriate onboarding wizard below.
+"""
+    elif has_hosts and not has_jobs:
+        onboarding_context = """
+CONTEXT: User has registered hosts but hasn't submitted any jobs. They are primarily a provider.
+"""
+    elif has_jobs and not has_hosts:
+        onboarding_context = """
+CONTEXT: User has submitted jobs but has no hosts. They are primarily a renter.
+"""
+
+    # ── Provider wizard instructions ──────────────────────────────────
+    provider_wizard = """
+PROVIDER ONBOARDING WIZARD:
+When a user wants to provide GPUs, guide them step-by-step:
+1. Ask what hardware they have (GPU model, count, VRAM). If they're unsure, ask them to
+   paste their `nvidia-smi` output and you'll parse it for them.
+2. Use `search_marketplace` to show current marketplace prices for similar GPUs so they
+   can set competitive pricing.
+3. Use `estimate_cost` in reverse — tell them their estimated monthly earnings based on
+   utilisation rates (typically 40-70% for popular GPUs).
+4. Explain the bootstrap process: install the Xcelsior worker agent, register the host
+   via API or CLI, and set pricing. Provide the command:
+   ```bash
+   curl -sSL https://xcelsior.ca/install.sh | bash
+   ```
+5. Recommend they complete their profile and jurisdiction settings for better reputation.
+6. Mention SLA tiers (community → secure → sovereign) and how higher tiers earn more.
+"""
+
+    # ── Renter wizard instructions ────────────────────────────────────
+    renter_wizard = """
+RENTER ONBOARDING WIZARD:
+When a user wants to rent GPU compute, guide them step-by-step:
+1. Ask about their workload: What are they training/running? Model size? Framework?
+2. Use `recommend_gpu` to suggest the optimal GPU configuration.
+3. Use `estimate_cost` to show them pricing for different durations and tiers.
+4. Use `search_marketplace` to show real-time availability for recommended GPUs.
+5. If they're ready, help them launch a job using `launch_job` (will require confirmation).
+6. Explain pricing tiers: spot (cheapest, interruptible), on-demand (reliable), reserved (discount).
+7. Mention the $10 free credits for new accounts to try the platform risk-free.
+"""
+
+    # ── Page context ──────────────────────────────────────────────────
+    page_context_section = ""
+    if page_context:
+        page_context_section = f"""
+CURRENT PAGE CONTEXT:
+The user is currently viewing: {page_context}
+Tailor your responses to be relevant to what they're looking at.
+"""
+
     return f"""You are Xcel, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for xcelsior.ca, Canada's distributed GPU compute marketplace.
 
 IDENTITY:
@@ -781,7 +860,10 @@ USER CONTEXT:
 - Email: {user.get('email', 'unknown')}
 - Role: {role}
 - User ID: {user.get('user_id', '')}
+- Has hosts: {has_hosts}
+- Has jobs: {has_jobs}
 {role_context}
+{onboarding_context}
 
 CAPABILITIES:
 - Answer questions about the platform using documentation search
@@ -789,6 +871,13 @@ CAPABILITIES:
 - Search the GPU marketplace and recommend configurations
 - Estimate costs for GPU workloads
 - Launch jobs, stop jobs, and create API keys (with user confirmation)
+- Guide new users through provider or renter onboarding
+
+{provider_wizard}
+
+{renter_wizard}
+
+{page_context_section}
 
 RULES:
 - For write actions (launching jobs, stopping jobs, creating API keys), ALWAYS use the appropriate tool — NEVER just describe how to do it
@@ -807,9 +896,32 @@ PLATFORM DOCUMENTATION:
 # ── Context-Aware Suggestions ─────────────────────────────────────────
 
 def get_suggestions(user: dict) -> list[dict]:
-    """Return context-aware suggestion chips for the AI chat."""
+    """Return context-aware suggestion chips for the AI chat, including onboarding prompts for new users."""
     role = user.get("role", "user")
     suggestions = []
+
+    # ── Smart onboarding detection ────────────────────────────────────
+    has_hosts = False
+    has_jobs = False
+    try:
+        from scheduler import list_jobs, list_hosts
+        user_id = user.get("user_id", user.get("email", ""))
+        all_hosts = list_hosts(active_only=False)
+        has_hosts = any(h.get("owner") == user_id or h.get("user_id") == user_id for h in all_hosts)
+        all_jobs = list_jobs()
+        has_jobs = any(j.get("submitted_by") == user_id or j.get("user_id") == user_id for j in all_jobs)
+    except Exception:
+        pass
+
+    is_new_user = not has_hosts and not has_jobs
+
+    if is_new_user:
+        # Onboarding-first suggestions for new users
+        suggestions.extend([
+            {"label": "🖥️ I want to rent GPUs", "prompt": "I'd like to rent GPU compute for my AI/ML workloads. Help me get started."},
+            {"label": "🏗️ I want to provide GPUs", "prompt": "I have GPUs and want to earn money by providing them on the marketplace. Help me get started."},
+            {"label": "🔄 Rent & provide", "prompt": "I want to both rent compute and provide my GPUs on the marketplace. Walk me through it."},
+        ])
 
     # Universal suggestions
     suggestions.extend([
@@ -817,20 +929,20 @@ def get_suggestions(user: dict) -> list[dict]:
         {"label": "Explain SLA tiers", "prompt": "What are the different SLA tiers and their guarantees?"},
     ])
 
-    if role in ("provider", "admin"):
+    if role in ("provider", "admin") or has_hosts:
         suggestions.extend([
             {"label": "Check my host status", "prompt": "What's the status of my registered hosts?"},
             {"label": "How much can I earn?", "prompt": "How much can I earn with my current GPUs on the marketplace?"},
             {"label": "Optimise my pricing", "prompt": "Help me set competitive pricing for my GPUs"},
         ])
-    else:
+
+    if role == "user" or has_jobs or (not has_hosts):
         suggestions.extend([
             {"label": "What GPU for fine-tuning?", "prompt": "What GPU should I use for fine-tuning a language model?"},
             {"label": "Launch a training job", "prompt": "Help me launch a GPU training job"},
             {"label": "Check my balance", "prompt": "What's my current account balance and recent usage?"},
         ])
 
-    # Context-aware extras
     suggestions.append({"label": "Check my reputation", "prompt": "Show me my reputation score and tier"})
 
     return suggestions
@@ -896,7 +1008,7 @@ async def stream_ai_response(
             )
 
     # Build system prompt
-    system = build_ai_system_prompt(user)
+    system = build_ai_system_prompt(user, page_context=page_context)
 
     # Stream from Anthropic with tool use
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)

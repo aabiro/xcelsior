@@ -901,6 +901,13 @@ const en: Record<string, string> = {
   "ai.approve": "Approve",
   "ai.reject": "Reject",
   "ai.action_submitted": "Decision submitted",
+  "ai.open_panel": "Open Xcel AI panel",
+  "ai.close_panel": "Close panel",
+  "ai.open_full": "Open full Xcel AI",
+  "ai.panel_description": "Ask me anything about Xcelsior — manage workloads, explore the marketplace, or get help getting started.",
+  "ai.onboard_rent": "I want to rent GPUs",
+  "ai.onboard_provide": "I want to provide GPUs",
+  "ai.onboard_both": "Rent & provide",
 };
 
 export default en;

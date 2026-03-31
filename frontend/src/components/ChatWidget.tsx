@@ -14,6 +14,7 @@ import {
   User,
   History,
   ChevronLeft,
+  Sparkles,
 } from "lucide-react";
 import { AnimatePresence, motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
@@ -191,7 +192,7 @@ function HistoryDrawer({
 }
 
 // ── Main Widget ──────────────────────────────────────────────────────
-export function ChatWidget() {
+export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
   const { t } = useLocale();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -482,6 +483,16 @@ export function ChatWidget() {
                         title={t("chat.history")}
                       >
                         <History className="h-4 w-4" />
+                      </button>
+                    )}
+                    {/* Open Xcel AI */}
+                    {onOpenAiPanel && (
+                      <button
+                        onClick={() => { onOpenAiPanel(); setOpen(false); }}
+                        className="rounded-lg p-1.5 text-text-muted hover:bg-accent-cyan/20 hover:text-accent-cyan transition-colors"
+                        title={t("ai.open_panel")}
+                      >
+                        <Sparkles className="h-4 w-4" />
                       </button>
                     )}
                     {/* Clear */}
