@@ -188,28 +188,37 @@ export default function EarningsPage() {
                     </span>
                   </div>
                 ) : provider ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${statusColor[provider.status] || "text-text-muted"}`}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Provider Onboarding In Progress</p>
+                        <p className="text-xs text-text-muted">
+                          Complete your Stripe Connect setup to start receiving payouts from GPU jobs
+                        </p>
+                      </div>
+                      <Badge className={`${statusColor[provider.status] || "text-text-muted"} border-current/20 bg-current/5`}>
                         {provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
-                      </span>
+                      </Badge>
                     </div>
-                    <Button variant="outline" size="sm" onClick={handleStripeConnect} disabled={onboarding}>
+                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
                       {onboarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
-                      Complete Setup
+                      Complete Provider Setup
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between">
+                  <div className="space-y-3">
                     <div>
-                      <p className="text-sm font-medium">Become a Provider</p>
-                      <p className="text-xs text-text-muted">Connect Stripe to earn from your GPU resources</p>
+                      <p className="text-sm font-semibold">Become a GPU Provider</p>
+                      <p className="text-xs text-text-muted">
+                        Earn money by sharing your GPU resources on the Xcelsior network.
+                        Connect Stripe to receive direct payouts for completed compute jobs.
+                      </p>
                     </div>
-                    <Button variant="gold" size="sm" onClick={handleStripeConnect} disabled={onboarding}>
+                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Setting up…</>
                       ) : (
-                        <><LinkIcon className="h-3.5 w-3.5" /> Connect Stripe</>
+                        <><LinkIcon className="h-3.5 w-3.5" /> Become a Provider — Connect Stripe</>
                       )}
                     </Button>
                   </div>

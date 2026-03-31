@@ -13,9 +13,22 @@ export function Footer() {
           {/* Brand */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-red">
-                <span className="text-lg font-bold text-white">X</span>
-              </div>
+              <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="40" height="40" rx="10" fill="url(#footer-logo-bg)" />
+                <path d="M12 12L20 22L28 12" stroke="url(#footer-logo-x)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M12 28L20 18L28 28" stroke="url(#footer-logo-x)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                <defs>
+                  <linearGradient id="footer-logo-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#0d1320" />
+                    <stop offset="1" stopColor="#1a1f2e" />
+                  </linearGradient>
+                  <linearGradient id="footer-logo-x" x1="12" y1="12" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#00d4ff" />
+                    <stop offset="0.5" stopColor="#7c3aed" />
+                    <stop offset="1" stopColor="#dc2626" />
+                  </linearGradient>
+                </defs>
+              </svg>
               <span className="text-lg font-bold">Xcelsior</span>
             </div>
             <p className="text-sm text-text-secondary leading-relaxed">

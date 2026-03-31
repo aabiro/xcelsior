@@ -163,6 +163,7 @@ export default function InstancesPage() {
                     <Link href={`/dashboard/instances/${inst.job_id}`} className="font-medium text-ice-blue hover:underline">
                       {inst.name || inst.job_id}
                     </Link>
+
                   </td>
                   <td className="py-3 px-4 text-text-secondary">{inst.gpu_type || inst.gpu_model || "—"}</td>
                   <td className="py-3 px-4 text-center"><StatusBadge status={inst.status} /></td>

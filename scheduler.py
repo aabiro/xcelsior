@@ -501,6 +501,127 @@ def allocate(job, hosts):
     return best
 
 
+# ── Best-Fit Bin-Packing Allocator ───────────────────────────────────
+# Processes queue in decreasing VRAM order (largest jobs first) to
+# minimize fragmentation. Scoring: waste ratio, locality, reputation.
+
+def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
+    """Best-fit-decreasing bin packer with locality + reputation scoring.
+
+    Score = (1 - waste_ratio) * locality_bonus * reputation_bonus
+
+    Args:
+        job: dict with vram_needed_gb, num_gpus, tier, etc.
+        hosts: list of host dicts
+        user_province: user's province for locality scoring
+        volume_host_ids: set of host_ids where user has attached volumes
+
+    Returns:
+        Best host or None
+    """
+    if not hosts:
+        return None
+
+    vram_needed = job.get("vram_needed_gb", 0)
+    num_gpus_needed = job.get("num_gpus", 1) or 1
+    volume_host_ids = volume_host_ids or set()
+
+    # Filter: VRAM + admission
+    candidates = [
+        h for h in hosts
+        if h.get("admitted", False)
+        and h.get("free_vram_gb", 0) >= vram_needed
+    ]
+    if not candidates:
+        return None
+
+    # GPU count filter for multi-GPU gang scheduling
+    if num_gpus_needed > 1:
+        multi = [h for h in candidates if h.get("gpu_count", 1) >= num_gpus_needed]
+        if multi:
+            candidates = multi
+        else:
+            return None  # Gang scheduling: all GPUs must be on one host
+
+    # Isolation tier filter
+    job_tier = job.get("tier", "free") or "free"
+    if job_tier in ("sovereign", "regulated", "secure"):
+        isolated = [h for h in candidates if h.get("recommended_runtime", "runc") != "runc"]
+        if isolated:
+            candidates = isolated
+
+    def _binpack_score(h):
+        total_vram = max(h.get("total_vram_gb", 1), 1)
+        free_vram = h.get("free_vram_gb", 0)
+        waste_ratio = (free_vram - vram_needed) / total_vram
+        fit_score = 1.0 - waste_ratio  # Tighter fit = higher score
+
+        # Locality bonus
+        host_province = h.get("province", "")
+        locality = 1.0
+        if user_province and host_province:
+            if host_province == user_province:
+                locality = 1.2  # Same province
+            elif h.get("country", "CA") == "CA":
+                locality = 1.0  # Same country
+            else:
+                locality = 0.5  # Cross-border
+
+        # Data gravity: prefer hosts with user's volumes attached
+        if h.get("host_id") in volume_host_ids:
+            locality *= 1.3
+
+        # Reputation bonus
+        rep = h.get("reputation_score", 0.5)
+        rep_bonus = 0.8 + (rep * 0.4)  # Range: 0.8 to 1.2
+
+        # Compute efficiency
+        compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
+        price = max(h.get("cost_per_hour", 0.01), 0.01)
+        efficiency = compute / price / 100  # Normalized
+
+        return fit_score * locality * rep_bonus * (1 + efficiency * 0.1)
+
+    best = max(candidates, key=_binpack_score)
+    log.info(
+        "BINPACK job=%s -> host=%s (%s, %.1fGB free, score=%.3f)",
+        job.get("name", "?"),
+        best["host_id"],
+        best.get("gpu_model"),
+        best.get("free_vram_gb", 0),
+        _binpack_score(best),
+    )
+    return best
+
+
+def process_queue_binpack(canada_only=None, province=None):
+    """Process job queue using best-fit-decreasing order.
+
+    Sorts queued jobs by vram_needed_gb descending (largest first)
+    to minimize fragmentation, then allocates using bin-pack scoring.
+    """
+    hosts = list_hosts()
+    if canada_only:
+        hosts = [h for h in hosts if h.get("country", "").upper() == "CA"]
+    if province:
+        hosts = [h for h in hosts if h.get("province", "").upper() == province.upper()]
+
+    jobs = [j for j in list_jobs() if j.get("status") == "queued"]
+    # Best-fit-decreasing: sort by VRAM descending
+    jobs.sort(key=lambda j: j.get("vram_needed_gb", 0), reverse=True)
+
+    assigned = []
+    for job in jobs:
+        host = allocate_binpack(job, hosts)
+        if host:
+            update_job_status(job["job_id"], "assigned", host["host_id"])
+            assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
+            # Reduce host's available VRAM for subsequent allocations
+            host["free_vram_gb"] = host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0)
+
+    return assigned
+
+
 # ── Phase 2: Host Registry ───────────────────────────────────────────
 
 
@@ -672,6 +793,11 @@ def start_health_monitor(interval=5, callback=None):
 # ── Phase 15: Priority Tiers ─────────────────────────────────────────
 
 PRIORITY_TIERS = {
+    # Pricing-model tiers (frontend-facing)
+    "on-demand": {"priority": 1, "multiplier": 1.0, "label": "On-Demand"},
+    "spot": {"priority": 0, "multiplier": 0.6, "label": "Spot", "spot": True},
+    "reserved": {"priority": 1, "multiplier": 0.8, "label": "Reserved"},
+    # Priority tiers (queue priority escalation)
     "free": {"priority": 0, "multiplier": 1.0, "label": "Free"},
     "standard": {"priority": 1, "multiplier": 1.0, "label": "Standard"},
     "premium": {"priority": 2, "multiplier": 1.5, "label": "Premium"},
@@ -685,11 +811,16 @@ def get_tier_info(tier_name):
 
 
 def get_tier_by_priority(priority):
-    """Reverse lookup: priority int -> tier name."""
+    """Reverse lookup: priority int -> tier name. Prefers non-spot tiers."""
+    candidates = []
     for name, info in PRIORITY_TIERS.items():
         if info["priority"] == priority:
-            return name
-    return "free"
+            candidates.append(name)
+    # Prefer non-spot tier (avoid accidentally marking jobs as spot/preemptible)
+    for c in candidates:
+        if not PRIORITY_TIERS[c].get("spot"):
+            return c
+    return candidates[0] if candidates else "free"
 
 
 def list_tiers():
@@ -736,6 +867,9 @@ def submit_job(
     nfs_path=None,
     nfs_mount_point=None,
     image=None,
+    interactive=False,
+    command=None,
+    ssh_port=22,
 ):
     """
     Submit a job to the queue.
@@ -745,17 +879,21 @@ def submit_job(
 
     Multi-GPU: num_gpus specifies how many GPUs are needed (default 1).
     NFS: Optionally specify NFS server/path for shared storage.
+    Interactive: If True, container stays running with SSH access until stopped.
     """
     # Tier overrides raw priority
     if tier and tier in PRIORITY_TIERS:
         tier_info = PRIORITY_TIERS[tier]
         priority = tier_info["priority"]
     elif tier:
-        log.warning("UNKNOWN TIER '%s' — defaulting to free", tier)
-        tier = "free"
-        priority = 0
+        log.warning("UNKNOWN TIER '%s' — defaulting to on-demand", tier)
+        tier = "on-demand"
+        priority = 1
     else:
         tier = get_tier_by_priority(priority)
+
+    # Spot tier: mark job as interruptible
+    is_spot = PRIORITY_TIERS.get(tier, {}).get("spot", False)
 
     job = {
         "job_id": str(uuid.uuid4())[:8],
@@ -775,7 +913,15 @@ def submit_job(
         "nfs_path": nfs_path or "",
         "nfs_mount_point": nfs_mount_point or "",
         "image": image or "",
+        "interactive": bool(interactive),
+        "command": command or "",
+        "ssh_port": int(ssh_port or 22),
     }
+
+    # Spot jobs are preemptible and participate in the spot pricing market
+    if is_spot:
+        job["spot"] = True
+        job["preemptible"] = True
 
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
@@ -888,7 +1034,7 @@ def update_job_status(job_id, status, host_id=None):
                 j["vram_reserved_gb"] = reserved
 
         # Release GPU memory when a running job reaches terminal state.
-        if status in ("completed", "failed") and old_status == "running":
+        if status in ("completed", "failed", "cancelled") and old_status == "running":
             reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
             if reserved > 0:
                 _release_host_vram(conn, j.get("host_id"), reserved)
@@ -899,7 +1045,7 @@ def update_job_status(job_id, status, host_id=None):
             j["host_id"] = host_id
         if status == "running":
             j["started_at"] = time.time()
-        if status in ("completed", "failed"):
+        if status in ("completed", "failed", "cancelled"):
             j["completed_at"] = time.time()
 
         _upsert_job_row(conn, j)
@@ -1014,8 +1160,8 @@ def process_queue():
         if not host:
             continue  # no host for THIS job, but maybe smaller jobs fit
 
-        updated = update_job_status(job["job_id"], "running", host_id=host["host_id"])
-        if not updated or updated.get("status") != "running":
+        updated = update_job_status(job["job_id"], "assigned", host_id=host["host_id"])
+        if not updated or updated.get("status") != "assigned":
             continue
         assigned.append((updated, host))
 
@@ -1582,6 +1728,193 @@ def failover_and_reassign():
             log.info("FAILOVER REASSIGNED job=%s -> host=%s", j["job_id"], h["host_id"])
 
     return requeued, assigned
+
+
+# ── Auto-Remediation: Checkpoint + Re-Queue ──────────────────────────
+# Docker CRIU Checkpoint support for transparent job migration.
+# On health check failure, checkpoint the container, snapshot its state,
+# then requeue with the checkpoint reference so the next host can resume.
+
+CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
+
+
+def checkpoint_container(host_id: str, job_id: str, container_name: str = "") -> dict | None:
+    """Create a Docker CRIU checkpoint for a running container on a host.
+
+    Uses `docker checkpoint create` to freeze the container state.
+    Returns checkpoint metadata or None on failure.
+    """
+    if not container_name:
+        container_name = f"xcelsior-job-{job_id}"
+
+    checkpoint_name = f"ckpt-{job_id}-{int(time.time())}"
+    checkpoint_path = os.path.join(CHECKPOINT_DIR, checkpoint_name)
+
+    try:
+        os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+        # In production, this would SSH to the host and run docker checkpoint.
+        # For now we record the intent and metadata.
+        cmd = (
+            f"docker checkpoint create "
+            f"--checkpoint-dir={checkpoint_path} "
+            f"--leave-running=false "
+            f"{container_name} {checkpoint_name}"
+        )
+
+        log.info(
+            "CHECKPOINT job=%s host=%s container=%s checkpoint=%s",
+            job_id, host_id, container_name, checkpoint_name,
+        )
+
+        # Attempt the checkpoint (best-effort — container may already be dead)
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=120,
+        )
+
+        checkpoint_meta = {
+            "checkpoint_name": checkpoint_name,
+            "checkpoint_path": checkpoint_path,
+            "job_id": job_id,
+            "host_id": host_id,
+            "container": container_name,
+            "created_at": time.time(),
+            "success": result.returncode == 0,
+            "stderr": result.stderr[:500] if result.stderr else "",
+        }
+
+        # Persist metadata
+        meta_file = os.path.join(checkpoint_path, "meta.json")
+        os.makedirs(checkpoint_path, exist_ok=True)
+        with open(meta_file, "w") as f:
+            json.dump(checkpoint_meta, f, indent=2)
+
+        return checkpoint_meta
+
+    except subprocess.TimeoutExpired:
+        log.error("CHECKPOINT TIMEOUT job=%s host=%s", job_id, host_id)
+    except Exception as e:
+        log.error("CHECKPOINT FAILED job=%s host=%s: %s", job_id, host_id, e)
+
+    return None
+
+
+def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: dict) -> bool:
+    """Resume a checkpointed job on a new host.
+
+    Sends the checkpoint tar to the target host and starts the container
+    with `--checkpoint` flag.
+    """
+    checkpoint_name = checkpoint_meta.get("checkpoint_name", "")
+    checkpoint_path = checkpoint_meta.get("checkpoint_path", "")
+    container = checkpoint_meta.get("container", f"xcelsior-job-{job_id}")
+
+    if not checkpoint_name:
+        log.error("RESUME FAILED: no checkpoint_name for job=%s", job_id)
+        return False
+
+    cmd = (
+        f"docker start "
+        f"--checkpoint-dir={checkpoint_path} "
+        f"--checkpoint={checkpoint_name} "
+        f"{container}"
+    )
+
+    log.info(
+        "RESUME job=%s target_host=%s checkpoint=%s",
+        job_id, target_host_id, checkpoint_name,
+    )
+
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=180,
+        )
+        if result.returncode == 0:
+            log.info("RESUME SUCCESS job=%s on host=%s", job_id, target_host_id)
+            return True
+        else:
+            log.error(
+                "RESUME FAILED job=%s: %s", job_id, result.stderr[:300],
+            )
+    except Exception as e:
+        log.error("RESUME EXCEPTION job=%s: %s", job_id, e)
+
+    return False
+
+
+# Health failure tracking: consecutive failures per host
+_health_failure_counts: dict[str, int] = {}
+HEALTH_FAILURE_THRESHOLD = 3  # Consecutive failures before remediation
+
+
+def remediate_unhealthy_host(host_id: str) -> list[dict]:
+    """Auto-remediate an unhealthy host: checkpoint running jobs and re-queue.
+
+    Called when a host has HEALTH_FAILURE_THRESHOLD consecutive health check
+    failures. Steps:
+    1. Checkpoint all running containers on the host (best-effort)
+    2. Re-queue jobs with checkpoint metadata for resume
+    3. Mark host as dead
+
+    Returns list of requeued job dicts with checkpoint info.
+    """
+    jobs = load_jobs()
+    running_on_host = [
+        j for j in jobs if j["status"] == "running" and j.get("host_id") == host_id
+    ]
+
+    if not running_on_host:
+        log.info("REMEDIATE host=%s has no running jobs", host_id)
+        return []
+
+    requeued = []
+
+    for job in running_on_host:
+        job_id = job["job_id"]
+        log.warning("REMEDIATE CHECKPOINT job=%s on unhealthy host=%s", job_id, host_id)
+
+        # Step 1: Attempt checkpoint (best-effort)
+        ckpt = checkpoint_container(host_id, job_id)
+
+        # Step 2: Requeue with checkpoint reference
+        result = requeue_job(job_id)
+        if result:
+            if ckpt and ckpt.get("success"):
+                # Attach checkpoint metadata so the next scheduler pass can resume
+                result["resume_from"] = ckpt
+            requeued.append(result)
+
+    # Step 3: Record remediation
+    log.warning(
+        "REMEDIATE COMPLETE host=%s: %d jobs checkpointed and requeued",
+        host_id, len(requeued),
+    )
+
+    return requeued
+
+
+def record_health_check(host_id: str, healthy: bool) -> dict | None:
+    """Record a health check result and trigger remediation if needed.
+
+    Returns remediation result if threshold exceeded, else None.
+    """
+    if healthy:
+        _health_failure_counts.pop(host_id, None)
+        return None
+
+    count = _health_failure_counts.get(host_id, 0) + 1
+    _health_failure_counts[host_id] = count
+
+    if count >= HEALTH_FAILURE_THRESHOLD:
+        log.warning(
+            "HEALTH THRESHOLD EXCEEDED host=%s failures=%d — triggering remediation",
+            host_id, count,
+        )
+        _health_failure_counts.pop(host_id, None)
+        requeued = remediate_unhealthy_host(host_id)
+        return {"host_id": host_id, "action": "remediated", "requeued": requeued}
+
+    return None
 
 
 def start_failover_monitor(interval=10, callback=None):
@@ -2391,26 +2724,18 @@ def save_spot_prices(prices):
 
 
 def compute_spot_price(base_price, demand, supply, k=None, threshold=None):
-    """Compute spot price using supply/demand multiplier curve.
+    """Compute spot price using supply/demand curve with 50% cap.
 
-    Formula: spot = base_price * e^(k * max(0, D/S - threshold))
-
-    Where:
-      - base_price: host's minimum ask price
-      - demand: active + queued jobs for this GPU type
-      - supply: total available GPUs of that type
-      - k: sensitivity coefficient (default 0.5)
-      - threshold: utilization threshold (default 0.8)
+    Formula: spot = base_price * (1 + demand_factor)
+    Demand factor capped: min(0.5, queue_depth / (available_gpus * 2))
+    Per Phase 2.2: max 50% surge above base price.
     """
-    k = k if k is not None else SPOT_SENSITIVITY
-    threshold = threshold if threshold is not None else SPOT_THRESHOLD
-
     if supply <= 0:
-        return base_price * 3.0  # Max surge when no supply
+        return round(base_price * 1.5, 4)  # Cap at 50% surge
 
-    utilization = demand / supply
-    surge = max(0.0, utilization - threshold)
-    multiplier = math.exp(k * surge)
+    # Demand factor: capped at 0.5 (50% max surge)
+    demand_factor = min(0.5, demand / (supply * 2))
+    multiplier = 1.0 + demand_factor
 
     return round(base_price * multiplier, 4)
 
@@ -3010,3 +3335,61 @@ def start_crypto_watcher(interval: int = 60, callback=None):
     t.start()
     log.info("Crypto confirmation watcher started (interval=%ds)", interval)
     return t
+
+
+# ── Stripe Webhook Inbox Processor ───────────────────────────────────
+# Per Phase 1.1: background worker loop in scheduler.py to process inbox rows.
+# Delegates to stripe_connect._process_single_event() for actual handling.
+
+
+def process_webhook_inbox():
+    """Process pending Stripe webhook events from the inbox.
+
+    Claims events via UPDATE ... WHERE status='pending' AND next_retry_at <= now()
+    with row lock (FOR UPDATE SKIP LOCKED) to prevent double processing.
+    Called periodically by the background scheduler.
+    """
+    try:
+        from stripe_connect import get_connect_engine
+        engine = get_connect_engine()
+    except Exception as e:
+        log.debug("Stripe Connect not available: %s", e)
+        return {"processed": 0, "errors": 0}
+
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    processed = 0
+    errors = 0
+
+    try:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            pending = conn.execute(
+                """SELECT event_id FROM stripe_event_inbox
+                   WHERE status = 'pending'
+                     AND (next_retry_at IS NULL OR next_retry_at <= %s)
+                   ORDER BY received_at ASC
+                   LIMIT 50
+                   FOR UPDATE SKIP LOCKED""",
+                (time.time(),),
+            ).fetchall()
+
+        for row in pending:
+            try:
+                result = engine._process_single_event(row["event_id"])
+                if result:
+                    processed += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                errors += 1
+                log.error("Webhook inbox processing error for %s: %s", row["event_id"], e)
+
+    except Exception as e:
+        log.debug("Webhook inbox sweep skipped: %s", e)
+
+    if processed or errors:
+        log.info("WEBHOOK INBOX: processed=%d errors=%d", processed, errors)
+    return {"processed": processed, "errors": errors}

@@ -849,6 +849,18 @@ export interface Instance {
   tier?: string;
   submitted_at: string;
   created_at?: string;
+  // Connection info (enriched by API when running/completed)
+  host_ip?: string;
+  host_gpu?: string;
+  host_vram_gb?: number;
+  container_id?: string;
+  container_name?: string;
+  started_at?: string;
+  completed_at?: string;
+  // Interactive instance fields
+  interactive?: boolean;
+  ssh_port?: number;
+  command?: string;
 }
 
 /** @deprecated Use Instance instead */
@@ -1010,4 +1022,190 @@ export interface ArtifactEntry {
   size_bytes?: number;
   residency_policy?: string;
   created_at: string;
+}
+
+// ── v2 Types ──────────────────────────────────────────────────────────
+
+export interface GPUOffer {
+  offer_id: string;
+  provider_id: string;
+  host_id: string;
+  gpu_model: string;
+  gpu_count_total: number;
+  gpu_count_available: number;
+  vram_gb: number;
+  ask_cents_per_hour: number;
+  region: string;
+  spot_enabled: boolean;
+  spot_min_cents: number;
+  available: boolean;
+}
+
+export interface InferenceEndpoint {
+  endpoint_id: string;
+  owner_id: string;
+  model_name: string;
+  status: string;
+  min_workers: number;
+  max_workers: number;
+  total_requests: number;
+  avg_latency_ms: number;
+  created_at: number;
+}
+
+export interface Volume {
+  volume_id: string;
+  owner_id: string;
+  name: string;
+  size_gb: number;
+  region: string;
+  encrypted: boolean;
+  status: string;
+  created_at: number;
+}
+
+export interface SpotPricePoint {
+  gpu_model: string;
+  spot_cents: number;
+  recorded_at: number;
+}
+
+// ── v2 Marketplace API ────────────────────────────────────────────────
+
+export async function searchMarketplaceV2(params: {
+  gpu_model?: string;
+  min_vram_gb?: number;
+  max_price_cents?: number;
+  region?: string;
+  canada_only?: boolean;
+  sort_by?: string;
+  limit?: number;
+}) {
+  return apiFetch<{ ok: boolean; offers: GPUOffer[]; count: number }>(
+    "/api/v2/marketplace/search",
+    { method: "POST", body: JSON.stringify(params) },
+  );
+}
+
+export async function fetchSpotPricesV2() {
+  return apiFetch<{ ok: boolean; spot_prices: SpotPricePoint[] }>(
+    "/api/v2/marketplace/spot-prices",
+  );
+}
+
+export async function fetchSpotHistory(gpuModel: string, hours = 24) {
+  return apiFetch<{ ok: boolean; gpu_model: string; history: SpotPricePoint[] }>(
+    `/api/v2/marketplace/spot-prices/${encodeURIComponent(gpuModel)}/history?hours=${hours}`,
+  );
+}
+
+export async function fetchMarketplaceStatsV2() {
+  return apiFetch<{ ok: boolean; total_offers: number; total_gpus: number; avg_price: number }>(
+    "/api/v2/marketplace/stats",
+  );
+}
+
+export async function createMarketplaceReservation(data: {
+  gpu_model: string;
+  gpu_count?: number;
+  period_months: number;
+}) {
+  return apiFetch<{ ok: boolean; reservation: Record<string, unknown> }>(
+    "/api/v2/marketplace/reservations",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+// ── v2 Inference API ──────────────────────────────────────────────────
+
+export async function createInferenceEndpoint(data: {
+  model_name: string;
+  min_workers?: number;
+  max_workers?: number;
+  scaledown_window_sec?: number;
+}) {
+  return apiFetch<{ ok: boolean; endpoint: InferenceEndpoint }>(
+    "/api/v2/inference/endpoints",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function listInferenceEndpoints() {
+  return apiFetch<{ ok: boolean; endpoints: InferenceEndpoint[] }>(
+    "/api/v2/inference/endpoints",
+  );
+}
+
+export async function deleteInferenceEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/inference/endpoints/${encodeURIComponent(endpointId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── v2 Volumes API ────────────────────────────────────────────────────
+
+export async function createVolume(data: {
+  name: string;
+  size_gb?: number;
+  region?: string;
+  encrypted?: boolean;
+}) {
+  return apiFetch<{ ok: boolean; volume: Volume }>(
+    "/api/v2/volumes",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function listVolumes() {
+  return apiFetch<{ ok: boolean; volumes: Volume[] }>("/api/v2/volumes");
+}
+
+export async function deleteVolume(volumeId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function attachVolume(volumeId: string, instanceId: string, mountPath = "/workspace") {
+  return apiFetch<{ ok: boolean; attachment: Record<string, unknown> }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/attach`,
+    { method: "POST", body: JSON.stringify({ instance_id: instanceId, mount_path: mountPath }) },
+  );
+}
+
+export async function detachVolume(volumeId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/detach`,
+    { method: "POST" },
+  );
+}
+
+// ── v2 Billing API ────────────────────────────────────────────────────
+
+export async function configureAutoTopup(data: {
+  enabled: boolean;
+  amount_cad?: number;
+  threshold_cad?: number;
+  stripe_payment_method_id?: string;
+}) {
+  return apiFetch<{ ok: boolean }>(
+    "/api/v2/billing/auto-topup",
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function fetchAutoTopup() {
+  return apiFetch<{ ok: boolean; auto_topup: { enabled: boolean; amount_cad: number; threshold_cad: number } }>(
+    "/api/v2/billing/auto-topup",
+  );
+}
+
+// ── v2 Cloud Burst API ────────────────────────────────────────────────
+
+export async function fetchBurstStatus() {
+  return apiFetch<{ ok: boolean; active_instances: number; total_spending: number; budget_remaining: number }>(
+    "/api/v2/burst/status",
+  );
 }

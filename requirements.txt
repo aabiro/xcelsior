@@ -40,6 +40,18 @@ nvidia-ml-py>=12.0.0
 # ── Payments — Stripe Connect (optional — only needed for provider payouts) ──
 stripe>=8.0.0
 
+# ── CLI ───────────────────────────────────────────────────────────────
+rich>=13.7.0
+
+# ── Security ──────────────────────────────────────────────────────────
+cryptography>=42.0.0
+
+# ── Observability — OpenTelemetry ─────────────────────────────────────
+opentelemetry-api>=1.25.0
+opentelemetry-sdk>=1.25.0
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-exporter-otlp>=1.25.0
+
 # ── ML/Inference (optional — only needed if using inference.py) ───────
 # torch>=2.1.0
 # transformers>=4.36.0

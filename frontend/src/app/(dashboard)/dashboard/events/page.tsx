@@ -196,7 +196,11 @@ export default function EventsPage() {
                         </span>
                       </div>
                       <p className="text-sm text-text-secondary truncate">
-                        {event.message || JSON.stringify(event.data || {})}
+                        {event.message || (event.data
+                          ? Object.entries(event.data)
+                              .map(([k, v]) => `${k}: ${v}`)
+                              .join(" · ")
+                          : event.type?.replace(/_/g, " ") || "—")}
                       </p>
                     </div>
                   </div>

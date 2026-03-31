@@ -221,7 +221,7 @@ class EventStore:
         with self._conn() as conn:
             # Get the hash of the most recent event (chain link)
             row = conn.execute(
-                "SELECT event_hash FROM events ORDER BY timestamp DESC, rowid DESC LIMIT 1"
+                "SELECT event_hash FROM events ORDER BY timestamp DESC, event_id DESC LIMIT 1"
             ).fetchone()
             event.prev_hash = row["event_hash"] if row and row["event_hash"] else ""
 
@@ -633,3 +633,137 @@ def get_state_machine() -> JobStateMachine:
     if _state_machine is None:
         _state_machine = JobStateMachine(get_event_store())
     return _state_machine
+
+
+# ── Event Snapshots (for performance at scale) ───────────────────────
+
+class EventSnapshotManager:
+    """Manages periodic snapshots of entity state for fast reads.
+
+    Instead of replaying all events to reconstruct state, we periodically
+    snapshot the current state. Reads can start from the latest snapshot
+    and only replay events after that snapshot's sequence number.
+    """
+
+    @contextmanager
+    def _conn(self):
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    def create_snapshot(self, entity_type: str, entity_id: str, state: dict, sequence_number: int) -> dict:
+        """Create a snapshot of an entity's current state."""
+        from psycopg.types.json import Jsonb
+        now = time.time()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO event_snapshots
+                   (entity_type, entity_id, snapshot_data, sequence_number, created_at)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (entity_type, entity_id, Jsonb(state), sequence_number, now),
+            )
+        return {"entity_type": entity_type, "entity_id": entity_id, "sequence_number": sequence_number}
+
+    def get_latest_snapshot(self, entity_type: str, entity_id: str) -> Optional[dict]:
+        """Get the most recent snapshot for an entity."""
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM event_snapshots
+                   WHERE entity_type = %s AND entity_id = %s
+                   ORDER BY sequence_number DESC LIMIT 1""",
+                (entity_type, entity_id),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def snapshot_all_jobs(self, store: EventStore) -> int:
+        """Create snapshots for all active job entities.
+
+        Called periodically to keep snapshot freshness.
+        """
+        snapped = 0
+        with self._conn() as conn:
+            # Find distinct active job entities
+            rows = conn.execute(
+                """SELECT DISTINCT entity_id FROM events
+                   WHERE entity_type = 'job'
+                   ORDER BY entity_id""",
+            ).fetchall()
+
+        for row in rows:
+            entity_id = row["entity_id"]
+            events = store.get_entity_history("job", entity_id)
+            if not events:
+                continue
+
+            # Build current state from events
+            state = {}
+            seq = 0
+            for evt in events:
+                state.update(evt.data)
+                state["status"] = evt.event_type
+                seq += 1
+
+            # Check if we need a new snapshot (every 50 events)
+            latest = self.get_latest_snapshot("job", entity_id)
+            if latest and latest["sequence_number"] >= seq - 50:
+                continue  # Recent enough
+
+            self.create_snapshot("job", entity_id, state, seq)
+            snapped += 1
+
+        if snapped:
+            log.info("EVENT SNAPSHOTS: created %d job snapshots", snapped)
+        return snapped
+
+    def archive_old_events(self, max_age_days: int = 90) -> int:
+        """Move events older than max_age_days to events_archive (cold storage).
+
+        Preserves chain hashes so audit integrity is maintained even after
+        the hot events table is compacted.  Returns number of archived rows.
+        """
+        cutoff = time.time() - (max_age_days * 86400)
+        now = time.time()
+        archived = 0
+
+        with self._conn() as conn:
+            # Copy old events to archive
+            rows = conn.execute(
+                """INSERT INTO events_archive
+                       (event_id, entity_type, entity_id, event_type, data, actor, chain_hash, created_at, archived_at)
+                   SELECT event_id, entity_type, entity_id, event_type, data, actor,
+                          COALESCE(chain_hash, ''), created_at, %s
+                   FROM events
+                   WHERE created_at < %s
+                   RETURNING id""",
+                (now, cutoff),
+            ).fetchall()
+            archived = len(rows)
+
+            if archived > 0:
+                # Delete archived events from hot table
+                conn.execute(
+                    "DELETE FROM events WHERE created_at < %s",
+                    (cutoff,),
+                )
+
+        if archived:
+            log.info("EVENT ARCHIVE: moved %d events older than %d days to cold storage", archived, max_age_days)
+        return archived
+
+
+_snapshot_manager: Optional[EventSnapshotManager] = None
+
+
+def get_snapshot_manager() -> EventSnapshotManager:
+    global _snapshot_manager
+    if _snapshot_manager is None:
+        _snapshot_manager = EventSnapshotManager()
+    return _snapshot_manager

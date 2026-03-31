@@ -6,14 +6,29 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-import { ArrowLeft, Rocket, DollarSign } from "lucide-react";
+import { ArrowLeft, Rocket, DollarSign, Box } from "lucide-react";
 import { submitInstance, fetchPricingReference, fetchProvinces } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import type { PricingReference } from "@/lib/api";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const TIERS = ["on-demand", "spot", "reserved"] as const;
-const PRIORITIES = ["low", "normal", "high"] as const;
+const PRIORITIES = [
+  { label: "Low", value: 0 },
+  { label: "Normal", value: 1 },
+  { label: "High", value: 2 },
+  { label: "Urgent", value: 3 },
+] as const;
+
+const TEMPLATES = [
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.01-py3", vram: "24", icon: "🔥" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.01-tf2-py3", vram: "24", icon: "🧠" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:latest", vram: "24", icon: "⚡" },
+  { id: "comfyui", label: "ComfyUI", image: "comfyanonymous/comfyui:latest", vram: "12", icon: "🎨" },
+  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: "8", icon: "📓" },
+  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: "8", icon: "🐧" },
+] as const;
 
 export default function NewInstancePage() {
   const router = useRouter();
@@ -27,7 +42,7 @@ export default function NewInstancePage() {
   const [vramNeeded, setVramNeeded] = useState("24");
   const [numGpus, setNumGpus] = useState("1");
   const [tier, setTier] = useState<(typeof TIERS)[number]>("on-demand");
-  const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("normal");
+  const [priority, setPriority] = useState(1);
   const [durationHrs, setDurationHrs] = useState("1");
   const [province, setProvince] = useState("");
   const [nfsMount, setNfsMount] = useState("");
@@ -102,6 +117,46 @@ export default function NewInstancePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Template Selector */}
+        <Card className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Box className="h-4 w-4 text-ice-blue" />
+            <h2 className="text-lg font-semibold">Templates</h2>
+          </div>
+          <p className="text-sm text-text-secondary">Quick-start with a pre-configured environment, or choose custom.</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <button
+              type="button"
+              onClick={() => { setImage(""); setVramNeeded("24"); }}
+              className={cn(
+                "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
+                !TEMPLATES.some((t) => t.image === image)
+                  ? "border-accent-red bg-accent-red/10 text-accent-red"
+                  : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+              )}
+            >
+              <span className="text-lg">⚙️</span>
+              <span className="font-medium">Custom</span>
+            </button>
+            {TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => { setImage(tpl.image); setVramNeeded(tpl.vram); }}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
+                  image === tpl.image
+                    ? "border-accent-red bg-accent-red/10 text-accent-red"
+                    : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                )}
+              >
+                <span className="text-lg">{tpl.icon}</span>
+                <span className="font-medium">{tpl.label}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+
         {/* Basic Info */}
         <Card className="space-y-4">
           <h2 className="text-lg font-semibold">{t("dash.newinstance.config")}</h2>
@@ -173,9 +228,9 @@ export default function NewInstancePage() {
 
             <div className="space-y-2">
               <Label htmlFor="priority">{t("dash.newinstance.priority")}</Label>
-              <Select id="priority" value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)}>
+              <Select id="priority" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
                 {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                  <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </Select>
             </div>
@@ -215,6 +270,7 @@ export default function NewInstancePage() {
         {/* Optional */}
         <Card className="space-y-4">
           <h2 className="text-lg font-semibold">{t("dash.newinstance.advanced")}</h2>
+
           <div className="space-y-2">
             <Label htmlFor="nfs">{t("dash.newinstance.nfs")}</Label>
             <Input
@@ -251,6 +307,12 @@ export default function NewInstancePage() {
                   <p className="font-mono text-base font-semibold text-text-primary">
                     Total: ${totalWithTax.toFixed(2)} CAD
                   </p>
+                  {tier === "spot" && (
+                    <p className="text-xs text-amber-400 mt-1">⚡ Spot instances are interruptible — your job may be preempted if demand increases.</p>
+                  )}
+                  {tier === "reserved" && (
+                    <p className="text-xs text-emerald-400 mt-1">✓ Reserved pricing — 20% discount with commitment.</p>
+                  )}
                 </div>
               </div>
             </div>

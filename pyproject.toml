@@ -1,3 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xcelsior"
+version = "2.3.0"
+description = "Distributed GPU cloud platform — built for Canadians"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+authors = [
+    {name = "Xcelsior Team"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Framework :: FastAPI",
+]
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "psycopg[binary]>=3.1.0",
+    "alembic>=1.13.0",
+    "stripe>=8.0.0",
+    "rich>=13.7.0",
+    "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+gpu = ["nvidia-ml-py>=12.0.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.2.0", "black>=24.0.0"]
+
+[project.scripts]
+xcelsior = "cli:main"
+
 [tool.black]
 line-length = 100
 target-version = ["py312"]

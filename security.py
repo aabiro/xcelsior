@@ -7,14 +7,34 @@
 #   Layer 3: Network controls + mining resistance
 #   Layer 4: (Optional) Sandboxed runtimes (gVisor/Kata)
 
+import base64
 import json
 import logging
 import os
 import re
+import secrets as _secrets_mod
 import subprocess
 import time
+from cryptography.fernet import Fernet
 
 log = logging.getLogger("xcelsior")
+
+# ── Encryption key for user secrets ───────────────────────────────────
+# In production, source from a KMS or a restricted env var.
+_SECRETS_KEY = os.environ.get("XCELSIOR_SECRETS_KEY", "")
+_fernet = None
+
+
+def _get_fernet():
+    global _fernet
+    if _fernet is None:
+        key = _SECRETS_KEY
+        if not key:
+            # Deterministic fallback for dev — NOT for production use
+            key = base64.urlsafe_b64encode(b"xcelsior-dev-key-32bytes!padding!" [:32]).decode()
+            log.warning("XCELSIOR_SECRETS_KEY not set — using insecure dev key")
+        _fernet = Fernet(key.encode() if isinstance(key, str) else key)
+    return _fernet
 
 # ── Layer 1: Version Gating / Node Admission Control ─────────────────
 # Refuse to run workloads on nodes with known-vulnerable components.
@@ -205,6 +225,7 @@ def build_secure_docker_args(
     environment=None,
     volumes=None,
     command=None,
+    interactive=False,
 ):
     """Build Docker run arguments with defense-in-depth security.
 
@@ -213,12 +234,13 @@ def build_secure_docker_args(
     - No privileged mode
     - No new privileges (prevent setuid/setgid escalation)
     - Drop all capabilities, add back only what's needed
-    - Read-only root filesystem
+    - Read-only root filesystem (batch mode only)
     - Tmpfs for /tmp
     - Memory limits
     - Optional gVisor runtime (runsc)
     - Optional GPU access (--gpus, not --privileged)
     - Multi-GPU support (specific device selection)
+    - Interactive mode: writable filesystem for SSH/dev use
     """
     args = ["docker", "run", "-d"]
 
@@ -231,8 +253,10 @@ def build_secure_docker_args(
     # Security: drop all capabilities, add back minimums
     args.extend(["--cap-drop", "ALL"])
 
-    # Security: read-only root filesystem + tmpfs for writable dirs
-    args.append("--read-only")
+    # Security: read-only root filesystem + tmpfs for writable dirs (batch only)
+    # Interactive containers need writable FS for user workflows (SSH, package installs)
+    if not interactive:
+        args.append("--read-only")
     args.extend(["--tmpfs", "/tmp:rw,noexec,nosuid,size=1g"])
     args.extend(["--tmpfs", "/var/tmp:rw,noexec,nosuid,size=512m"])
 
@@ -647,3 +671,238 @@ def admit_node(host_id, versions, gpu_model=None):
         )
 
     return admitted, details
+
+
+# ── Layer 5: MIG-Aware Scheduling ─────────────────────────────────────
+# A100/H100 Multi-Instance GPU support. gVisor nvproxy does NOT expose
+# /dev/nvidia-caps/*, so MIG hosts must use runc + strict seccomp.
+
+MIG_CAPABLE_MODELS = {"A100", "H100", "A30"}
+
+
+def detect_mig_capability():
+    """Detect MIG capability on the local host via nvidia-smi.
+
+    Returns:
+        dict with 'mig_capable', 'mig_enabled', 'mig_partitions'
+    """
+    result = {"mig_capable": False, "mig_enabled": False, "mig_partitions": []}
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "mig", "-lgi"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0 and "GPU instance ID" in r.stdout:
+            result["mig_capable"] = True
+            result["mig_enabled"] = True
+            for line in r.stdout.strip().split("\n"):
+                if "MIG" in line or "GI" in line:
+                    result["mig_partitions"].append(line.strip())
+        elif "not supported" not in (r.stdout + r.stderr).lower():
+            # MIG capable but not enabled
+            result["mig_capable"] = True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return result
+
+
+def select_runtime_for_host(gpu_model, mig_info=None):
+    """Choose container runtime based on GPU type and MIG state.
+
+    Key insight: gVisor's nvproxy does NOT support MIG partitions.
+    - MIG-enabled hosts → runc + strict seccomp + apparmor
+    - Consumer GPUs → gVisor (runsc)
+    """
+    if mig_info and mig_info.get("mig_enabled"):
+        return "runc", "MIG enabled — gVisor nvproxy incompatible with /dev/nvidia-caps/*"
+
+    model_upper = (gpu_model or "").upper()
+    for mig_model in MIG_CAPABLE_MODELS:
+        if mig_model in model_upper:
+            if mig_info and mig_info.get("mig_capable") and not mig_info.get("mig_enabled"):
+                return "runc", f"{mig_model} detected but MIG not enabled — using runc for MIG readiness"
+            return "runsc", f"{mig_model} without MIG — gVisor compatible"
+
+    return "runsc", "Consumer GPU — gVisor (runsc) recommended"
+
+
+def build_mig_docker_args(mig_partition_id, base_args=None):
+    """Add MIG-specific device selection to Docker args.
+
+    Uses NVIDIA_VISIBLE_DEVICES=MIG-<uuid> to pin container to a
+    specific MIG partition instead of using --gpus all.
+    """
+    args = list(base_args or [])
+    # Remove any existing --gpus flags (MIG uses env var instead)
+    cleaned = []
+    skip_next = False
+    for a in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--gpus":
+            skip_next = True
+            continue
+        cleaned.append(a)
+    cleaned.extend(["-e", f"NVIDIA_VISIBLE_DEVICES={mig_partition_id}"])
+    cleaned.extend(["-e", "NVIDIA_MIG_CONFIG_DEVICES=all"])
+    return cleaned
+
+
+# ── Layer 6: Secrets Injection ────────────────────────────────────────
+# Encrypt user secrets at rest; inject via tmpfs at container start.
+
+def encrypt_secret(plaintext):
+    """Encrypt a secret value for storage in the database.
+
+    Args:
+        plaintext: str or bytes to encrypt
+
+    Returns:
+        base64-encoded ciphertext string
+    """
+    if isinstance(plaintext, str):
+        plaintext = plaintext.encode("utf-8")
+    return _get_fernet().encrypt(plaintext).decode("ascii")
+
+
+def decrypt_secret(ciphertext):
+    """Decrypt a previously encrypted secret.
+
+    Args:
+        ciphertext: base64-encoded string from encrypt_secret()
+
+    Returns:
+        decrypted plaintext string
+    """
+    if isinstance(ciphertext, str):
+        ciphertext = ciphertext.encode("ascii")
+    return _get_fernet().decrypt(ciphertext).decode("utf-8")
+
+
+def build_secrets_mount_args(user_secrets, container_name):
+    """Build Docker args to inject secrets via tmpfs mount.
+
+    Secrets are written to a tmpfs (never persisted to disk) at
+    /run/secrets inside the container. Destroyed on container stop.
+
+    Args:
+        user_secrets: dict of {name: encrypted_value}
+        container_name: Docker container name
+
+    Returns:
+        (extra_docker_args, post_start_commands)
+        - extra_docker_args: list of args to add to docker run
+        - post_start_commands: list of shell commands to run after start
+    """
+    extra_args = [
+        "--mount", "type=tmpfs,destination=/run/secrets,tmpfs-size=10m,tmpfs-mode=0500",
+    ]
+    # Environment variables for simple secrets (HF_TOKEN, WANDB_API_KEY)
+    env_args = []
+    post_cmds = []
+
+    for name, encrypted_val in user_secrets.items():
+        try:
+            plaintext = decrypt_secret(encrypted_val)
+        except Exception:
+            log.warning("Failed to decrypt secret %s for container %s", name, container_name)
+            continue
+
+        # Common secrets go as env vars for compatibility
+        safe_name = re.sub(r"[^A-Za-z0-9_]", "_", name).upper()
+        env_args.extend(["-e", f"{safe_name}={plaintext}"])
+
+        # Also write to /run/secrets/<name> file
+        # Must be done after container start since tmpfs is empty at create
+        escaped = plaintext.replace("'", "'\\''")
+        post_cmds.append(
+            f"docker exec {container_name} sh -c 'echo -n '\"'\"'{escaped}'\"'\"' > /run/secrets/{safe_name} && chmod 400 /run/secrets/{safe_name}'"
+        )
+
+    return extra_args + env_args, post_cmds
+
+
+# ── Layer 7: Per-Container Bandwidth Limiting ─────────────────────────
+# tc qdisc rate limiting per container network namespace.
+
+DEFAULT_BANDWIDTH_MBPS = int(os.environ.get("XCELSIOR_CONTAINER_BW_MBPS", "100"))
+
+
+def build_bandwidth_limit_commands(container_id, mbps=None):
+    """Generate tc commands to rate-limit a container's network.
+
+    Uses Token Bucket Filter (tbf) on the container's veth interface.
+
+    Args:
+        container_id: Docker container name or ID
+        mbps: Bandwidth limit in Mbps (default: 100)
+
+    Returns:
+        list of shell command strings
+    """
+    mbps = mbps or DEFAULT_BANDWIDTH_MBPS
+    rate = f"{mbps}mbit"
+    burst = f"{max(mbps // 10, 1)}mbit"
+    latency = "50ms"
+
+    return [
+        # Get container PID and veth interface
+        f"PID=$(docker inspect -f '{{{{.State.Pid}}}}' {container_id})",
+        f"VETH=$(ip link | grep -oP 'veth[a-f0-9]+(?=@)' | while read v; do "
+        f"  ip link show $v 2>/dev/null | grep -q 'link-netns' && echo $v; done | head -1)",
+        f"tc qdisc add dev $VETH root tbf rate {rate} burst {burst} latency {latency} 2>/dev/null || "
+        f"tc qdisc change dev $VETH root tbf rate {rate} burst {burst} latency {latency}",
+    ]
+
+
+# ── Security Audit Helpers ────────────────────────────────────────────
+
+def audit_container_security(container_id):
+    """Run a quick security audit on a running container.
+
+    Checks: privileged mode, capabilities, user, read-only FS, etc.
+    Returns dict of audit findings.
+    """
+    findings = {}
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", container_id],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return {"error": f"Cannot inspect container: {r.stderr.strip()}"}
+
+        info = json.loads(r.stdout)[0]
+        hc = info.get("HostConfig", {})
+
+        findings["privileged"] = hc.get("Privileged", False)
+        findings["user"] = info.get("Config", {}).get("User", "root")
+        findings["read_only_rootfs"] = hc.get("ReadonlyRootfs", False)
+        findings["no_new_privileges"] = any(
+            "no-new-privileges" in s for s in (hc.get("SecurityOpt") or [])
+        )
+        findings["cap_drop_all"] = "ALL" in (hc.get("CapDrop") or [])
+        findings["pids_limit"] = hc.get("PidsLimit", 0)
+        findings["memory_limit_bytes"] = hc.get("Memory", 0)
+
+        # Flag issues
+        issues = []
+        if findings["privileged"]:
+            issues.append("CRITICAL: Container running in privileged mode")
+        if findings["user"] in ("", "root", "0"):
+            issues.append("WARNING: Container running as root")
+        if not findings["read_only_rootfs"]:
+            issues.append("INFO: Root filesystem is writable")
+        if not findings["no_new_privileges"]:
+            issues.append("WARNING: no-new-privileges not set")
+        if not findings["cap_drop_all"]:
+            issues.append("WARNING: Capabilities not fully dropped")
+
+        findings["issues"] = issues
+        findings["secure"] = len([i for i in issues if "CRITICAL" in i]) == 0
+
+    except Exception as e:
+        findings["error"] = str(e)
+
+    return findings

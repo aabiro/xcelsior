@@ -8,6 +8,7 @@ const fr: Record<string, string> = {
   /* ── Navigation ──────────────────────────────────────────────────────── */
   "nav.features": "Fonctionnalités",
   "nav.pricing": "Tarification",
+  "nav.gpus": "GPUs",
   "nav.sovereignty": "Souveraineté",
   "nav.docs": "Documentation",
   "nav.sign_in": "Connexion",
@@ -452,6 +453,9 @@ const fr: Record<string, string> = {
   "dash.telemetry": "Télémétrie",
   "dash.billing": "Facturation",
   "dash.marketplace": "Marché",
+  "dash.spot_pricing": "Prix spot",
+  "dash.inference": "Inférence",
+  "dash.volumes": "Volumes",
   "dash.earnings": "Revenus",
   "dash.reputation": "Réputation",
   "dash.compliance": "Conformité",
@@ -621,6 +625,7 @@ const fr: Record<string, string> = {
   "dash.billing.discount_20": "Économisez 20 %",
   "dash.billing.discount_35": "Économisez 35 %",
   "dash.billing.discount_45": "Économisez 45 %",
+  "dash.billing.burn_rate": "Taux de consommation et épuisement",
 
   /* ── Tableau de bord — Marché ────────────────────────────────────────── */
   "dash.market.title": "Marché",

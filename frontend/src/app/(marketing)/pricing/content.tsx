@@ -2,9 +2,19 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, DollarSign } from "lucide-react";
+import { motion } from "framer-motion";
 import { SavingsCalculator } from "./calculator";
 import { useLocale } from "@/lib/locale";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.1, duration: 0.5, ease: "easeOut" as const },
+  }),
+};
 
 interface GpuRow {
   model: string;
@@ -19,51 +29,71 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
   const { t } = useLocale();
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-24">
-      <div className="text-center mb-16">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5">
+    <div className="mx-auto max-w-7xl px-6 py-28">
+      {/* Header */}
+      <motion.div
+        className="text-center mb-16"
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+      >
+        <motion.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
+          <DollarSign className="h-3 w-3 text-accent-gold" />
           <span className="text-xs font-medium text-accent-gold">
             {t("pricing.badge")}
           </span>
-        </div>
-        <h1 className="text-4xl font-bold md:text-5xl">
+        </motion.div>
+        <motion.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl">
           {t("pricing.title")}
-        </h1>
-        <p className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
+        </motion.h1>
+        <motion.p variants={fadeUp} custom={2} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
           {t("pricing.subtitle")}
-        </p>
-      </div>
+        </motion.p>
+      </motion.div>
 
       {/* GPU Pricing Table */}
-      <div className="overflow-x-auto mb-16">
+      <motion.div
+        className="overflow-x-auto mb-20 rounded-xl border border-border bg-surface/50 backdrop-blur-sm"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5 }}
+      >
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border">
-              <th className="py-4 pr-4 text-left font-medium text-text-secondary">{t("pricing.col_gpu")}</th>
+              <th className="py-4 pl-6 pr-4 text-left font-medium text-text-secondary">{t("pricing.col_gpu")}</th>
               <th className="py-4 px-4 text-center font-medium text-text-secondary">{t("pricing.col_vram")}</th>
               <th className="py-4 px-4 text-center font-medium text-text-primary">{t("pricing.col_ondemand")}</th>
               <th className="py-4 px-4 text-center font-medium text-emerald">{t("pricing.col_spot")}</th>
-              <th className="py-4 px-4 text-center font-medium text-ice-blue">{t("pricing.col_reserved1")}</th>
+              <th className="py-4 px-4 text-center font-medium text-accent-cyan">{t("pricing.col_reserved1")}</th>
               <th className="py-4 px-4 text-center font-medium text-accent-gold">{t("pricing.col_reserved12")}</th>
             </tr>
           </thead>
           <tbody>
             {gpus.map((gpu) => (
-              <tr key={gpu.model} className="border-b border-border/50 hover:bg-surface-hover">
-                <td className="py-4 pr-4 font-medium">{gpu.model}</td>
+              <tr key={gpu.model} className="border-b border-border/50 hover:bg-surface-hover transition-colors">
+                <td className="py-4 pl-6 pr-4 font-medium">{gpu.model}</td>
                 <td className="py-4 px-4 text-center text-text-secondary">{gpu.vram}GB</td>
                 <td className="py-4 px-4 text-center font-mono">${gpu.onDemand.toFixed(2)}/hr</td>
                 <td className="py-4 px-4 text-center font-mono text-emerald">${gpu.spot.toFixed(2)}/hr</td>
-                <td className="py-4 px-4 text-center font-mono text-ice-blue">${gpu.reserved1m.toFixed(2)}/hr</td>
+                <td className="py-4 px-4 text-center font-mono text-accent-cyan">${gpu.reserved1m.toFixed(2)}/hr</td>
                 <td className="py-4 px-4 text-center font-mono text-accent-gold">${gpu.reserved1y.toFixed(2)}/hr</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </motion.div>
 
       {/* AI Compute Fund Callout */}
-      <div className="rounded-xl border border-accent-gold/30 bg-accent-gold/5 p-8 md:p-12 mb-16">
+      <motion.div
+        className="glow-card rounded-xl p-8 md:p-12 mb-20"
+        style={{ "--glow-color": "rgba(245,158,11,0.12)" } as React.CSSProperties}
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5 }}
+      >
         <div className="flex flex-col md:flex-row items-start gap-8">
           <div className="flex-1">
             <h2 className="text-2xl font-bold mb-3">{t("pricing.fund_title")}</h2>
@@ -82,18 +112,24 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-border bg-surface p-6 text-center min-w-[200px]">
+          <div className="rounded-xl border border-accent-gold/30 bg-accent-gold/5 p-6 text-center min-w-[200px]">
             <p className="text-sm text-text-secondary mb-1">{t("pricing.fund_effective")}</p>
-            <p className="text-4xl font-bold font-mono text-accent-gold">{t("pricing.fund_effective_price")}</p>
+            <p className="text-4xl font-bold font-mono bg-gradient-to-r from-accent-gold to-accent-red bg-clip-text text-transparent">{t("pricing.fund_effective_price")}</p>
             <p className="text-xs text-text-muted">{t("pricing.fund_effective_unit")}</p>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Plans */}
-      <div className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
+      <motion.div
+        className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-20"
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+      >
         <PlanCard
           t={t}
+          i={0}
           name={t("pricing.tier_ondemand_title")}
           description={t("pricing.tier_ondemand_desc")}
           price={t("pricing.tier_ondemand_from")}
@@ -102,6 +138,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
         />
         <PlanCard
           t={t}
+          i={1}
           name={t("pricing.tier_reserved_title")}
           description={t("pricing.tier_reserved_desc")}
           price={t("pricing.tier_reserved_from")}
@@ -112,34 +149,42 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
         />
         <PlanCard
           t={t}
+          i={2}
           name={t("pricing.tier_sovereign_title")}
           description={t("pricing.tier_sovereign_desc")}
           price={t("pricing.tier_sovereign_from")}
           unit=""
           features={[t("pricing.tier_sovereign_i1"), t("pricing.tier_sovereign_i2"), t("pricing.tier_sovereign_i3"), t("pricing.tier_sovereign_i4")]}
         />
-      </div>
+      </motion.div>
 
       {/* Savings Calculator */}
-      <div className="mb-16">
+      <div className="mb-20">
         <h2 className="text-2xl font-bold text-center mb-8">{t("pricing.savings_calculator")}</h2>
         <SavingsCalculator gpus={gpus.map((g) => ({ model: g.model, onDemand: g.onDemand }))} />
       </div>
 
       {/* CTA */}
-      <div className="text-center">
+      <motion.div
+        className="text-center"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5 }}
+      >
         <Link href="/register">
-          <Button size="lg">
+          <Button size="lg" className="text-base px-10 shadow-lg shadow-accent-cyan/10">
             {t("pricing.cta_start")} <ArrowRight className="h-4 w-4" />
           </Button>
         </Link>
-      </div>
+      </motion.div>
     </div>
   );
 }
 
 function PlanCard({
   t,
+  i,
   name,
   description,
   price,
@@ -149,6 +194,7 @@ function PlanCard({
   badge,
 }: {
   t: (key: string) => string;
+  i: number;
   name: string;
   description: string;
   price: string;
@@ -158,12 +204,15 @@ function PlanCard({
   badge?: string;
 }) {
   return (
-    <div
-      className={`rounded-xl border p-8 ${
-        highlighted
-          ? "border-accent-gold/50 bg-accent-gold/5"
-          : "border-border bg-surface"
-      }`}
+    <motion.div
+      variants={fadeUp}
+      custom={i}
+      className={`glow-card rounded-xl p-8 relative ${highlighted ? "ring-1 ring-accent-gold/40" : ""}`}
+      style={{
+        "--glow-color": highlighted
+          ? "rgba(245,158,11,0.15)"
+          : "rgba(0,212,255,0.08)",
+      } as React.CSSProperties}
     >
       {badge && (
         <span className="mb-4 inline-block rounded-full bg-accent-gold/20 px-3 py-0.5 text-xs font-medium text-accent-gold">
@@ -189,6 +238,6 @@ function PlanCard({
           {t("pricing.cta_get_started")}
         </Button>
       </Link>
-    </div>
+    </motion.div>
   );
 }

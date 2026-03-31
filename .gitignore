@@ -61,6 +61,10 @@ test_slurm*.py
 *.sbatch
 *.slurm
 slurm-*.out
+docs/competitive_edge.md
+docs_phase_plan.md
+prompt.md
+plan.md
 
 # ── Reports (generated, not tracked) ─────────────────────────────────
 docs/

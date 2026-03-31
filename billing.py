@@ -714,10 +714,27 @@ class BillingEngine:
             }
 
     def deposit(
-        self, customer_id: str, amount_cad: float, description: str = "Credit deposit"
+        self, customer_id: str, amount_cad: float, description: str = "Credit deposit",
+        idempotency_key: str = "",
     ) -> dict:
-        """Deposit credits into a customer wallet."""
+        """Deposit credits into a customer wallet.
+
+        If idempotency_key is provided, the deposit is deduplicated:
+        a second call with the same key returns the original result.
+        """
         self._ensure_wallet_table()
+
+        # Idempotency check
+        if idempotency_key:
+            with self._conn() as conn:
+                existing = conn.execute(
+                    "SELECT tx_id, balance_after_cad FROM wallet_transactions WHERE idempotency_key = %s",
+                    (idempotency_key,),
+                ).fetchone()
+                if existing:
+                    log.info("Idempotent deposit skipped (key=%s, existing tx=%s)", idempotency_key, existing["tx_id"])
+                    return {"tx_id": existing["tx_id"], "balance_cad": existing["balance_after_cad"], "dedup": True}
+
         wallet = self.get_wallet(customer_id)
         new_balance = round(wallet["balance_cad"] + amount_cad, 4)
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
@@ -734,9 +751,10 @@ class BillingEngine:
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
-                    balance_after_cad, description, created_at)
-                   VALUES (%s, %s, 'deposit', %s, %s, %s, %s)""",
-                (tx_id, customer_id, amount_cad, new_balance, description, time.time()),
+                    balance_after_cad, description, created_at, idempotency_key)
+                   VALUES (%s, %s, 'deposit', %s, %s, %s, %s, %s)""",
+                (tx_id, customer_id, amount_cad, new_balance, description, time.time(),
+                 idempotency_key or ""),
             )
 
         log.info("DEPOSIT %s +$%.2f CAD balance=$%.2f", customer_id, amount_cad, new_balance)
@@ -869,6 +887,520 @@ class BillingEngine:
                 (customer_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    # ── Instance Pause / Resume ───────────────────────────────────────
+
+    def pause_instance(self, job_id: str, reason: str = "paused_low_balance") -> dict:
+        """Pause a running instance: stop container, preserve volume, stop billing.
+
+        Per Phase 1.3: pause_instance() stops the container but preserves
+        the volume mount so the user can resume later.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"paused": False, "reason": "not_running"}
+
+            conn.execute(
+                "UPDATE jobs SET status = %s, completed_at = %s WHERE job_id = %s",
+                (reason, now, job_id),
+            )
+            conn.commit()
+
+        log.warning("PAUSE job=%s reason=%s owner=%s", job_id, reason, job.get("owner"))
+        return {"paused": True, "job_id": job_id, "reason": reason}
+
+    def resume_instance(self, job_id: str) -> dict:
+        """Resume a paused instance: restart container from preserved state.
+
+        Per Phase 1.3: wallet top-up triggers resume_instance() to restart
+        the container from its preserved state.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = %s AND status = 'paused_low_balance' FOR UPDATE",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"resumed": False, "reason": "not_paused"}
+
+            # Verify wallet has funds
+            wallet = self.get_wallet(job["owner"])
+            if wallet["balance_cad"] <= 0:
+                return {"resumed": False, "reason": "insufficient_balance"}
+
+            conn.execute(
+                "UPDATE jobs SET status = 'running', completed_at = 0, updated_at = %s WHERE job_id = %s",
+                (now, job_id),
+            )
+            conn.commit()
+
+        log.info("RESUME job=%s owner=%s", job_id, job.get("owner"))
+        return {"resumed": True, "job_id": job_id, "status": "running"}
+
+    # ── Wallet Lifecycle ──────────────────────────────────────────────
+
+    def reactivate_wallet(self, customer_id: str) -> dict:
+        """Reactivate a suspended wallet (after successful deposit)."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE wallets
+                   SET status = 'active', grace_until = 0, updated_at = %s
+                   WHERE customer_id = %s AND status = 'suspended'""",
+                (time.time(), customer_id),
+            )
+        log.info("WALLET %s reactivated", customer_id)
+        return {"customer_id": customer_id, "status": "active"}
+
+    def configure_auto_topup(
+        self,
+        customer_id: str,
+        enabled: bool,
+        amount_cad: float = 50.0,
+        threshold_cad: float = 10.0,
+        stripe_payment_method_id: str = "",
+    ) -> dict:
+        """Configure auto-top-up for a customer wallet."""
+        wallet = self.get_wallet(customer_id)
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE wallets
+                   SET auto_topup_enabled = %s,
+                       auto_topup_amount_cad = %s,
+                       auto_topup_threshold_cad = %s,
+                       stripe_payment_method_id = %s,
+                       updated_at = %s
+                   WHERE customer_id = %s""",
+                (enabled, amount_cad, threshold_cad, stripe_payment_method_id, time.time(), customer_id),
+            )
+        log.info("Auto-topup configured for %s: enabled=%s amount=$%.2f threshold=$%.2f",
+                 customer_id, enabled, amount_cad, threshold_cad)
+        return {
+            "customer_id": customer_id,
+            "auto_topup_enabled": enabled,
+            "auto_topup_amount_cad": amount_cad,
+            "auto_topup_threshold_cad": threshold_cad,
+        }
+
+    # ── Auto-Billing Cycle (Running Instances) ────────────────────────
+
+    def auto_billing_cycle(self) -> dict:
+        """Bill all running instances for the current billing period.
+
+        Called periodically (every 5 minutes) by the background scheduler.
+        For each running job, computes the charge since the last billing
+        cycle and creates a billing_cycles record.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        billed = 0
+        suspended = 0
+        errors = 0
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            # Find all running jobs
+            running = conn.execute(
+                """SELECT j.job_id, j.owner, j.started_at, j.host_id, j.gpu_model, j.tier
+                   FROM jobs j
+                   WHERE j.status = 'running' AND j.started_at > 0""",
+            ).fetchall()
+
+        for job in running:
+            try:
+                job_id = job["job_id"]
+                customer_id = job["owner"]
+                host_id = job.get("host_id", "")
+                gpu_model = job.get("gpu_model", "")
+                tier = job.get("tier", "free")
+
+                # Find the last billing cycle end for this job
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    last = conn.execute(
+                        """SELECT period_end FROM billing_cycles
+                           WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                        (job_id,),
+                    ).fetchone()
+
+                period_start = last["period_end"] if last else float(job["started_at"])
+                period_end = now
+
+                # Skip if less than 60 seconds since last billing
+                if period_end - period_start < 60:
+                    continue
+
+                duration_sec = period_end - period_start
+
+                # Get the host's rate
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    host = conn.execute(
+                        "SELECT cost_per_hour FROM hosts WHERE host_id = %s",
+                        (host_id,),
+                    ).fetchone()
+
+                rate_per_hour = float(host["cost_per_hour"]) if host else 0.20
+
+                # Tier multiplier
+                from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
+                try:
+                    tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
+                    tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
+                except (ValueError, KeyError):
+                    tier_multiplier = 1.0
+
+                amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
+
+                if amount_cad <= 0:
+                    continue
+
+                # Charge the wallet
+                charge_result = self.charge(
+                    customer_id, amount_cad, job_id=job_id,
+                    description=f"Auto-billing: {gpu_model} ({duration_sec/60:.1f}min)",
+                )
+
+                cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
+                status = "charged" if charge_result.get("charged") else "failed"
+
+                # Record the billing cycle
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    conn.execute(
+                        """INSERT INTO billing_cycles
+                           (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                            duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                            amount_cad, status, created_at)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                         duration_sec, rate_per_hour, gpu_model, tier, tier_multiplier,
+                         amount_cad, status, now),
+                    )
+                    conn.commit()
+
+                billed += 1
+
+                # If charge failed with grace_expired → suspend
+                if not charge_result.get("charged") and charge_result.get("action") == "account_suspended":
+                    suspended += 1
+
+            except Exception as e:
+                errors += 1
+                log.error("Auto-billing error for job %s: %s", job.get("job_id", "?"), e)
+
+        if billed or suspended or errors:
+            log.info("AUTO-BILLING: %d billed, %d suspended, %d errors", billed, suspended, errors)
+
+        return {"billed": billed, "suspended": suspended, "errors": errors}
+
+    def check_low_balance_and_topup(self) -> dict:
+        """Check all wallets for low balance and trigger auto-top-up if configured.
+
+        Called periodically by the background scheduler.
+        For wallets with auto_topup_enabled and balance below threshold,
+        creates a Stripe PaymentIntent to charge the saved payment method.
+
+        Retry schedule (Phase 1.4): 1min, 5min, 30min, then disable auto-topup.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        # Backoff schedule in seconds: attempt 1→60s, 2→300s, 3→1800s
+        TOPUP_BACKOFF_SCHEDULE = [60, 300, 1800]
+
+        topped_up = 0
+        warnings = 0
+        errors = 0
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            wallets = conn.execute(
+                """SELECT * FROM wallets
+                   WHERE status = 'active'
+                     AND auto_topup_enabled = true
+                     AND balance_cad <= auto_topup_threshold_cad
+                     AND stripe_payment_method_id != ''
+                     AND auto_topup_failures < 3""",
+            ).fetchall()
+
+        now = time.time()
+        for w in wallets:
+            customer_id = w["customer_id"]
+            failures = w.get("auto_topup_failures", 0) or 0
+            last_attempt = w.get("last_topup_attempt_at", 0) or 0
+
+            # Exponential backoff: wait required interval before retrying
+            if failures > 0 and failures <= len(TOPUP_BACKOFF_SCHEDULE):
+                required_wait = TOPUP_BACKOFF_SCHEDULE[failures - 1]
+                if now - last_attempt < required_wait:
+                    continue
+
+            try:
+                from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+                if not STRIPE_ENABLED or not _stripe_mod:
+                    continue
+
+                amount_cents = int(w["auto_topup_amount_cad"] * 100)
+                pi = _stripe_mod.PaymentIntent.create(
+                    amount=amount_cents,
+                    currency="cad",
+                    customer=customer_id,
+                    payment_method=w["stripe_payment_method_id"],
+                    off_session=True,
+                    confirm=True,
+                    metadata={"xcelsior_auto_topup": "true", "customer_id": customer_id},
+                )
+                log.info("Auto-topup PaymentIntent created for %s: %s ($%.2f)",
+                         customer_id, pi.id, w["auto_topup_amount_cad"])
+                topped_up += 1
+
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    conn.execute(
+                        "UPDATE wallets SET last_topup_attempt_at = %s, auto_topup_failures = 0 WHERE customer_id = %s",
+                        (now, customer_id),
+                    )
+                    conn.commit()
+
+            except Exception as e:
+                errors += 1
+                new_failures = failures + 1
+                log.error("Auto-topup failed for %s (attempt %d/3): %s", customer_id, new_failures, e)
+
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    if new_failures >= 3:
+                        # Max retries exhausted — disable auto-topup + pause instances
+                        conn.execute(
+                            """UPDATE wallets
+                               SET auto_topup_failures = %s,
+                                   auto_topup_enabled = false,
+                                   last_topup_attempt_at = %s
+                               WHERE customer_id = %s""",
+                            (new_failures, now, customer_id),
+                        )
+                        log.warning("Auto-topup DISABLED for %s after 3 failures — pausing instances", customer_id)
+                        # Pause all running instances for this customer
+                        running = conn.execute(
+                            "SELECT job_id FROM jobs WHERE owner = %s AND status = 'running'",
+                            (customer_id,),
+                        ).fetchall()
+                        for job in running:
+                            conn.execute(
+                                "UPDATE jobs SET status = 'paused_low_balance', completed_at = %s WHERE job_id = %s",
+                                (now, job["job_id"]),
+                            )
+                    else:
+                        conn.execute(
+                            """UPDATE wallets
+                               SET auto_topup_failures = %s,
+                                   last_topup_attempt_at = %s
+                               WHERE customer_id = %s""",
+                            (new_failures, now, customer_id),
+                        )
+                    conn.commit()
+
+        if topped_up or errors:
+            log.info("AUTO-TOPUP: %d topped up, %d errors", topped_up, errors)
+
+        return {"topped_up": topped_up, "warnings": warnings, "errors": errors}
+
+    # ── FINTRAC Compliance ────────────────────────────────────────────
+
+    def fintrac_check_transaction(self, customer_id: str, amount_cad: float, currency: str = "CAD") -> Optional[dict]:
+        """Check if a transaction triggers FINTRAC reporting requirements.
+
+        Per REPORT_FEATURE_FINAL.md:
+        - LVCTR (Large Value Cash Transaction Report): >= $10,000 CAD
+        - STR (Suspicious Transaction Report): unusual patterns
+        - 24-hour aggregate rule: multiple transactions totaling >= $10,000
+
+        Returns report dict if threshold triggered, None otherwise.
+        """
+        LVCTR_THRESHOLD = 10_000.0
+        report = None
+
+        if amount_cad >= LVCTR_THRESHOLD:
+            report = self._create_fintrac_report(
+                customer_id=customer_id,
+                report_type="LVCTR",
+                trigger_amount=amount_cad,
+                trigger_currency=currency,
+            )
+
+        # 24-hour aggregate check
+        now = time.time()
+        window_start = now - 86400
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT COALESCE(SUM(ABS(amount_cad)), 0) as total_24h
+                   FROM wallet_transactions
+                   WHERE customer_id = %s AND created_at >= %s AND tx_type = 'deposit'""",
+                (customer_id, window_start),
+            ).fetchone()
+
+        total_24h = float(row["total_24h"]) if row else 0.0
+        if total_24h + amount_cad >= LVCTR_THRESHOLD and amount_cad < LVCTR_THRESHOLD:
+            report = self._create_fintrac_report(
+                customer_id=customer_id,
+                report_type="LVCTR",
+                trigger_amount=total_24h + amount_cad,
+                trigger_currency=currency,
+                notes=f"24-hour aggregate: {total_24h + amount_cad:.2f} CAD",
+            )
+
+        return report
+
+    def _create_fintrac_report(
+        self,
+        customer_id: str,
+        report_type: str,
+        trigger_amount: float,
+        trigger_currency: str = "CAD",
+        notes: str = "",
+    ) -> dict:
+        now = time.time()
+        report_id = f"FIN-{int(now)}-{os.urandom(3).hex()}"
+        with self._conn() as conn:
+            from psycopg.types.json import Jsonb
+            conn.execute(
+                """INSERT INTO fintrac_reports
+                   (report_id, customer_id, report_type, trigger_amount_cad,
+                    trigger_currency, aggregate_window_start, aggregate_window_end,
+                    status, created_at, notes)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)""",
+                (report_id, customer_id, report_type, trigger_amount,
+                 trigger_currency, now - 86400, now, now, notes),
+            )
+        log.warning("FINTRAC %s report created: %s customer=%s amount=$%.2f %s",
+                     report_type, report_id, customer_id, trigger_amount, trigger_currency)
+        return {
+            "report_id": report_id,
+            "report_type": report_type,
+            "customer_id": customer_id,
+            "trigger_amount_cad": trigger_amount,
+            "status": "pending",
+        }
+
+    def stop_jobs_for_suspended_wallets(self) -> int:
+        """Find suspended wallets and stop their running jobs.
+
+        Called by the billing cycle background task. When a wallet is
+        suspended (grace period expired), all running jobs for that
+        customer must be stopped.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        stopped = 0
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            suspended = conn.execute(
+                "SELECT customer_id FROM wallets WHERE status = 'suspended'",
+            ).fetchall()
+
+            for w in suspended:
+                cid = w["customer_id"]
+                running = conn.execute(
+                    "SELECT job_id FROM jobs WHERE owner = %s AND status = 'running'",
+                    (cid,),
+                ).fetchall()
+                for job in running:
+                    conn.execute(
+                        "UPDATE jobs SET status = 'stopped', completed_at = %s WHERE job_id = %s AND status = 'running'",
+                        (time.time(), job["job_id"]),
+                    )
+                    stopped += 1
+                    log.warning("Stopped job %s for suspended wallet %s", job["job_id"], cid)
+            conn.commit()
+
+        if stopped:
+            log.info("ENFORCEMENT: Stopped %d jobs for suspended wallets", stopped)
+        return stopped
+
+    # ── Time-to-Zero Depletion Projection ─────────────────────────────
+
+    def time_to_zero(self, customer_id: str) -> dict:
+        """Compute real-time balance depletion projection.
+
+        Per Phase 1.3: `balance_cad / current_burn_rate_per_second`
+        Returns seconds until zero, burn rate, and alert thresholds.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        wallet = self.get_wallet(customer_id)
+        balance = wallet["balance_cad"]
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            running = conn.execute(
+                """SELECT j.job_id, j.host_id, j.gpu_model, j.tier
+                   FROM jobs j
+                   WHERE j.owner = %s AND j.status = 'running'""",
+                (customer_id,),
+            ).fetchall()
+
+        burn_per_hour = 0.0
+        instance_burns = []
+        for job in running:
+            host_id = job.get("host_id", "")
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                host = conn.execute(
+                    "SELECT cost_per_hour FROM hosts WHERE host_id = %s",
+                    (host_id,),
+                ).fetchone()
+            rate = float(host["cost_per_hour"]) if host else 0.20
+            burn_per_hour += rate
+            instance_burns.append({
+                "job_id": job["job_id"],
+                "gpu_model": job.get("gpu_model", ""),
+                "rate_per_hour": rate,
+            })
+
+        burn_per_second = burn_per_hour / 3600 if burn_per_hour > 0 else 0
+        seconds_to_zero = balance / burn_per_second if burn_per_second > 0 else float("inf")
+
+        # Alert thresholds
+        alert_30min = seconds_to_zero <= 1800
+        alert_5min = seconds_to_zero <= 300
+        alert_depleted = seconds_to_zero <= 0
+
+        return {
+            "customer_id": customer_id,
+            "balance_cad": balance,
+            "burn_rate_per_hour": round(burn_per_hour, 4),
+            "burn_rate_per_second": round(burn_per_second, 6),
+            "seconds_to_zero": round(seconds_to_zero, 1) if seconds_to_zero != float("inf") else None,
+            "running_instances": len(running),
+            "instance_burns": instance_burns,
+            "alert_30min": alert_30min,
+            "alert_5min": alert_5min,
+            "alert_depleted": alert_depleted,
+        }
 
     # ── CAF Export (REPORT_FEATURE_2.md) ──────────────────────────────
 

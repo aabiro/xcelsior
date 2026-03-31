@@ -1,0 +1,10 @@
+{
+  "checkpoint_name": "ckpt-test-job-123-1774915970",
+  "checkpoint_path": "/mnt/storage/projects/xcelsior/checkpoints/ckpt-test-job-123-1774915970",
+  "job_id": "test-job-123",
+  "host_id": "test-host",
+  "container": "xcelsior-job-test-job-123",
+  "created_at": 1774915970.6542995,
+  "success": false,
+  "stderr": "docker checkpoint create is only supported on a Docker daemon with experimental features enabled\n"
+}

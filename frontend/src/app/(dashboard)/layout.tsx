@@ -7,7 +7,8 @@ import {
   LayoutDashboard, Server, Monitor, Activity, CreditCard,
   Store, DollarSign, ShieldCheck, Star, FileCheck,
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
-  ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown
+  ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown,
+  Zap, HardDrive, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -26,6 +27,9 @@ const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles
   { href: "/dashboard/telemetry", key: "dash.telemetry", icon: Activity },
   { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard },
   { href: "/dashboard/marketplace", key: "dash.marketplace", icon: Store },
+  { href: "/dashboard/spot-pricing", key: "dash.spot_pricing", icon: TrendingUp },
+  { href: "/dashboard/inference", key: "dash.inference", icon: Zap },
+  { href: "/dashboard/volumes", key: "dash.volumes", icon: HardDrive },
   { href: "/dashboard/earnings", key: "dash.earnings", icon: DollarSign },
   { href: "/dashboard/reputation", key: "dash.reputation", icon: Star },
   { href: "/dashboard/compliance", key: "dash.compliance", icon: FileCheck },
@@ -79,12 +83,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const sidebarContent = (mobile: boolean) => (
     <>
       {/* Logo */}
-      <div className="flex h-14 items-center border-b border-border px-4 justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-red">
-            <span className="text-sm font-bold text-white">X</span>
+      <div className="flex h-14 items-center border-b border-border/60 px-4 justify-between">
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
+            <svg viewBox="0 0 256 256" className="h-5 w-5" aria-hidden>
+              <defs>
+                <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#00d4ff" />
+                  <stop offset="60%" stopColor="#7c3aed" />
+                  <stop offset="100%" stopColor="#dc2626" />
+                </linearGradient>
+              </defs>
+              <path d="M60 56 L120 128 L60 200 L90 200 L128 152 L166 200 L196 200 L136 128 L196 56 L166 56 L128 104 L90 56Z" fill="url(#lg)" />
+              <path d="M118 36 L128 20 L138 36Z" fill="#00d4ff" opacity="0.9" />
+            </svg>
           </div>
-          {(mobile || !collapsed) && <span className="font-bold">Xcelsior</span>}
+          {(mobile || !collapsed) && (
+            <>
+              <span className="font-bold tracking-tight">Xcelsior</span>
+              <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan">
+                Beta
+              </span>
+            </>
+          )}
         </Link>
         {mobile && (
           <button onClick={() => setMobileOpen(false)} className="text-text-muted hover:text-text-primary" aria-label="Close menu">
@@ -107,12 +128,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                 active
-                  ? "bg-accent-red/10 text-accent-red"
+                  ? "bg-accent-cyan/8 text-accent-cyan nav-active"
                   : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
               )}
               title={!mobile && collapsed ? label : undefined}
             >
-              <item.icon className="h-4 w-4 shrink-0" />
+              <item.icon className={`h-4 w-4 shrink-0 ${active ? 'drop-shadow-[0_0_4px_rgba(0,212,255,0.5)]' : ''}`} />
               {(mobile || !collapsed) && <span>{label}</span>}
             </Link>
           );
@@ -127,7 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
               pathname.startsWith("/dashboard/settings")
-                ? "bg-accent-red/10 text-accent-red"
+                ? "bg-accent-cyan/8 text-accent-cyan nav-active"
                 : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             )}
             title={collapsed ? t("dash.settings") : undefined}
@@ -151,7 +172,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
               pathname.startsWith("/dashboard/settings")
-                ? "bg-accent-red/10 text-accent-red"
+                ? "bg-accent-cyan/8 text-accent-cyan nav-active"
                 : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             )}
           >
@@ -168,7 +189,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-border bg-navy-light transition-all duration-200",
+          "hidden md:flex flex-col border-r border-border/60 glass transition-all duration-200",
           collapsed ? "w-16" : "w-60"
         )}
       >
@@ -192,7 +213,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-border bg-navy-light md:hidden"
+              className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-border/60 glass md:hidden"
             >
               {sidebarContent(true)}
             </motion.aside>
@@ -203,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Topbar */}
-        <header className="flex h-14 items-center justify-between border-b border-border bg-navy-light px-4 md:px-6">
+        <header className="flex h-14 items-center justify-between border-b border-border/60 glass px-4 md:px-6">
           {/* Mobile menu button */}
           <button
             className="md:hidden flex items-center justify-center h-9 w-9 rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary"
@@ -226,7 +247,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover transition-colors"
               >
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-red/20 text-sm font-medium text-accent-red">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-cyan/15 text-sm font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
                   {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || "?"}
                 </div>
                 {user && (
@@ -245,7 +266,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border bg-navy-light shadow-xl z-50 overflow-hidden"
+                    className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-border/60 glass shadow-xl z-50 overflow-hidden"
                   >
                     <div className="px-3 py-2.5 border-b border-border">
                       <p className="text-sm font-medium truncate">{user?.name || user?.email}</p>
