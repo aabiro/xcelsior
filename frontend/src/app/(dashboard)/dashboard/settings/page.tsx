@@ -618,7 +618,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* ── Team Management ── */}
-      <Card>
+      <Card id="team">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> {t("dash.settings.team")}</CardTitle>
           <CardDescription>{t("dash.settings.team_desc")}</CardDescription>
