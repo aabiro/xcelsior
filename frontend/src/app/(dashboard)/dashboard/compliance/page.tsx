@@ -140,6 +140,20 @@ export default function CompliancePage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {loading ? (
+          <>
+            {[...Array(3)].map((_, i) => (
+              <Card key={i} className="p-4 flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full skeleton-pulse" />
+                <div className="space-y-1.5">
+                  <div className="h-6 w-10 rounded skeleton-pulse" />
+                  <div className="h-3 w-16 rounded skeleton-pulse" />
+                </div>
+              </Card>
+            ))}
+          </>
+        ) : (
+        <>
         <Card className="p-4 flex items-center gap-3">
           <CheckCircle className="h-8 w-8 text-emerald" />
           <div>
@@ -161,6 +175,8 @@ export default function CompliancePage() {
             <p className="text-xs text-text-muted">{t("dash.comp.failing")}</p>
           </div>
         </Card>
+        </>
+        )}
       </div>
 
       {/* Tab bar */}

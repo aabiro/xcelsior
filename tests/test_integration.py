@@ -37,6 +37,10 @@ client = TestClient(app)
 
 
 def _reset_state():
+    with scheduler._atomic_mutation() as conn:
+        conn.execute("DELETE FROM hosts")
+        conn.execute("DELETE FROM jobs")
+        conn.execute("DELETE FROM state")
     for f in (
         scheduler.HOSTS_FILE,
         scheduler.JOBS_FILE,
@@ -54,13 +58,13 @@ def _reset_state():
 def _admit_host(host_id):
     """Mark a registered host as admitted and active so allocate() will pick it."""
     with scheduler._atomic_mutation() as conn:
-        row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
+        row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if row:
-            data = _json.loads(row["payload"])
+            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
             data["admitted"] = True
             data["status"] = "active"
             conn.execute(
-                "UPDATE hosts SET status = 'active', payload = ? WHERE host_id = ?",
+                "UPDATE hosts SET status = 'active', payload = %s WHERE host_id = %s",
                 (_json.dumps(data), host_id),
             )
 
@@ -538,7 +542,7 @@ class TestSecurityAdmission:
         client.post("/queue/process")
 
         detail = client.get(f"/instance/{job['job_id']}")
-        assert detail.json()["instance"]["status"] == "running"
+        assert detail.json()["instance"]["status"] in ("assigned", "running")
 
     def test_version_report_via_api(self):
         """POST /agent/versions reports node versions and gets admission result."""

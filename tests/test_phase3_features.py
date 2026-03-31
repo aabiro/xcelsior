@@ -146,7 +146,7 @@ class TestComplianceMiddleware:
             pytest.skip("api module import failed")
 
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.get("/api/health")
+        resp = client.get("/healthz")
         if resp.status_code == 200:
             assert resp.headers.get("X-Data-Residency") == "CA"
             assert "PIPEDA" in resp.headers.get("X-Compliance-Version", "")
@@ -160,7 +160,7 @@ class TestComplianceMiddleware:
             pytest.skip("api module import failed")
 
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.get("/api/health", headers={"x-province": "ON"})
+        resp = client.get("/healthz", headers={"x-province": "ON"})
         assert resp.status_code in (200, 401, 403)
 
 

@@ -100,7 +100,7 @@ class TestStoreInferenceJob:
         # Manually backdate the submitted_at
         with inference_store._inference_db() as conn:
             conn.execute(
-                "UPDATE inference_jobs SET submitted_at = ? WHERE job_id = 'old'",
+                "UPDATE inference_jobs SET submitted_at = %s WHERE job_id = 'old'",
                 (time.time() - 100000,),
             )
         inference_store.store_inference_job(

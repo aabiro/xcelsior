@@ -192,11 +192,11 @@ export default function HomePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="py-4 pl-6 pr-4 text-left text-text-secondary font-medium">{t("home.compare_feature")}</th>
-                  <th className="py-4 px-4 text-center font-bold text-accent-cyan">{t("home.compare_xcelsior")}</th>
-                  <th className="py-4 px-4 text-center text-text-secondary">{t("home.compare_aws")}</th>
-                  <th className="py-4 px-4 text-center text-text-secondary">{t("home.compare_vast")}</th>
-                  <th className="py-4 px-4 text-center text-text-secondary">{t("home.compare_runpod")}</th>
+                  <th scope="col" className="py-4 pl-6 pr-4 text-left text-text-secondary font-medium">{t("home.compare_feature")}</th>
+                  <th scope="col" className="py-4 px-4 text-center font-bold text-accent-cyan">{t("home.compare_xcelsior")}</th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">{t("home.compare_aws")}</th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">{t("home.compare_vast")}</th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">{t("home.compare_runpod")}</th>
                 </tr>
               </thead>
               <tbody className="text-text-secondary">
@@ -331,16 +331,16 @@ function CompRow({
     <tr className="border-b border-border/50 hover:bg-surface-hover transition-colors">
       <td className="py-3.5 pl-6 pr-4 font-medium text-text-primary">{feature}</td>
       <td className="py-3.5 px-4 text-center font-medium text-accent-cyan">
-        {isCheck(xcelsior) ? <Check className="inline h-4 w-4 text-emerald" /> : xcelsior}
+        {isCheck(xcelsior) ? <Check className="inline h-4 w-4 text-emerald" aria-label="Yes" /> : xcelsior}
       </td>
       <td className="py-3.5 px-4 text-center">
-        {isCheck(aws) ? <Check className="inline h-4 w-4 text-text-muted" /> : isX(aws) ? <span className="text-accent-red">✗</span> : aws}
+        {isCheck(aws) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(aws) ? <span className="text-accent-red" aria-label="No">✗</span> : aws}
       </td>
       <td className="py-3.5 px-4 text-center">
-        {isCheck(vast) ? <Check className="inline h-4 w-4 text-text-muted" /> : isX(vast) ? <span className="text-accent-red">✗</span> : vast}
+        {isCheck(vast) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(vast) ? <span className="text-accent-red" aria-label="No">✗</span> : vast}
       </td>
       <td className="py-3.5 px-4 text-center">
-        {isCheck(runpod) ? <Check className="inline h-4 w-4 text-text-muted" /> : isX(runpod) ? <span className="text-accent-red">✗</span> : runpod}
+        {isCheck(runpod) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(runpod) ? <span className="text-accent-red" aria-label="No">✗</span> : runpod}
       </td>
     </tr>
   );

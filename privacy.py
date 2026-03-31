@@ -648,7 +648,8 @@ class DataLifecycleManager:
             ).fetchone()
 
         if row:
-            data = json.loads(row["config"])
+            raw = row["config"]
+            data = json.loads(raw) if isinstance(raw, str) else raw
             return PrivacyConfig(
                 **{k: v for k, v in data.items() if k in PrivacyConfig.__dataclass_fields__}
             )

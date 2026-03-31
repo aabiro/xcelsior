@@ -18,8 +18,6 @@ from chat import (
     _chat_rate_buckets,
     _hash_ip,
     CHAT_RATE_LIMIT,
-    _CHAT_DB_PATH,
-    _CHAT_DB_DIR,
     _chat_db,
 )
 from privacy import redact_pii
@@ -106,7 +104,7 @@ class TestConversationPersistence:
         cid, _ = get_or_create_conversation(ip="10.0.0.1")
         with _chat_db() as conn:
             row = conn.execute(
-                "SELECT ip_hash FROM chat_conversations WHERE conversation_id = ?",
+                "SELECT ip_hash FROM chat_conversations WHERE conversation_id = %s",
                 (cid,),
             ).fetchone()
         assert row["ip_hash"] is not None
@@ -116,7 +114,7 @@ class TestConversationPersistence:
         cid, _ = get_or_create_conversation(user_email="test@xcelsior.ca")
         with _chat_db() as conn:
             row = conn.execute(
-                "SELECT user_email FROM chat_conversations WHERE conversation_id = ?",
+                "SELECT user_email FROM chat_conversations WHERE conversation_id = %s",
                 (cid,),
             ).fetchone()
         assert row["user_email"] == "test@xcelsior.ca"
@@ -126,7 +124,7 @@ class TestConversationPersistence:
         append_message(cid, "user", "test message")
         with _chat_db() as conn:
             count = conn.execute(
-                "SELECT COUNT(*) as c FROM chat_messages WHERE conversation_id = ?",
+                "SELECT COUNT(*) as c FROM chat_messages WHERE conversation_id = %s",
                 (cid,),
             ).fetchone()["c"]
         assert count == 1

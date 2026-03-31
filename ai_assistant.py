@@ -28,7 +28,7 @@ AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))  # per minu
 CONFIRMATION_TTL_SEC = 300  # 5 minutes to approve/reject
 
 # Write actions that always require user confirmation
-WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key"}
+WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key", "revoke_api_key"}
 
 
 # ── Rate Limiter (per-user, not per-IP) ───────────────────────────────
@@ -409,6 +409,48 @@ def _build_tools() -> list[dict]:
                 "required": ["name"],
             },
         },
+        {
+            "name": "get_gpu_availability",
+            "description": "Check real-time GPU availability across all regions. Shows which GPU types are available, how many, and in which provinces.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "gpu_model": {"type": "string", "description": "Filter by GPU model (optional)"},
+                    "province": {"type": "string", "description": "Filter by Canadian province code (optional)"},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "list_volumes",
+            "description": "List the user's persistent storage volumes with size, status, and attachment info.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "list_checkpoints",
+            "description": "List available checkpoints for a job. Useful for resuming interrupted training.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"job_id": {"type": "string", "description": "The job ID to list checkpoints for"}},
+                "required": ["job_id"],
+            },
+        },
+        {
+            "name": "list_api_keys",
+            "description": "List the user's API keys with name, scope, creation date, and last used date.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "revoke_api_key",
+            "description": "Revoke (delete) an API key by its preview string. REQUIRES USER CONFIRMATION.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "key_preview": {"type": "string", "description": "The key preview (e.g., 'xcel_abc123...wxyz')"},
+                },
+                "required": ["key_preview"],
+            },
+        },
     ]
 
 
@@ -431,38 +473,39 @@ def _tool_get_account_info(_args: dict, user: dict) -> dict:
     from reputation import get_reputation_engine
     profile = UserStore.get_user(user["email"]) or {}
     rep = get_reputation_engine()
-    score_data = rep.compute_score(user.get("user_id", user["email"]))
+    score_obj = rep.compute_score(user.get("user_id", user["email"]))
+    score_data = score_obj.to_dict() if hasattr(score_obj, "to_dict") else (score_obj if isinstance(score_obj, dict) else {})
     return {
         "user_id": user.get("user_id", ""),
         "email": user.get("email", ""),
         "name": user.get("name", ""),
         "role": user.get("role", "user"),
         "reputation_tier": score_data.get("tier", "new_user"),
-        "reputation_score": score_data.get("total_score", 0),
+        "reputation_score": score_data.get("final_score", 0),
         "country": profile.get("country", ""),
         "province": profile.get("province", ""),
     }
 
 
 def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
-    from db import _get_pg_pool
-    from psycopg.rows import dict_row
+    from billing import get_billing_engine
     user_id = user.get("user_id", user.get("email", ""))
-    pool = _get_pg_pool()
-    with pool.connection() as conn:
-        conn.row_factory = dict_row
-        # Get wallet balance
-        wallet = conn.execute(
-            "SELECT balance_cad FROM wallets WHERE user_id = %s", (user_id,)
-        ).fetchone()
-        # Get recent usage
-        meters = conn.execute(
-            "SELECT gpu_model, duration_sec, total_cost_cad, started_at "
-            "FROM usage_meters WHERE owner = %s ORDER BY started_at DESC LIMIT 5",
-            (user_id,),
-        ).fetchall()
+    engine = get_billing_engine()
+    wallet = engine.get_wallet(user_id)
+    balance_cents = wallet.get("balance_cents", 0) if wallet else 0
+    # Recent usage from usage_meters — use _ai_db() for consistent connection handling
+    try:
+        with _ai_db() as conn:
+            meters = conn.execute(
+                "SELECT gpu_model, duration_sec, total_cost_cad, started_at "
+                "FROM usage_meters WHERE owner = %s ORDER BY started_at DESC LIMIT 5",
+                (user_id,),
+            ).fetchall()
+    except Exception as e:
+        log.error("Failed to fetch usage meters: %s", e)
+        meters = []
     return {
-        "balance_cad": float(wallet["balance_cad"]) if wallet else 0.0,
+        "balance_cad": round(balance_cents / 100.0, 2),
         "recent_usage": [dict(m) for m in meters],
     }
 
@@ -519,17 +562,20 @@ def _tool_get_job_details(args: dict, user: dict) -> dict:
 
 
 def _tool_search_marketplace(args: dict, _user: dict) -> dict:
-    from marketplace import search_offers
+    from marketplace import get_marketplace_engine
+    me = get_marketplace_engine()
+    if me is None:
+        return {"error": "Marketplace engine not available. Please try again later."}
     filters = {}
     if args.get("gpu_model"):
         filters["gpu_model"] = args["gpu_model"]
     if args.get("min_vram_gb"):
-        filters["min_vram_gb"] = args["min_vram_gb"]
+        filters["min_vram_gb"] = int(args["min_vram_gb"])
     if args.get("max_price_per_hour"):
-        filters["max_price_cents_per_hour"] = int(args["max_price_per_hour"] * 100)
+        filters["max_price_cents"] = int(args["max_price_per_hour"] * 100)
     if args.get("province"):
-        filters["province"] = args["province"]
-    offers = search_offers(**filters)
+        filters["region"] = args["province"]
+    offers = me.search_offers(**filters)
     return {
         "offers": [
             {
@@ -588,7 +634,8 @@ def _tool_get_host_status(_args: dict, user: dict) -> dict:
 def _tool_get_reputation(_args: dict, user: dict) -> dict:
     from reputation import get_reputation_engine
     rep = get_reputation_engine()
-    return rep.compute_score(user.get("user_id", user["email"]))
+    score = rep.compute_score(user.get("user_id", user["email"]))
+    return score.to_dict() if hasattr(score, "to_dict") else score
 
 
 def _tool_search_docs(args: dict, _user: dict) -> dict:
@@ -598,88 +645,164 @@ def _tool_search_docs(args: dict, _user: dict) -> dict:
 
 
 def _tool_recommend_gpu(args: dict, _user: dict) -> dict:
-    """Heuristic GPU recommendation based on workload description."""
+    """GPU recommendation based on workload description, real pricing, and live marketplace availability."""
     from reputation import GPU_REFERENCE_PRICING_CAD
+    from marketplace import get_marketplace_engine
+    me = get_marketplace_engine()
     workload = args.get("workload", "").lower()
     budget = args.get("budget_per_hour_cad")
 
-    recommendations = []
+    # ── VRAM heuristics by workload ──────────────────────────────────
+    VRAM_REQUIREMENTS = {
+        # Large models (70B+): ~140 GB for FP16 fine-tune, ~40 GB quantised inference
+        "large_train": {"min_vram": 80, "gpus": 2, "reason": "70B+ models need ~140GB VRAM for full fine-tuning"},
+        "large_infer": {"min_vram": 40, "gpus": 1, "reason": "70B models fit in ~40GB with 4-bit quantisation"},
+        # Medium models (7-13B): ~28 GB FP16, ~8 GB quantised
+        "medium_train": {"min_vram": 24, "gpus": 1, "reason": "7-13B models fit in 24GB VRAM with QLoRA"},
+        "medium_infer": {"min_vram": 16, "gpus": 1, "reason": "7-13B models run quantised in 16GB+"},
+        # Diffusion models: ~12-24GB
+        "diffusion": {"min_vram": 24, "gpus": 1, "reason": "SDXL/Flux training needs 24GB VRAM"},
+        # Generic inference serving
+        "inference": {"min_vram": 16, "gpus": 1, "reason": "Inference serving with good price-performance"},
+        # Default
+        "default": {"min_vram": 24, "gpus": 1, "reason": "Versatile configuration for most AI/ML workloads"},
+    }
 
-    # Helper to get base rate
-    def _gpu_rate(name: str, fallback: float = 0.85) -> float:
-        info = GPU_REFERENCE_PRICING_CAD.get(name, {})
-        return info.get("base_rate_cad", fallback) if isinstance(info, dict) else fallback
+    is_training = any(w in workload for w in ["train", "fine-tune", "finetune", "lora", "qlora"])
+    is_inference = any(w in workload for w in ["inference", "serving", "deploy", "endpoint"])
 
-    # Simple heuristic matching
-    if any(w in workload for w in ["llama 3 70b", "llama-3-70b", "70b", "65b"]):
-        recommendations.append({
-            "gpu_model": "A100 80GB", "count": 2, "reason": "70B+ models need ~140GB VRAM for fine-tuning",
-            "estimated_cad_per_hour": _gpu_rate("A100", 1.50) * 2,
-        })
-    elif any(w in workload for w in ["llama 3 8b", "llama-3-8b", "8b", "7b", "13b"]):
-        recommendations.append({
-            "gpu_model": "RTX 4090", "count": 1, "reason": "8B models fit comfortably in 24GB VRAM with QLoRA",
-            "estimated_cad_per_hour": _gpu_rate("RTX 4090", 0.45),
-        })
-        recommendations.append({
-            "gpu_model": "A100 80GB", "count": 1, "reason": "Full fine-tuning without quantisation",
-            "estimated_cad_per_hour": _gpu_rate("A100", 1.50),
-        })
-    elif any(w in workload for w in ["sdxl", "stable diffusion", "diffusion", "image"]):
-        recommendations.append({
-            "gpu_model": "RTX 4090", "count": 1, "reason": "24GB VRAM ideal for SDXL training/inference",
-            "estimated_cad_per_hour": _gpu_rate("RTX 4090", 0.45),
-        })
-    elif any(w in workload for w in ["inference", "serving", "deploy"]):
-        recommendations.append({
-            "gpu_model": "RTX 4090", "count": 1, "reason": "Best price-performance for inference serving",
-            "estimated_cad_per_hour": _gpu_rate("RTX 4090", 0.45),
-        })
+    if any(w in workload for w in ["70b", "65b", "llama 3 70", "llama-3-70", "mixtral", "falcon 180"]):
+        profile = VRAM_REQUIREMENTS["large_train" if is_training else "large_infer"]
+    elif any(w in workload for w in ["8b", "7b", "13b", "llama 3 8", "llama-3-8", "mistral 7"]):
+        profile = VRAM_REQUIREMENTS["medium_train" if is_training else "medium_infer"]
+    elif any(w in workload for w in ["sdxl", "stable diffusion", "diffusion", "image", "flux"]):
+        profile = VRAM_REQUIREMENTS["diffusion"]
+    elif is_inference:
+        profile = VRAM_REQUIREMENTS["inference"]
     else:
-        # Generic recommendation
-        recommendations.append({
-            "gpu_model": "RTX 4090", "count": 1, "reason": "Versatile 24GB GPU, excellent for most workloads",
-            "estimated_cad_per_hour": _gpu_rate("RTX 4090", 0.45),
-        })
-        recommendations.append({
-            "gpu_model": "A100 80GB", "count": 1, "reason": "80GB VRAM for large models or datasets",
-            "estimated_cad_per_hour": _gpu_rate("A100", 1.50),
-        })
+        profile = VRAM_REQUIREMENTS["default"]
 
+    # ── Query real marketplace availability ───────────────────────────
+    live_offers = me.search_offers(min_vram_gb=profile["min_vram"])
+    available_models = {}
+    for o in live_offers:
+        model = o.get("gpu_model", "Unknown")
+        if model not in available_models:
+            available_models[model] = {
+                "min_price": o.get("ask_cents_per_hour", 0) / 100,
+                "max_vram": o.get("total_vram_gb", 0),
+                "count": 0,
+                "provinces": set(),
+            }
+        available_models[model]["count"] += 1
+        available_models[model]["min_price"] = min(
+            available_models[model]["min_price"], o.get("ask_cents_per_hour", 0) / 100
+        )
+        available_models[model]["max_vram"] = max(
+            available_models[model]["max_vram"], o.get("total_vram_gb", 0)
+        )
+        prov = o.get("province", "")
+        if prov:
+            available_models[model]["provinces"].add(prov)
+
+    # ── Build recommendations from real data ──────────────────────────
+    recommendations = []
+    for gpu_name, info in GPU_REFERENCE_PRICING_CAD.items():
+        if not isinstance(info, dict):
+            continue
+        vram_map = {"RTX 3090": 24, "RTX 4090": 24, "RTX 4080": 16, "A100": 80, "H100": 80, "L40": 48}
+        vram = vram_map.get(gpu_name, 24)
+        if vram < profile["min_vram"] and profile["gpus"] == 1:
+            continue  # Too little VRAM for single-GPU
+
+        base_rate = info.get("base_rate_cad", 0.45)
+        gpus_needed = max(profile["gpus"], 1)
+        if vram < profile["min_vram"] and gpus_needed == 1:
+            # Multi-GPU to meet VRAM requirement
+            gpus_needed = -(-profile["min_vram"] // vram)  # ceiling division
+
+        hourly = round(base_rate * gpus_needed, 2)
+
+        # Check live availability
+        avail = available_models.get(gpu_name, {})
+        avail_count = avail.get("count", 0)
+        live_price = avail.get("min_price") if avail else None
+        provinces = sorted(avail.get("provinces", set())) if avail else []
+
+        rec = {
+            "gpu_model": gpu_name,
+            "count": gpus_needed,
+            "vram_gb_per_gpu": vram,
+            "total_vram_gb": vram * gpus_needed,
+            "reason": profile["reason"],
+            "reference_cad_per_hour": hourly,
+            "available_now": avail_count,
+            "provinces": provinces,
+        }
+        if live_price and live_price > 0:
+            rec["live_market_price_cad_per_hour"] = round(live_price * gpus_needed, 2)
+
+        recommendations.append(rec)
+
+    # Sort by reference price (cheapest first)
+    recommendations.sort(key=lambda r: r["reference_cad_per_hour"])
+
+    # Budget filter
     if budget:
-        recommendations = [r for r in recommendations if r["estimated_cad_per_hour"] <= budget] or recommendations
+        filtered = [r for r in recommendations if r["reference_cad_per_hour"] <= budget]
+        if filtered:
+            recommendations = filtered
 
-    return {"workload": args.get("workload", ""), "recommendations": recommendations}
+    return {"workload": args.get("workload", ""), "recommendations": recommendations[:5]}
 
 
 def _tool_estimate_cost(args: dict, _user: dict) -> dict:
     from reputation import GPU_REFERENCE_PRICING_CAD
-    from scheduler import get_current_spot_prices
+    from scheduler import PRIORITY_TIERS, get_current_spot_prices
     gpu_model = args.get("gpu_model", "RTX 4090")
     gpu_count = args.get("gpu_count", 1)
     hours = args.get("hours", 1)
 
-    # Find reference price
-    ref_price = 0.45  # default
+    # Find reference price from real pricing data
+    ref_price = None
     for key, info in GPU_REFERENCE_PRICING_CAD.items():
         if key.lower().replace(" ", "") in gpu_model.lower().replace(" ", ""):
-            ref_price = info.get("base_rate_cad", 0.45) if isinstance(info, dict) else 0.45
+            if isinstance(info, dict):
+                ref_price = info.get("base_rate_cad")
+            break
+    if ref_price is None:
+        return {"error": f"Unknown GPU model: {gpu_model}. Try 'RTX 4090', 'A100', 'H100', etc."}
+
+    # Use real tier multipliers from PRIORITY_TIERS
+    spot_mult = PRIORITY_TIERS.get("spot", {}).get("multiplier", 0.6)
+    on_demand_mult = PRIORITY_TIERS.get("on-demand", {}).get("multiplier", 1.0)
+    reserved_mult = PRIORITY_TIERS.get("reserved", {}).get("multiplier", 0.8)
+
+    on_demand = ref_price * on_demand_mult * gpu_count * hours
+    spot = ref_price * spot_mult * gpu_count * hours
+    reserved = ref_price * reserved_mult * gpu_count * hours
+
+    # Also check real spot prices
+    real_spots = get_current_spot_prices()
+    live_spot_price = None
+    for skey, sprice in real_spots.items():
+        if skey.lower().replace(" ", "") in gpu_model.lower().replace(" ", ""):
+            live_spot_price = sprice * gpu_count * hours
             break
 
-    on_demand = ref_price * gpu_count * hours
-    spot = on_demand * 0.6  # spot discount
-    reserved_1m = on_demand * 0.9
-    reserved_3m = on_demand * 0.8
-
-    return {
+    result = {
         "gpu_model": gpu_model,
         "gpu_count": gpu_count,
         "hours": hours,
+        "base_rate_cad_per_gpu_hr": ref_price,
         "on_demand_cad": round(on_demand, 2),
         "spot_cad": round(spot, 2),
-        "reserved_1m_cad": round(reserved_1m, 2),
-        "reserved_3m_cad": round(reserved_3m, 2),
+        "reserved_cad": round(reserved, 2),
+        "tier_multipliers": {"on_demand": on_demand_mult, "spot": spot_mult, "reserved": reserved_mult},
     }
+    if live_spot_price is not None:
+        result["live_spot_cad"] = round(live_spot_price, 2)
+    return result
 
 
 def _tool_get_sla_terms(args: dict, _user: dict) -> dict:
@@ -692,19 +815,38 @@ def _tool_get_sla_terms(args: dict, _user: dict) -> dict:
 def _tool_launch_job(args: dict, user: dict) -> dict:
     """Actually execute the job launch after confirmation."""
     from scheduler import submit_job
+    if not args.get("docker_image"):
+        return {"error": "docker_image is required to launch a job."}
     job = submit_job(
         name=args.get("name", "ai-assisted-job"),
         vram_needed_gb=args.get("vram_needed_gb", 24),
         priority=1,
         tier=args.get("tier", "on-demand"),
         num_gpus=args.get("gpu_count", 1),
+        image=args.get("docker_image", ""),
     )
+    if not job or not job.get("job_id", job.get("id")):
+        return {"error": "Failed to submit job. Please try again."}
     return {"job_id": job.get("job_id", job.get("id", "")), "status": "queued", "message": "Job submitted successfully."}
 
 
 def _tool_stop_job(args: dict, user: dict) -> dict:
-    from scheduler import update_job_status
+    from scheduler import update_job_status, list_jobs
     job_id = args.get("job_id", "")
+    if not job_id:
+        return {"error": "job_id is required"}
+    # Verify job exists and belongs to user
+    all_jobs = list_jobs()
+    user_id = user.get("user_id", user.get("email", ""))
+    job = next(
+        (j for j in all_jobs if (j.get("job_id") == job_id or j.get("id") == job_id)
+         and (j.get("submitted_by") == user_id or j.get("user_id") == user_id)),
+        None,
+    )
+    if not job:
+        return {"error": f"Job {job_id} not found or does not belong to you."}
+    if job.get("status") not in ("queued", "assigned", "running"):
+        return {"error": f"Job {job_id} is already {job.get('status')} and cannot be stopped."}
     update_job_status(job_id, "cancelled")
     return {"job_id": job_id, "status": "cancelled", "message": "Job stopped."}
 
@@ -725,6 +867,160 @@ def _tool_create_api_key(args: dict, user: dict) -> dict:
     return {"key": key_value, "name": key_data["name"], "scope": key_data["scope"], "message": "API key created."}
 
 
+def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
+    """Real-time GPU availability across all regions."""
+    from marketplace import get_marketplace_engine
+    me = get_marketplace_engine()
+    if me is None:
+        return {"error": "Marketplace engine not available. Please try again later."}
+    filters = {}
+    if args.get("gpu_model"):
+        filters["gpu_model"] = args["gpu_model"]
+    if args.get("province"):
+        filters["region"] = args["province"]
+    offers = me.search_offers(**filters)
+
+    # Aggregate by GPU model + province
+    summary: dict[str, dict] = {}
+    for o in offers:
+        model = o.get("gpu_model", "Unknown")
+        if model not in summary:
+            summary[model] = {
+                "total_available": 0,
+                "min_price_cad_per_hour": float("inf"),
+                "max_price_cad_per_hour": 0,
+                "provinces": {},
+                "avg_vram_gb": 0,
+                "total_vram_gb": 0,
+            }
+        s = summary[model]
+        s["total_available"] += 1
+        price = o.get("ask_cents_per_hour", 0) / 100
+        s["min_price_cad_per_hour"] = min(s["min_price_cad_per_hour"], price)
+        s["max_price_cad_per_hour"] = max(s["max_price_cad_per_hour"], price)
+        vram = o.get("total_vram_gb", 0)
+        s["total_vram_gb"] += vram
+
+        prov = o.get("province", "Unknown")
+        s["provinces"][prov] = s["provinces"].get(prov, 0) + 1
+
+    # Finalize averages
+    for model, s in summary.items():
+        if s["total_available"] > 0:
+            s["avg_vram_gb"] = round(s["total_vram_gb"] / s["total_available"], 1)
+        del s["total_vram_gb"]
+        if s["min_price_cad_per_hour"] == float("inf"):
+            s["min_price_cad_per_hour"] = 0
+        s["min_price_cad_per_hour"] = round(s["min_price_cad_per_hour"], 2)
+        s["max_price_cad_per_hour"] = round(s["max_price_cad_per_hour"], 2)
+
+    return {
+        "gpu_availability": summary,
+        "total_gpus_available": sum(s["total_available"] for s in summary.values()),
+        "filters_applied": {k: v for k, v in args.items() if v},
+    }
+
+
+def _tool_list_volumes(_args: dict, user: dict) -> dict:
+    """List user's persistent storage volumes."""
+    from volumes import get_volume_engine
+    engine = get_volume_engine()
+    if engine is None:
+        return {"error": "Volume engine not available. Please try again later."}
+    user_id = user.get("user_id", user.get("email", ""))
+    try:
+        vols = engine.list_volumes(user_id)
+    except Exception as e:
+        log.error("list_volumes failed: %s", e)
+        return {"error": "Failed to retrieve volumes."}
+    return {
+        "volumes": [
+            {
+                "volume_id": v.get("volume_id", ""),
+                "name": v.get("name", ""),
+                "size_gb": v.get("size_gb", 0),
+                "status": v.get("status", ""),
+                "storage_type": v.get("storage_type", ""),
+                "encrypted": v.get("encrypted", False),
+                "province": v.get("province", ""),
+                "created_at": v.get("created_at", 0),
+            }
+            for v in vols
+        ],
+        "total": len(vols),
+    }
+
+
+def _tool_list_checkpoints(args: dict, user: dict) -> dict:
+    """List checkpoints for a job from the checkpoints directory."""
+    import os as _os
+    job_id = args.get("job_id", "")
+    if not job_id:
+        return {"error": "job_id is required"}
+
+    # Checkpoints are stored in checkpoints/ckpt-{job_id}-{timestamp}/
+    ckpt_dir = _os.path.join(_os.path.dirname(__file__), "checkpoints")
+    checkpoints = []
+    if _os.path.isdir(ckpt_dir):
+        prefix = f"ckpt-{job_id}-"
+        for entry in sorted(_os.listdir(ckpt_dir)):
+            if entry.startswith(prefix) and _os.path.isdir(_os.path.join(ckpt_dir, entry)):
+                meta_file = _os.path.join(ckpt_dir, entry, "meta.json")
+                meta = {}
+                if _os.path.exists(meta_file):
+                    try:
+                        with open(meta_file) as f:
+                            meta = json.load(f)
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                # Extract timestamp from directory name
+                ts_str = entry.replace(prefix, "")
+                try:
+                    ts = float(ts_str)
+                except ValueError:
+                    ts = 0
+                checkpoints.append({
+                    "checkpoint_name": entry,
+                    "created_at": meta.get("created_at", ts),
+                    "host_id": meta.get("host_id", ""),
+                    "container": meta.get("container", ""),
+                    "path": _os.path.join(ckpt_dir, entry),
+                })
+
+    return {"job_id": job_id, "checkpoints": checkpoints, "total": len(checkpoints)}
+
+
+def _tool_list_api_keys(_args: dict, user: dict) -> dict:
+    """List user's API keys (values redacted to preview format)."""
+    from db import UserStore
+    keys = UserStore.list_api_keys(user["email"])
+    return {
+        "api_keys": [
+            {
+                "name": k.get("name", ""),
+                "preview": k.get("key", "")[:12] + "..." + k.get("key", "")[-4:] if k.get("key") else "",
+                "scope": k.get("scope", "full-access"),
+                "created_at": k.get("created_at", 0),
+                "last_used": k.get("last_used", 0),
+            }
+            for k in keys
+        ],
+        "total": len(keys),
+    }
+
+
+def _tool_revoke_api_key(args: dict, user: dict) -> dict:
+    """Revoke an API key by its preview string."""
+    from db import UserStore
+    preview = args.get("key_preview", "")
+    if not preview:
+        return {"error": "key_preview is required"}
+    deleted = UserStore.delete_api_key_by_preview(user["email"], preview)
+    if deleted:
+        return {"key_preview": preview, "status": "revoked", "message": "API key revoked successfully."}
+    return {"error": f"No matching API key found for preview: {preview}"}
+
+
 # Handler registry
 _TOOL_HANDLERS = {
     "get_account_info": _tool_get_account_info,
@@ -742,6 +1038,11 @@ _TOOL_HANDLERS = {
     "launch_job": _tool_launch_job,
     "stop_job": _tool_stop_job,
     "create_api_key": _tool_create_api_key,
+    "get_gpu_availability": _tool_get_gpu_availability,
+    "list_volumes": _tool_list_volumes,
+    "list_checkpoints": _tool_list_checkpoints,
+    "list_api_keys": _tool_list_api_keys,
+    "revoke_api_key": _tool_revoke_api_key,
 }
 
 
@@ -969,6 +1270,18 @@ async def stream_ai_response(
     """
     if not ANTHROPIC_API_KEY:
         yield _sse({"type": "error", "message": "AI assistant is not configured. Set ANTHROPIC_API_KEY."})
+        return
+
+    # ── Security: rate limiting ───────────────────────────────────────
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        yield _sse({"type": "error", "message": "Rate limit exceeded. Please wait a moment before sending another message."})
+        return
+
+    # ── Security: conversation ownership ──────────────────────────────
+    conv = get_conversation(conversation_id, user_id)
+    if not conv:
+        yield _sse({"type": "error", "message": "Conversation not found."})
         return
 
     yield _sse({"type": "meta", "conversation_id": conversation_id})
@@ -1232,6 +1545,15 @@ async def execute_confirmed_action(
     with _ai_db() as conn:
         _append_message(conn, conversation_id, "tool_result",
                         tool_name=tool_name, tool_output=result)
+
+    # If the tool returned an error, report it directly instead of asking Claude to summarise
+    if "error" in result:
+        msg = f"❌ Action failed: {result['error']}"
+        yield _sse({"type": "token", "content": msg})
+        with _ai_db() as conn:
+            _append_message(conn, conversation_id, "assistant", msg)
+        yield _sse({"type": "done"})
+        return
 
     # Generate a natural language summary of the result
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)

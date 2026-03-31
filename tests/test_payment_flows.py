@@ -33,6 +33,18 @@ except Exception:
 pg = pytest.mark.skipif(not _PG_AVAILABLE, reason="PostgreSQL not available")
 
 
+@pytest.fixture(autouse=True)
+def _clean_payment_data():
+    """Clean payment-related tables before each test."""
+    if _PG_AVAILABLE:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM wallet_transactions WHERE customer_id LIKE 'pay-test-%%'")
+            conn.execute("DELETE FROM wallets WHERE customer_id LIKE 'pay-test-%%'")
+            conn.execute("DELETE FROM fintrac_reports WHERE customer_id LIKE 'pay-test-%%'")
+    yield
+
+
 def _engine() -> BillingEngine:
     return BillingEngine()
 

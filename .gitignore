@@ -85,3 +85,13 @@ Thumbs.db
 *.pem
 *.key
 id_rsa*
+
+# SVG generation scripts
+scripts/calc_cities.py
+scripts/canada_svg_generator.py
+scripts/gen_alaska_path.py
+scripts/globe_transform.py
+
+frontend/public/xcelsior-*
+frontend/public/xcelsior_*
+tatus --short

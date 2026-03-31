@@ -278,11 +278,18 @@ class TestRetentionPolicies:
 
 
 class TestDataLifecycleManager:
-    """Test retention tracking, purging, and consent with SQLite backend."""
+    """Test retention tracking, purging, and consent with PostgreSQL backend."""
 
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "privacy_test.db"))
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM retention_records")
+            conn.execute("DELETE FROM consent_records")
+            conn.execute("DELETE FROM privacy_configs")
+            conn.commit()
+        self.mgr = DataLifecycleManager()
 
     def test_track_data_returns_record_id(self):
         rid = self.mgr.track_data("job_metadata", "job-1")
@@ -330,7 +337,12 @@ class TestDataLifecycleManager:
 class TestConsent:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "consent_test.db"))
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM consent_records")
+            conn.commit()
+        self.mgr = DataLifecycleManager()
 
     def test_record_consent(self):
         cid = self.mgr.record_consent("user-1", "data_collection")
@@ -359,7 +371,8 @@ class TestConsent:
         details = {"purpose": "improve service", "version": "1.0"}
         self.mgr.record_consent("user-4", "analytics", details=details)
         consents = self.mgr.get_consents("user-4")
-        stored_details = json.loads(consents[0]["details"])
+        raw = consents[0]["details"]
+        stored_details = json.loads(raw) if isinstance(raw, str) else raw
         assert stored_details["purpose"] == "improve service"
 
 
@@ -369,7 +382,12 @@ class TestConsent:
 class TestConfigPersistence:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "config_test.db"))
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM privacy_configs")
+            conn.commit()
+        self.mgr = DataLifecycleManager()
 
     def test_save_and_load_config(self):
         cfg = PrivacyConfig(
@@ -404,7 +422,12 @@ class TestConfigPersistence:
 class TestRetentionSummary:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
-        self.mgr = DataLifecycleManager(db_path=str(tmp_path / "summary_test.db"))
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM retention_records")
+            conn.commit()
+        self.mgr = DataLifecycleManager()
 
     def test_summary_with_data(self):
         self.mgr.track_data("logs", "j-1", retention_override_sec=0)

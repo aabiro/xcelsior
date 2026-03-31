@@ -114,34 +114,43 @@ class TestGetTaxRate:
 # ── Wallet Operations ────────────────────────────────────────────────
 
 
+def _unique_cust(prefix: str) -> str:
+    """Generate a unique customer ID to avoid PG state leaking across runs."""
+    return f"{prefix}-{os.urandom(4).hex()}"
+
+
 class TestWallets:
     """Customer wallet deposit/charge/balance via BillingEngine."""
 
     def test_get_wallet_creates_new(self):
         eng = _engine()
-        w = eng.get_wallet("cust-new")
-        assert w["customer_id"] == "cust-new"
+        cid = _unique_cust("cust-new")
+        w = eng.get_wallet(cid)
+        assert w["customer_id"] == cid
         assert w["balance_cad"] == 0.0
 
     def test_deposit_increases_balance(self):
         eng = _engine()
-        eng.get_wallet("cust-dep")
-        eng.deposit("cust-dep", 50.0)
-        w = eng.get_wallet("cust-dep")
-        assert w["balance_cad"] >= 50.0
+        cid = _unique_cust("cust-dep")
+        eng.get_wallet(cid)
+        eng.deposit(cid, 50.0)
+        w = eng.get_wallet(cid)
+        assert w["balance_cad"] == pytest.approx(50.0, abs=0.01)
 
     def test_charge_reduces_balance(self):
         eng = _engine()
-        eng.get_wallet("cust-charge")
-        eng.deposit("cust-charge", 100.0)
-        result = eng.charge("cust-charge", 30.0, job_id="j1")
+        cid = _unique_cust("cust-charge")
+        eng.get_wallet(cid)
+        eng.deposit(cid, 100.0)
+        result = eng.charge(cid, 30.0, job_id="j1")
         assert result["charged"] is True
         assert result["balance_cad"] == pytest.approx(70.0, abs=0.01)
 
     def test_insufficient_balance_triggers_grace(self):
         eng = _engine()
-        eng.get_wallet("cust-grace")
-        result = eng.charge("cust-grace", 10.0)
+        cid = _unique_cust("cust-grace")
+        eng.get_wallet(cid)
+        result = eng.charge(cid, 10.0)
         assert result["charged"] is False
         assert "grace" in result.get("action", "")
 

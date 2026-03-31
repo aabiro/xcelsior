@@ -1,7 +1,6 @@
 """Tests for Bitcoin deposit module (bitcoin.py)."""
 
 import os
-import sqlite3
 import time
 import json
 from unittest.mock import patch, MagicMock
@@ -20,12 +19,11 @@ import bitcoin
 
 
 @pytest.fixture(autouse=True)
-def _btc_test_db(tmp_path, monkeypatch):
-    """Use a temporary database for each test."""
-    db_path = str(tmp_path / "test_btc.db")
-    monkeypatch.setattr(bitcoin, "BTC_DB_PATH", db_path)
-    monkeypatch.setattr(bitcoin, "_tables_ready", False)
-    yield db_path
+def _btc_clean_table():
+    """Clean crypto_deposits table before each test."""
+    with bitcoin._conn() as c:
+        c.execute("DELETE FROM crypto_deposits")
+    yield
 
 
 @pytest.fixture()
@@ -174,7 +172,7 @@ class TestRefreshDeposit:
         # Manually expire it
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET status = 'expired' WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET status = 'expired' WHERE deposit_id = %s",
                 (result["deposit_id"],),
             )
 
@@ -194,7 +192,7 @@ class TestRefreshDeposit:
 
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET status = 'confirmed' WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET status = 'confirmed' WHERE deposit_id = %s",
                 (result["deposit_id"],),
             )
 
@@ -247,8 +245,14 @@ class TestCheckAndUpdateDeposit:
 
         with patch("bitcoin.get_received_by_address", side_effect=fake_received):
             updated = bitcoin.check_and_update_deposit(dep)
-            assert updated["status"] == "confirming"
-            assert updated["confirmations"] == 1
+            # When BTC_CONFIRMATIONS=1, 1-conf matches the required threshold → confirmed
+            # When BTC_CONFIRMATIONS>1, 1-conf is partial → confirming
+            if bitcoin.BTC_CONFIRMATIONS <= 1:
+                assert updated["status"] == "confirmed"
+                assert updated["confirmations"] == bitcoin.BTC_CONFIRMATIONS
+            else:
+                assert updated["status"] == "confirming"
+                assert updated["confirmations"] == 1
 
     def test_payment_fully_confirmed(self, mock_rpc, mock_rate):
         result = self._make_deposit(mock_rpc, mock_rate)
@@ -261,7 +265,7 @@ class TestCheckAndUpdateDeposit:
         with patch("bitcoin.get_received_by_address", side_effect=fake_received):
             updated = bitcoin.check_and_update_deposit(dep)
             assert updated["status"] == "confirmed"
-            assert updated["confirmations"] == 3
+            assert updated["confirmations"] == bitcoin.BTC_CONFIRMATIONS
             assert updated["confirmed_at"] > 0
 
     def test_expired_no_payment(self, mock_rpc, mock_rate):
@@ -270,7 +274,7 @@ class TestCheckAndUpdateDeposit:
         # Force expiry
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET expires_at = ? WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET expires_at = %s WHERE deposit_id = %s",
                 (time.time() - 10, result["deposit_id"]),
             )
 
@@ -291,7 +295,7 @@ class TestMarkCredited:
 
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET status = 'confirmed' WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET status = 'confirmed' WHERE deposit_id = %s",
                 (result["deposit_id"],),
             )
 
@@ -323,7 +327,7 @@ class TestGetPendingDeposits:
         # Mark one as confirming
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET status = 'confirming' WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET status = 'confirming' WHERE deposit_id = %s",
                 (r2["deposit_id"],),
             )
 
@@ -332,7 +336,7 @@ class TestGetPendingDeposits:
         r3 = bitcoin.create_deposit("cust-3", 30.0)
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET status = 'credited' WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET status = 'credited' WHERE deposit_id = %s",
                 (r3["deposit_id"],),
             )
 
@@ -381,7 +385,7 @@ class TestIdempotency:
 
         with bitcoin._conn() as c:
             c.execute(
-                "UPDATE crypto_deposits SET status = 'confirmed' WHERE deposit_id = ?",
+                "UPDATE crypto_deposits SET status = 'confirmed' WHERE deposit_id = %s",
                 (result["deposit_id"],),
             )
 

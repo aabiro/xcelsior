@@ -110,6 +110,11 @@ def _submit_job(name="llama3", vram=16, **extra):
 
 @pytest.fixture(autouse=True)
 def clean_data():
+    # Clean PostgreSQL tables
+    with scheduler._atomic_mutation() as conn:
+        conn.execute("DELETE FROM hosts")
+        conn.execute("DELETE FROM jobs")
+        conn.execute("DELETE FROM state")
     for f in (
         scheduler.HOSTS_FILE,
         scheduler.JOBS_FILE,
@@ -1183,7 +1188,8 @@ class TestUserAuth:
 
     def test_get_profile_unauthenticated(self):
         """GET /api/auth/me without token returns 401."""
-        r = client.get("/api/auth/me")
+        fresh = TestClient(app, cookies={})
+        r = fresh.get("/api/auth/me")
         assert r.status_code == 401
 
     def test_update_profile(self):
@@ -1255,7 +1261,7 @@ class TestApiKeys:
 
         # Generate key
         r = client.post(
-            "/api/keys/generate?name=test-key", headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate", json={"name": "test-key"}, headers={"Authorization": f"Bearer {token}"}
         )
         assert r.status_code == 200
         d = r.json()
@@ -1281,7 +1287,7 @@ class TestApiKeys:
 
         # Generate API key
         key = client.post(
-            "/api/keys/generate?name=auth-key", headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate", json={"name": "auth-key"}, headers={"Authorization": f"Bearer {token}"}
         ).json()["key"]
 
         # Use API key to access profile
@@ -1298,7 +1304,7 @@ class TestApiKeys:
 
         # Generate and get preview
         gen = client.post(
-            "/api/keys/generate?name=revoke-me", headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate", json={"name": "revoke-me"}, headers={"Authorization": f"Bearer {token}"}
         ).json()
         preview = gen["preview"]
 
@@ -1312,5 +1318,6 @@ class TestApiKeys:
 
     def test_generate_key_unauthenticated(self):
         """POST /api/keys/generate without auth returns 401."""
-        r = client.post("/api/keys/generate?name=nope")
+        fresh = TestClient(app, cookies={})
+        r = fresh.post("/api/keys/generate", json={"name": "nope"})
         assert r.status_code == 401
