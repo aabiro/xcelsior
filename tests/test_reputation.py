@@ -36,6 +36,18 @@ def _engine() -> ReputationEngine:
     return ReputationEngine(store=store)
 
 
+@pytest.fixture(autouse=True)
+def _clean_reputation():
+    """Clean reputation tables before each test."""
+    from db import _get_pg_pool
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM reputation_events")
+        conn.execute("DELETE FROM reputation_scores")
+        conn.commit()
+    yield
+
+
 # ── score_to_tier ─────────────────────────────────────────────────────
 
 
@@ -128,7 +140,7 @@ class TestActivityScoring:
             eng._ensure_entity("host-act-cap")
         with eng.store._conn() as conn:
             conn.execute(
-                "UPDATE reputation_scores SET activity_points = ? WHERE entity_id = ?",
+                "UPDATE reputation_scores SET activity_points = %s WHERE entity_id = %s",
                 (MAX_ACTIVITY_POINTS + 100, "host-act-cap"),
             )
         score = eng.compute_score("host-act-cap")

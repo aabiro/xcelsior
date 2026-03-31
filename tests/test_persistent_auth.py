@@ -19,8 +19,7 @@ import pytest
 
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ.setdefault("XCELSIOR_DB_BACKEND", "sqlite")
-os.environ.setdefault("XCELSIOR_PERSISTENT_AUTH", "true")
+os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 
 import db as db_mod
@@ -31,15 +30,20 @@ from db import UserStore, auth_connection
 
 @pytest.fixture(autouse=True)
 def isolated_auth_db(tmp_path, monkeypatch):
-    """Redirect auth DB to a temp directory for test isolation."""
-    auth_file = str(tmp_path / "test_auth.db")
-    monkeypatch.setenv("XCELSIOR_AUTH_DB_PATH", auth_file)
-    monkeypatch.setattr(db_mod, "AUTH_DB_FILE", auth_file)
-    # Also isolate the main DB
-    db_file = str(tmp_path / "test_xcelsior.db")
-    monkeypatch.setenv("XCELSIOR_DB_PATH", db_file)
-    monkeypatch.setattr(db_mod, "DEFAULT_DB_FILE", db_file)
-    yield auth_file
+    """Clean auth-related tables before each test for isolation."""
+    import api as api_mod
+    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
+    from db import _get_pg_pool
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM team_members")
+        conn.execute("DELETE FROM api_keys")
+        conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM users")
+        conn.execute("DELETE FROM teams")
+        conn.execute("DELETE FROM notifications")
+        conn.commit()
+    yield
 
 
 @pytest.fixture
@@ -681,7 +685,7 @@ class TestPersistentAuthEndpoints:
         )
         token = lr.json()["access_token"]
         r = client.post(
-            "/api/keys/generate?name=persist-key", headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate", json={"name": "persist-key"}, headers={"Authorization": f"Bearer {token}"}
         )
         assert r.status_code == 200
         key_val = r.json()["key"]

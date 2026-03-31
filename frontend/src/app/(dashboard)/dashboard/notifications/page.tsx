@@ -70,7 +70,7 @@ export default function NotificationsPage() {
   const load = useCallback(() => {
     setLoading(true);
     fetchNotifications(filter === "unread", 200)
-      .then((r) => setNotifications(r.notifications))
+      .then((r) => setNotifications(Array.isArray(r.notifications) ? r.notifications : []))
       .catch((e) => console.error("Failed to load notifications", e))
       .finally(() => setLoading(false));
   }, [filter]);

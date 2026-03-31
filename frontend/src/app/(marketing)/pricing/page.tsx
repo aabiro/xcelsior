@@ -29,6 +29,7 @@ async function fetchPricing(): Promise<GpuPricing[]> {
   try {
     const res = await fetch(`${BACKEND}/api/pricing/reference`, {
       next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     const data = await res.json();

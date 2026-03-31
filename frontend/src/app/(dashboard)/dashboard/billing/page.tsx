@@ -10,13 +10,14 @@ import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
-  Bitcoin, Activity,
+  Bitcoin, Activity, Gift, Sparkles, CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { Wallet, WalletTransaction, Invoice, PricingReference } from "@/lib/api";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "framer-motion";
 
 export default function BillingPage() {
   const { user } = useAuth();
@@ -41,6 +42,9 @@ export default function BillingPage() {
   const [cafLoading, setCafLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [freeCreditsAvailable, setFreeCreditsAvailable] = useState(false);
+  const [claimingCredits, setClaimingCredits] = useState(false);
+  const [creditsClaimed, setCreditsClaimed] = useState(false);
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -76,6 +80,40 @@ export default function BillingPage() {
   useEffect(() => {
     api.checkCryptoEnabled().then((r) => setBtcEnabled(r.enabled)).catch((e) => console.error("Failed to check crypto status", e));
   }, []);
+
+  // Check if free signup credits are available
+  useEffect(() => {
+    if (!customerId) return;
+    api.checkFreeCreditsStatus(customerId)
+      .then((r) => setFreeCreditsAvailable(!r.claimed))
+      .catch(() => setFreeCreditsAvailable(false));
+  }, [customerId]);
+
+  const handleClaimFreeCredits = async () => {
+    if (!customerId || claimingCredits) return;
+    setClaimingCredits(true);
+    try {
+      const result = await api.claimFreeCredits(customerId);
+      if (result.already_claimed) {
+        toast.info(t("dash.billing.credits_already_claimed"));
+        setFreeCreditsAvailable(false);
+      } else {
+        setCreditsClaimed(true);
+        setWallet((w) => w ? { ...w, balance_cad: result.balance_cad } : w);
+        toast.success(t("dash.billing.credits_claimed_toast"));
+        // After animation, hide the card
+        setTimeout(() => {
+          setFreeCreditsAvailable(false);
+          setCreditsClaimed(false);
+          load();
+        }, 3000);
+      }
+    } catch {
+      toast.error("Failed to claim free credits");
+    } finally {
+      setClaimingCredits(false);
+    }
+  };
 
   // CSV export from billing records
   const handleCsvExport = async () => {
@@ -216,6 +254,79 @@ export default function BillingPage() {
               icon={Zap}
             />
           </div>
+
+          {/* Welcome $10 Free Credits Banner */}
+          <AnimatePresence>
+            {freeCreditsAvailable && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8, height: 0, marginTop: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="relative overflow-hidden border-accent-cyan/30 bg-gradient-to-r from-accent-cyan/10 via-accent-violet/10 to-accent-cyan/10">
+                  {/* Animated shimmer */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
+                  <CardContent className="relative flex items-center justify-between p-5">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent-cyan/20">
+                        {creditsClaimed ? (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 15 }}
+                          >
+                            <CheckCircle2 className="h-6 w-6 text-emerald" />
+                          </motion.div>
+                        ) : (
+                          <Gift className="h-6 w-6 text-accent-cyan" />
+                        )}
+                      </div>
+                      <div>
+                        {creditsClaimed ? (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                          >
+                            <p className="font-semibold text-emerald">{t("dash.billing.credits_claimed_title")}</p>
+                            <p className="text-sm text-text-secondary">{t("dash.billing.credits_claimed_desc")}</p>
+                          </motion.div>
+                        ) : (
+                          <>
+                            <p className="font-semibold">{t("dash.billing.free_credits_title")}</p>
+                            <p className="text-sm text-text-secondary">{t("dash.billing.free_credits_desc")}</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {!creditsClaimed && (
+                      <Button
+                        className="bg-accent-cyan hover:bg-accent-cyan/80 text-navy font-semibold shadow-lg shadow-accent-cyan/20"
+                        onClick={handleClaimFreeCredits}
+                        disabled={claimingCredits}
+                      >
+                        {claimingCredits ? (
+                          <><Loader2 className="h-4 w-4 animate-spin" /> {t("dash.billing.claiming")}</>
+                        ) : (
+                          <><Sparkles className="h-4 w-4" /> {t("dash.billing.claim_credits")}</>
+                        )}
+                      </Button>
+                    )}
+                    {creditsClaimed && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="text-right"
+                      >
+                        <p className="text-2xl font-bold font-mono text-emerald">+$10.00</p>
+                        <p className="text-xs text-text-muted">CAD</p>
+                      </motion.div>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Add Credits + CAF Banner */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

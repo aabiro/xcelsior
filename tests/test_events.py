@@ -24,6 +24,18 @@ from events import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clean_events():
+    """Clean events table before each test for isolation."""
+    from db import _get_pg_pool
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM events")
+        conn.execute("DELETE FROM leases")
+        conn.commit()
+    yield
+
+
 def _store() -> EventStore:
     """Isolated event store per test group."""
     return EventStore(db_path=os.path.join(_tmpdir, f"events_{os.urandom(4).hex()}.db"))

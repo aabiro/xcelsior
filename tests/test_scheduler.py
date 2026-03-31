@@ -43,20 +43,25 @@ scheduler.log.addHandler(_fh)
 def _admit_host(host_id):
     """Mark a registered host as admitted so allocate() will pick it."""
     with scheduler._atomic_mutation() as conn:
-        row = conn.execute("SELECT payload FROM hosts WHERE host_id = ?", (host_id,)).fetchone()
+        row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if row:
             import json as _json
 
-            data = _json.loads(row["payload"])
+            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
             data["admitted"] = True
             conn.execute(
-                "UPDATE hosts SET payload = ? WHERE host_id = ?", (_json.dumps(data), host_id)
+                "UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id)
             )
 
 
 @pytest.fixture(autouse=True)
 def clean_data():
-    """Remove data files before each test for isolation."""
+    """Remove data files and DB rows before each test for isolation."""
+    # Clean PostgreSQL tables
+    with scheduler._atomic_mutation() as conn:
+        conn.execute("DELETE FROM hosts")
+        conn.execute("DELETE FROM jobs")
+        conn.execute("DELETE FROM state")
     for f in (
         scheduler.HOSTS_FILE,
         scheduler.JOBS_FILE,
@@ -215,10 +220,10 @@ class TestJobQueue:
         assert job["priority"] == 3
         assert job["tier"] == "urgent"
 
-    def test_invalid_tier_defaults_to_free(self):
+    def test_invalid_tier_defaults_to_on_demand(self):
         job = scheduler.submit_job("test", 8, tier="nonexistent")
-        assert job["tier"] == "free"
-        assert job["priority"] == 0
+        assert job["tier"] == "on-demand"
+        assert job["priority"] == 1
 
 
 # ── Phase 3+1: Process Queue ────────────────────────────────────────
@@ -258,6 +263,10 @@ class TestProcessQueue:
 
         assigned = scheduler.process_queue()
         assert len(assigned) == 2
+
+        # VRAM is reserved when jobs move to "running", not "assigned"
+        for job, host in assigned:
+            scheduler.update_job_status(job["job_id"], "running", host_id=host["host_id"])
 
         host = scheduler.list_hosts()[0]
         assert host["free_vram_gb"] == 6

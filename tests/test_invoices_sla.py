@@ -170,6 +170,12 @@ class TestSLAHostsSummary:
 
     def test_summary_empty_no_hosts(self):
         """When no hosts are registered, returns empty list."""
+        # Clean up hosts from prior tests in the shared PG database
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM hosts")
+            conn.commit()
         r = client.get("/api/sla/hosts-summary")
         assert r.status_code == 200
         d = r.json()

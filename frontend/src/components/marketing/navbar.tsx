@@ -24,8 +24,8 @@ export function Navbar() {
     <header className="sticky top-0 z-50 border-b border-border bg-navy/80 backdrop-blur-lg">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
-            <svg viewBox="0 0 256 256" className="h-5 w-5" aria-hidden>
+          <div className="flex h-11 w-11 items-center justify-center rounded-lg" style={{ background: 'linear-gradient(135deg, #060a13 0%, #0d1a2a 100%)' }}>
+            <svg viewBox="0 0 256 256" className="h-7 w-7" aria-hidden>
               <defs>
                 <linearGradient id="nav-lg" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#00d4ff" />
@@ -37,7 +37,7 @@ export function Navbar() {
               <path d="M118 36 L128 20 L138 36Z" fill="#00d4ff" opacity="0.9" />
             </svg>
           </div>
-          <span className="text-xl font-bold text-text-primary">
+          <span className="text-2xl font-bold text-text-primary">
             Xcelsior
           </span>
           <span className="rounded bg-accent-red/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-red">

@@ -48,17 +48,17 @@ class TestSpotPricing:
         assert high > low
 
     def test_spot_price_exponential_at_high_demand(self):
-        """Extreme demand should produce significantly higher prices."""
+        """Extreme demand should produce higher price up to 50% surge cap."""
         me = _engine()
         normal = me.compute_spot_price(base_price_cents=100, demand=8, supply=10)
         extreme = me.compute_spot_price(base_price_cents=100, demand=20, supply=10)
-        assert extreme > normal * 1.5
+        assert extreme > normal
 
     def test_spot_price_zero_supply_caps(self):
-        """Zero supply should cap at 3x base price."""
+        """Zero supply should cap at 1.5x base price (50% surge)."""
         me = _engine()
         price = me.compute_spot_price(base_price_cents=100, demand=10, supply=0)
-        assert price == 300
+        assert price == 150
 
     def test_spot_price_always_positive(self):
         """Spot price should always be at least 1 cent."""
@@ -81,24 +81,21 @@ class TestReservedDiscounts:
     """Verify reservation discount tiers."""
 
     def test_one_month_discount(self):
-        assert RESERVED_DISCOUNTS[1] == pytest.approx(0.10, abs=0.01)
+        assert RESERVED_DISCOUNTS[1] == pytest.approx(0.20, abs=0.01)
 
     def test_three_month_discount(self):
-        assert RESERVED_DISCOUNTS[3] == pytest.approx(0.20, abs=0.01)
+        assert RESERVED_DISCOUNTS[3] == pytest.approx(0.30, abs=0.01)
 
     def test_six_month_discount(self):
-        assert RESERVED_DISCOUNTS[6] == pytest.approx(0.30, abs=0.01)
-
-    def test_twelve_month_discount(self):
-        assert RESERVED_DISCOUNTS[12] == pytest.approx(0.40, abs=0.01)
+        assert RESERVED_DISCOUNTS[6] == pytest.approx(0.40, abs=0.01)
 
     def test_discount_increases_with_term(self):
         discounts = [RESERVED_DISCOUNTS[m] for m in sorted(RESERVED_DISCOUNTS.keys())]
         for i in range(1, len(discounts)):
             assert discounts[i] > discounts[i - 1]
 
-    def test_all_four_tiers_present(self):
-        assert set(RESERVED_DISCOUNTS.keys()) == {1, 3, 6, 12}
+    def test_all_tiers_present(self):
+        assert set(RESERVED_DISCOUNTS.keys()) == {1, 3, 6}
 
 
 class TestMarketplaceStats:

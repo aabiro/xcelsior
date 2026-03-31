@@ -5,7 +5,7 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"], display: "swap" });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], display: "swap" });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], display: "swap", preload: false });
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -36,6 +36,14 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://xcelsior.ca"),
   alternates: { canonical: "https://xcelsior.ca" },
   openGraph: {
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Xcelsior — Sovereign GPU Compute for Canada",
+      },
+    ],
     title: "Xcelsior — Sovereign GPU Compute for Canada",
     description:
       "Canada-first GPU compute marketplace. Data sovereignty, compliance automation, competitive pricing.",
@@ -46,6 +54,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    images: ["/og-image.png"],
     title: "Xcelsior — Sovereign GPU Compute for Canada",
     description: "Canada-first GPU compute marketplace. Ever upward.",
   },
@@ -64,9 +73,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
-        <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

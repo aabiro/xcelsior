@@ -15,7 +15,7 @@
   --color-emerald: #10b981;
   --color-text-primary: #e8edf5;
   --color-text-secondary: #8492a6;
-  --color-text-muted: #4a5568;
+  --color-text-muted: #708090;
   --color-border: #1a2235;
   --color-border-light: #2a3548;
   --color-surface: #0d1320;
@@ -102,6 +102,15 @@ html.light ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(90deg, var(--color-navy-light) 0%, var(--color-navy-lighter) 50%, var(--color-navy-light) 100%);
   background-size: 200% 100%;
   border-radius: 0.5rem;
+}
+
+/* ── Shimmer Animation ─────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.animate-shimmer {
+  animation: shimmer 3s ease-in-out infinite;
 }
 
 /* ── Reputation Badge Effects ──────────────────────────────────────── */

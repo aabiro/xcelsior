@@ -5,6 +5,7 @@ import {
   Heading,
   Hr,
   Html,
+  Img,
   Link,
   Preview,
   Section,
@@ -13,7 +14,7 @@ import {
 
 const baseStyles = {
   body: {
-    backgroundColor: "#0f172a",
+    backgroundColor: "#0a0e1a",
     color: "#f8fafc",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -36,7 +37,7 @@ const baseStyles = {
     lineHeight: "36px",
     textAlign: "center" as const,
     borderRadius: "8px",
-    backgroundColor: "#dc2626",
+    backgroundColor: "#7c3aed",
     color: "#ffffff",
     fontWeight: 800,
     fontSize: "20px",
@@ -62,7 +63,7 @@ const baseStyles = {
   },
   button: {
     display: "inline-block",
-    backgroundColor: "#dc2626",
+    backgroundColor: "#7c3aed",
     color: "#ffffff",
     padding: "12px 32px",
     borderRadius: "8px",
@@ -81,7 +82,7 @@ const baseStyles = {
     lineHeight: 1.5,
   },
   link: {
-    color: "#38bdf8",
+    color: "#00d4ff",
     textDecoration: "underline",
   },
   card: {
@@ -111,9 +112,9 @@ export function EmailLayout({
       <Body style={baseStyles.body}>
         <Container style={baseStyles.container}>
           <Section style={baseStyles.logo}>
-            <span style={baseStyles.logoBadge}>X</span>
-            <Link href="https://xcelsior.ca" style={baseStyles.logoText}>
-              Xcelsior
+            <Link href="https://xcelsior.ca" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "12px" }}>
+              <Img src="https://xcelsior.ca/xcelsior-favicon.svg" width="36" height="36" alt="Xcelsior" style={{ borderRadius: "6px" }} />
+              <span style={baseStyles.logoText}>Xcelsior</span>
             </Link>
           </Section>
           {children}

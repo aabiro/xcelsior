@@ -130,6 +130,19 @@ export async function depositWallet(customerId: string, amount: number, descript
   );
 }
 
+export async function claimFreeCredits(customerId: string) {
+  return apiFetch<{ ok: boolean; amount_cad: number; balance_cad: number; already_claimed: boolean }>(
+    `/api/billing/free-credits/${encodeURIComponent(customerId)}`,
+    { method: "POST" },
+  );
+}
+
+export async function checkFreeCreditsStatus(customerId: string) {
+  return apiFetch<{ ok: boolean; claimed: boolean }>(
+    `/api/billing/free-credits/${encodeURIComponent(customerId)}/status`,
+  );
+}
+
 export async function createPaymentIntent(customerId: string, amountCad: number, description?: string) {
   return apiFetch<{
     ok: boolean;

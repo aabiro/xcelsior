@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" fill="none">
-  <rect width="36" height="36" x="2" y="2" rx="8" fill="#060a13"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" fill="none">
+  <rect width="40" height="40" x="2" y="2" rx="9" fill="#060a13"/>
   <defs>
     <linearGradient id="llg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#00d4ff"/>
@@ -7,7 +7,7 @@
       <stop offset="100%" stop-color="#dc2626"/>
     </linearGradient>
   </defs>
-  <path d="M9 9 L18 20 L9 31 L13.5 31 L20 24 L26.5 31 L31 31 L22 20 L31 9 L26.5 9 L20 16 L13.5 9Z" fill="url(#llg)"/>
-  <path d="M18.5 6 L20 3.5 L21.5 6Z" fill="#00d4ff" opacity="0.9"/>
-  <text x="52" y="28" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#0F172A">Xcelsior</text>
+  <path d="M10 10 L20 22 L10 34 L15 34 L22 26 L29 34 L34 34 L24 22 L34 10 L29 10 L22 18 L15 10Z" fill="url(#llg)"/>
+  <path d="M20.5 7 L22 4 L23.5 7Z" fill="#00d4ff" opacity="0.9"/>
+  <text x="56" y="31" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#0F172A">Xcelsior</text>
 </svg>
