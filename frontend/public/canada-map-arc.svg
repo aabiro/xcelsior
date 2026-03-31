@@ -135,7 +135,7 @@
       .alaska{fill:url(#provinceFill);stroke:currentColor;stroke-width:1.0;stroke-opacity:.38;stroke-linejoin:round;stroke-linecap:round}
       .frame{fill:none;stroke:#00d4ff;stroke-width:.4;stroke-opacity:.08;rx:4}
       .landing-dot{animation:landingPulse 4s ease-in-out infinite}
-      .energy-arc{fill:none;stroke-linecap:round;stroke-dasharray:250 5000;animation:energyFlow 5s linear infinite}
+      .energy-arc{fill:none;stroke-linecap:round;stroke-dasharray:250 5000;animation:energyFlow 16s linear infinite}
       @keyframes twinkle{0%,100%{opacity:1}50%{opacity:.35}}
       @keyframes landingPulse{0%,100%{opacity:1}50%{opacity:.25}}
       @keyframes energyFlow{from{stroke-dashoffset:5250}to{stroke-dashoffset:0}}
@@ -230,8 +230,8 @@
     <!-- GREEN ARC (no dot): from Halifax, accentuated arch, crosses other arcs (2x longer) -->
     <path d="M875.9,640.5 Q1624,240 2724,280" fill="none" stroke="url(#transArcGreenGrad)" stroke-width="1.6" stroke-linecap="round" filter="url(#arcGlow)"/>
     <!-- Energy flow overlays (streaming light streaks) -->
-    <path class="energy-arc" d="M864.6,525.7 Q1900,-300 3000,460" stroke="white" stroke-width="2.5" stroke-opacity="0.55" filter="url(#arcGlow)"/>
-    <path class="energy-arc" d="M875.9,640.5 Q1624,240 2724,280" stroke="white" stroke-width="2" stroke-opacity="0.45" filter="url(#arcGlow)" style="animation-delay:2.5s;animation-duration:6s"/>
+    <path class="energy-arc" d="M864.6,525.7 Q1900,-300 3000,460" stroke="url(#transArcMainGrad)" stroke-width="2.5" stroke-opacity="0.55" filter="url(#arcGlow)"/>
+    <path class="energy-arc" d="M875.9,640.5 Q1624,240 2724,280" stroke="url(#transArcGreenGrad)" stroke-width="2" stroke-opacity="0.45" filter="url(#arcGlow)" style="animation-delay:4s;animation-duration:20s"/>
   </g>
 
   <!-- Touchdown cluster: star formation + three colored dots -->
