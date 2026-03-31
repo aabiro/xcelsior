@@ -3,12 +3,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
+  Copy, Globe, Container, Square,
 } from "lucide-react";
 import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
 import type { Instance } from "@/lib/api";
@@ -16,6 +18,11 @@ import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
+
+const WebTerminal = dynamic(
+  () => import("@/components/terminal/WebTerminal").then((m) => m.WebTerminal),
+  { ssr: false },
+);
 
 const STATUS_STEPS = ["queued", "assigned", "running", "completed"] as const;
 
@@ -26,6 +33,7 @@ export default function InstanceDetailPage() {
   const [instance, setInstance] = useState<Instance | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -93,7 +101,6 @@ export default function InstanceDetailPage() {
 
   const isActive = instance.status === "queued" || instance.status === "running" || instance.status === "assigned";
   const isFailed = instance.status === "failed";
-
   // Status timeline step
   const currentStepIdx = STATUS_STEPS.indexOf(
     (instance.status === "failed" || instance.status === "cancelled") ? "running" : (instance.status as typeof STATUS_STEPS[number]),
@@ -125,7 +132,17 @@ export default function InstanceDetailPage() {
               {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : ""}
             </span>
           )}
-          {isActive && (
+          {isActive && instance.status === "running" && (
+            <Button size="sm" variant="outline" onClick={() => setShowTerminal(!showTerminal)}>
+              <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
+            </Button>
+          )}
+          {isActive && instance.status === "running" && (
+            <Button size="sm" onClick={() => setConfirmCancel(true)} className="bg-accent-red hover:bg-accent-red/80 text-white">
+              <Square className="h-3.5 w-3.5" /> Stop
+            </Button>
+          )}
+          {isActive && instance.status !== "running" && (
             <Button variant="outline" size="sm" onClick={() => setConfirmCancel(true)} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
               <XCircle className="h-3.5 w-3.5" /> {t("dash.instances.cancel")}
             </Button>
@@ -259,6 +276,116 @@ export default function InstanceDetailPage() {
           </div>
         </dl>
       </Card>
+
+      {/* Connection Info — shown when job is running or has run */}
+      {instance.host_id && (instance.status === "running" || instance.status === "completed" || instance.status === "failed") && (
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <Globe className="h-4 w-4 text-ice-blue" />
+            <h2 className="text-sm font-semibold text-text-secondary">Connection Details</h2>
+            {instance.status === "running" && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-emerald">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald animate-pulse" /> Live
+              </span>
+            )}
+          </div>
+          <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
+            {instance.host_ip && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">Host IP (Tailscale Mesh)</dt>
+                <dd className="font-mono flex items-center gap-1.5">
+                  {instance.host_ip}
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(instance.host_ip!); }}
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                    title="Copy IP"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </dd>
+              </div>
+            )}
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">Host</dt>
+              <dd className="font-mono">{instance.host_id}</dd>
+            </div>
+            {instance.host_gpu && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">GPU</dt>
+                <dd>{instance.host_gpu}{instance.host_vram_gb ? ` (${instance.host_vram_gb} GB)` : ""}</dd>
+              </div>
+            )}
+            {instance.container_name && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">Container</dt>
+                <dd className="font-mono text-xs">{instance.container_name}</dd>
+              </div>
+            )}
+            {instance.container_id && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">Container ID</dt>
+                <dd className="font-mono text-xs flex items-center gap-1.5">
+                  {instance.container_id}
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(instance.container_id!); }}
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                    title="Copy ID"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </dd>
+              </div>
+            )}
+            {instance.started_at && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">Started</dt>
+                <dd>{new Date(Number(instance.started_at) * 1000).toLocaleString()}</dd>
+              </div>
+            )}
+            {instance.completed_at && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">Completed</dt>
+                <dd>{new Date(Number(instance.completed_at) * 1000).toLocaleString()}</dd>
+              </div>
+            )}
+          </dl>
+          {instance.status === "running" && instance.host_ip && (
+            <div className="mt-4 rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
+              <p className="text-xs text-text-muted mb-1.5">SSH into your instance:</p>
+              <div className="flex items-center gap-2 mb-2">
+                <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
+                  ssh -p {instance.ssh_port || 22} user@{instance.host_ip}
+                </code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`ssh -p ${instance.ssh_port || 22} user@${instance.host_ip}`); toast.success("Copied"); }}
+                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                  title="Copy SSH command"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <p className="text-xs text-text-muted mb-1.5">Docker exec:</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
+                  docker exec -it {instance.container_name || `xcelsior-${instance.job_id.slice(0, 12)}`} /bin/bash
+                </code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`docker exec -it ${instance.container_name || `xcelsior-${instance.job_id.slice(0, 12)}`} /bin/bash`); toast.success("Copied"); }}
+                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                  title="Copy docker exec command"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Web Terminal */}
+      {showTerminal && instance.status === "running" && (
+        <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
+      )}
 
       {/* Logs */}
       <Card>

@@ -1,7 +1,24 @@
 "use client";
 
 import { Shield, Zap, Scale, Server, BadgeCheck, BarChart3, Globe, Leaf, DollarSign, Lock, FileCheck, Users } from "lucide-react";
+import { motion } from "framer-motion";
 import { useLocale } from "@/lib/locale";
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.08, duration: 0.5, ease: "easeOut" as const },
+  }),
+};
+
+const categoryColors: Record<string, { bg: string; text: string; glow: string }> = {
+  "features.cat_sovereignty": { bg: "bg-accent-red/10", text: "text-accent-red", glow: "rgba(220,38,38,0.12)" },
+  "features.cat_compute": { bg: "bg-accent-cyan/10", text: "text-accent-cyan", glow: "rgba(0,212,255,0.12)" },
+  "features.cat_trust": { bg: "bg-accent-violet/10", text: "text-accent-violet", glow: "rgba(124,58,237,0.12)" },
+  "features.cat_billing": { bg: "bg-accent-gold/10", text: "text-accent-gold", glow: "rgba(245,158,11,0.12)" },
+};
 
 const featureKeys = [
   { icon: Shield, title: "features.sovereignty_title", desc: "features.sovereignty_desc", cat: "features.cat_sovereignty" },
@@ -22,35 +39,60 @@ export function FeaturesContent() {
   const { t } = useLocale();
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-24">
-      <div className="text-center mb-16">
-        <h1 className="text-4xl font-bold md:text-5xl">
+    <div className="mx-auto max-w-7xl px-6 py-28 relative overflow-hidden">
+      {/* Subtle grid background */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.03]" style={{
+        backgroundImage: "linear-gradient(currentColor 1px, transparent 1px), linear-gradient(90deg, currentColor 1px, transparent 1px)",
+        backgroundSize: "60px 60px",
+      }} />
+
+      <motion.div
+        className="relative text-center mb-16"
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+      >
+        <motion.h1 variants={fadeUp} custom={0} className="text-4xl font-bold md:text-5xl">
           {t("features.title_1")}{" "}
-          <span className="bg-gradient-to-r from-accent-red to-accent-gold bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
             {t("features.title_accent")}
           </span>
-        </h1>
-        <p className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
+        </motion.h1>
+        <motion.p variants={fadeUp} custom={1} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
           {t("features.subtitle")}
-        </p>
-      </div>
+        </motion.p>
+      </motion.div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {featureKeys.map((f) => (
-          <div key={f.title} className="rounded-xl border border-border bg-surface p-6 card-hover">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ice-blue/10">
-                <f.icon className="h-5 w-5 text-ice-blue" />
+      <motion.div
+        className="relative grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+      >
+        {featureKeys.map((f, idx) => {
+          const colors = categoryColors[f.cat] ?? { bg: "bg-accent-cyan/10", text: "text-accent-cyan", glow: "rgba(0,212,255,0.08)" };
+          return (
+            <motion.div
+              key={f.title}
+              variants={fadeUp}
+              custom={idx}
+              className="group glow-card rounded-xl p-6"
+              style={{ "--glow-color": colors.glow } as React.CSSProperties}
+            >
+              <div className="mb-4 flex items-center gap-3">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${colors.bg} transition-colors group-hover:scale-110`}>
+                  <f.icon className={`h-5 w-5 ${colors.text}`} />
+                </div>
+                <span className={`text-xs font-medium uppercase tracking-wider ${colors.text}`}>
+                  {t(f.cat)}
+                </span>
               </div>
-              <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                {t(f.cat)}
-              </span>
-            </div>
-            <h3 className="mb-2 text-lg font-semibold">{t(f.title)}</h3>
-            <p className="text-sm text-text-secondary leading-relaxed">{t(f.desc)}</p>
-          </div>
-        ))}
-      </div>
+              <h3 className="mb-2 text-lg font-semibold">{t(f.title)}</h3>
+              <p className="text-sm text-text-secondary leading-relaxed">{t(f.desc)}</p>
+            </motion.div>
+          );
+        })}
+      </motion.div>
     </div>
   );
 }

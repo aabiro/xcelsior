@@ -591,7 +591,7 @@ def check_preemption():
         return []
 
 
-def report_job_status(job_id, status, host_id=None):
+def report_job_status(job_id, status, host_id=None, container_id=None, container_name=None):
     """Update job status on the scheduler.
 
     PATCH /instance/{job_id}
@@ -599,6 +599,10 @@ def report_job_status(job_id, status, host_id=None):
     data = {"status": status}
     if host_id:
         data["host_id"] = host_id
+    if container_id:
+        data["container_id"] = container_id
+    if container_name:
+        data["container_name"] = container_name
     try:
         resp = requests.patch(
             _api_url(f"/instance/{job_id}"),
@@ -1056,6 +1060,373 @@ def _unmount_nfs(mount_point):
         log.debug("NFS unmount failed (non-fatal): %s", e)
 
 
+# ── NVMe Model Cache (Cold Start Optimization) ──────────────────────
+# Per Phase 3.4: pre-pull model weights to local NVMe cache on first deploy.
+# Tiered cache hierarchy: VRAM → NVMe SSD → Network Storage (NFS)
+
+NVME_CACHE_DIR = os.environ.get("XCELSIOR_NVME_CACHE_DIR", "/mnt/nvme/model-cache")
+NVME_CACHE_MAX_GB = int(os.environ.get("XCELSIOR_NVME_CACHE_MAX_GB", "200"))
+
+_nvme_cache_lock = threading.Lock()
+
+
+def nvme_cache_init():
+    """Initialize local NVMe model cache directory."""
+    os.makedirs(NVME_CACHE_DIR, exist_ok=True)
+    log.info("NVMe model cache initialized at %s (max %d GB)", NVME_CACHE_DIR, NVME_CACHE_MAX_GB)
+
+
+def nvme_cache_path(model_id: str, revision: str = "main") -> str:
+    """Return the local NVMe cache path for a model."""
+    safe_name = model_id.replace("/", "--")
+    return os.path.join(NVME_CACHE_DIR, f"{safe_name}_{revision}")
+
+
+def nvme_cache_has(model_id: str, revision: str = "main") -> bool:
+    """Check if a model is already cached on local NVMe."""
+    path = nvme_cache_path(model_id, revision)
+    return os.path.isdir(path) and any(os.scandir(path))
+
+
+def nvme_cache_size_gb() -> float:
+    """Total size of the NVMe model cache in GB."""
+    total = 0
+    if not os.path.isdir(NVME_CACHE_DIR):
+        return 0.0
+    for entry in os.scandir(NVME_CACHE_DIR):
+        if entry.is_dir():
+            for f in os.scandir(entry.path):
+                if f.is_file():
+                    total += f.stat().st_size
+    return total / (1024 ** 3)
+
+
+def nvme_cache_evict_lru():
+    """Evict least-recently-used models from NVMe cache if over limit."""
+    import shutil
+
+    if not os.path.isdir(NVME_CACHE_DIR):
+        return
+
+    entries = []
+    for entry in os.scandir(NVME_CACHE_DIR):
+        if entry.is_dir():
+            entries.append((entry.path, entry.stat().st_mtime))
+
+    # Sort oldest first
+    entries.sort(key=lambda e: e[1])
+
+    while nvme_cache_size_gb() > NVME_CACHE_MAX_GB and entries:
+        oldest_path, _ = entries.pop(0)
+        log.info("NVMe cache evicting: %s", os.path.basename(oldest_path))
+        shutil.rmtree(oldest_path, ignore_errors=True)
+
+
+def nvme_prepull_model(model_id: str, revision: str = "main", source_nfs: str = "") -> bool:
+    """Pre-pull model weights to local NVMe cache for fast cold starts.
+
+    Per Phase 3.4: tiered cache — VRAM → NVMe → Network Storage.
+    Downloads model from NFS shared storage or HuggingFace Hub to local NVMe.
+
+    Args:
+        model_id: Model identifier (e.g. "meta-llama/Llama-3-70B")
+        revision: Model revision/branch
+        source_nfs: Optional NFS path to copy from (faster than download)
+
+    Returns:
+        True if model is now available on local NVMe.
+    """
+    if nvme_cache_has(model_id, revision):
+        log.debug("Model %s@%s already in NVMe cache", model_id, revision)
+        return True
+
+    with _nvme_cache_lock:
+        # Double-check under lock
+        if nvme_cache_has(model_id, revision):
+            return True
+
+        # Evict if cache is full
+        nvme_cache_evict_lru()
+
+        dest = nvme_cache_path(model_id, revision)
+        os.makedirs(dest, exist_ok=True)
+
+        # Strategy 1: Copy from NFS shared storage (fastest)
+        if source_nfs and os.path.isdir(source_nfs):
+            try:
+                import shutil
+                log.info("NVMe pre-pull: copying %s from NFS %s", model_id, source_nfs)
+                for item in os.listdir(source_nfs):
+                    src = os.path.join(source_nfs, item)
+                    dst = os.path.join(dest, item)
+                    if os.path.isfile(src):
+                        shutil.copy2(src, dst)
+                log.info("NVMe pre-pull complete: %s (from NFS)", model_id)
+                return True
+            except Exception as e:
+                log.warning("NFS copy failed for %s: %s, trying HuggingFace", model_id, e)
+
+        # Strategy 2: Download from HuggingFace Hub
+        try:
+            dl_cmd = [
+                "huggingface-cli", "download",
+                model_id,
+                "--revision", revision,
+                "--local-dir", dest,
+                "--quiet",
+            ]
+            result = subprocess.run(
+                dl_cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600,  # 1 hour max for large models
+            )
+            if result.returncode == 0:
+                log.info("NVMe pre-pull complete: %s (from HuggingFace)", model_id)
+                return True
+            else:
+                log.warning("HuggingFace download failed for %s: %s", model_id, result.stderr[:200])
+                return False
+        except FileNotFoundError:
+            log.warning("huggingface-cli not found — cannot pre-pull %s", model_id)
+            return False
+        except subprocess.TimeoutExpired:
+            log.warning("NVMe pre-pull timed out for %s", model_id)
+            return False
+
+
+# ── LUKS Encrypted Volume Provisioning ───────────────────────────────
+# Per Phase 10.2: encrypted at rest via LUKS with per-volume key.
+# Provides cryptographic erasure on volume delete (destroy LUKS key).
+
+VOLUME_BASE_DIR = os.environ.get("XCELSIOR_VOLUME_DIR", "/mnt/xcelsior/volumes")
+VOLUME_KEY_DIR = os.environ.get("XCELSIOR_VOLUME_KEY_DIR", "/etc/xcelsior/volume-keys")
+
+
+def _ensure_volume_dirs():
+    """Create base directories for volumes and keys (if running as root)."""
+    os.makedirs(VOLUME_BASE_DIR, exist_ok=True)
+    os.makedirs(VOLUME_KEY_DIR, mode=0o700, exist_ok=True)
+
+
+def provision_encrypted_volume(volume_id: str, size_gb: int) -> bool:
+    """Create a LUKS-encrypted volume with a per-volume key.
+
+    Steps:
+      1. Create a sparse file as the backing store
+      2. Generate a random 256-bit LUKS key
+      3. Format with LUKS2 using the key
+      4. Open the LUKS device
+      5. Create ext4 filesystem
+      6. Mount to /mnt/xcelsior/volumes/{volume_id}
+
+    Returns True on success, False on failure.
+    """
+    _ensure_volume_dirs()
+
+    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
+    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
+    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
+    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
+
+    try:
+        # 1. Create sparse backing file
+        subprocess.run(
+            ["truncate", "-s", f"{size_gb}G", backing_file],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+
+        # 2. Generate per-volume random key (256-bit)
+        key_bytes = os.urandom(32)
+        old_umask = os.umask(0o077)
+        try:
+            with open(key_file, "wb") as f:
+                f.write(key_bytes)
+        finally:
+            os.umask(old_umask)
+
+        # 3. LUKS format the backing file
+        subprocess.run(
+            [
+                "cryptsetup", "luksFormat",
+                "--batch-mode",
+                "--type", "luks2",
+                "--key-file", key_file,
+                "--cipher", "aes-xts-plain64",
+                "--key-size", "512",
+                "--hash", "sha256",
+                backing_file,
+            ],
+            check=True, capture_output=True, text=True, timeout=60,
+        )
+
+        # 4. Open LUKS device
+        subprocess.run(
+            [
+                "cryptsetup", "luksOpen",
+                "--key-file", key_file,
+                backing_file, mapper_name,
+            ],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+
+        # 5. Create ext4 filesystem
+        dm_path = f"/dev/mapper/{mapper_name}"
+        subprocess.run(
+            ["mkfs.ext4", "-q", "-L", f"vol-{volume_id[:8]}", dm_path],
+            check=True, capture_output=True, text=True, timeout=120,
+        )
+
+        # 6. Mount
+        os.makedirs(mount_point, exist_ok=True)
+        subprocess.run(
+            ["mount", dm_path, mount_point],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+
+        log.info("Volume %s provisioned: %dGB LUKS2+ext4 at %s", volume_id, size_gb, mount_point)
+        return True
+
+    except subprocess.CalledProcessError as e:
+        log.error("Volume provisioning failed for %s: %s (stderr: %s)", volume_id, e, e.stderr)
+        # Cleanup partial state
+        _cleanup_partial_volume(volume_id)
+        return False
+    except Exception as e:
+        log.error("Volume provisioning error for %s: %s", volume_id, e)
+        _cleanup_partial_volume(volume_id)
+        return False
+
+
+def attach_encrypted_volume(volume_id: str) -> str | None:
+    """Open and mount an existing LUKS volume. Returns mount path or None."""
+    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
+    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
+    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
+    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
+    dm_path = f"/dev/mapper/{mapper_name}"
+
+    if not os.path.exists(backing_file) or not os.path.exists(key_file):
+        log.error("Volume %s: backing file or key not found", volume_id)
+        return None
+
+    try:
+        # Check if already open
+        if not os.path.exists(dm_path):
+            subprocess.run(
+                ["cryptsetup", "luksOpen", "--key-file", key_file, backing_file, mapper_name],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+
+        # Mount if not already mounted
+        os.makedirs(mount_point, exist_ok=True)
+        r = subprocess.run(["mountpoint", "-q", mount_point], capture_output=True, timeout=5)
+        if r.returncode != 0:
+            subprocess.run(
+                ["mount", dm_path, mount_point],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+
+        log.info("Volume %s attached at %s", volume_id, mount_point)
+        return mount_point
+
+    except subprocess.CalledProcessError as e:
+        log.error("Volume attach failed for %s: %s", volume_id, e.stderr)
+        return None
+
+
+def detach_encrypted_volume(volume_id: str) -> bool:
+    """Unmount and close a LUKS volume."""
+    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
+    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
+    dm_path = f"/dev/mapper/{mapper_name}"
+
+    try:
+        # Unmount
+        r = subprocess.run(["mountpoint", "-q", mount_point], capture_output=True, timeout=5)
+        if r.returncode == 0:
+            subprocess.run(
+                ["umount", mount_point],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+
+        # Close LUKS device
+        if os.path.exists(dm_path):
+            subprocess.run(
+                ["cryptsetup", "luksClose", mapper_name],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+
+        log.info("Volume %s detached", volume_id)
+        return True
+
+    except subprocess.CalledProcessError as e:
+        log.error("Volume detach failed for %s: %s", volume_id, e.stderr)
+        return False
+
+
+def destroy_encrypted_volume(volume_id: str) -> bool:
+    """Cryptographic erasure: destroy LUKS key then remove backing file.
+
+    Once the key is shredded, the data is irrecoverable regardless
+    of whether the backing file still exists.
+    """
+    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
+    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
+    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
+
+    # Detach first (best-effort)
+    detach_encrypted_volume(volume_id)
+
+    try:
+        # Destroy key — cryptographic erasure (overwrite with random then delete)
+        if os.path.exists(key_file):
+            subprocess.run(
+                ["shred", "-u", "-z", "-n", "3", key_file],
+                capture_output=True, text=True, timeout=30,
+            )
+            log.info("Volume %s: LUKS key destroyed (cryptographic erasure)", volume_id)
+
+        # Remove backing file
+        if os.path.exists(backing_file):
+            os.remove(backing_file)
+
+        # Remove mount point directory
+        if os.path.isdir(mount_point):
+            os.rmdir(mount_point)
+
+        log.info("Volume %s destroyed", volume_id)
+        return True
+
+    except Exception as e:
+        log.error("Volume destroy failed for %s: %s", volume_id, e)
+        return False
+
+
+def _cleanup_partial_volume(volume_id: str):
+    """Best-effort cleanup after a failed provisioning attempt."""
+    mapper_name = f"xcelsior-vol-{volume_id[:12]}"
+    dm_path = f"/dev/mapper/{mapper_name}"
+    key_file = os.path.join(VOLUME_KEY_DIR, f"{volume_id}.key")
+    backing_file = os.path.join(VOLUME_BASE_DIR, f"{volume_id}.img")
+    mount_point = os.path.join(VOLUME_BASE_DIR, volume_id)
+
+    with suppress(Exception):
+        subprocess.run(["umount", mount_point], capture_output=True, timeout=10)
+    with suppress(Exception):
+        if os.path.exists(dm_path):
+            subprocess.run(["cryptsetup", "luksClose", mapper_name], capture_output=True, timeout=10)
+    with suppress(Exception):
+        if os.path.exists(key_file):
+            os.remove(key_file)
+    with suppress(Exception):
+        if os.path.exists(backing_file):
+            os.remove(backing_file)
+    with suppress(Exception):
+        if os.path.isdir(mount_point):
+            os.rmdir(mount_point)
+
+
 # ── Container Lifecycle ──────────────────────────────────────────────
 
 
@@ -1064,6 +1435,7 @@ def run_job(job):
 
     Lifecycle:
       1. Mount NFS volume (if configured)
+      1b. Attach encrypted volumes (if specified)
       2. Pull/verify image
       3. Build secure Docker args (from security.py)
       4. Start container
@@ -1071,6 +1443,7 @@ def run_job(job):
       6. Monitor until completion
       7. Report final status
       8. Unmount NFS (if mounted)
+      8b. Detach encrypted volumes
     """
     job_id = job.get("job_id", "unknown")
     job_name = job.get("name", "unnamed")
@@ -1125,6 +1498,7 @@ def run_job(job):
     )
     lease_thread.start()
 
+    encrypted_vol_ids = []
     try:
         # 0. Mount NFS volume (if configured)
         if nfs_server and nfs_path:
@@ -1134,6 +1508,20 @@ def run_job(job):
                 volumes = list(volumes) + [f"{nfs_mount_point}:/data/nfs:rw"]
             else:
                 log.warning("NFS mount failed — continuing without shared storage")
+
+        # 0b. Attach encrypted volumes (if specified)
+        for vol in job.get("encrypted_volumes", []):
+            vol_id = vol.get("volume_id")
+            vol_mount = vol.get("mount_path", f"/data/vol-{vol_id[:8]}")
+            vol_mode = vol.get("mode", "rw")
+            if vol_id:
+                mount_path = attach_encrypted_volume(vol_id)
+                if mount_path:
+                    volumes = list(volumes) + [f"{mount_path}:{vol_mount}:{vol_mode}"]
+                    encrypted_vol_ids.append(vol_id)
+                    log.info("Encrypted volume %s attached at %s", vol_id, vol_mount)
+                else:
+                    log.warning("Encrypted volume %s attach failed — skipping", vol_id)
 
         # 1. Pull image (with cache tracking + LRU eviction)
         cache_evict_lru()  # Evict before pulling if needed
@@ -1166,6 +1554,30 @@ def run_job(job):
             log.info("Multi-GPU job: requesting %d GPUs", num_gpus)
 
         # 3. Build secure Docker args
+        is_interactive = bool(job.get("interactive", False))
+        ssh_port = int(job.get("ssh_port", 22) or 22)
+
+        # Interactive mode: override entrypoint to keep container alive
+        # and expose SSH port for user access
+        extra_docker_args = []
+        effective_command = command
+        if is_interactive:
+            log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
+            # Override entrypoint to keep container alive indefinitely
+            extra_docker_args.extend(["--entrypoint", "sleep"])
+            effective_command = ["infinity"]
+            # Expose SSH port (map to a unique host port based on job_id hash)
+            host_port = 10000 + (int(job_id[:4], 16) % 55000)
+            extra_docker_args.extend(["-p", f"{host_port}:{ssh_port}"])
+            # Interactive containers need writable filesystem for SSH
+            # Remove --read-only and add writable tmpfs for home/ssh
+            extra_docker_args.extend([
+                "--tmpfs", "/home:rw,size=1g",
+                "--tmpfs", "/run:rw,size=64m",
+                "--tmpfs", "/var/log:rw,size=256m",
+            ])
+            log.info("SSH port mapping: host:%d → container:%d", host_port, ssh_port)
+
         docker_args = build_secure_docker_args(
             image=image,
             container_name=container_name,
@@ -1174,7 +1586,9 @@ def run_job(job):
             runtime=runtime_name,
             environment=env_vars,
             volumes=volumes,
-            command=command,
+            command=effective_command,
+            extra_args=extra_docker_args if extra_docker_args else None,
+            interactive=is_interactive,
         )
 
         # 4. Start container
@@ -1193,6 +1607,16 @@ def run_job(job):
         container_id = start.stdout.strip()[:12]
         log.info("Container started: %s", container_id)
 
+        # Report container info to scheduler
+        report_job_status(job_id, "running", host_id=HOST_ID,
+                          container_id=container_id, container_name=container_name)
+
+        # For interactive jobs, report SSH connection info
+        if is_interactive:
+            from scheduler import _set_job_fields
+            _set_job_fields(job_id, ssh_port=host_port, interactive=True)
+            log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
+
         # 5. Apply egress rules (best-effort)
         try:
             egress_rules = build_egress_iptables_rules(container_name)
@@ -1206,7 +1630,10 @@ def run_job(job):
             log.debug("Egress rules failed (non-fatal): %s", e)
 
         # 6. Monitor container until completion
-        _monitor_container(job_id, container_name)
+        if is_interactive:
+            _monitor_interactive(job_id, container_name)
+        else:
+            _monitor_container(job_id, container_name)
 
     except subprocess.TimeoutExpired:
         log.error("Job %s timed out during execution", job_id)
@@ -1227,6 +1654,10 @@ def run_job(job):
         # Unmount NFS if we mounted it
         if nfs_mounted:
             _unmount_nfs(nfs_mount_point)
+
+        # Detach encrypted volumes
+        for vol_id in encrypted_vol_ids:
+            detach_encrypted_volume(vol_id)
 
 
 def _monitor_container(job_id, container_name):
@@ -1293,6 +1724,76 @@ def _monitor_container(job_id, container_name):
         # Sleep in small increments to respond to shutdown quickly
         for _ in range(check_interval):
             if _shutdown.is_set():
+                return
+            time.sleep(1)
+
+
+def _monitor_interactive(job_id, container_name):
+    """Monitor an interactive container — stays running until cancelled or shutdown.
+
+    Unlike batch containers, interactive containers run indefinitely.
+    The container is only stopped when:
+    - User cancels via API (preemption signal)
+    - Worker shuts down gracefully
+    - Container crashes unexpectedly
+    """
+    check_interval = 10  # Check less frequently — container is meant to stay alive
+
+    log.info("Monitoring interactive container %s (job %s) — will run until stopped", container_name, job_id)
+
+    while not _shutdown.is_set():
+        # Check if this job has been preempted/cancelled
+        with _active_lock:
+            if job_id not in _active_containers:
+                log.info("Interactive job %s removed from active containers — stopping", job_id)
+                _kill_container(container_name)
+                report_job_status(job_id, "cancelled")
+                release_lease(job_id, "cancelled")
+                return
+
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            status = result.stdout.strip()
+
+            if status == "exited":
+                # Interactive container exited unexpectedly
+                exit_result = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
+                log.warning("Interactive container %s exited unexpectedly (code %d)", container_name, exit_code)
+                report_job_status(job_id, "failed")
+                release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+
+            elif status not in ("running", "created"):
+                log.warning("Interactive container %s in unexpected state: %s", container_name, status)
+                report_job_status(job_id, "failed")
+                release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            log.debug("Interactive container inspect failed — may have been removed")
+            report_job_status(job_id, "failed")
+            return
+
+        # Sleep in small increments to respond to shutdown/cancel quickly
+        for _ in range(check_interval):
+            if _shutdown.is_set():
+                log.info("Shutdown signal — stopping interactive container %s", container_name)
+                _kill_container(container_name)
+                report_job_status(job_id, "cancelled")
+                release_lease(job_id, "cancelled")
                 return
             time.sleep(1)
 

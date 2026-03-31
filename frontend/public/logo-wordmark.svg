@@ -1,5 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" width="400" height="80">
-  <rect width="64" height="64" x="8" y="8" rx="12" fill="#dc2626"/>
-  <text x="40" y="55" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="42" font-weight="800" fill="#ffffff">X</text>
-  <text x="92" y="54" font-family="system-ui, -apple-system, sans-serif" font-size="38" font-weight="700" fill="#f8fafc">Xcelsior</text>
+  <defs>
+    <linearGradient id="wg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="50%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <linearGradient id="wg2" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" x="8" y="8" rx="14" fill="#0a0e1a"/>
+  <path d="M24 60 L34 60 L40 51 L46 60 L56 60 L47 40 L56 20 L46 20 L40 29 L34 20 L24 20 L33 40 Z" fill="url(#wg)"/>
+  <path d="M40 12 L46 20 L43 20 L43 25 L37 25 L37 20 L34 20 Z" fill="url(#wg2)" opacity="0.9"/>
+  <text x="86" y="54" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="700" fill="#f0f4ff" letter-spacing="-1">Xcelsior</text>
 </svg>

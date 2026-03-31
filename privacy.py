@@ -753,3 +753,333 @@ def requires_quebec_pia(
         "max_penalty": "$25,000,000 or 4% of worldwide turnover",
         "law_reference": "Act respecting the protection of personal information in the private sector, s. 17",
     }
+
+
+# ── Cryptographic Shredding ──────────────────────────────────────────
+# PII in events is encrypted with a per-user key. Erasure = destroy
+# the user's key → historical events become permanently anonymized.
+# Hash chain integrity is preserved (encrypted blobs still chain).
+
+import base64
+import hashlib
+
+try:
+    from cryptography.fernet import Fernet
+    _HAS_FERNET = True
+except ImportError:
+    _HAS_FERNET = False
+
+
+class CryptoShredder:
+    """Per-user encryption key manager for PIPEDA right-to-erasure."""
+
+    def __init__(self, db_path=None):
+        self._db_path = db_path
+
+    @contextmanager
+    def _conn(self):
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        conn = pool.getconn()
+        conn.row_factory = None
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            pool.putconn(conn)
+
+    def _ensure_table(self, conn):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_encryption_keys (
+                user_id TEXT PRIMARY KEY,
+                fernet_key TEXT NOT NULL,
+                created_at REAL NOT NULL DEFAULT (extract(epoch FROM now())),
+                destroyed_at REAL DEFAULT 0,
+                active BOOLEAN DEFAULT TRUE
+            )
+        """)
+
+    def get_or_create_key(self, user_id):
+        """Get or create a Fernet encryption key for a user.
+
+        Returns: Fernet key string (base64-encoded)
+        """
+        if not _HAS_FERNET:
+            return None
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            cur = conn.execute(
+                "SELECT fernet_key FROM user_encryption_keys WHERE user_id = %s AND active = TRUE",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            key = Fernet.generate_key().decode("ascii")
+            conn.execute(
+                "INSERT INTO user_encryption_keys (user_id, fernet_key) VALUES (%s, %s) "
+                "ON CONFLICT (user_id) DO UPDATE SET fernet_key = EXCLUDED.fernet_key, active = TRUE, destroyed_at = 0",
+                (user_id, key),
+            )
+            return key
+
+    def encrypt_pii(self, user_id, plaintext):
+        """Encrypt PII with the user's key before appending to event log."""
+        key = self.get_or_create_key(user_id)
+        if not key:
+            return plaintext  # Graceful degradation without cryptography
+        f = Fernet(key.encode("ascii") if isinstance(key, str) else key)
+        if isinstance(plaintext, str):
+            plaintext = plaintext.encode("utf-8")
+        return f"ENC:{f.encrypt(plaintext).decode('ascii')}"
+
+    def decrypt_pii(self, user_id, ciphertext):
+        """Decrypt PII. Returns '[REDACTED]' if key was destroyed."""
+        if not isinstance(ciphertext, str) or not ciphertext.startswith("ENC:"):
+            return ciphertext
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            cur = conn.execute(
+                "SELECT fernet_key, active FROM user_encryption_keys WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row or not row[1]:
+                return "[REDACTED — encryption key destroyed per right-to-erasure]"
+            try:
+                f = Fernet(row[0].encode("ascii"))
+                return f.decrypt(ciphertext[4:].encode("ascii")).decode("utf-8")
+            except Exception:
+                return "[REDACTED — decryption failed]"
+
+    def destroy_user_key(self, user_id):
+        """Destroy a user's encryption key (right-to-erasure).
+
+        All historical events containing this user's PII become
+        permanently undecryptable. Hash chain integrity is preserved.
+        """
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            conn.execute(
+                "UPDATE user_encryption_keys SET active = FALSE, destroyed_at = extract(epoch FROM now()), "
+                "fernet_key = 'DESTROYED' WHERE user_id = %s",
+                (user_id,),
+            )
+            log.info("CRYPTO SHRED: destroyed encryption key for user=%s", user_id)
+            return True
+
+    def is_key_active(self, user_id):
+        """Check if a user's encryption key is still active."""
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            cur = conn.execute(
+                "SELECT active FROM user_encryption_keys WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            return row[0] if row else False
+
+
+_crypto_shredder: Optional[CryptoShredder] = None
+
+
+def get_crypto_shredder() -> CryptoShredder:
+    global _crypto_shredder
+    if _crypto_shredder is None:
+        _crypto_shredder = CryptoShredder()
+    return _crypto_shredder
+
+
+# ── CASL Consent Management ──────────────────────────────────────────
+# Canada's Anti-Spam Legislation requires express consent for
+# commercial electronic messages (CEMs).
+
+
+class ConsentManager:
+    """Track CASL express/implied consent for marketing communications."""
+
+    @contextmanager
+    def _conn(self):
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        conn = pool.getconn()
+        conn.row_factory = None
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            pool.putconn(conn)
+
+    def _ensure_table(self, conn):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS casl_consent (
+                consent_id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                user_id TEXT NOT NULL,
+                consent_type TEXT NOT NULL CHECK (consent_type IN ('express', 'implied')),
+                purpose TEXT NOT NULL,
+                granted_at REAL NOT NULL DEFAULT (extract(epoch FROM now())),
+                expires_at REAL DEFAULT 0,
+                withdrawn_at REAL DEFAULT 0,
+                source TEXT DEFAULT '',
+                ip_address TEXT DEFAULT '',
+                active BOOLEAN DEFAULT TRUE,
+                UNIQUE(user_id, purpose)
+            )
+        """)
+
+    def record_consent(self, user_id, consent_type, purpose, source="", ip_address="",
+                       expires_in_days=0):
+        """Record user consent for a specific purpose.
+
+        Args:
+            consent_type: 'express' (opt-in) or 'implied' (existing business relationship)
+            purpose: e.g. 'marketing_email', 'product_updates', 'third_party_offers'
+            expires_in_days: 0 = no expiry (express), implied consent expires in 2 years per CASL
+        """
+        expires_at = 0
+        if consent_type == "implied" and expires_in_days == 0:
+            expires_at = time.time() + (730 * 86400)  # 2 years per CASL s.10(9)
+        elif expires_in_days > 0:
+            expires_at = time.time() + (expires_in_days * 86400)
+
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            conn.execute("""
+                INSERT INTO casl_consent (user_id, consent_type, purpose, source, ip_address, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id, purpose) DO UPDATE SET
+                    consent_type = EXCLUDED.consent_type,
+                    granted_at = extract(epoch FROM now()),
+                    expires_at = EXCLUDED.expires_at,
+                    withdrawn_at = 0,
+                    source = EXCLUDED.source,
+                    ip_address = EXCLUDED.ip_address,
+                    active = TRUE
+            """, (user_id, consent_type, purpose, source, ip_address, expires_at))
+        log.info("CASL CONSENT: user=%s purpose=%s type=%s", user_id, purpose, consent_type)
+
+    def withdraw_consent(self, user_id, purpose):
+        """Withdraw consent (unsubscribe). CASL requires processing within 10 business days."""
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            conn.execute(
+                "UPDATE casl_consent SET active = FALSE, withdrawn_at = extract(epoch FROM now()) "
+                "WHERE user_id = %s AND purpose = %s",
+                (user_id, purpose),
+            )
+        log.info("CASL WITHDRAW: user=%s purpose=%s", user_id, purpose)
+
+    def has_consent(self, user_id, purpose):
+        """Check if user has active consent for a purpose.
+
+        Returns: (has_consent: bool, consent_type: str or None)
+        """
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            cur = conn.execute(
+                "SELECT consent_type, expires_at FROM casl_consent "
+                "WHERE user_id = %s AND purpose = %s AND active = TRUE",
+                (user_id, purpose),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False, None
+            # Check expiry
+            if row[1] > 0 and time.time() > row[1]:
+                conn.execute(
+                    "UPDATE casl_consent SET active = FALSE WHERE user_id = %s AND purpose = %s",
+                    (user_id, purpose),
+                )
+                return False, None
+            return True, row[0]
+
+    def get_user_consents(self, user_id):
+        """Get all consent records for a user."""
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            cur = conn.execute(
+                "SELECT purpose, consent_type, granted_at, expires_at, withdrawn_at, active "
+                "FROM casl_consent WHERE user_id = %s ORDER BY granted_at DESC",
+                (user_id,),
+            )
+            return [
+                {
+                    "purpose": r[0], "consent_type": r[1], "granted_at": r[2],
+                    "expires_at": r[3], "withdrawn_at": r[4], "active": r[5],
+                }
+                for r in cur.fetchall()
+            ]
+
+    def expire_implied_consents(self):
+        """Expire all implied consents past their 2-year window. Run periodically."""
+        now = time.time()
+        with self._conn() as conn:
+            self._ensure_table(conn)
+            cur = conn.execute(
+                "UPDATE casl_consent SET active = FALSE "
+                "WHERE consent_type = 'implied' AND expires_at > 0 AND expires_at < %s AND active = TRUE "
+                "RETURNING user_id, purpose",
+                (now,),
+            )
+            expired = cur.fetchall()
+            if expired:
+                log.info("CASL: expired %d implied consents", len(expired))
+            return len(expired)
+
+
+_consent_manager: Optional[ConsentManager] = None
+
+
+def get_consent_manager() -> ConsentManager:
+    global _consent_manager
+    if _consent_manager is None:
+        _consent_manager = ConsentManager()
+    return _consent_manager
+
+
+# ── Right-to-Erasure Orchestrator ─────────────────────────────────────
+
+def execute_right_to_erasure(user_id):
+    """Complete right-to-erasure workflow per PIPEDA/Law 25.
+
+    Steps:
+    1. Destroy user's encryption key (cryptographic shredding)
+    2. Withdraw all CASL consents
+    3. Anonymize non-encrypted records
+    4. Mark lifecycle records as purged
+
+    Returns summary dict.
+    """
+    summary = {"user_id": user_id, "actions": []}
+
+    # Step 1: Cryptographic shredding
+    shredder = get_crypto_shredder()
+    shredder.destroy_user_key(user_id)
+    summary["actions"].append("encryption_key_destroyed")
+
+    # Step 2: Withdraw all CASL consents
+    cm = get_consent_manager()
+    consents = cm.get_user_consents(user_id)
+    for c in consents:
+        if c["active"]:
+            cm.withdraw_consent(user_id, c["purpose"])
+    summary["actions"].append(f"casl_consents_withdrawn:{len(consents)}")
+
+    # Step 3: Anonymize lifecycle tracking records
+    lm = get_lifecycle_manager()
+    with lm._conn() as conn:
+        conn.execute(
+            "UPDATE data_lifecycle SET entity_id = %s, purged_at = extract(epoch FROM now()), "
+            "purge_reason = 'right_to_erasure' WHERE entity_id = %s",
+            (f"erased-{hashlib.sha256(user_id.encode()).hexdigest()[:12]}", user_id),
+        )
+    summary["actions"].append("lifecycle_records_anonymized")
+
+    log.info("RIGHT TO ERASURE complete for user=%s actions=%s", user_id, summary["actions"])
+    return summary

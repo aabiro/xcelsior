@@ -11,9 +11,11 @@
 # Requires XCELSIOR_STRIPE_SECRET_KEY to be set with a valid Stripe key.
 # Operations that require Stripe will raise errors if not configured.
 
+import json
 import os
 import time
 import logging
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -25,7 +27,8 @@ log = logging.getLogger("xcelsior.stripe")
 
 STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
-PLATFORM_CUT_PCT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "15"))
+_raw_cut = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
+PLATFORM_CUT_FRAC = _raw_cut if _raw_cut <= 1.0 else _raw_cut / 100.0
 STRIPE_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SECRET_KEY.startswith("sk_"))
 
 DB_PATH = os.environ.get("XCELSIOR_STRIPE_DB", "xcelsior_stripe.db")
@@ -184,10 +187,11 @@ class StripeConnectManager:
                 stripe_account_id = acct.id
 
                 # Generate onboarding link
+                _base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
                 link = stripe.AccountLink.create(
                     account=stripe_account_id,
-                    refresh_url=f"https://xcelsior.ca/onboarding/refresh?provider={provider_id}",
-                    return_url=f"https://xcelsior.ca/onboarding/complete?provider={provider_id}",
+                    refresh_url=f"{_base_url}/onboarding/refresh?provider={provider_id}",
+                    return_url=f"{_base_url}/onboarding/complete?provider={provider_id}",
                     type="account_onboarding",
                 )
                 onboarding_url = link.url
@@ -358,7 +362,7 @@ class StripeConnectManager:
         """
         from billing import get_tax_rate_for_province
 
-        platform_share = round(total_cad * PLATFORM_CUT_PCT / 100.0, 2)
+        platform_share = round(total_cad * PLATFORM_CUT_FRAC, 2)
         pre_tax_provider = round(total_cad - platform_share, 2)
         tax_rate = get_tax_rate_for_province(province)
         gst_hst = round(total_cad * tax_rate, 2)
@@ -444,15 +448,17 @@ class StripeConnectManager:
                 }
             )
 
-    # ── Webhook Handling ──────────────────────────────────────────────
+    # ── Webhook Handling (Inbox Pattern) ─────────────────────────────
 
     def handle_webhook(self, payload: bytes, sig_header: str) -> dict:
-        """Process a Stripe webhook event.
+        """Receive a Stripe webhook event into the inbox for idempotent processing.
 
-        Handles:
-        - account.updated → Provider KYC status change
-        - payment_intent.succeeded → Credit deposit confirmed
-        - payout.paid → Provider payout completed
+        Two-phase approach:
+        1. Verify signature, write to stripe_event_inbox (dedup on event_id)
+        2. Background processor picks up pending events and processes them
+
+        This guarantees at-least-once delivery with exactly-once semantics
+        because Stripe retries are deduped by event_id primary key.
         """
         if not STRIPE_ENABLED or not stripe:
             return {"handled": False, "reason": "Stripe not enabled"}
@@ -467,36 +473,216 @@ class StripeConnectManager:
             log.error("Webhook signature verification failed: %s", e)
             return {"handled": False, "error": str(e)}
 
+        event_id = event["id"]
         event_type = event["type"]
-        data = event["data"]["object"]
+        now = time.time()
 
+        # Phase 1: Write to inbox (idempotent via PK)
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT event_id, status FROM stripe_event_inbox WHERE event_id = %s",
+                (event_id,),
+            ).fetchone()
+            if existing:
+                log.info("Webhook event %s already in inbox (status=%s), skipping", event_id, existing["status"])
+                return {"handled": True, "type": event_type, "dedup": True}
+
+            from psycopg.types.json import Jsonb
+            conn.execute(
+                """INSERT INTO stripe_event_inbox
+                   (event_id, event_type, stripe_account, livemode, api_version,
+                    created_unix, received_at, payload, status, attempts, next_retry_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', 0, %s)""",
+                (
+                    event_id,
+                    event_type,
+                    event.get("account", ""),
+                    event.get("livemode", True),
+                    event.get("api_version", ""),
+                    event.get("created", 0),
+                    now,
+                    Jsonb(dict(event)),
+                    now,  # process immediately
+                ),
+            )
+
+        log.info("Webhook event %s (%s) written to inbox", event_id, event_type)
+
+        # Try eager processing (best-effort, background processor is the safety net)
+        try:
+            self._process_single_event(event_id)
+        except Exception as e:
+            log.warning("Eager processing failed for %s, will retry: %s", event_id, e)
+
+        return {"handled": True, "type": event_type, "event_id": event_id}
+
+    def _process_single_event(self, event_id: str) -> bool:
+        """Process one event from the inbox. Returns True if processed."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM stripe_event_inbox WHERE event_id = %s AND status = 'pending' FOR UPDATE SKIP LOCKED",
+                (event_id,),
+            ).fetchone()
+            if not row:
+                return False
+
+            event_type = row["event_type"]
+            payload = row["payload"]
+            data = payload.get("data", {}).get("object", {})
+            attempts = (row["attempts"] or 0) + 1
+
+            try:
+                self._dispatch_event(event_type, data, event_id)
+                conn.execute(
+                    "UPDATE stripe_event_inbox SET status = 'processed', attempts = %s, processed_at = %s WHERE event_id = %s",
+                    (attempts, time.time(), event_id),
+                )
+                log.info("Event %s (%s) processed successfully", event_id, event_type)
+                return True
+            except Exception as e:
+                # Exponential backoff: 30s, 60s, 120s, 240s, 480s
+                backoff = min(30 * (2 ** (attempts - 1)), 3600)
+                next_retry = time.time() + backoff
+                max_attempts = 8
+                new_status = "failed" if attempts >= max_attempts else "pending"
+                conn.execute(
+                    """UPDATE stripe_event_inbox
+                       SET status = %s, attempts = %s, last_error = %s, next_retry_at = %s
+                       WHERE event_id = %s""",
+                    (new_status, attempts, str(e)[:500], next_retry, event_id),
+                )
+                log.error("Event %s processing failed (attempt %d/%d): %s", event_id, attempts, max_attempts, e)
+                return False
+
+    def _dispatch_event(self, event_type: str, data: dict, event_id: str):
+        """Route an event to its handler. Raises on failure for retry."""
         if event_type == "account.updated":
-            acct_id = data["id"]
-            with self._conn() as conn:
-                row = conn.execute(
-                    "SELECT provider_id FROM provider_accounts WHERE stripe_account_id=?",
-                    (acct_id,),
-                ).fetchone()
-                if row:
-                    charges_enabled = data.get("charges_enabled", False)
-                    payouts_enabled = data.get("payouts_enabled", False)
-                    if charges_enabled and payouts_enabled:
-                        self.complete_onboarding(row["provider_id"])
-            return {"handled": True, "type": "account.updated"}
-
+            self._handle_account_updated(data)
         elif event_type == "payment_intent.succeeded":
-            si_id = data["id"]
+            self._handle_payment_succeeded(data, event_id)
+        elif event_type == "payment_intent.payment_failed":
+            self._handle_payment_failed(data)
+        elif event_type == "transfer.created":
+            self._handle_transfer_created(data)
+        elif event_type == "transfer.reversed":
+            self._handle_transfer_reversed(data)
+        elif event_type == "payout.paid":
+            self._handle_payout_paid(data)
+        elif event_type == "payout.failed":
+            self._handle_payout_failed(data)
+        else:
+            log.debug("Unhandled event type: %s", event_type)
+
+    def _handle_account_updated(self, data: dict):
+        acct_id = data["id"]
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT provider_id FROM provider_accounts WHERE stripe_account_id=%s",
+                (acct_id,),
+            ).fetchone()
+            if row:
+                charges_enabled = data.get("charges_enabled", False)
+                payouts_enabled = data.get("payouts_enabled", False)
+                if charges_enabled and payouts_enabled:
+                    self.complete_onboarding(row["provider_id"])
+                elif not charges_enabled or not payouts_enabled:
+                    # Stripe disabled capabilities — mark restricted
+                    reqs = data.get("requirements", {})
+                    if reqs.get("disabled_reason"):
+                        conn.execute(
+                            "UPDATE provider_accounts SET status='restricted' WHERE provider_id=%s",
+                            (row["provider_id"],),
+                        )
+                        log.warning("Provider %s restricted: %s", row["provider_id"], reqs.get("disabled_reason"))
+
+    def _handle_payment_succeeded(self, data: dict, event_id: str):
+        si_id = data["id"]
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE payment_intents SET status='succeeded' WHERE stripe_intent_id=%s",
+                (si_id,),
+            )
+            row = conn.execute(
+                "SELECT customer_id, amount_cents FROM payment_intents WHERE stripe_intent_id=%s",
+                (si_id,),
+            ).fetchone()
+        if row:
+            from billing import get_billing_engine
+            amount_cad = round(row["amount_cents"] / 100.0, 2)
+            engine = get_billing_engine()
+            # Idempotent deposit using event_id as idempotency_key
+            engine.deposit(
+                row["customer_id"],
+                amount_cad,
+                description=f"Stripe deposit {si_id}",
+                idempotency_key=f"stripe:{event_id}",
+            )
+            log.info("Wallet credited: %s +$%.2f from %s", row["customer_id"], amount_cad, si_id)
+
+            # If wallet was suspended and balance is now positive, reactivate
+            wallet = engine.get_wallet(row["customer_id"])
+            if wallet.get("status") == "suspended" and wallet.get("balance_cad", 0) > 0:
+                engine.reactivate_wallet(row["customer_id"])
+
+    def _handle_payment_failed(self, data: dict):
+        si_id = data["id"]
+        failure_code = data.get("last_payment_error", {}).get("code", "unknown")
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE payment_intents SET status='failed' WHERE stripe_intent_id=%s",
+                (si_id,),
+            )
+        log.warning("Payment failed: %s reason=%s", si_id, failure_code)
+
+    def _handle_transfer_created(self, data: dict):
+        transfer_id = data["id"]
+        meta = data.get("metadata", {})
+        job_id = meta.get("job_id", "")
+        log.info("Transfer created: %s for job %s", transfer_id, job_id)
+
+    def _handle_transfer_reversed(self, data: dict):
+        transfer_id = data["id"]
+        meta = data.get("metadata", {})
+        job_id = meta.get("job_id", "")
+        provider_id = meta.get("provider_id", "")
+        amount_cents = data.get("amount_reversed", 0)
+        log.warning("Transfer REVERSED: %s job=%s provider=%s amount=%d cents", transfer_id, job_id, provider_id, amount_cents)
+        # Claw back from provider's pending balance tracking
+        if provider_id:
             with self._conn() as conn:
                 conn.execute(
-                    "UPDATE payment_intents SET status='succeeded' WHERE stripe_intent_id=?",
-                    (si_id,),
+                    """UPDATE payout_splits SET platform_share_cad = total_cad, provider_share_cad = 0
+                       WHERE job_id = %s AND provider_id = %s AND stripe_transfer_id = %s""",
+                    (job_id, provider_id, transfer_id),
                 )
-            return {"handled": True, "type": "payment_intent.succeeded"}
 
-        elif event_type == "payout.paid":
-            return {"handled": True, "type": "payout.paid"}
+    def _handle_payout_paid(self, data: dict):
+        log.info("Payout paid: %s", data.get("id", ""))
 
-        return {"handled": False, "type": event_type}
+    def _handle_payout_failed(self, data: dict):
+        payout_id = data.get("id", "")
+        failure_code = data.get("failure_code", "unknown")
+        failure_message = data.get("failure_message", "")
+        log.error("Payout FAILED: %s code=%s msg=%s", payout_id, failure_code, failure_message)
+
+    # ── Background Event Processor ────────────────────────────────────
+
+    def process_pending_events(self, batch_size: int = 20) -> int:
+        """Process pending events from the inbox. Returns count processed."""
+        now = time.time()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT event_id FROM stripe_event_inbox
+                   WHERE status = 'pending' AND next_retry_at <= %s
+                   ORDER BY next_retry_at ASC LIMIT %s""",
+                (now, batch_size),
+            ).fetchall()
+
+        processed = 0
+        for row in rows:
+            if self._process_single_event(row["event_id"]):
+                processed += 1
+        return processed
 
 
 # ── Singleton ─────────────────────────────────────────────────────────

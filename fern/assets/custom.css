@@ -1,0 +1,46 @@
+/* Xcelsior Fern Docs — match main site aurora theme */
+
+/* Typography */
+:root {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+/* Dark mode refinements */
+html[data-theme="dark"] {
+  --fern-bg-primary: #060a13;
+  --fern-bg-secondary: #0d1320;
+  --fern-border-default: #1e293b;
+}
+
+/* Code block styling */
+html[data-theme="dark"] pre {
+  background: #0d1320 !important;
+  border: 1px solid #1e293b;
+}
+
+/* Smoother transitions */
+* {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Scrollbar styling for dark mode */
+html[data-theme="dark"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #060a13;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}

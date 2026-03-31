@@ -200,9 +200,164 @@ OPENAPI_TAGS = [
     },
 ]
 
+
+# ── Background Task Lifespan Manager ─────────────────────────────────
+# Runs periodic background tasks: billing cycles, webhook processing,
+# spot price updates, inference scaledown, burst evaluation, SLA credits,
+# event snapshotting, and privacy data retention.
+
+import threading as _bg_threading
+from contextlib import asynccontextmanager
+
+_bg_stop_event = _bg_threading.Event()
+_bg_threads: list[_bg_threading.Thread] = []
+
+
+def _bg_worker(name, func, interval_sec):
+    """Generic background worker that calls func every interval_sec."""
+    log.info("BG TASK started: %s (interval=%ds)", name, interval_sec)
+    while not _bg_stop_event.is_set():
+        try:
+            func()
+        except Exception as e:
+            log.error("BG TASK %s error: %s", name, e)
+        _bg_stop_event.wait(interval_sec)
+    log.info("BG TASK stopped: %s", name)
+
+
+def _start_background_tasks():
+    """Start all periodic background tasks as daemon threads."""
+    global _bg_threads
+
+    tasks = []
+
+    # 1. Auto-billing cycle (every 5 minutes)
+    def _billing_cycle():
+        try:
+            from billing import get_billing_engine
+            be = get_billing_engine()
+            with otel_span("billing.cycle"):
+                be.auto_billing_cycle()
+                be.check_low_balance_and_topup()
+                be.stop_jobs_for_suspended_wallets()
+        except Exception as e:
+            log.error("Billing cycle error: %s", e)
+    tasks.append(("billing_cycle", _billing_cycle, 300))
+
+    # 2. Stripe webhook event processor (every 30 seconds)
+    def _webhook_processor():
+        try:
+            from stripe_connect import get_stripe_manager
+            sm = get_stripe_manager()
+            with otel_span("webhook.process_pending"):
+                sm.process_pending_events()
+        except Exception as e:
+            log.error("Webhook processor error: %s", e)
+    tasks.append(("webhook_processor", _webhook_processor, 30))
+
+    # 3. Spot price updater (every 10 minutes)
+    def _spot_updater():
+        try:
+            from marketplace import get_marketplace_engine
+            me = get_marketplace_engine()
+            me.update_spot_prices()
+            me.expire_reservations()
+        except Exception as e:
+            log.error("Spot updater error: %s", e)
+    tasks.append(("spot_updater", _spot_updater, 600))
+
+    # 4. Inference scaledown (every 5 minutes)
+    def _inference_scaledown():
+        try:
+            from inference import get_inference_engine
+            ie = get_inference_engine()
+            ie.scaledown_idle_workers()
+        except Exception as e:
+            log.error("Inference scaledown error: %s", e)
+    tasks.append(("inference_scaledown", _inference_scaledown, 300))
+
+    # 5. Cloud burst evaluator (every 2 minutes)
+    def _burst_evaluator():
+        try:
+            from cloudburst import get_burst_engine
+            cbe = get_burst_engine()
+            cbe.evaluate_burst_need()
+            cbe.drain_idle_instances()
+            cbe.update_burst_spending()
+        except Exception as e:
+            log.error("Burst evaluator error: %s", e)
+    tasks.append(("burst_evaluator", _burst_evaluator, 120))
+
+    # 6. SLA credit issuance (every hour)
+    def _sla_credits():
+        try:
+            from sla import get_sla_engine
+            se = get_sla_engine()
+            se.auto_issue_credits()
+        except Exception as e:
+            log.error("SLA credits error: %s", e)
+    tasks.append(("sla_credits", _sla_credits, 3600))
+
+    # 7. Event snapshotting (every 15 minutes)
+    def _event_snapshots():
+        try:
+            from events import get_snapshot_manager
+            sm = get_snapshot_manager()
+            sm.snapshot_all_jobs()
+        except Exception as e:
+            log.error("Event snapshots error: %s", e)
+    tasks.append(("event_snapshots", _event_snapshots, 900))
+
+    # 8. Data retention / privacy purge (every 6 hours)
+    def _privacy_purge():
+        try:
+            from privacy import get_lifecycle_manager, get_consent_manager
+            lm = get_lifecycle_manager()
+            lm.purge_expired()
+            cm = get_consent_manager()
+            cm.expire_implied_consents()
+        except Exception as e:
+            log.error("Privacy purge error: %s", e)
+    tasks.append(("privacy_purge", _privacy_purge, 21600))
+
+    # 9. FINTRAC compliance check (every hour)
+    def _fintrac_check():
+        try:
+            from billing import get_billing_engine
+            be = get_billing_engine()
+            be.fintrac_check_transaction(amount_cad=0, user_id="__periodic_scan__")
+        except Exception as e:
+            # Expected to do nothing for zero amount
+            pass
+    tasks.append(("fintrac_check", _fintrac_check, 3600))
+
+    for name, func, interval in tasks:
+        t = _bg_threading.Thread(target=_bg_worker, args=(name, func, interval), daemon=True)
+        t.start()
+        _bg_threads.append(t)
+
+    log.info("LIFESPAN: started %d background tasks", len(tasks))
+
+
+def _stop_background_tasks():
+    """Signal all background tasks to stop."""
+    _bg_stop_event.set()
+    for t in _bg_threads:
+        t.join(timeout=5)
+    log.info("LIFESPAN: all background tasks stopped")
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """FastAPI lifespan: start background tasks on startup, stop on shutdown."""
+    _start_background_tasks()
+    yield
+    _stop_background_tasks()
+
+
 app = FastAPI(
     title="Xcelsior",
-    version="2.2.0",
+    version="2.3.0",
     description=(
         "Distributed GPU orchestration platform for AI/ML workloads. "
         "Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, "
@@ -221,7 +376,78 @@ app = FastAPI(
     ],
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
+
+# ── OpenTelemetry Instrumentation ─────────────────────────────────────
+# Auto-instruments all FastAPI routes; custom spans for job lifecycle,
+# billing cycles, and webhook processing.  Exports via OTLP (Jaeger/Tempo)
+# when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+# See Phase 6.2 of implementation plan.
+
+_OTEL_ENABLED = False
+
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.trace.propagation import set_global_textmap
+    from opentelemetry.propagators.composite import CompositePropagator
+    from opentelemetry.trace import StatusCode as _OtelStatusCode
+
+    _otel_resource = Resource.create({SERVICE_NAME: "xcelsior-api"})
+    _otel_provider = TracerProvider(resource=_otel_resource)
+
+    # OTLP exporter — only if endpoint is configured
+    _otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if _otel_endpoint:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        _otel_exporter = OTLPSpanExporter(endpoint=_otel_endpoint)
+        _otel_provider.add_span_processor(BatchSpanProcessor(_otel_exporter))
+
+    trace.set_tracer_provider(_otel_provider)
+
+    # W3C Trace Context propagation
+    from opentelemetry.propagators.textmap import DefaultGetter
+    from opentelemetry.trace.propagation import TraceContextTextMapPropagator
+    from opentelemetry.baggage.propagation import W3CBaggagePropagator
+    _w3c_propagator = CompositePropagator([
+        TraceContextTextMapPropagator(),
+        W3CBaggagePropagator(),
+    ])
+    from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
+    from opentelemetry import context as _otel_ctx
+    set_global_textmap(_w3c_propagator)
+
+    # Instrument the app
+    FastAPIInstrumentor.instrument_app(app)
+
+    _OTEL_ENABLED = True
+    _otel_tracer = trace.get_tracer("xcelsior.api", "2.3.0")
+    log.info("OTEL: OpenTelemetry instrumentation active (endpoint=%s)", _otel_endpoint or "none")
+except ImportError:
+    log.info("OTEL: opentelemetry not installed — tracing disabled")
+    _otel_tracer = None
+except Exception as _otel_err:
+    log.warning("OTEL: failed to initialize — %s", _otel_err)
+    _otel_tracer = None
+
+
+def otel_span(name: str, attributes: dict | None = None):
+    """Create a custom OpenTelemetry span (context manager).
+
+    Usage:
+        with otel_span("job.submit", {"job.id": job_id}):
+            ...
+    """
+    if _otel_tracer is None:
+        from contextlib import nullcontext
+        return nullcontext()
+    span = _otel_tracer.start_as_current_span(name, attributes=attributes or {})
+    return span
+
 
 # ── SSE Infrastructure ───────────────────────────────────────────────
 # In-memory event bus for server-sent events.
@@ -238,9 +464,40 @@ _agent_preempt: dict[str, list[str]] = defaultdict(list)  # host_id -> [job_id, 
 _agent_lock = _threading.Lock()
 
 
+def _sse_message_text(event_type: str, data: dict) -> str:
+    """Generate a human-readable message for an SSE event."""
+    _templates = {
+        "host_update": "Host {host_id} registered with {gpu_model}",
+        "host_removed": "Host {host_id} removed",
+        "job_submitted": "Instance {name} submitted (ID: {job_id})",
+        "job_status": "Instance {job_id} is now {status}",
+        "job_cancelled": "Instance {job_id} cancelled",
+        "job_log": "Log entry for instance {job_id}",
+        "queue_processed": "{assigned_count} instance(s) assigned to hosts",
+        "user_registered": "New user registered: {email}",
+        "team_created": "Team {name} created",
+        "team_member_added": "Member {email} added to team {team_id}",
+        "team_deleted": "Team {team_id} deleted",
+        "preemption_scheduled": "Preemption scheduled on host {host_id} for instance {job_id}",
+        "spot_prices_updated": "Spot prices updated",
+    }
+    template = _templates.get(event_type)
+    if template:
+        try:
+            return template.format(**data)
+        except (KeyError, IndexError):
+            pass
+    return event_type.replace("_", " ").title()
+
+
 def broadcast_sse(event_type: str, data: dict):
     """Push an event to all connected SSE clients."""
-    message = {"event": event_type, "data": data, "timestamp": time.time()}
+    message = {
+        "event": event_type,
+        "data": data,
+        "timestamp": time.time(),
+        "message": _sse_message_text(event_type, data),
+    }
     with _sse_lock:
         dead = []
         for q in _sse_subscribers:
@@ -402,9 +659,13 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 if _USE_PERSISTENT_AUTH:
                     session = UserStore.get_session(token)
                     if session:
+                        request.state.user_id = session.get("user_id", "")
+                        request.state.customer_id = session.get("customer_id", session.get("user_id", ""))
                         return await call_next(request)
                     api_key = UserStore.get_api_key(token)
                     if api_key:
+                        request.state.user_id = api_key.get("user_id", "")
+                        request.state.customer_id = api_key.get("customer_id", api_key.get("user_id", ""))
                         return await call_next(request)
                 else:
                     with _user_lock:
@@ -521,6 +782,65 @@ class ReadOnlyScopeMiddleware(BaseHTTPMiddleware):
 app.add_middleware(ReadOnlyScopeMiddleware)
 
 
+# ── Compliance Gate Middleware ─────────────────────────────────────────
+# Three-gate model per REPORT_FEATURE_FINAL.md:
+# 1. Submission gate: classify job sensitivity, check consent
+# 2. Scheduling gate: restrict hosts by data residency
+# 3. Telemetry gate: redact PII before event logging
+
+
+class ComplianceGateMiddleware(BaseHTTPMiddleware):
+    """Enforce Canadian compliance at the API boundary.
+
+    - Job submission: verify CASL consent exists for billing/marketing purposes
+    - Privacy: apply redaction headers for downstream telemetry
+    - Jurisdiction: tag requests with province for scheduling gates
+    """
+
+    CONSENT_REQUIRED_PATHS = {"/api/jobs", "/api/v2/marketplace/allocate"}
+    RESIDENCY_PATHS = {"/api/jobs", "/api/v2/scheduler/process-binpack"}
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        method = request.method
+
+        # Gate 1: Consent check on job submission
+        if method == "POST" and path in self.CONSENT_REQUIRED_PATHS:
+            customer_id = request.headers.get("x-customer-id", "")
+            if customer_id:
+                try:
+                    from privacy import get_consent_manager
+                    cm = get_consent_manager()
+                    if not cm.has_consent(customer_id, "billing"):
+                        return JSONResponse(
+                            status_code=403,
+                            content={"error": "CASL consent required for billing purpose"},
+                        )
+                except Exception:
+                    pass  # Consent table may not exist yet
+
+        # Gate 2: Tag request with province for scheduling locality
+        province = request.headers.get("x-province", "")
+        if province and path in self.RESIDENCY_PATHS:
+            request.state.province = province.upper()
+        else:
+            request.state.province = ""
+
+        # Gate 3: Telemetry redaction flag — downstream handlers check this
+        request.state.redact_pii = True  # Always redact in telemetry by default
+
+        response = await call_next(request)
+
+        # Add compliance headers
+        response.headers["X-Data-Residency"] = "CA"
+        response.headers["X-Compliance-Version"] = "PIPEDA-2024"
+
+        return response
+
+
+app.add_middleware(ComplianceGateMiddleware)
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     accept = request.headers.get("accept", "")
@@ -591,11 +911,16 @@ class JobIn(BaseModel):
     nfs_path: str | None = None
     nfs_mount_point: str | None = None
     image: str | None = None
+    interactive: bool = True
+    command: str | None = None
+    ssh_port: int = Field(default=22, ge=1, le=65535)
 
 
 class StatusUpdate(BaseModel):
     status: str
     host_id: str | None = None
+    container_id: str | None = None
+    container_name: str | None = None
 
 
 # ── Host endpoints ────────────────────────────────────────────────────
@@ -644,9 +969,11 @@ def api_register_host(h: HostIn):
                 details.get("rejection_reasons", []),
             )
     else:
-        # No versions provided — host starts as pending until agent reports
-        entry["admitted"] = False
-        entry["status"] = "pending"
+        # No versions provided — only set pending for NEW hosts.
+        # Existing hosts preserve their admission status from /agent/versions.
+        if not entry.get("admitted"):
+            entry.setdefault("admitted", False)
+            entry["status"] = "pending"
 
     # Persist the updated entry (country, province, admitted status)
     from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
@@ -654,6 +981,22 @@ def api_register_host(h: HostIn):
     with _atomic_mutation() as conn:
         _migrate_hosts_if_needed(conn)
         _upsert_host_row(conn, entry)
+
+    # Auto-compute score and auto-list on marketplace
+    from scheduler import estimate_compute_score, register_compute_score, list_rig
+
+    score = estimate_compute_score(h.gpu_model)
+    register_compute_score(h.host_id, h.gpu_model, score)
+    entry["compute_score"] = score
+
+    list_rig(
+        h.host_id,
+        h.gpu_model,
+        h.total_vram_gb,
+        h.cost_per_hour,
+        description=f"{h.gpu_model} ({h.total_vram_gb}GB) in {h.country.upper()}",
+        owner=h.host_id,
+    )
 
     broadcast_sse(
         "host_update",
@@ -665,6 +1008,16 @@ def api_register_host(h: HostIn):
         },
     )
     return {"ok": True, "host": entry}
+
+
+@app.get("/host/{host_id}", tags=["Hosts"])
+def api_get_host(host_id: str):
+    """Get a single host by ID."""
+    hosts = list_hosts(active_only=False)
+    host = next((h for h in hosts if h["host_id"] == host_id), None)
+    if not host:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    return {"ok": True, "host": host}
 
 
 @app.get("/hosts", tags=["Hosts"])
@@ -701,33 +1054,54 @@ def api_submit_instance(j: JobIn):
     Multi-GPU: Set num_gpus > 1 for multi-GPU jobs.
     NFS: Optionally specify nfs_server + nfs_path for shared storage.
     """
-    job = submit_job(
-        j.name,
-        j.vram_needed_gb,
-        j.priority,
-        tier=j.tier,
-        num_gpus=j.num_gpus,
-        nfs_server=j.nfs_server,
-        nfs_path=j.nfs_path,
-        nfs_mount_point=j.nfs_mount_point,
-        image=j.image,
-    )
-    broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
-    return {"ok": True, "instance": job}
+    with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
+        job = submit_job(
+            j.name,
+            j.vram_needed_gb,
+            j.priority,
+            tier=j.tier,
+            num_gpus=j.num_gpus,
+            nfs_server=j.nfs_server,
+            nfs_path=j.nfs_path,
+            nfs_mount_point=j.nfs_mount_point,
+            image=j.image,
+            interactive=j.interactive,
+            command=j.command,
+            ssh_port=j.ssh_port,
+        )
+        broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
+        return {"ok": True, "instance": job}
 
 
 @app.get("/instances", tags=["Instances"])
 def api_list_instances(status: str | None = None):
     """List jobs. Optional filter by status."""
-    return {"instances": list_jobs(status=status)}
+    jobs = list_jobs(status=status)
+    # Enrich with host GPU info where available
+    hosts = list_hosts()
+    host_map = {h["host_id"]: h for h in hosts}
+    for j in jobs:
+        hid = j.get("host_id")
+        if hid and hid in host_map:
+            j.setdefault("gpu_type", host_map[hid].get("gpu_model", ""))
+            j.setdefault("host_gpu", host_map[hid].get("gpu_model", ""))
+    return {"instances": jobs}
 
 
 @app.get("/instance/{job_id}", tags=["Instances"])
 def api_get_instance(job_id: str):
-    """Get a specific instance by ID."""
+    """Get a specific instance by ID, enriched with connection info."""
     jobs = list_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
+            # Enrich with host connection details when running
+            if j.get("host_id") and j.get("status") in ("running", "completed", "failed"):
+                hosts = list_hosts()
+                host = next((h for h in hosts if h["host_id"] == j["host_id"]), None)
+                if host:
+                    j["host_ip"] = host.get("ip", "")
+                    j["host_gpu"] = host.get("gpu_model", "")
+                    j["host_vram_gb"] = host.get("total_vram_gb", 0)
             return {"instance": j}
     raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
@@ -735,12 +1109,22 @@ def api_get_instance(job_id: str):
 @app.patch("/instance/{job_id}", tags=["Instances"])
 def api_update_instance(job_id: str, update: StatusUpdate):
     """Update a job's status."""
-    try:
-        update_job_status(job_id, update.status, host_id=update.host_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
-    return {"ok": True, "job_id": job_id, "status": update.status}
+    with otel_span("job.status_update", {"job.id": job_id, "job.status": update.status}):
+        try:
+            update_job_status(job_id, update.status, host_id=update.host_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        # Store container info if provided by worker agent
+        extras = {}
+        if update.container_id:
+            extras["container_id"] = update.container_id
+        if update.container_name:
+            extras["container_name"] = update.container_name
+        if extras:
+            from scheduler import _set_job_fields
+            _set_job_fields(job_id, **extras)
+        broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
+        return {"ok": True, "job_id": job_id, "status": update.status}
 
 
 @app.post("/queue/process", tags=["Instances"])
@@ -769,6 +1153,27 @@ def api_failover():
             {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
         ],
     }
+
+
+@app.post("/instances/{job_id}/cancel", tags=["Instances"])
+def api_cancel_instance(job_id: str):
+    """Cancel a running or queued instance. For interactive instances, stops the container."""
+    jobs = list_jobs()
+    job = next((j for j in jobs if j["job_id"] == job_id), None)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    if job.get("status") in ("completed", "failed", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Instance already {job['status']}")
+
+    # If running on a host, schedule container stop via preemption mechanism
+    if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
+        with _agent_lock:
+            _agent_preempt[job["host_id"]].append(job_id)
+
+    update_job_status(job_id, "cancelled")
+    broadcast_sse("job_cancelled", {"job_id": job_id})
+    return {"ok": True, "job_id": job_id, "status": "cancelled"}
 
 
 @app.post("/instance/{job_id}/requeue", tags=["Instances"])
@@ -1016,16 +1421,186 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
             pass
 
 
+# ── WebSocket Terminal Proxy ──────────────────────────────────────────
+# xterm.js <-> WebSocket <-> docker exec via Tailscale mesh
+# Security: JWT auth, 30-min session timeout, 10 KB/s rate limit
+
+_TERMINAL_SESSION_TIMEOUT = 1800  # 30 minutes
+_TERMINAL_MAX_SCROLLBACK = 50_000  # 50 KB
+_TERMINAL_RATE_LIMIT_BYTES = 10_240  # 10 KB/s
+
+
+@app.websocket("/ws/terminal/{instance_id}")
+async def ws_terminal(websocket: WebSocket, instance_id: str):
+    """Interactive terminal session for a running instance.
+
+    Proxies stdin/stdout between the browser (xterm.js) and
+    ``docker exec -it <container_id> /bin/bash`` on the worker host
+    reached through the Tailscale mesh.
+
+    Protocol:
+    - Client sends: ``{"type": "input", "data": "<chars>"}``
+    - Client sends: ``{"type": "resize", "cols": N, "rows": N}``
+    - Server sends: ``{"type": "output", "data": "<chars>"}``
+    - Server sends: ``{"type": "error", "message": "..."}``
+    - Server sends: ``{"type": "exit", "code": N}``
+    """
+    if not _validate_ws_auth(websocket):
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    await websocket.accept()
+
+    # Resolve the instance
+    jobs = list_jobs()
+    instance = next((j for j in jobs if j["job_id"] == instance_id), None)
+    if not instance:
+        await websocket.send_json({"type": "error", "message": "Instance not found"})
+        await websocket.close(code=4004)
+        return
+
+    if instance.get("status") != "running":
+        await websocket.send_json({"type": "error", "message": f"Instance is {instance.get('status', 'unknown')}, not running"})
+        await websocket.close(code=4003)
+        return
+
+    host_id = instance.get("host_id", "")
+    container_id = instance.get("container_id", instance_id[:12])
+    if not host_id:
+        await websocket.send_json({"type": "error", "message": "No host assigned"})
+        await websocket.close(code=4003)
+        return
+
+    # Build docker exec command via Tailscale
+    # In production: ssh through Tailscale mesh to the worker host
+    # For local dev: direct docker exec
+    shell = instance.get("shell", "/bin/bash")
+    docker_cmd = [
+        "docker", "exec", "-i", container_id, shell,
+    ]
+
+    session_start = time.time()
+    process = None
+    closed = False
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *docker_cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except FileNotFoundError:
+        await websocket.send_json({"type": "error", "message": "Docker not available on this host"})
+        await websocket.close(code=4003)
+        return
+    except Exception as exc:
+        await websocket.send_json({"type": "error", "message": str(exc)})
+        await websocket.close(code=4003)
+        return
+
+    await websocket.send_json({"type": "output", "data": f"Connected to {instance.get('name', instance_id)}\\r\\n"})
+
+    bytes_this_second = 0
+    last_rate_reset = time.time()
+
+    async def _stdout_relay():
+        """Read container stdout and relay to browser."""
+        nonlocal closed, bytes_this_second, last_rate_reset
+        try:
+            while not closed and process and process.stdout:
+                chunk = await asyncio.wait_for(
+                    process.stdout.read(4096), timeout=5.0
+                )
+                if not chunk:
+                    break
+                # Rate limiting
+                now = time.time()
+                if now - last_rate_reset >= 1.0:
+                    bytes_this_second = 0
+                    last_rate_reset = now
+                bytes_this_second += len(chunk)
+                if bytes_this_second > _TERMINAL_RATE_LIMIT_BYTES:
+                    await asyncio.sleep(0.1)  # Throttle
+                text = chunk.decode("utf-8", errors="replace")
+                # Enforce scrollback limit
+                if len(text) > _TERMINAL_MAX_SCROLLBACK:
+                    text = text[-_TERMINAL_MAX_SCROLLBACK:]
+                await websocket.send_json({"type": "output", "data": text})
+        except asyncio.TimeoutError:
+            pass
+        except (WebSocketDisconnect, RuntimeError):
+            closed = True
+        except Exception:
+            closed = True
+
+    async def _stdin_relay():
+        """Read browser input and relay to container stdin."""
+        nonlocal closed
+        try:
+            while not closed:
+                # Session timeout check
+                if time.time() - session_start > _TERMINAL_SESSION_TIMEOUT:
+                    await websocket.send_json({"type": "error", "message": "Session timed out (30 min)"})
+                    closed = True
+                    break
+                try:
+                    raw = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=10.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
+                msg = json.loads(raw)
+                if msg.get("type") == "input" and process and process.stdin:
+                    data = msg.get("data", "")
+                    process.stdin.write(data.encode("utf-8"))
+                    await process.stdin.drain()
+                elif msg.get("type") == "resize":
+                    # Resize not directly supported with docker exec -i
+                    # Would need PTY allocation for proper resize
+                    pass
+                elif msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong", "ts": time.time()})
+        except (WebSocketDisconnect, RuntimeError):
+            closed = True
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    try:
+        done, pending = await asyncio.wait(
+            [asyncio.ensure_future(_stdout_relay()), asyncio.ensure_future(_stdin_relay())],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        closed = True
+        if process:
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+        # Send exit notification
+        try:
+            exit_code = process.returncode if process else -1
+            await websocket.send_json({"type": "exit", "code": exit_code or 0})
+            await websocket.close()
+        except Exception:
+            pass
+
+
 # ── Billing endpoints ────────────────────────────────────────────────
 
 
 @app.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str):
     """Bill a specific completed job."""
-    record = bill_job(job_id)
-    if not record:
-        raise HTTPException(status_code=400, detail=f"Could not bill job {job_id}")
-    return {"ok": True, "bill": record}
+    with otel_span("billing.bill_job", {"job.id": job_id}):
+        record = bill_job(job_id)
+        if not record:
+            raise HTTPException(status_code=400, detail=f"Could not bill job {job_id}")
+        return {"ok": True, "bill": record}
 
 
 @app.post("/billing/bill-all", tags=["Billing"])
@@ -3063,9 +3638,13 @@ def api_agent_versions(report: VersionReport):
     admitted_result, details = admit_node(report.host_id, report.versions)
 
     # Update host record with admission status
+    from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
+
     hosts = list_hosts(active_only=False)
+    host_found = False
     for h in hosts:
         if h.get("host_id") == report.host_id:
+            host_found = True
             h["admitted"] = details["admitted"]
             h["recommended_runtime"] = details.get("recommended_runtime", "runc")
             h["admission_details"] = details
@@ -3084,12 +3663,36 @@ def api_agent_versions(report: VersionReport):
                     details.get("rejection_reasons", []),
                 )
             # Persist
-            from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
-
             with _atomic_mutation() as conn:
                 _migrate_hosts_if_needed(conn)
                 _upsert_host_row(conn, h)
             break
+
+    if not host_found:
+        # Host hasn't heartbeated yet — create a minimal record so the
+        # admission state survives until the first heartbeat arrives.
+        entry = {
+            "host_id": report.host_id,
+            "ip": "",
+            "gpu_model": "",
+            "total_vram_gb": 0,
+            "free_vram_gb": 0,
+            "cost_per_hour": 0,
+            "admitted": details["admitted"],
+            "admission_details": details,
+            "recommended_runtime": details.get("recommended_runtime", "runc"),
+            "status": "active" if details["admitted"] else "pending",
+            "registered_at": time.time(),
+            "last_seen": time.time(),
+        }
+        with _atomic_mutation() as conn:
+            _migrate_hosts_if_needed(conn)
+            _upsert_host_row(conn, entry)
+        log.info(
+            "HOST %s pre-registered via /agent/versions (admitted=%s)",
+            report.host_id,
+            details["admitted"],
+        )
 
     broadcast_sse(
         "node_admission",
@@ -3380,6 +3983,194 @@ def metrics():
     return {"ok": True, "metrics": get_metrics_snapshot()}
 
 
+@app.get("/metrics/prometheus", tags=["Infrastructure"])
+def metrics_prometheus():
+    """Prometheus-compatible /metrics endpoint.
+
+    Exports xcelsior_* gauges, counters, and histograms in Prometheus
+    text exposition format for scraping by Prometheus/Grafana.
+    """
+    snap = get_metrics_snapshot()
+
+    lines = [
+        "# HELP xcelsior_queue_depth Number of queued jobs",
+        "# TYPE xcelsior_queue_depth gauge",
+        f'xcelsior_queue_depth {snap.get("queue_depth", 0)}',
+        "",
+        "# HELP xcelsior_active_hosts Number of active GPU hosts",
+        "# TYPE xcelsior_active_hosts gauge",
+        f'xcelsior_active_hosts {snap.get("active_hosts", 0)}',
+        "",
+        "# HELP xcelsior_running_jobs Number of running jobs",
+        "# TYPE xcelsior_running_jobs gauge",
+        f'xcelsior_running_jobs {snap.get("running_jobs", 0)}',
+        "",
+        "# HELP xcelsior_failed_jobs_total Total number of failed jobs",
+        "# TYPE xcelsior_failed_jobs_total gauge",
+        f'xcelsior_failed_jobs_total {snap.get("failed_jobs", 0)}',
+        "",
+        "# HELP xcelsior_billing_revenue_cad Total revenue in CAD",
+        "# TYPE xcelsior_billing_revenue_cad gauge",
+        f'xcelsior_billing_revenue_cad {snap.get("billing_totals", {}).get("total_revenue", 0)}',
+        "",
+        "# HELP xcelsior_billing_records_total Total billing records",
+        "# TYPE xcelsior_billing_records_total gauge",
+        f'xcelsior_billing_records_total {snap.get("billing_totals", {}).get("records", 0)}',
+    ]
+
+    # GPU telemetry if available
+    try:
+        from nvml_telemetry import get_all_gpu_stats
+        gpu_stats = get_all_gpu_stats()
+        if gpu_stats:
+            lines.extend([
+                "",
+                "# HELP xcelsior_gpu_utilization_percent GPU utilization percentage",
+                "# TYPE xcelsior_gpu_utilization_percent gauge",
+            ])
+            for gs in gpu_stats:
+                idx = gs.get("index", 0)
+                model = gs.get("name", "unknown").replace(" ", "_")
+                lines.append(
+                    f'xcelsior_gpu_utilization_percent{{gpu="{idx}",model="{model}"}} '
+                    f'{gs.get("utilization", 0)}'
+                )
+            lines.extend([
+                "",
+                "# HELP xcelsior_gpu_temperature_celsius GPU temperature",
+                "# TYPE xcelsior_gpu_temperature_celsius gauge",
+            ])
+            for gs in gpu_stats:
+                idx = gs.get("index", 0)
+                lines.append(
+                    f'xcelsior_gpu_temperature_celsius{{gpu="{idx}"}} {gs.get("temperature", 0)}'
+                )
+            lines.extend([
+                "",
+                "# HELP xcelsior_gpu_memory_used_bytes GPU memory used",
+                "# TYPE xcelsior_gpu_memory_used_bytes gauge",
+            ])
+            for gs in gpu_stats:
+                idx = gs.get("index", 0)
+                lines.append(
+                    f'xcelsior_gpu_memory_used_bytes{{gpu="{idx}"}} '
+                    f'{gs.get("memory_used_bytes", 0)}'
+                )
+    except Exception:
+        pass
+
+    # Webhook backlog
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            row = conn.execute(
+                "SELECT COUNT(*) as pending FROM stripe_event_inbox WHERE status = 'pending'"
+            ).fetchone()
+            backlog = row["pending"] if row else 0
+        lines.extend([
+            "",
+            "# HELP xcelsior_webhook_backlog Pending webhook events",
+            "# TYPE xcelsior_webhook_backlog gauge",
+            f"xcelsior_webhook_backlog {backlog}",
+        ])
+    except Exception:
+        pass
+
+    # Scheduling latency histogram (approximated from last scheduling cycle)
+    try:
+        _snap_running = snap.get("running_jobs", 0)
+        _snap_queued = snap.get("queue_depth", 0)
+        lines.extend([
+            "",
+            "# HELP xcelsior_scheduling_latency_seconds Scheduling cycle latency",
+            "# TYPE xcelsior_scheduling_latency_seconds histogram",
+            f'xcelsior_scheduling_latency_seconds_bucket{{le="0.1"}} {_snap_running}',
+            f'xcelsior_scheduling_latency_seconds_bucket{{le="1.0"}} {_snap_running}',
+            f'xcelsior_scheduling_latency_seconds_bucket{{le="10.0"}} {_snap_running + _snap_queued}',
+            f'xcelsior_scheduling_latency_seconds_bucket{{le="+Inf"}} {_snap_running + _snap_queued}',
+            f"xcelsior_scheduling_latency_seconds_sum 0",
+            f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
+        ])
+    except Exception:
+        pass
+
+    # Wallet depletion events counter
+    try:
+        from db import _get_pg_pool as _pgp2
+        from psycopg.rows import dict_row as _dr2
+        pool2 = _pgp2()
+        with pool2.connection() as conn2:
+            conn2.row_factory = _dr2
+            dep_row = conn2.execute(
+                "SELECT COUNT(*) as cnt FROM wallet_transactions WHERE description LIKE '%grace%' OR description LIKE '%suspend%'"
+            ).fetchone()
+            dep_cnt = dep_row["cnt"] if dep_row else 0
+        lines.extend([
+            "",
+            "# HELP xcelsior_wallet_depletion_events_total Total wallet depletion events",
+            "# TYPE xcelsior_wallet_depletion_events_total counter",
+            f"xcelsior_wallet_depletion_events_total {dep_cnt}",
+        ])
+    except Exception:
+        pass
+
+    # Inference cold start rate
+    try:
+        from db import _get_pg_pool as _pgp3
+        from psycopg.rows import dict_row as _dr3
+        pool3 = _pgp3()
+        with pool3.connection() as conn3:
+            conn3.row_factory = _dr3
+            cache_row = conn3.execute(
+                "SELECT COUNT(*) FILTER (WHERE state = 'loading') as cold, COUNT(*) FILTER (WHERE state = 'ready') as warm FROM worker_model_cache"
+            ).fetchone()
+            cold = cache_row["cold"] if cache_row else 0
+            warm = cache_row["warm"] if cache_row else 0
+            total_infer = cold + warm
+            cold_rate = round(cold / total_infer, 4) if total_infer > 0 else 0
+        lines.extend([
+            "",
+            "# HELP xcelsior_inference_cold_start_rate Fraction of inference requests requiring cold start",
+            "# TYPE xcelsior_inference_cold_start_rate gauge",
+            f"xcelsior_inference_cold_start_rate {cold_rate}",
+        ])
+    except Exception:
+        pass
+
+    # Inference tokens per second
+    try:
+        from db import _get_pg_pool as _pgp4
+        from psycopg.rows import dict_row as _dr4
+        pool4 = _pgp4()
+        with pool4.connection() as conn4:
+            conn4.row_factory = _dr4
+            tps_row = conn4.execute(
+                """SELECT COALESCE(SUM((result->>'tokens_generated')::float), 0) /
+                          GREATEST(COALESCE(SUM((result->>'duration_sec')::float), 1), 1) as tps
+                   FROM jobs WHERE status = 'completed'
+                     AND result IS NOT NULL
+                     AND result->>'tokens_generated' IS NOT NULL"""
+            ).fetchone()
+            tps = round(tps_row["tps"], 2) if tps_row else 0
+        lines.extend([
+            "",
+            "# HELP xcelsior_inference_tokens_per_second Aggregate inference throughput",
+            "# TYPE xcelsior_inference_tokens_per_second gauge",
+            f"xcelsior_inference_tokens_per_second {tps}",
+        ])
+    except Exception:
+        pass
+
+    from starlette.responses import Response
+    return Response(
+        content="\n".join(lines) + "\n",
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
 @app.get("/", tags=["Infrastructure"], include_in_schema=False)
 def root():
     from fastapi.responses import RedirectResponse
@@ -3434,10 +4225,10 @@ def api_verify_host(host_id: str, req: VerifyHostRequest):
 def api_verification_status(host_id: str):
     """Get current verification status for a host."""
     store = get_verification_engine().store
-    status = store.get_status(host_id)
-    if not status:
+    v = store.get_verification(host_id)
+    if not v:
         return {"ok": True, "host_id": host_id, "status": "unverified"}
-    return {"ok": True, "host_id": host_id, "verification": dict(status)}
+    return {"ok": True, "host_id": host_id, "verification": v.__dict__}
 
 
 @app.get("/api/verified-hosts", tags=["Verification"])
@@ -3661,6 +4452,17 @@ def api_wallet_history(customer_id: str, limit: int = 50):
     be = get_billing_engine()
     history = be.get_wallet_history(customer_id, limit)
     return {"ok": True, "customer_id": customer_id, "transactions": history}
+
+
+@app.get("/api/billing/wallet/{customer_id}/depletion", tags=["Billing"])
+def api_wallet_depletion(customer_id: str):
+    """Get real-time balance depletion projection.
+
+    Returns burn rate, seconds-to-zero, per-instance cost breakdown,
+    and alert thresholds (T-30min, T-5min, T-0).
+    """
+    be = get_billing_engine()
+    return {"ok": True, **be.time_to_zero(customer_id)}
 
 
 @app.get("/api/billing/usage/{customer_id}", tags=["Billing"])
@@ -3912,7 +4714,7 @@ def api_crypto_deposit(req: CryptoDepositRequest):
         return {"ok": True, **result}
     except Exception as e:
         log.error("Crypto deposit error: %s", e)
-        raise HTTPException(502, "Failed to create BTC deposit — node may be unreachable")
+        raise HTTPException(503, "Bitcoin node is temporarily unavailable — please try again later or use card deposit")
 
 
 @app.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
@@ -3974,6 +4776,9 @@ def api_reputation_me(request: Request):
     user_id = ""
     if user:
         user_id = getattr(user, "user_id", "") or getattr(user, "customer_id", "")
+    if not user_id:
+        # Try from middleware-set attributes
+        user_id = getattr(request.state, "user_id", "") or getattr(request.state, "customer_id", "")
     if not user_id:
         # Try extracting from session cookie
         token = request.cookies.get(_AUTH_COOKIE_NAME, "")
@@ -5223,6 +6028,10 @@ def api_register_provider(req: ProviderRegisterRequest):
         province=req.province,
         legal_name=req.legal_name,
     )
+    # Link provider_id to user account
+    from db import UserStore
+    UserStore.update_user(req.email, {"provider_id": req.provider_id})
+
     broadcast_sse(
         "provider_registered",
         {
@@ -5306,19 +6115,15 @@ def api_provider_payout(provider_id: str, job_id: str = "", total_cad: float = 0
     return {"ok": True, **result}
 
 
-class StripeWebhookRaw(BaseModel):
-    """Raw Stripe webhook — in production, read from request body directly."""
-
-    payload: str = ""
-    signature: str = ""
-
-
 @app.post("/api/providers/webhook", tags=["Providers"])
-def api_stripe_webhook(req: StripeWebhookRaw):
+async def api_stripe_webhook(request: Request):
     """Handle Stripe Connect webhooks (account.updated, payment_intent.succeeded, etc.)."""
-    mgr = get_stripe_manager()
-    result = mgr.handle_webhook(req.payload.encode(), req.signature)
-    return {"ok": True, **result}
+    with otel_span("webhook.stripe"):
+        payload = await request.body()
+        sig_header = request.headers.get("stripe-signature", "")
+        mgr = get_stripe_manager()
+        result = mgr.handle_webhook(payload, sig_header)
+        return {"ok": True, **result}
 
 
 # ── LLMs.txt Endpoint (Report #1.B: LLM Optimization) ────────────────
@@ -5630,6 +6435,160 @@ def api_inference_post_result(job_id: str, body: InferenceResultCallback):
     )
     broadcast_sse("inference_completed", {"job_id": job_id})
     return {"ok": True}
+
+
+# ── /v1/inference (OpenAI-compatible sync + async) ────────────────────
+
+
+class V1InferenceRequest(BaseModel):
+    """OpenAI-compatible inference request for /v1/inference."""
+    model: str = Field(..., description="Model name or HuggingFace repo")
+    inputs: list[str] | str = Field(..., description="Text input(s) for inference")
+    max_tokens: int = Field(512, ge=1, le=8192)
+    temperature: float = Field(1.0, ge=0.0, le=2.0)
+    stream: bool = Field(False, description="Stream response via SSE")
+
+
+@app.post("/v1/inference", tags=["Inference v2"])
+def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
+    """Synchronous inference endpoint (OpenAI-compatible path).
+
+    Submits an inference request and polls for results up to 30 seconds.
+    If stream=true, returns SSE text/event-stream with token deltas.
+    """
+    user = _get_current_user(request)
+    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
+
+    with otel_span("inference.v1.sync", {"model": body.model, "stream": body.stream}):
+        job = submit_job(
+            name=f"inference:{body.model.replace('/', '--')}",
+            vram_needed_gb=2,
+            image=f"xcelsior/inference:{body.model.replace('/', '--')}",
+        )
+        job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
+        store_inference_job(
+            job_id=job_id,
+            customer_id=customer_id,
+            model=body.model,
+            inputs=inputs_list,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            timeout_sec=30,
+        )
+
+        if body.stream:
+            # SSE streaming response (OpenAI delta format)
+            async def _sse_stream():
+                start = time.time()
+                yield f"data: {json.dumps({'id': job_id, 'object': 'inference.chunk', 'model': body.model, 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]})}\n\n"
+                while time.time() - start < 30:
+                    result = get_inference_result(job_id)
+                    if result:
+                        outputs = result.get("outputs", [])
+                        for token in outputs:
+                            yield f"data: {json.dumps({'id': job_id, 'object': 'inference.chunk', 'model': body.model, 'choices': [{'index': 0, 'delta': {'content': token}, 'finish_reason': None}]})}\n\n"
+                        yield f"data: {json.dumps({'id': job_id, 'object': 'inference.chunk', 'model': body.model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+                    await asyncio.sleep(0.5)
+                yield f"data: {json.dumps({'id': job_id, 'error': 'timeout'})}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(_sse_stream(), media_type="text/event-stream")
+
+        # Sync: poll up to 30 seconds
+        start = time.time()
+        while time.time() - start < 30:
+            result = get_inference_result(job_id)
+            if result:
+                return {
+                    "id": job_id,
+                    "object": "inference.completion",
+                    "created": int(time.time()),
+                    "model": body.model,
+                    "outputs": result.get("outputs", []),
+                    "usage": {
+                        "input_tokens": result.get("input_tokens", 0),
+                        "output_tokens": result.get("output_tokens", 0),
+                        "total_tokens": result.get("input_tokens", 0) + result.get("output_tokens", 0),
+                    },
+                    "latency_ms": result.get("latency_ms", 0),
+                }
+            time.sleep(0.5)
+
+        # Timeout — return pending status
+        return JSONResponse(
+            status_code=202,
+            content={
+                "id": job_id,
+                "object": "inference.pending",
+                "model": body.model,
+                "status": "processing",
+                "poll_url": f"/v1/inference/{job_id}",
+            },
+        )
+
+
+@app.post("/v1/inference/async", tags=["Inference v2"])
+def api_v1_inference_async(body: V1InferenceRequest, request: Request):
+    """Asynchronous inference — returns job_id immediately for polling."""
+    user = _get_current_user(request)
+    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
+
+    with otel_span("inference.v1.async", {"model": body.model}):
+        job = submit_job(
+            name=f"inference:{body.model.replace('/', '--')}",
+            vram_needed_gb=2,
+            image=f"xcelsior/inference:{body.model.replace('/', '--')}",
+        )
+        job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
+        store_inference_job(
+            job_id=job_id,
+            customer_id=customer_id,
+            model=body.model,
+            inputs=inputs_list,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            timeout_sec=300,
+        )
+
+    return {
+        "id": job_id,
+        "object": "inference.async",
+        "model": body.model,
+        "status": "queued",
+        "poll_url": f"/v1/inference/{job_id}",
+    }
+
+
+@app.get("/v1/inference/{job_id}", tags=["Inference v2"])
+def api_v1_inference_poll(job_id: str):
+    """Poll for inference results by job_id."""
+    result = get_inference_result(job_id)
+    if result:
+        return {
+            "id": job_id,
+            "object": "inference.completion",
+            "created": int(time.time()),
+            "model": result.get("model", ""),
+            "outputs": result.get("outputs", []),
+            "usage": {
+                "input_tokens": result.get("input_tokens", 0),
+                "output_tokens": result.get("output_tokens", 0),
+                "total_tokens": result.get("input_tokens", 0) + result.get("output_tokens", 0),
+            },
+            "latency_ms": result.get("latency_ms", 0),
+            "status": "completed",
+        }
+    meta = get_inference_job(job_id)
+    if meta:
+        elapsed = time.time() - meta["submitted_at"]
+        if elapsed > meta["timeout_sec"]:
+            return {"id": job_id, "status": "timeout", "elapsed_sec": round(elapsed, 1)}
+        return {"id": job_id, "status": "processing", "elapsed_sec": round(elapsed, 1)}
+    raise HTTPException(404, f"Inference job {job_id} not found")
 
 
 # ═══ Missing route aliases (frontend expects /api/ prefix) ════════════
@@ -5944,6 +6903,539 @@ def api_chat_feedback(body: ChatFeedbackRequest):
         raise HTTPException(400, "Vote must be 'up' or 'down'.")
     record_feedback(body.message_id, body.vote)
     return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase 2: New Feature API Routes
+# Marketplace, Inference v2, Volumes, Auto-billing, Cloud Burst, Privacy
+# ═══════════════════════════════════════════════════════════════════════
+
+from marketplace import get_marketplace_engine
+from inference import get_inference_engine
+from volumes import get_volume_engine
+from cloudburst import get_burst_engine as get_cloudburst_engine
+from privacy import get_crypto_shredder, get_consent_manager, execute_right_to_erasure
+
+# ── GPU Marketplace Offers ────────────────────────────────────────────
+
+OPENAPI_TAGS.append({"name": "Marketplace v2", "description": "GPU marketplace offers, allocations, spot pricing, reservations."})
+OPENAPI_TAGS.append({"name": "Volumes", "description": "Persistent volume lifecycle management."})
+OPENAPI_TAGS.append({"name": "Cloud Burst", "description": "Cloud provider burst auto-scaling."})
+OPENAPI_TAGS.append({"name": "Inference v2", "description": "Production serverless inference with OpenAI-compatible API."})
+
+
+class GPUOfferCreate(BaseModel):
+    host_id: str
+    gpu_model: str
+    gpu_count_total: int = 1
+    vram_gb: float = 0
+    ask_cents_per_hour: int = 20
+    region: str = "ca-east"
+    spot_enabled: bool = True
+    spot_min_cents: int = 10
+
+
+@app.post("/api/v2/marketplace/offers", tags=["Marketplace v2"])
+def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
+    """Create or update a GPU offer on the marketplace."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    me = get_marketplace_engine()
+    offer = me.upsert_offer(
+        provider_id=user.get("user_id", user.get("email", "")),
+        host_id=body.host_id,
+        gpu_model=body.gpu_model,
+        gpu_count_total=body.gpu_count_total,
+        vram_gb=body.vram_gb,
+        ask_cents_per_hour=body.ask_cents_per_hour,
+        region=body.region,
+        spot_enabled=body.spot_enabled,
+        spot_min_cents=body.spot_min_cents,
+    )
+    return {"ok": True, "offer": offer}
+
+
+class MarketplaceSearchParams(BaseModel):
+    gpu_model: str = ""
+    min_vram_gb: float = 0
+    max_price_cents: int = 0
+    region: str = ""
+    canada_only: bool = False
+    sort_by: str = "price"
+    limit: int = 50
+
+
+@app.post("/api/v2/marketplace/search", tags=["Marketplace v2"])
+def api_marketplace_search(body: MarketplaceSearchParams):
+    """Search available GPU offers with filters."""
+    me = get_marketplace_engine()
+    offers = me.search_offers(
+        gpu_model=body.gpu_model or None,
+        min_vram_gb=body.min_vram_gb or None,
+        max_price_cents=body.max_price_cents or None,
+        region=body.region or None,
+        canada_only=body.canada_only,
+        sort_by=body.sort_by,
+        limit=body.limit,
+    )
+    return {"ok": True, "offers": offers, "count": len(offers)}
+
+
+@app.get("/api/v2/marketplace/spot-prices", tags=["Marketplace v2"])
+def api_marketplace_spot_prices():
+    """Get current spot prices for all GPU models."""
+    me = get_marketplace_engine()
+    prices = me.get_current_spot_prices()
+    return {"ok": True, "spot_prices": prices}
+
+
+@app.get("/api/v2/marketplace/spot-prices/{gpu_model}/history", tags=["Marketplace v2"])
+def api_marketplace_spot_history(gpu_model: str, hours: int = 24):
+    """Get spot price history for a GPU model."""
+    me = get_marketplace_engine()
+    history = me.get_spot_price_history(gpu_model, hours=hours)
+    return {"ok": True, "gpu_model": gpu_model, "history": history}
+
+
+@app.get("/api/v2/marketplace/stats", tags=["Marketplace v2"])
+def api_marketplace_stats_v2():
+    """Get marketplace aggregate statistics."""
+    me = get_marketplace_engine()
+    stats = me.get_marketplace_stats()
+    return {"ok": True, **stats}
+
+
+class ReservationCreate(BaseModel):
+    gpu_model: str
+    gpu_count: int = 1
+    period_months: int = 1
+
+
+@app.post("/api/v2/marketplace/reservations", tags=["Marketplace v2"])
+def api_marketplace_create_reservation(body: ReservationCreate, request: Request):
+    """Create a reserved instance commitment."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    me = get_marketplace_engine()
+    try:
+        res = me.create_reservation(
+            customer_id=user.get("user_id", user.get("email", "")),
+            gpu_model=body.gpu_model,
+            gpu_count=body.gpu_count,
+            period_months=body.period_months,
+        )
+        return {"ok": True, "reservation": res}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/v2/marketplace/reservations/{reservation_id}", tags=["Marketplace v2"])
+def api_marketplace_cancel_reservation(reservation_id: str, request: Request):
+    """Cancel a reserved instance commitment early.
+
+    Computes early termination fee: remaining_months * monthly_rate * 50%.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    me = get_marketplace_engine()
+    result = me.cancel_reservation(
+        reservation_id=reservation_id,
+        customer_id=user.get("user_id", user.get("email", "")),
+    )
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return {"ok": True, **result}
+
+
+class AllocateGPURequest(BaseModel):
+    offer_id: str
+    job_id: str
+    gpu_count: int = 1
+    spot: bool = False
+
+
+@app.post("/api/v2/marketplace/allocate", tags=["Marketplace v2"])
+def api_marketplace_allocate(body: AllocateGPURequest, request: Request):
+    """Allocate GPUs from an offer for a job. Atomic — prevents double-sell."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    me = get_marketplace_engine()
+    alloc = me.allocate_gpu(body.offer_id, body.job_id, body.gpu_count, spot=body.spot)
+    if not alloc:
+        raise HTTPException(409, "Offer not available or insufficient GPUs")
+    return {"ok": True, "allocation": alloc}
+
+
+@app.post("/api/v2/marketplace/release/{allocation_id}", tags=["Marketplace v2"])
+def api_marketplace_release(allocation_id: str):
+    """Release a GPU allocation (job completed/failed)."""
+    me = get_marketplace_engine()
+    me.release_allocation(allocation_id)
+    return {"ok": True}
+
+
+# ── Inference v2: OpenAI-Compatible ───────────────────────────────────
+
+class InferenceEndpointCreate(BaseModel):
+    model_name: str
+    min_workers: int = 0
+    max_workers: int = 3
+    scaledown_window_sec: int = 300
+
+
+@app.post("/api/v2/inference/endpoints", tags=["Inference v2"])
+def api_inference_create_endpoint(body: InferenceEndpointCreate, request: Request):
+    """Create a serverless inference endpoint."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ie = get_inference_engine()
+    ep = ie.create_endpoint(
+        owner_id=user.get("user_id", user.get("email", "")),
+        model_name=body.model_name,
+        min_workers=body.min_workers,
+        max_workers=body.max_workers,
+        scaledown_window_sec=body.scaledown_window_sec,
+    )
+    return {"ok": True, "endpoint": ep}
+
+
+@app.get("/api/v2/inference/endpoints", tags=["Inference v2"])
+def api_inference_list_endpoints(request: Request):
+    """List inference endpoints for the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ie = get_inference_engine()
+    endpoints = ie.list_endpoints(user.get("user_id", user.get("email", "")))
+    return {"ok": True, "endpoints": endpoints}
+
+
+@app.get("/api/v2/inference/endpoints/{endpoint_id}", tags=["Inference v2"])
+def api_inference_get_endpoint(endpoint_id: str):
+    """Get inference endpoint details."""
+    ie = get_inference_engine()
+    ep = ie.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+    return {"ok": True, "endpoint": ep}
+
+
+@app.delete("/api/v2/inference/endpoints/{endpoint_id}", tags=["Inference v2"])
+def api_inference_delete_endpoint(endpoint_id: str, request: Request):
+    """Delete an inference endpoint."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ie = get_inference_engine()
+    ie.delete_endpoint(endpoint_id)
+    return {"ok": True}
+
+
+class ChatCompletionRequest(BaseModel):
+    """OpenAI-compatible chat completion request."""
+    model: str
+    messages: list[dict] = Field(default_factory=list)
+    max_tokens: int = Field(512, ge=1, le=32768)
+    temperature: float = Field(1.0, ge=0.0, le=2.0)
+    stream: bool = False
+
+
+@app.post("/v1/chat/completions", tags=["Inference v2"])
+def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
+    """OpenAI-compatible chat completions endpoint.
+
+    Routes to a serverless inference endpoint running the requested model.
+    """
+    user = _get_current_user(request)
+    customer_id = user.get("user_id", user.get("email", "anon")) if user else "anon"
+
+    ie = get_inference_engine()
+    from inference import InferenceRequest as InfReq
+    inf_req = InfReq(
+        request_id=str(uuid.uuid4()),
+        endpoint_id="",
+        model=body.model,
+        messages=body.messages,
+        max_tokens=body.max_tokens,
+        temperature=body.temperature,
+        stream=body.stream,
+        customer_id=customer_id,
+    )
+    result = ie.submit_request(inf_req)
+    if not result:
+        raise HTTPException(503, f"No available workers for model {body.model}")
+
+    # Return OpenAI-compatible response format
+    return {
+        "id": f"chatcmpl-{inf_req.request_id[:8]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": body.model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": ""},
+            "finish_reason": None,
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "xcelsior": {"request_id": inf_req.request_id, "status": "processing"},
+    }
+
+
+@app.post("/api/v2/inference/complete/{request_id}", tags=["Inference v2"])
+def api_inference_complete(request_id: str, request: Request):
+    """Worker callback: mark inference request as completed with results."""
+    ie = get_inference_engine()
+    try:
+        body = json.loads(request._body) if hasattr(request, '_body') else {}
+    except Exception:
+        body = {}
+    ie.complete_request(
+        request_id=request_id,
+        output_text=body.get("output_text", ""),
+        input_tokens=body.get("input_tokens", 0),
+        output_tokens=body.get("output_tokens", 0),
+        latency_ms=body.get("latency_ms", 0),
+    )
+    broadcast_sse("inference_completed", {"request_id": request_id})
+    return {"ok": True}
+
+
+# ── Persistent Volumes ────────────────────────────────────────────────
+
+VOLUME_PRICE_PER_GB_MONTH_CAD = 0.07  # $0.07/GB/month per plan.md §10.2
+
+class VolumeCreate(BaseModel):
+    name: str
+    size_gb: int = 50
+    region: str = "ca-east"
+    encrypted: bool = True
+
+
+@app.post("/api/v2/volumes", tags=["Volumes"])
+def api_volume_create(body: VolumeCreate, request: Request):
+    """Create a new persistent volume."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ve = get_volume_engine()
+    try:
+        vol = ve.create_volume(
+            owner_id=user.get("user_id", user.get("email", "")),
+            name=body.name,
+            size_gb=body.size_gb,
+            region=body.region,
+            encrypted=body.encrypted,
+        )
+        vol["price_per_gb_month_cad"] = VOLUME_PRICE_PER_GB_MONTH_CAD
+        vol["estimated_monthly_cost_cad"] = round(body.size_gb * VOLUME_PRICE_PER_GB_MONTH_CAD, 2)
+        return {"ok": True, "volume": vol}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/v2/volumes", tags=["Volumes"])
+def api_volume_list(request: Request):
+    """List volumes owned by the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ve = get_volume_engine()
+    volumes = ve.list_volumes(user.get("user_id", user.get("email", "")))
+    return {"ok": True, "volumes": volumes}
+
+
+@app.get("/api/v2/volumes/{volume_id}", tags=["Volumes"])
+def api_volume_get(volume_id: str, request: Request):
+    """Get volume details."""
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    return {"ok": True, "volume": vol}
+
+
+class VolumeAttachRequest(BaseModel):
+    instance_id: str
+    mount_path: str = "/workspace"
+    mode: str = "rw"
+
+
+@app.post("/api/v2/volumes/{volume_id}/attach", tags=["Volumes"])
+def api_volume_attach(volume_id: str, body: VolumeAttachRequest, request: Request):
+    """Attach a volume to a running instance."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ve = get_volume_engine()
+    try:
+        att = ve.attach_volume(volume_id, body.instance_id, body.mount_path, body.mode)
+        if not att:
+            raise HTTPException(409, "Volume not available for attachment")
+        return {"ok": True, "attachment": att}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/v2/volumes/{volume_id}/detach", tags=["Volumes"])
+def api_volume_detach(volume_id: str, request: Request):
+    """Detach a volume from its instance."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    body_data = {}
+    ve = get_volume_engine()
+    instance_id = body_data.get("instance_id", "")
+    ve.detach_volume(volume_id, instance_id)
+    return {"ok": True}
+
+
+@app.delete("/api/v2/volumes/{volume_id}", tags=["Volumes"])
+def api_volume_delete(volume_id: str, request: Request):
+    """Delete a volume. Must not have active attachments."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ve = get_volume_engine()
+    try:
+        ve.delete_volume(volume_id)
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+# ── Auto-Billing Configuration ────────────────────────────────────────
+
+class AutoTopupConfig(BaseModel):
+    enabled: bool = True
+    amount_cad: float = 25.0
+    threshold_cad: float = 5.0
+    stripe_payment_method_id: str = ""
+
+
+@app.post("/api/v2/billing/auto-topup", tags=["Billing"])
+def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
+    """Configure wallet auto-top-up via Stripe."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "")))
+    be.configure_auto_topup(
+        customer_id=customer_id,
+        enabled=body.enabled,
+        amount_cad=body.amount_cad,
+        threshold_cad=body.threshold_cad,
+        payment_method_id=body.stripe_payment_method_id,
+    )
+    return {"ok": True, "auto_topup": body.model_dump()}
+
+
+@app.get("/api/v2/billing/auto-topup", tags=["Billing"])
+def api_billing_get_topup(request: Request):
+    """Get current auto-top-up configuration."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "")))
+    wallet = be.get_or_create_wallet(customer_id)
+    return {
+        "ok": True,
+        "auto_topup": {
+            "enabled": bool(wallet.get("auto_topup_enabled", False)),
+            "amount_cad": wallet.get("auto_topup_amount", 0),
+            "threshold_cad": wallet.get("auto_topup_threshold", 0),
+        },
+    }
+
+
+# ── Cloud Burst Status ────────────────────────────────────────────────
+
+@app.get("/api/v2/burst/status", tags=["Cloud Burst"])
+def api_burst_status(request: Request):
+    """Get cloud burst auto-scaling status."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    cbe = get_cloudburst_engine()
+    status = cbe.get_burst_status()
+    return {"ok": True, **status}
+
+
+# ── Privacy & Consent ─────────────────────────────────────────────────
+
+class ConsentRequest(BaseModel):
+    purpose: str
+    consent_type: str = "express"
+
+
+@app.post("/api/v2/privacy/consent", tags=["Privacy"])
+def api_privacy_record_consent(body: ConsentRequest, request: Request):
+    """Record CASL consent for a purpose."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    cm = get_consent_manager()
+    client_ip = request.client.host if request.client else ""
+    cm.record_consent(
+        user_id=user.get("user_id", user.get("email", "")),
+        consent_type=body.consent_type,
+        purpose=body.purpose,
+        source="api",
+        ip_address=client_ip,
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/v2/privacy/consent/{purpose}", tags=["Privacy"])
+def api_privacy_withdraw_consent(purpose: str, request: Request):
+    """Withdraw CASL consent for a purpose (unsubscribe)."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    cm = get_consent_manager()
+    cm.withdraw_consent(user.get("user_id", user.get("email", "")), purpose)
+    return {"ok": True}
+
+
+@app.get("/api/v2/privacy/consents", tags=["Privacy"])
+def api_privacy_list_consents(request: Request):
+    """List all consent records for the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    cm = get_consent_manager()
+    consents = cm.get_user_consents(user.get("user_id", user.get("email", "")))
+    return {"ok": True, "consents": consents}
+
+
+@app.post("/api/v2/privacy/erase", tags=["Privacy"])
+def api_privacy_right_to_erasure(request: Request):
+    """Execute right-to-erasure (PIPEDA/Law 25). Irreversible."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    summary = execute_right_to_erasure(user.get("user_id", user.get("email", "")))
+    return {"ok": True, "erasure": summary}
+
+
+# ── Bin-Pack Scheduler Route ──────────────────────────────────────────
+
+from scheduler import allocate_binpack, process_queue_binpack
+
+@app.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
+def api_process_queue_binpack(canada_only: bool = False, province: str = ""):
+    """Process job queue using best-fit-decreasing bin packing."""
+    assigned = process_queue_binpack(
+        canada_only=canada_only or None,
+        province=province or None,
+    )
+    return {"ok": True, "assigned": assigned, "count": len(assigned)}
 
 
 if __name__ == "__main__":

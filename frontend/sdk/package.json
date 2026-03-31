@@ -1,0 +1,24 @@
+{
+  "name": "@xcelsior/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Xcelsior GPU Cloud API",
+  "license": "MIT",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xcelsior-ai/xcelsior"
+  },
+  "keywords": [
+    "xcelsior",
+    "gpu",
+    "cloud",
+    "api",
+    "sdk",
+    "typescript"
+  ],
+  "files": [
+    "**/*.ts",
+    "**/*.js"
+  ]
+}

@@ -10,7 +10,7 @@ import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
-  Bitcoin,
+  Bitcoin, Activity,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -219,6 +219,49 @@ export default function BillingPage() {
 
           {/* Add Credits + CAF Banner */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Burn Rate / Depletion Estimate */}
+            <Card className="border-ice/20">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Activity className="h-4 w-4 text-ice" />
+                  <p className="font-medium">{t("dash.billing.burn_rate")}</p>
+                </div>
+                {(() => {
+                  const balance = wallet?.balance_cad ?? 0;
+                  const spent = usage?.total_cost_cad ?? 0;
+                  const hours = usage?.total_gpu_hours ?? 0;
+                  const burnPerHour = hours > 0 ? spent / hours : 0;
+                  const daysRemaining = burnPerHour > 0 ? balance / (burnPerHour * 24) : Infinity;
+                  const depletionDate = isFinite(daysRemaining)
+                    ? new Date(Date.now() + daysRemaining * 86400_000)
+                    : null;
+                  return (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-text-muted">Avg cost/GPU-hour</p>
+                        <p className="text-lg font-bold font-mono text-ice">
+                          ${burnPerHour.toFixed(2)}<span className="text-xs font-normal text-text-muted">/hr</span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-text-muted">Est. days remaining</p>
+                        <p className={`text-lg font-bold font-mono ${daysRemaining < 7 ? "text-accent-red" : daysRemaining < 30 ? "text-gold" : "text-emerald"}`}>
+                          {isFinite(daysRemaining) ? `${Math.floor(daysRemaining)}d` : "∞"}
+                        </p>
+                      </div>
+                      {depletionDate && (
+                        <div className="col-span-2">
+                          <p className="text-xs text-text-muted">
+                            Balance depletes ~{depletionDate.toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardContent className="flex items-center justify-between p-5">
                 <div>
@@ -232,7 +275,9 @@ export default function BillingPage() {
                 </Button>
               </CardContent>
             </Card>
+          </div>
 
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card className="border-gold/20 bg-gold/5">
               <CardContent className="flex items-center justify-between p-5">
                 <div>
@@ -424,6 +469,83 @@ export default function BillingPage() {
                   })}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Usage Heatmap — hourly submission patterns */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Usage Heatmap</CardTitle>
+              <CardDescription>Hourly compute usage patterns (last 30 days)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                // Build 7×24 grid from transaction timestamps
+                const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+                let maxCount = 1;
+                for (const tx of transactions) {
+                  if (!tx.created_at) continue;
+                  const d = new Date(
+                    typeof tx.created_at === "number"
+                      ? tx.created_at * 1000
+                      : tx.created_at
+                  );
+                  const day = d.getDay();
+                  const hour = d.getHours();
+                  grid[day][hour]++;
+                  if (grid[day][hour] > maxCount) maxCount = grid[day][hour];
+                }
+                return (
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[600px]">
+                      {/* Hour labels */}
+                      <div className="flex ml-10 mb-1">
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <div key={h} className="flex-1 text-center text-[10px] text-text-muted">
+                            {h % 6 === 0 ? `${h}h` : ""}
+                          </div>
+                        ))}
+                      </div>
+                      {/* Grid rows */}
+                      {days.map((dayLabel, dayIdx) => (
+                        <div key={dayLabel} className="flex items-center gap-1 mb-0.5">
+                          <span className="w-9 text-xs text-text-muted text-right pr-1">{dayLabel}</span>
+                          {grid[dayIdx].map((count, hour) => {
+                            const intensity = count / maxCount;
+                            const bg = count === 0
+                              ? "bg-surface"
+                              : intensity < 0.25
+                              ? "bg-ice/20"
+                              : intensity < 0.5
+                              ? "bg-ice/40"
+                              : intensity < 0.75
+                              ? "bg-ice/60"
+                              : "bg-ice";
+                            return (
+                              <div
+                                key={hour}
+                                className={`flex-1 h-4 rounded-sm ${bg} transition-colors`}
+                                title={`${dayLabel} ${hour}:00 — ${count} transaction${count !== 1 ? "s" : ""}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                      {/* Legend */}
+                      <div className="flex items-center gap-2 mt-3 ml-10">
+                        <span className="text-[10px] text-text-muted">Less</span>
+                        <div className="w-3 h-3 rounded-sm bg-surface border border-border" />
+                        <div className="w-3 h-3 rounded-sm bg-ice/20" />
+                        <div className="w-3 h-3 rounded-sm bg-ice/40" />
+                        <div className="w-3 h-3 rounded-sm bg-ice/60" />
+                        <div className="w-3 h-3 rounded-sm bg-ice" />
+                        <span className="text-[10px] text-text-muted">More</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </>

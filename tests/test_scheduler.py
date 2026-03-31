@@ -663,23 +663,19 @@ class TestSpotPricing:
             base_price=1.0,
             demand=1,
             supply=10,
-            k=0.5,
-            threshold=0.8,
         )
-        # 1/10 = 0.1 utilization, well below 0.8 threshold → multiplier ≈ 1.0
-        assert 0.99 <= price <= 1.01
+        # demand_factor = min(0.5, 1/(10*2)) = 0.05 → price ≈ 1.05
+        assert 1.0 <= price <= 1.1
 
-    def test_price_increases_above_threshold(self):
-        """When D/S exceeds threshold, price should spike."""
+    def test_price_increases_with_demand(self):
+        """When demand increases, price should increase."""
         price = scheduler.compute_spot_price(
             base_price=1.0,
             demand=10,
             supply=10,
-            k=0.5,
-            threshold=0.8,
         )
-        # 10/10 = 1.0 utilization, 0.2 above threshold → e^(0.5 * 0.2) ≈ 1.105
-        assert price > 1.0
+        # demand_factor = min(0.5, 10/(10*2)) = 0.5 → price = 1.5
+        assert price == 1.5
 
     def test_zero_supply_returns_max_surge(self):
         price = scheduler.compute_spot_price(
@@ -687,17 +683,18 @@ class TestSpotPricing:
             demand=5,
             supply=0,
         )
-        assert price == 3.0  # 3x max surge
+        assert price == 1.5  # 50% max surge cap
 
     def test_high_demand_high_price(self):
-        price_low = scheduler.compute_spot_price(1.0, 5, 10, k=0.5, threshold=0.8)
-        price_high = scheduler.compute_spot_price(1.0, 50, 10, k=0.5, threshold=0.8)
+        price_low = scheduler.compute_spot_price(1.0, 1, 10)
+        price_high = scheduler.compute_spot_price(1.0, 50, 10)
         assert price_high > price_low
 
-    def test_sensitivity_affects_curve(self):
-        price_low_k = scheduler.compute_spot_price(1.0, 10, 10, k=0.1, threshold=0.8)
-        price_high_k = scheduler.compute_spot_price(1.0, 10, 10, k=2.0, threshold=0.8)
-        assert price_high_k > price_low_k
+    def test_demand_factor_capped_at_50_percent(self):
+        """Demand factor capped at 0.5 per Phase 2.2: max 50% surge."""
+        price = scheduler.compute_spot_price(1.0, 100, 10)
+        # Even extreme demand: min(0.5, 100/20) = 0.5 → price = 1.5
+        assert price == 1.5
 
     def test_update_spot_prices_returns_dict(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)

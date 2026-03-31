@@ -1,4 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <rect width="200" height="200" rx="32" fill="#0f172a" stroke="#334155" stroke-width="2"/>
-  <text x="100" y="145" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="140" font-weight="800" fill="#dc2626">X</text>
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="50%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="40" fill="#0a0e1a" stroke="#1a2040" stroke-width="2"/>
+  <path d="M56 158 L88 158 L100 134 L112 158 L144 158 L114 100 L144 42 L112 42 L100 66 L88 42 L56 42 L86 100 Z" fill="url(#g1)"/>
+  <path d="M100 22 L116 46 L108 46 L108 58 L92 58 L92 46 L84 46 Z" fill="url(#g2)" opacity="0.9"/>
+  <path d="M95 170 L100 162 L105 170" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

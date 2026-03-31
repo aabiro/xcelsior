@@ -440,6 +440,68 @@ class SLAEngine:
                 downtime += end - start
         return max(0, 100.0 * (1.0 - downtime / window_sec))
 
+    # ── Auto-Credit Issuance ──────────────────────────────────────────
+
+    def auto_issue_credits(self, month: str) -> list[dict]:
+        """Automatically issue SLA credits to customer wallets.
+
+        For each SLA record with credit_cad > 0 that hasn't been issued yet,
+        credit the customer's wallet and mark it as issued.
+        """
+        issued = []
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM sla_monthly
+                   WHERE month = %s AND credit_cad > 0
+                     AND (credit_issued_at = 0 OR credit_issued_at IS NULL)""",
+                (month,),
+            ).fetchall()
+
+        for row in rows:
+            host_id = row["host_id"]
+            credit_cad = float(row["credit_cad"])
+
+            # Find the customer who used this host
+            with self._conn() as conn:
+                customer = conn.execute(
+                    """SELECT DISTINCT owner FROM jobs
+                       WHERE host_id = %s AND status = 'completed'
+                       ORDER BY owner LIMIT 1""",
+                    (host_id,),
+                ).fetchone()
+
+            if not customer:
+                continue
+
+            customer_id = customer["owner"]
+            try:
+                from billing import get_billing_engine
+                engine = get_billing_engine()
+                tx = engine.deposit(
+                    customer_id,
+                    credit_cad,
+                    description=f"SLA credit: host {host_id} month {month} (uptime: {row.get('uptime_pct', 0):.2f}%)",
+                    idempotency_key=f"sla:{host_id}:{month}",
+                )
+
+                with self._conn() as conn:
+                    conn.execute(
+                        "UPDATE sla_monthly SET credit_issued_at = %s, credit_tx_id = %s WHERE host_id = %s AND month = %s",
+                        (time.time(), tx.get("tx_id", ""), host_id, month),
+                    )
+
+                issued.append({
+                    "host_id": host_id,
+                    "customer_id": customer_id,
+                    "credit_cad": credit_cad,
+                    "tx_id": tx.get("tx_id", ""),
+                })
+                log.info("SLA CREDIT ISSUED: host=%s customer=%s $%.2f CAD", host_id, customer_id, credit_cad)
+            except Exception as e:
+                log.error("SLA credit issue failed for host=%s: %s", host_id, e)
+
+        return issued
+
 
 # ── Singleton ─────────────────────────────────────────────────────────
 

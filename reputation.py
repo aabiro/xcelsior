@@ -16,6 +16,7 @@
 #   Platinum:   650–849
 #   Diamond:    850+
 
+import json
 import logging
 import os
 import time
@@ -280,7 +281,7 @@ class ReputationStore:
                     score.jobs_failed_user,
                     score.days_active,
                     score.last_activity_at,
-                    score.verifications,
+                    score.verifications if isinstance(score.verifications, str) else json.dumps(score.verifications),
                     score.search_boost,
                     score.pricing_premium_pct,
                     time.time(),
@@ -372,7 +373,7 @@ class ReputationEngine:
             jobs_failed_user=existing["jobs_failed_user"],
             days_active=existing["days_active"],
             last_activity_at=existing["last_activity_at"],
-            verifications=existing["verifications"],
+            verifications=existing["verifications"] if isinstance(existing["verifications"], str) else json.dumps(existing["verifications"]),
             search_boost=TIER_SEARCH_BOOST.get(tier, 1.0),
             pricing_premium_pct=TIER_PRICING_PREMIUM.get(tier, 0.0),
         )
@@ -382,14 +383,13 @@ class ReputationEngine:
 
     def add_verification(self, entity_id: str, vtype: VerificationType) -> ReputationScore:
         """Grant verification points (capped at MAX_VERIFICATION_POINTS)."""
-        import json
-
         existing = self.store.get_score(entity_id)
         if not existing:
             self._ensure_entity(entity_id)
             existing = self.store.get_score(entity_id)
 
-        verifications = json.loads(existing.get("verifications", "[]"))
+        raw_v = existing.get("verifications", "[]")
+        verifications = raw_v if isinstance(raw_v, list) else json.loads(raw_v)
         if vtype.value in verifications:
             return self.compute_score(entity_id)
 
@@ -576,6 +576,296 @@ class ReputationEngine:
         """Create a default score entry if one doesn't exist."""
         score = ReputationScore(entity_id=entity_id, entity_type=entity_type)
         self.store.save_score(score)
+
+    # ── Bayesian Reputation Model ─────────────────────────────────────
+    # Bayesian average: score = (alpha * prior) + ((1-alpha) * observed)
+    # Alpha decays over time so mature providers rely more on actual data.
+    # Cold start: new providers get network-average prior (not zero).
+
+    def compute_bayesian_score(self, entity_id: str) -> dict:
+        """Compute Bayesian reputation score with cold-start prior.
+
+        Formula: bayesian = alpha * prior + (1 - alpha) * current_performance
+        Alpha decays as the provider gains more observations:
+          alpha = 1 / (1 + observed_jobs / prior_weight)
+
+        Returns dict with bayesian_score, alpha, prior, observed, confidence.
+        """
+        existing = self.store.get_score(entity_id)
+        if not existing:
+            self._ensure_entity(entity_id)
+            existing = self.store.get_score(entity_id)
+
+        jobs_completed = int(existing.get("jobs_completed", 0))
+        jobs_failed = int(existing.get("jobs_failed_host", 0))
+        total_jobs = jobs_completed + jobs_failed
+
+        # Network-wide prior (average across all providers)
+        prior = self._get_network_prior()
+
+        # Observed performance (0-1 scale)
+        if total_jobs > 0:
+            success_rate = jobs_completed / total_jobs
+        else:
+            success_rate = prior  # No data → default to prior
+
+        # Alpha decay: starts at 1.0 (full prior), decays as jobs accumulate
+        prior_weight = 10  # Equivalent to 10 "virtual" prior observations
+        alpha = prior_weight / (prior_weight + total_jobs)
+
+        # Bayesian average
+        bayesian = alpha * prior + (1 - alpha) * success_rate
+
+        # Time decay: events older than 90 days weighted at 0.5x
+        last_active = float(existing.get("last_activity_at", 0))
+        days_since_active = (time.time() - last_active) / 86400 if last_active > 0 else 999
+        if days_since_active > 90:
+            time_decay = 0.5 + 0.5 * max(0, 1 - (days_since_active - 90) / 180)
+            bayesian *= time_decay
+
+        # Confidence interval (wider with fewer observations)
+        confidence = min(1.0, total_jobs / 50)  # Full confidence at 50+ jobs
+
+        # Reliability multiplier
+        reliability = float(existing.get("reliability_score", 0.5))
+        weighted_score = round(bayesian * reliability * 1000, 1)  # Scale to 0-1000
+
+        return {
+            "entity_id": entity_id,
+            "bayesian_score": round(bayesian, 4),
+            "weighted_score": weighted_score,
+            "alpha": round(alpha, 4),
+            "prior": round(prior, 4),
+            "observed": round(success_rate, 4),
+            "total_jobs": total_jobs,
+            "confidence": round(confidence, 4),
+            "time_decay_applied": days_since_active > 90,
+        }
+
+    def _get_network_prior(self) -> float:
+        """Compute network-wide average success rate as Bayesian prior."""
+        try:
+            with self.store._conn() as conn:
+                row = conn.execute(
+                    """SELECT
+                        COALESCE(SUM(jobs_completed), 0) as total_completed,
+                        COALESCE(SUM(jobs_failed_host), 0) as total_failed
+                       FROM reputation_scores
+                       WHERE entity_type = 'host'"""
+                ).fetchone()
+                completed = int(row["total_completed"]) if row else 0
+                failed = int(row["total_failed"]) if row else 0
+                total = completed + failed
+                if total >= 10:
+                    return completed / total
+        except Exception:
+            pass
+        return 0.7  # Default prior: 70% success rate
+
+    # ── Fraud Detection ───────────────────────────────────────────────
+    # Automated Sybil detection, benchmark spoofing, and early termination
+    # pattern analysis per REPORT_FEATURE_FINAL.md.
+
+    def detect_sybil(self, entity_id: str) -> dict:
+        """Detect Sybil attacks: same IP/hardware registering multiple hosts.
+
+        Flags accounts with identical hardware fingerprints or source IPs.
+        """
+        existing = self.store.get_score(entity_id)
+        if not existing:
+            return {"flagged": False, "reason": "Unknown entity"}
+
+        try:
+            from db import _get_pg_pool
+            from psycopg.rows import dict_row
+            pool = _get_pg_pool()
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+
+                # Check for duplicate hardware fingerprints
+                host_row = conn.execute(
+                    "SELECT payload FROM hosts WHERE host_id = %s",
+                    (entity_id,),
+                ).fetchone()
+
+                if not host_row:
+                    return {"flagged": False, "reason": "Host not found in hosts table"}
+
+                payload = host_row["payload"]
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+
+                fingerprint = payload.get("hw_fingerprint") or payload.get("gpu_serial", "")
+                source_ip = payload.get("source_ip") or payload.get("ip", "")
+
+                suspects = []
+
+                if fingerprint:
+                    dupes = conn.execute(
+                        """SELECT host_id FROM hosts
+                           WHERE host_id != %s
+                             AND (payload::jsonb->>'hw_fingerprint' = %s
+                                  OR payload::jsonb->>'gpu_serial' = %s)""",
+                        (entity_id, fingerprint, fingerprint),
+                    ).fetchall()
+                    suspects.extend([d["host_id"] for d in dupes])
+
+                if source_ip and source_ip not in ("127.0.0.1", "::1"):
+                    ip_dupes = conn.execute(
+                        """SELECT host_id FROM hosts
+                           WHERE host_id != %s
+                             AND (payload::jsonb->>'source_ip' = %s
+                                  OR payload::jsonb->>'ip' = %s)""",
+                        (entity_id, source_ip, source_ip),
+                    ).fetchall()
+                    suspects.extend([d["host_id"] for d in ip_dupes])
+
+                suspects = list(set(suspects))
+
+                if suspects:
+                    log.warning(
+                        "SYBIL DETECTED: %s shares fingerprint/IP with %s",
+                        entity_id, suspects,
+                    )
+                    return {
+                        "flagged": True,
+                        "reason": f"Shares hardware fingerprint or IP with: {suspects}",
+                        "suspect_hosts": suspects,
+                        "entity_id": entity_id,
+                    }
+
+        except Exception as e:
+            log.error("Sybil detection error for %s: %s", entity_id, e)
+
+        return {"flagged": False, "entity_id": entity_id}
+
+    def detect_benchmark_spoofing(self, entity_id: str, reported_perf: float, gpu_model: str) -> dict:
+        """Detect benchmark spoofing by comparing reported vs expected performance.
+
+        Flags if deviation exceeds 20% from known GPU model baselines.
+        """
+        # Known baselines (TFLOPS FP16 — approximate)
+        GPU_BASELINES = {
+            "RTX 3090": 35.6,
+            "RTX 4090": 82.6,
+            "RTX 4080": 48.7,
+            "RTX 4070": 29.1,
+            "RTX 4060": 22.1,
+            "A100": 77.9,
+            "A40": 37.4,
+            "H100": 267.0,
+            "L40": 90.5,
+        }
+
+        baseline = None
+        for model_name, perf in GPU_BASELINES.items():
+            if model_name.lower() in gpu_model.lower():
+                baseline = perf
+                break
+
+        if baseline is None:
+            return {
+                "flagged": False,
+                "reason": f"No baseline for {gpu_model}",
+                "entity_id": entity_id,
+            }
+
+        deviation = abs(reported_perf - baseline) / baseline
+
+        if deviation > 0.20:
+            severity = "high" if deviation > 0.50 else "medium"
+            log.warning(
+                "BENCHMARK SPOOFING SUSPECTED: %s reported %.1f TFLOPS for %s "
+                "(expected ~%.1f, deviation %.0f%%)",
+                entity_id, reported_perf, gpu_model, baseline, deviation * 100,
+            )
+            return {
+                "flagged": True,
+                "severity": severity,
+                "reason": f"Reported {reported_perf:.1f} TFLOPS, expected ~{baseline:.1f} "
+                          f"for {gpu_model} (deviation: {deviation:.0%})",
+                "entity_id": entity_id,
+                "deviation_pct": round(deviation * 100, 1),
+                "reported": reported_perf,
+                "expected": baseline,
+            }
+
+        return {
+            "flagged": False,
+            "entity_id": entity_id,
+            "deviation_pct": round(deviation * 100, 1),
+        }
+
+    def detect_early_termination_pattern(self, entity_id: str) -> dict:
+        """Detect if a provider terminates an unusually high percentage of jobs early.
+
+        Flags if > 5% of jobs are terminated by the provider before completion.
+        """
+        existing = self.store.get_score(entity_id)
+        if not existing:
+            return {"flagged": False, "reason": "Unknown entity"}
+
+        completed = int(existing.get("jobs_completed", 0))
+        failed_host = int(existing.get("jobs_failed_host", 0))
+        total = completed + failed_host
+
+        if total < 20:
+            return {
+                "flagged": False,
+                "reason": "Insufficient data (< 20 jobs)",
+                "entity_id": entity_id,
+                "total_jobs": total,
+            }
+
+        termination_rate = failed_host / total
+
+        if termination_rate > 0.05:
+            log.warning(
+                "EARLY TERMINATION PATTERN: %s has %.1f%% failure rate (%d/%d)",
+                entity_id, termination_rate * 100, failed_host, total,
+            )
+            return {
+                "flagged": True,
+                "reason": f"Host-fault failure rate {termination_rate:.1%} exceeds 5% threshold",
+                "entity_id": entity_id,
+                "termination_rate": round(termination_rate, 4),
+                "failed_host": failed_host,
+                "total_jobs": total,
+            }
+
+        return {
+            "flagged": False,
+            "entity_id": entity_id,
+            "termination_rate": round(termination_rate, 4),
+        }
+
+    def run_fraud_scan(self, entity_id: str, reported_perf: float = 0.0, gpu_model: str = "") -> dict:
+        """Run all fraud detection checks on a provider.
+
+        Returns summary with individual check results.
+        """
+        results = {
+            "entity_id": entity_id,
+            "checks": {},
+            "any_flagged": False,
+        }
+
+        results["checks"]["sybil"] = self.detect_sybil(entity_id)
+        results["checks"]["early_termination"] = self.detect_early_termination_pattern(entity_id)
+
+        if reported_perf > 0 and gpu_model:
+            results["checks"]["benchmark_spoofing"] = self.detect_benchmark_spoofing(
+                entity_id, reported_perf, gpu_model,
+            )
+
+        results["any_flagged"] = any(
+            c.get("flagged") for c in results["checks"].values()
+        )
+
+        if results["any_flagged"]:
+            log.warning("FRAUD SCAN ALERT: %s — %s", entity_id, results)
+
+        return results
 
 
 # ── GPU Reference Pricing ─────────────────────────────────────────────

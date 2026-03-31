@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Xcelsior CLI v1.0.0
-# argparse. No npm. No node. Just Python.
+# Xcelsior CLI v2.3.0
+# argparse + Rich tables. No npm. No node. Just Python.
 
 import argparse
 import json
@@ -8,6 +8,16 @@ import os
 import secrets
 import sys
 import time
+
+try:
+    from rich.console import Console
+    from rich.table import Table
+
+    RICH_AVAILABLE = True
+    console = Console()
+except ImportError:
+    RICH_AVAILABLE = False
+    console = None
 
 from scheduler import (
     register_host,
@@ -80,12 +90,33 @@ def cmd_jobs(args):
     if not jobs:
         print("No jobs.")
         return
-    for j in jobs:
-        host = j.get("host_id") or "—"
-        tier = j.get("tier", "free")
-        print(
-            f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | {tier} | host: {host}"
-        )
+    if RICH_AVAILABLE:
+        table = Table(title="Jobs")
+        table.add_column("Status", style="bold")
+        table.add_column("Job ID")
+        table.add_column("Name")
+        table.add_column("VRAM", justify="right")
+        table.add_column("Tier")
+        table.add_column("Host")
+        for j in jobs:
+            status = j["status"]
+            style = {"running": "green", "queued": "yellow", "failed": "red", "completed": "dim"}.get(status, "")
+            table.add_row(
+                f"[{style}]{status}[/{style}]" if style else status,
+                j["job_id"],
+                j["name"],
+                f"{j['vram_needed_gb']}GB",
+                j.get("tier", "free"),
+                j.get("host_id") or "—",
+            )
+        console.print(table)
+    else:
+        for j in jobs:
+            host = j.get("host_id") or "—"
+            tier = j.get("tier", "free")
+            print(
+                f"  [{j['status']:>9}] {j['job_id']} | {j['name']} | {j['vram_needed_gb']}GB | {tier} | host: {host}"
+            )
 
 
 def cmd_job(args):
@@ -144,10 +175,30 @@ def cmd_hosts(args):
     if not hosts:
         print("No hosts.")
         return
-    for h in hosts:
-        print(
-            f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
-        )
+    if RICH_AVAILABLE:
+        table = Table(title="Hosts")
+        table.add_column("Status", style="bold")
+        table.add_column("Host ID")
+        table.add_column("IP")
+        table.add_column("GPU")
+        table.add_column("Free VRAM", justify="right")
+        table.add_column("Rate", justify="right")
+        for h in hosts:
+            status_style = "green" if h["status"] == "active" else "red"
+            table.add_row(
+                f"[{status_style}]{h['status']}[/{status_style}]",
+                h["host_id"],
+                h["ip"],
+                h["gpu_model"],
+                f"{h['free_vram_gb']}GB",
+                f"${h['cost_per_hour']}/hr",
+            )
+        console.print(table)
+    else:
+        for h in hosts:
+            print(
+                f"  [{h['status']:>6}] {h['host_id']} | {h['ip']} | {h['gpu_model']} | {h['free_vram_gb']}GB free | ${h['cost_per_hour']}/hr"
+            )
 
 
 def cmd_ping(args):
@@ -335,10 +386,31 @@ def cmd_market(args):
     if not listings:
         print("No listings.")
         return
-    for l in listings:
-        print(
-            f"  {l['host_id']} | {l['gpu_model']} | {l['vram_gb']}GB | ${l['price_per_hour']}/hr | {l['owner']} | jobs: {l.get('total_jobs', 0)} | earned: ${l.get('total_earned', 0)}"
-        )
+    if RICH_AVAILABLE:
+        table = Table(title="Marketplace")
+        table.add_column("Host ID")
+        table.add_column("GPU")
+        table.add_column("VRAM", justify="right")
+        table.add_column("Price", justify="right")
+        table.add_column("Owner")
+        table.add_column("Jobs", justify="right")
+        table.add_column("Earned", justify="right")
+        for l in listings:
+            table.add_row(
+                l["host_id"],
+                l["gpu_model"],
+                f"{l['vram_gb']}GB",
+                f"${l['price_per_hour']}/hr",
+                l["owner"],
+                str(l.get("total_jobs", 0)),
+                f"${l.get('total_earned', 0)}",
+            )
+        console.print(table)
+    else:
+        for l in listings:
+            print(
+                f"  {l['host_id']} | {l['gpu_model']} | {l['vram_gb']}GB | ${l['price_per_hour']}/hr | {l['owner']} | jobs: {l.get('total_jobs', 0)} | earned: ${l.get('total_earned', 0)}"
+            )
 
 
 def cmd_market_list(args):
@@ -411,11 +483,21 @@ def cmd_builds(args):
 def cmd_tiers(args):
     """List available priority tiers."""
     tiers = list_tiers()
-    print("Priority tiers:")
-    for name, info in tiers.items():
-        print(
-            f"  {name:>10} | priority {info['priority']} | {info['multiplier']}x billing | {info['label']}"
-        )
+    if RICH_AVAILABLE:
+        table = Table(title="Priority Tiers")
+        table.add_column("Tier", style="bold")
+        table.add_column("Priority", justify="right")
+        table.add_column("Multiplier", justify="right")
+        table.add_column("Label")
+        for name, info in tiers.items():
+            table.add_row(name, str(info["priority"]), f"{info['multiplier']}x", info["label"])
+        console.print(table)
+    else:
+        print("Priority tiers:")
+        for name, info in tiers.items():
+            print(
+                f"  {name:>10} | priority {info['priority']} | {info['multiplier']}x billing | {info['label']}"
+            )
 
 
 def cmd_serve(args):
@@ -575,12 +657,27 @@ def cmd_leaderboard(args):
 
     re = get_reputation_engine()
     lb = re.get_leaderboard(entity_type=args.type, limit=args.limit)
-    print(f"Reputation Leaderboard (top {args.limit} {args.type}s):")
-    for i, entry in enumerate(lb, 1):
-        print(
-            f"  {i}. {entry.get('entity_id', '?')} — "
-            f"{entry.get('tier', '?')} ({entry.get('total_score', 0)} pts)"
-        )
+    if RICH_AVAILABLE:
+        table = Table(title=f"Reputation Leaderboard (top {args.limit} {args.type}s)")
+        table.add_column("#", justify="right")
+        table.add_column("Entity ID")
+        table.add_column("Tier", style="bold")
+        table.add_column("Score", justify="right")
+        for i, entry in enumerate(lb, 1):
+            table.add_row(
+                str(i),
+                entry.get("entity_id", "?"),
+                entry.get("tier", "?"),
+                str(entry.get("total_score", 0)),
+            )
+        console.print(table)
+    else:
+        print(f"Reputation Leaderboard (top {args.limit} {args.type}s):")
+        for i, entry in enumerate(lb, 1):
+            print(
+                f"  {i}. {entry.get('entity_id', '?')} — "
+                f"{entry.get('tier', '?')} ({entry.get('total_score', 0)} pts)"
+            )
 
 
 def cmd_compliance(args):
@@ -588,22 +685,128 @@ def cmd_compliance(args):
     from billing import PROVINCE_TAX_RATES
     from jurisdiction import PROVINCE_COMPLIANCE
 
-    print("Province Compliance Matrix:")
-    print(f"  {'Province':<6} {'Tax Rate':>10} {'Residency':>12} {'PIA Required':>14}")
-    print(f"  {'─'*6} {'─'*10} {'─'*12} {'─'*14}")
-    for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-        comp = PROVINCE_COMPLIANCE.get(prov, {})
-        residency = comp.get("residency_required", False)
-        pia = comp.get("pia_required", False)
-        print(
-            f"  {prov:<6} {rate*100:>9.1f}% {'Yes' if residency else 'No':>12} "
-            f"{'Yes' if pia else 'No':>14}"
-        )
+    if RICH_AVAILABLE:
+        table = Table(title="Province Compliance Matrix")
+        table.add_column("Province")
+        table.add_column("Tax Rate", justify="right")
+        table.add_column("Residency Req.", justify="center")
+        table.add_column("PIA Required", justify="center")
+        for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
+            comp = PROVINCE_COMPLIANCE.get(prov, {})
+            residency = comp.get("residency_required", False)
+            pia = comp.get("pia_required", False)
+            table.add_row(
+                prov,
+                f"{rate*100:.1f}%",
+                "[green]Yes[/green]" if residency else "No",
+                "[green]Yes[/green]" if pia else "No",
+            )
+        console.print(table)
+    else:
+        print("Province Compliance Matrix:")
+        print(f"  {'Province':<6} {'Tax Rate':>10} {'Residency':>12} {'PIA Required':>14}")
+        print(f"  {'─'*6} {'─'*10} {'─'*12} {'─'*14}")
+        for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
+            comp = PROVINCE_COMPLIANCE.get(prov, {})
+            residency = comp.get("residency_required", False)
+            pia = comp.get("pia_required", False)
+            print(
+                f"  {prov:<6} {rate*100:>9.1f}% {'Yes' if residency else 'No':>12} "
+                f"{'Yes' if pia else 'No':>14}"
+            )
+
+
+# ── Config File (~/.xcelsior/config.toml) ─────────────────────────────
+
+CONFIG_DIR = os.path.expanduser("~/.xcelsior")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
+
+
+def _load_config() -> dict:
+    """Load config from ~/.xcelsior/config.toml (TOML format)."""
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+    try:
+        if sys.version_info >= (3, 11):
+            import tomllib
+            with open(CONFIG_FILE, "rb") as f:
+                return tomllib.load(f)
+        else:
+            # Minimal TOML parser for simple key=value files
+            cfg: dict = {}
+            section = cfg
+            with open(CONFIG_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("["):
+                        name = line.strip("[]").strip()
+                        cfg[name] = {}
+                        section = cfg[name]
+                    elif "=" in line:
+                        k, v = line.split("=", 1)
+                        v = v.strip().strip('"').strip("'")
+                        if v.lower() in ("true", "false"):
+                            v = v.lower() == "true"
+                        section[k.strip()] = v
+            return cfg
+    except Exception:
+        return {}
+
+
+def _save_config(cfg: dict) -> None:
+    """Persist config dict to ~/.xcelsior/config.toml."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    lines: list[str] = []
+    top_keys = {k: v for k, v in cfg.items() if not isinstance(v, dict)}
+    sub_keys = {k: v for k, v in cfg.items() if isinstance(v, dict)}
+    for k, v in top_keys.items():
+        if isinstance(v, bool):
+            lines.append(f"{k} = {'true' if v else 'false'}")
+        elif isinstance(v, (int, float)):
+            lines.append(f"{k} = {v}")
+        else:
+            lines.append(f'{k} = "{v}"')
+    for section, vals in sub_keys.items():
+        lines.append(f"\n[{section}]")
+        for k, v in vals.items():
+            if isinstance(v, bool):
+                lines.append(f"{k} = {'true' if v else 'false'}")
+            elif isinstance(v, (int, float)):
+                lines.append(f"{k} = {v}")
+            else:
+                lines.append(f'{k} = "{v}"')
+    with open(CONFIG_FILE, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(CONFIG_FILE, 0o600)
+
+
+def _cfg_get(key: str, default: str = "") -> str:
+    """Get a config value. Supports dotted keys like 'defaults.region'."""
+    cfg = _load_config()
+    parts = key.split(".")
+    node = cfg
+    for p in parts[:-1]:
+        node = node.get(p, {})
+        if not isinstance(node, dict):
+            return default
+    return str(node.get(parts[-1], default))
+
+
+def get_api_url() -> str:
+    """Resolve API URL from: --api-url flag env > config > default."""
+    return os.environ.get("XCELSIOR_API_URL", "") or _cfg_get("api_url") or "http://localhost:8000"
+
+
+def get_default_region() -> str:
+    """Resolve default region from config."""
+    return os.environ.get("XCELSIOR_REGION", "") or _cfg_get("defaults.region") or ""
 
 
 # ── OAuth2 Device Flow (CLI-to-Web Auth) ─────────────────────────────
 
-TOKEN_FILE = os.path.expanduser("~/.xcelsior/token.json")
+TOKEN_FILE = os.path.join(CONFIG_DIR, "token.json")
 
 
 def _save_token(token_data):
@@ -641,9 +844,7 @@ def cmd_login(args):
     """
     import webbrowser
 
-    api_url = getattr(args, "api_url", None) or os.environ.get(
-        "XCELSIOR_API_URL", "http://localhost:8000"
-    )
+    api_url = getattr(args, "api_url", None) or get_api_url()
 
     # Step 1: Request device code
     try:
@@ -776,6 +977,65 @@ def cmd_slurm_cancel(args):
         print(f"Slurm job {args.slurm_id} cancelled.")
     else:
         print(f"Error: {result.get('error', 'Unknown error')}")
+
+
+def cmd_config(args):
+    """Get or set config values in ~/.xcelsior/config.toml."""
+    cfg = _load_config()
+    if args.action == "set":
+        parts = args.key.split(".")
+        if len(parts) == 2:
+            section, k = parts
+            if section not in cfg:
+                cfg[section] = {}
+            cfg[section][k] = args.value
+        else:
+            cfg[args.key] = args.value
+        _save_config(cfg)
+        print(f"Set {args.key} = {args.value}")
+    elif args.action == "get":
+        val = _cfg_get(args.key)
+        if val:
+            print(val)
+        else:
+            print(f"Key '{args.key}' not set.", file=sys.stderr)
+            sys.exit(1)
+    elif args.action == "list":
+        if not cfg:
+            print("No config set. Use 'xcelsior config set <key> <value>' to configure.")
+            return
+        if RICH_AVAILABLE:
+            table = Table(title="~/.xcelsior/config.toml")
+            table.add_column("Key", style="cyan")
+            table.add_column("Value", style="green")
+            for k, v in cfg.items():
+                if isinstance(v, dict):
+                    for sk, sv in v.items():
+                        table.add_row(f"{k}.{sk}", str(sv))
+                else:
+                    table.add_row(k, str(v))
+            console.print(table)
+        else:
+            for k, v in cfg.items():
+                if isinstance(v, dict):
+                    for sk, sv in v.items():
+                        print(f"{k}.{sk} = {sv}")
+                else:
+                    print(f"{k} = {v}")
+    elif args.action == "unset":
+        parts = args.key.split(".")
+        if len(parts) == 2:
+            section, k = parts
+            if section in cfg and k in cfg[section]:
+                del cfg[section][k]
+                if not cfg[section]:
+                    del cfg[section]
+        elif args.key in cfg:
+            del cfg[args.key]
+        _save_config(cfg)
+        print(f"Unset {args.key}")
+    elif args.action == "path":
+        print(CONFIG_FILE)
 
 
 def main():
@@ -1112,9 +1372,35 @@ def main():
     p_slurm_cancel.add_argument("slurm_id", help="Slurm job ID")
     p_slurm_cancel.set_defaults(func=cmd_slurm_cancel)
 
+    # xcelsior config <action> [key] [value]
+    p_cfg = sub.add_parser("config", help="Manage ~/.xcelsior/config.toml settings")
+    p_cfg_sub = p_cfg.add_subparsers(dest="action")
+    p_cfg_set = p_cfg_sub.add_parser("set", help="Set a config value")
+    p_cfg_set.add_argument("key", help="Config key (e.g. api_url, defaults.region)")
+    p_cfg_set.add_argument("value", help="Config value")
+    p_cfg_get = p_cfg_sub.add_parser("get", help="Get a config value")
+    p_cfg_get.add_argument("key", help="Config key")
+    p_cfg_list = p_cfg_sub.add_parser("list", help="List all config values")
+    p_cfg_unset = p_cfg_sub.add_parser("unset", help="Remove a config key")
+    p_cfg_unset.add_argument("key", help="Config key to remove")
+    p_cfg_path = p_cfg_sub.add_parser("path", help="Show config file path")
+    p_cfg.set_defaults(func=cmd_config)
+
+    # ── argcomplete shell completion ──────────────────────────────────
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
+        sys.exit(1)
+
+    # Config subcommand needs action
+    if args.command == "config" and not getattr(args, "action", None):
+        p_cfg.print_help()
         sys.exit(1)
 
     # Default free_vram to total vram for host-add commands

@@ -11,12 +11,23 @@ logo:
 colors:
   accent-primary:
     light: "#0F172A"
-    dark: "#38BDF8"
+    dark: "#00d4ff"
   background:
     light: "#FFFFFF"
-    dark: "#0F172A"
+    dark: "#060a13"
+  sidebar-background:
+    light: "#F8FAFC"
+    dark: "#0d1320"
+  card-background:
+    light: "#F8FAFC"
+    dark: "#0d1320"
+  border:
+    light: "#E2E8F0"
+    dark: "#1e293b"
 
 favicon: ./assets/favicon.svg
+
+css: ./assets/custom.css
 
 navbar-links:
   - type: primary

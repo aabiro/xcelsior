@@ -294,3 +294,110 @@ def mark_credited(deposit_id: str) -> None:
                WHERE deposit_id = %s AND status = 'confirmed'""",
             (time.time(), deposit_id),
         )
+
+
+# ── FINTRAC LVCTR Reporting for Bitcoin ───────────────────────────────
+# Per Proceeds of Crime (Money Laundering) and Terrorist Financing Act:
+# - Large Virtual Currency Transaction Report (LVCTR): >= $10,000 CAD
+# - 24-hour aggregation rule: multiple deposits by same user totaling >= $10K
+# - Must be filed within 5 business days
+
+FINTRAC_LVCTR_THRESHOLD_CAD = 10_000.0
+
+
+def fintrac_check_btc_deposit(customer_id: str, amount_cad: float) -> dict | None:
+    """Check if a BTC deposit triggers FINTRAC LVCTR reporting.
+
+    Checks both single-transaction and 24-hour aggregate thresholds.
+
+    Args:
+        customer_id: The wallet owner
+        amount_cad: CAD-equivalent value of the BTC deposit
+
+    Returns:
+        FINTRAC report dict if threshold triggered, None otherwise.
+    """
+    now = time.time()
+    report = None
+
+    # Single transaction >= $10K
+    if amount_cad >= FINTRAC_LVCTR_THRESHOLD_CAD:
+        report = _create_btc_fintrac_report(
+            customer_id=customer_id,
+            report_type="LVCTR",
+            trigger_amount=amount_cad,
+            notes=f"Single BTC deposit: ${amount_cad:.2f} CAD",
+        )
+        return report
+
+    # 24-hour aggregate check
+    window_start = now - 86400
+    with _conn() as c:
+        row = c.execute(
+            """SELECT COALESCE(SUM(amount_cad), 0) as total_24h
+               FROM crypto_deposits
+               WHERE customer_id = %s
+                 AND created_at >= %s
+                 AND status IN ('confirmed', 'credited')""",
+            (customer_id, window_start),
+        ).fetchone()
+
+    total_24h = float(row["total_24h"]) if row else 0.0
+
+    if total_24h + amount_cad >= FINTRAC_LVCTR_THRESHOLD_CAD:
+        report = _create_btc_fintrac_report(
+            customer_id=customer_id,
+            report_type="LVCTR",
+            trigger_amount=total_24h + amount_cad,
+            notes=f"24-hour BTC aggregate: ${total_24h + amount_cad:.2f} CAD "
+                  f"({total_24h:.2f} prior + {amount_cad:.2f} new)",
+        )
+
+    return report
+
+
+def _create_btc_fintrac_report(
+    customer_id: str,
+    report_type: str,
+    trigger_amount: float,
+    notes: str = "",
+) -> dict:
+    """Create a FINTRAC report record for a BTC transaction."""
+    now = time.time()
+    report_id = f"FIN-BTC-{int(now)}-{os.urandom(3).hex()}"
+
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO fintrac_reports
+               (report_id, customer_id, report_type, trigger_amount_cad,
+                trigger_currency, aggregate_window_start, aggregate_window_end,
+                status, created_at, notes)
+               VALUES (%s, %s, %s, %s, 'BTC', %s, %s, 'pending', %s, %s)""",
+            (report_id, customer_id, report_type, trigger_amount,
+             now - 86400, now, now, notes),
+        )
+
+    log.warning(
+        "FINTRAC %s report (BTC): %s customer=%s amount=$%.2f CAD",
+        report_type, report_id, customer_id, trigger_amount,
+    )
+
+    return {
+        "report_id": report_id,
+        "report_type": report_type,
+        "customer_id": customer_id,
+        "trigger_amount_cad": trigger_amount,
+        "trigger_currency": "BTC",
+        "status": "pending",
+    }
+
+
+def get_pending_fintrac_reports() -> list[dict]:
+    """Retrieve all pending FINTRAC reports for BTC transactions."""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM fintrac_reports
+               WHERE trigger_currency = 'BTC' AND status = 'pending'
+               ORDER BY created_at""",
+        ).fetchall()
+        return [dict(r) for r in rows]

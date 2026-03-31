@@ -37,6 +37,7 @@ export function CryptoDepositModal({
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<"amount" | "waiting" | "success">("amount");
   const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [deposit, setDeposit] = useState<{
     deposit_id: string;
     btc_address: string;
@@ -125,15 +126,19 @@ export function CryptoDepositModal({
   const handleCreateDeposit = async () => {
     if (!isValid || submitting) return;
     setSubmitting(true);
+    setErrorMsg("");
     try {
       const res = await createCryptoDeposit(customerId, numericAmount);
       setDeposit(res);
       setStep("waiting");
       startPolling(res.deposit_id);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to create BTC deposit",
-      );
+      const msg = err instanceof Error ? err.message : "Failed to create BTC deposit";
+      const isUnavailable = msg.includes("503") || msg.includes("unavailable") || msg.includes("not enabled") || msg.includes("Bad Gateway");
+      setErrorMsg(isUnavailable
+        ? "Bitcoin deposits are temporarily unavailable. The BTC node is offline — please use card deposit instead."
+        : msg);
+      toast.error(isUnavailable ? "Bitcoin node is offline" : msg);
     } finally {
       setSubmitting(false);
     }
@@ -279,6 +284,12 @@ export function CryptoDepositModal({
                 </p>
               )}
             </div>
+
+            {errorMsg && (
+              <div className="mb-4 rounded-lg border border-accent-red/30 bg-accent-red/5 p-3">
+                <p className="text-sm text-accent-red">{errorMsg}</p>
+              </div>
+            )}
 
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={onClose}>
