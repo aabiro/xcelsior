@@ -47,11 +47,30 @@ export function useAiChat(): UseAiChatReturn {
   const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Restore conversation_id from localStorage on mount
+  // Restore conversation_id from localStorage on mount and auto-load messages
   useEffect(() => {
     try {
       const stored = localStorage.getItem(AI_CONV_KEY);
-      if (stored) conversationIdRef.current = stored;
+      if (stored) {
+        conversationIdRef.current = stored;
+        // Auto-load messages from server for the stored conversation
+        fetch(`/api/ai/conversations/${stored}`, { credentials: "include" })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (!data?.messages?.length) return;
+            const loaded: AiMessage[] = data.messages.map((m: Record<string, unknown>) => ({
+              id: (m.message_id as string) || crypto.randomUUID(),
+              role: m.role as AiMessage["role"],
+              content: (m.content as string) || "",
+              toolName: (m.tool_name as string) || undefined,
+              toolInput: m.tool_input ? (m.tool_input as Record<string, unknown>) : undefined,
+              toolOutput: m.tool_output ? (m.tool_output as Record<string, unknown>) : undefined,
+              timestamp: ((m.created_at as number) || 0) * 1000,
+            }));
+            setMessages(loaded);
+          })
+          .catch(() => { /* non-fatal — will start fresh */ });
+      }
     } catch {
       // SSR or storage unavailable
     }

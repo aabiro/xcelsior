@@ -464,18 +464,59 @@ const STORAGE_KEY = "xcelsior-onboarding";
 
 function useOnboardingState() {
   const [completed, setCompleted] = useState<Record<string, boolean>>({});
+  const loadedRef = useRef(false);
 
+  // Load from server, fall back to localStorage
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setCompleted(JSON.parse(raw));
-    } catch { /* ignore */ }
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    fetch("/api/users/me/preferences", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const serverOnboarding = data?.preferences?.onboarding;
+        if (serverOnboarding && typeof serverOnboarding === "object") {
+          setCompleted(serverOnboarding);
+          // Sync to localStorage as cache
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(serverOnboarding)); } catch {}
+        } else {
+          // Fall back to localStorage for migration
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              setCompleted(parsed);
+              // Migrate localStorage data to server
+              fetch("/api/users/me/preferences", {
+                method: "PUT",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ preferences: { onboarding: parsed } }),
+              }).catch(() => {});
+            }
+          } catch {}
+        }
+      })
+      .catch(() => {
+        // Offline fallback to localStorage
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) setCompleted(JSON.parse(raw));
+        } catch {}
+      });
   }, []);
 
   const toggle = (key: string) => {
     setCompleted((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      // Persist to localStorage as cache
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      // Persist to server
+      fetch("/api/users/me/preferences", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: { onboarding: next } }),
+      }).catch(() => {});
       return next;
     });
   };

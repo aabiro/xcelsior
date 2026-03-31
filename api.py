@@ -6706,10 +6706,19 @@ def api_get_user_preferences(request: Request):
         full_user = UserStore.get_user(user["email"]) or {}
     else:
         full_user = _users_db.get(user["email"], {})
+    # Parse preferences JSONB (may be dict or JSON string)
+    raw_prefs = full_user.get("preferences", {})
+    if isinstance(raw_prefs, str):
+        try:
+            import json as _json
+            raw_prefs = _json.loads(raw_prefs)
+        except Exception:
+            raw_prefs = {}
     return {
         "ok": True,
         "canada_only_routing": bool(full_user.get("canada_only_routing", 0)),
         "notifications": bool(full_user.get("notifications_enabled", 1)),
+        "preferences": raw_prefs if isinstance(raw_prefs, dict) else {},
     }
 
 
@@ -6724,6 +6733,26 @@ def api_set_user_preferences(request: Request, body: dict):
         updates["notifications_enabled"] = 1 if body["notifications"] else 0
     if "canada_only_routing" in body:
         updates["canada_only_routing"] = 1 if body["canada_only_routing"] else 0
+    # Merge JSONB preferences (partial update)
+    if "preferences" in body and isinstance(body["preferences"], dict):
+        # Validate: only allow known preference keys
+        allowed_pref_keys = {"onboarding", "ai_panel_open"}
+        incoming = body["preferences"]
+        safe_prefs = {k: v for k, v in incoming.items() if k in allowed_pref_keys}
+        if safe_prefs and _USE_PERSISTENT_AUTH:
+            # Merge with existing preferences
+            existing_user = UserStore.get_user(user["email"]) or {}
+            existing_prefs = existing_user.get("preferences", {})
+            if isinstance(existing_prefs, str):
+                try:
+                    import json as _json
+                    existing_prefs = _json.loads(existing_prefs)
+                except Exception:
+                    existing_prefs = {}
+            if not isinstance(existing_prefs, dict):
+                existing_prefs = {}
+            merged = {**existing_prefs, **safe_prefs}
+            updates["preferences"] = merged
     if updates and _USE_PERSISTENT_AUTH:
         UserStore.update_user(user["email"], updates)
     return {"ok": True}
