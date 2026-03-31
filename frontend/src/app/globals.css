@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Tell Tailwind dark: variants to follow the .dark class on <html>,
+   not the OS prefers-color-scheme media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ── Xcelsior Design Tokens ────────────────────────────────────────── */
 @theme {
   --color-navy: #060a13;
