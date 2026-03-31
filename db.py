@@ -344,7 +344,7 @@ class DatabaseOps:
         row = conn.execute(f"SELECT payload FROM jobs WHERE job_id = {ph}", (job_id,)).fetchone()
         if not row:
             return None
-        payload = row[0] if backend == "postgres" else row["payload"]
+        payload = row["payload"] if isinstance(row, dict) else row[0]
         return DatabaseOps.decode_payload(payload)
 
     @staticmethod
@@ -354,7 +354,7 @@ class DatabaseOps:
         row = conn.execute(f"SELECT payload FROM hosts WHERE host_id = {ph}", (host_id,)).fetchone()
         if not row:
             return None
-        payload = row[0] if backend == "postgres" else row["payload"]
+        payload = row["payload"] if isinstance(row, dict) else row[0]
         return DatabaseOps.decode_payload(payload)
 
     @staticmethod
@@ -374,7 +374,7 @@ class DatabaseOps:
 
         jobs = []
         for row in rows:
-            payload = row[0] if backend == "postgres" else row["payload"]
+            payload = row["payload"] if isinstance(row, dict) else row[0]
             item = DatabaseOps.decode_payload(payload)
             if isinstance(item, dict):
                 jobs.append(item)
@@ -395,7 +395,7 @@ class DatabaseOps:
 
         hosts = []
         for row in rows:
-            payload = row[0] if backend == "postgres" else row["payload"]
+            payload = row["payload"] if isinstance(row, dict) else row[0]
             item = DatabaseOps.decode_payload(payload)
             if isinstance(item, dict):
                 hosts.append(item)
@@ -451,7 +451,7 @@ class DatabaseOps:
         ).fetchone()
         if not row:
             return None
-        payload = row[0] if backend == "postgres" else row["payload"]
+        payload = row["payload"] if isinstance(row, dict) else row[0]
         return DatabaseOps.decode_payload(payload)
 
     @staticmethod
@@ -476,7 +476,7 @@ class DatabaseOps:
                 + " ORDER BY (payload->>'free_vram_gb')::float DESC"
             )
             rows = conn.execute(query, params).fetchall()
-            return [row[0] for row in rows if row[0]]
+            return [DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0]) for row in rows if row]
         else:
             # SQLite fallback: load all and filter in Python
             hosts = DatabaseOps.load_hosts(conn, active_only=True, backend="sqlite")
@@ -741,10 +741,15 @@ class UserStore:
             "reset_token_expires",
             "notifications_enabled",
             "canada_only_routing",
+            "preferences",
         }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
             return
+        # Wrap JSONB fields for psycopg3
+        if "preferences" in fields and isinstance(fields["preferences"], dict):
+            from psycopg.types.json import Jsonb
+            fields["preferences"] = Jsonb(fields["preferences"])
         set_clause = ", ".join(f"{k} = %s" for k in fields)
         values = list(fields.values()) + [email]
         with auth_connection() as conn:

@@ -153,6 +153,27 @@ class TestSystemPrompt:
         assert "marketplace" in prompt.lower()
         assert "confirmation" in prompt.lower()
 
+    def test_page_context_included(self):
+        prompt = build_ai_system_prompt(self._user(), page_context="/dashboard/billing")
+        assert "/dashboard/billing" in prompt
+
+    def test_page_context_omitted_when_empty(self):
+        prompt = build_ai_system_prompt(self._user(), page_context="")
+        assert "CURRENT PAGE CONTEXT" not in prompt
+
+    def test_provider_wizard_instructions(self):
+        prompt = build_ai_system_prompt(self._user("provider"))
+        assert "PROVIDER ONBOARDING WIZARD" in prompt
+
+    def test_renter_wizard_instructions(self):
+        prompt = build_ai_system_prompt(self._user("user"))
+        assert "RENTER ONBOARDING WIZARD" in prompt
+
+    def test_onboarding_detection_has_hosts_jobs_fields(self):
+        prompt = build_ai_system_prompt(self._user())
+        assert "Has hosts:" in prompt
+        assert "Has jobs:" in prompt
+
 
 # ── Suggestions ───────────────────────────────────────────────────────
 
@@ -174,6 +195,13 @@ class TestSuggestions:
             for s in get_suggestions({"role": role, "email": "t@test.ca"}):
                 assert "label" in s and len(s["label"]) > 0
                 assert "prompt" in s and len(s["prompt"]) > 0
+
+    def test_new_user_gets_onboarding_suggestions(self):
+        # Users with no hosts or jobs should get onboarding chips
+        suggestions = get_suggestions({"role": "user", "email": "newuser@test.ca", "user_id": "u-new-999"})
+        labels = [s["label"] for s in suggestions]
+        assert any("rent" in l.lower() for l in labels)
+        assert any("provide" in l.lower() for l in labels)
 
 
 # ── SSE Formatting ────────────────────────────────────────────────────
