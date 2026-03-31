@@ -26,10 +26,10 @@
       "@/*": [
         "./src/*"
       ],
-      "@xcelsior/sdk": [
+      "@xcelsior-gpu/sdk": [
         "./sdk/index.ts"
       ],
-      "@xcelsior/sdk/*": [
+      "@xcelsior-gpu/sdk/*": [
         "./sdk/*"
       ]
     }

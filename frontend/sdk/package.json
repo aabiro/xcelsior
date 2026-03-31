@@ -1,5 +1,5 @@
 {
-  "name": "@xcelsior/sdk",
+  "name": "@xcelsior-gpu/sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for the Xcelsior GPU Cloud API",
   "license": "MIT",
