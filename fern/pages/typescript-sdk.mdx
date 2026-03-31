@@ -11,17 +11,17 @@ The Xcelsior TypeScript SDK is auto-generated from the OpenAPI specification usi
 ## Installation
 
 ```bash
-npm install @xcelsior/sdk
+npm install @xcelsior-gpu/sdk
 # or
-yarn add @xcelsior/sdk
+yarn add @xcelsior-gpu/sdk
 # or
-pnpm add @xcelsior/sdk
+pnpm add @xcelsior-gpu/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { XcelsiorClient } from "@xcelsior/sdk";
+import { XcelsiorClient } from "@xcelsior-gpu/sdk";
 
 const client = new XcelsiorClient({
   token: process.env.XCELSIOR_API_TOKEN!,
@@ -152,5 +152,5 @@ try {
 The SDK is fully typed. All request/response objects have TypeScript interfaces:
 
 ```typescript
-import type { Job, Host, WalletBalance } from "@xcelsior/sdk";
+import type { Job, Host, WalletBalance } from "@xcelsior-gpu/sdk";
 ```

@@ -19,7 +19,7 @@ groups:
       - name: fern-typescript-sdk
         output:
           location: npm
-          package-name: "@xcelsior/sdk"
+          package-name: "@xcelsior-gpu/sdk"
           token: ${NPM_TOKEN}
         version: 3.59.11
         config:

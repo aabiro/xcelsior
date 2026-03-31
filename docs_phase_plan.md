@@ -49,7 +49,7 @@
 ### Interactive Documentation & SDK ✅
 - OpenAPI tags on all 129 endpoints (19 tag groups).
 - FastAPI Swagger UI (`/docs`) + ReDoc (`/redoc`) with "Try it out" sandbox.
-- Fern SDK config: Python (`xcelsior` package) + TypeScript (`@xcelsior/sdk`).
+- Fern SDK config: Python (`xcelsior` package) + TypeScript (`@xcelsior-gpu/sdk`).
 - Fern API Playground with production + development environments.
 - `llms.txt` (LLM-optimized docs per llmstxt.org spec).
 
