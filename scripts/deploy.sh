@@ -259,41 +259,43 @@ EOF
 deploy_docker() {
     log "Deploying with Docker Compose ($TARGET_ENV)..."
     
-    ssh_cmd << 'EOF'
-set -e
-cd /opt/xcelsior
+    # Verify .env exists on server
+    ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
 
-# Ensure .env exists
-if [ ! -f .env ]; then
-    echo "ERROR: .env file not found. Copy .env.example and configure it first."
-    exit 1
-fi
+    # Build images (separate SSH call so a timeout here doesn't leave containers down)
+    log "Building Docker images..."
+    ssh_cmd "cd /opt/xcelsior && docker compose build" || error "Docker build failed"
+    success "Docker images built"
 
-# Build and deploy against the host Postgres instance
-docker compose build --pull
-docker compose down --remove-orphans || true
-docker compose up -d
+    # Run Alembic migrations
+    log "Running database migrations..."
+    ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration failed — may need manual attention"
+    success "Migrations applied"
 
-# Wait for health
-echo "Waiting for services to be healthy..."
-sleep 10
+    # Recreate containers (fast — images already built)
+    log "Restarting containers..."
+    ssh_cmd "cd /opt/xcelsior && docker compose down --remove-orphans 2>/dev/null; docker compose up -d" || error "Docker up failed"
+    success "Containers started"
 
-# Check health
-for i in {1..30}; do
-    if curl -sf http://localhost:9500/healthz > /dev/null; then
-        echo "API is healthy!"
-        break
+    # Wait for health
+    log "Waiting for API health..."
+    local healthy=false
+    for i in {1..30}; do
+        if ssh_cmd "curl -sf http://localhost:9500/healthz" &>/dev/null; then
+            healthy=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "$healthy" = true ]; then
+        success "API is healthy"
+    else
+        warn "API not healthy after 60s — fetching logs..."
+        ssh_cmd "cd /opt/xcelsior && docker compose logs --tail=30" || true
     fi
-    if [ $i -eq 30 ]; then
-        echo "ERROR: API failed to become healthy"
-        docker compose logs --tail=50
-        exit 1
-    fi
-    sleep 2
-done
 
-docker compose ps
-EOF
+    ssh_cmd "cd /opt/xcelsior && docker compose ps"
     success "Docker deployment complete"
 }
 
@@ -342,32 +344,16 @@ EOF
 rollback() {
     log "Rolling back to previous version..."
     
-    ssh_cmd << 'EOF'
-set -e
-LATEST_BACKUP=$(ls -t /opt/xcelsior-backups/xcelsior_*.tar.gz 2>/dev/null | head -1)
+    # Find latest backup
+    local latest
+    latest=$(ssh_cmd "ls -t /opt/xcelsior-backups/xcelsior_*.tar.gz 2>/dev/null | head -1")
+    [[ -z "$latest" ]] && error "No backups found"
+    log "Rolling back to: $latest"
 
-if [ -z "$LATEST_BACKUP" ]; then
-    echo "ERROR: No backups found"
-    exit 1
-fi
-
-echo "Rolling back to: $LATEST_BACKUP"
-
-# Stop services
-docker compose -f /opt/xcelsior/docker-compose.yml down 2>/dev/null || true
-
-# Restore backup
-sudo rm -rf /opt/xcelsior
-sudo mkdir -p /opt/xcelsior
-sudo tar -xzf "$LATEST_BACKUP" -C /opt
-sudo chown -R $USER:$USER /opt/xcelsior
-
-# Redeploy
-cd /opt/xcelsior
-docker compose up -d
-
-echo "Rollback complete"
-EOF
+    # Stop, restore, restart
+    ssh_cmd "docker compose -f /opt/xcelsior/docker-compose.yml down 2>/dev/null || true"
+    ssh_cmd "sudo rm -rf /opt/xcelsior && sudo mkdir -p /opt/xcelsior && sudo tar -xzf '$latest' -C /opt && sudo chown -R \$USER:\$USER /opt/xcelsior"
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d"
     success "Rollback complete"
 }
 
@@ -436,23 +422,15 @@ health_check() {
         warn "Public endpoint not responding after retries"
     fi
     
-    # Remote internal check
-    ssh_cmd << 'EOF'
-echo "=== Docker Status ==="
-docker compose -f /opt/xcelsior/docker-compose.yml ps 2>/dev/null || echo "Docker not running"
+    # Remote internal checks (separate calls for reliability)
+    log "Docker status:"
+    ssh_cmd "cd /opt/xcelsior && docker compose ps" || true
 
-echo ""
-echo "=== API Health ==="
-curl -s http://localhost:9500/healthz 2>/dev/null || echo "API not responding"
+    log "API health:"
+    ssh_cmd "curl -s http://localhost:9500/healthz" || warn "API not responding"
 
-echo ""
-echo "=== Nginx Status ==="
-sudo systemctl status nginx --no-pager -l | head -10
-
-echo ""
-echo "=== Recent API Logs ==="
-docker compose -f /opt/xcelsior/docker-compose.yml logs --tail=20 api 2>/dev/null || echo "No Docker logs"
-EOF
+    log "Nginx status:"
+    ssh_cmd "sudo systemctl status nginx --no-pager -l | head -10" || true
 }
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -545,8 +523,7 @@ main() {
             check_ssh
             sync_code
             install_nginx_configs
-            ssh_cmd "cd /opt/xcelsior && docker compose up -d --build"
-            health_check
+            deploy_docker
             ;;
         --rollback)
             check_ssh
