@@ -22,7 +22,7 @@ log = logging.getLogger("xcelsior.ai_assistant")
 
 FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in ("true", "1", "yes")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-sonnet-4-20250514")
+AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-3-5-haiku-20241022")
 AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS", "4096"))
 AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))  # per minute per user
 CONFIRMATION_TTL_SEC = 300  # 5 minutes to approve/reject
@@ -1249,6 +1249,136 @@ def get_suggestions(user: dict) -> list[dict]:
     return suggestions
 
 
+# ── History Reconstruction ────────────────────────────────────────────
+
+def _parse_json_field(value) -> dict:
+    """Parse a JSON field that might be a dict, string, or None."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _reconstruct_history(rows: list[dict]) -> list[dict]:
+    """Reconstruct Anthropic-compatible message history from flat DB rows.
+
+    Converts the flat sequence of (role, content, tool_name, tool_input, tool_output) rows
+    into the nested format Anthropic requires for tool_use / tool_result content blocks.
+    """
+    messages: list[dict] = []
+    i = 0
+    n = len(rows)
+
+    while i < n:
+        role = rows[i]["role"]
+
+        if role == "user":
+            messages.append({"role": "user", "content": rows[i]["content"] or ""})
+            i += 1
+
+        elif role == "assistant":
+            text = rows[i]["content"] or ""
+            # Peek ahead: merge with consecutive tool_call rows into one assistant block
+            if i + 1 < n and rows[i + 1]["role"] == "tool_call":
+                content_blocks: list[dict] = []
+                if text.strip():
+                    content_blocks.append({"type": "text", "text": text})
+                i += 1
+                # Collect all consecutive tool_calls
+                while i < n and rows[i]["role"] == "tool_call":
+                    tool_input = _parse_json_field(rows[i].get("tool_input"))
+                    tool_id = f"hist_{rows[i].get('message_id', str(i))}"
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tool_id,
+                        "name": rows[i].get("tool_name", ""),
+                        "input": tool_input,
+                    })
+                    i += 1
+                messages.append({"role": "assistant", "content": content_blocks})
+
+                # Collect corresponding tool_results as a user message
+                result_blocks: list[dict] = []
+                while i < n and rows[i]["role"] == "tool_result":
+                    tool_output = _parse_json_field(rows[i].get("tool_output"))
+                    tool_name = rows[i].get("tool_name", "")
+                    matched_id = next(
+                        (b["id"] for b in content_blocks
+                         if b.get("type") == "tool_use" and b.get("name") == tool_name),
+                        f"hist_{rows[i].get('message_id', str(i))}",
+                    )
+                    result_blocks.append({
+                        "type": "tool_result",
+                        "tool_use_id": matched_id,
+                        "content": json.dumps(tool_output),
+                    })
+                    i += 1
+                if result_blocks:
+                    messages.append({"role": "user", "content": result_blocks})
+            else:
+                messages.append({"role": "assistant", "content": text})
+                i += 1
+
+        elif role == "tool_call":
+            # Orphan tool_call without preceding assistant text
+            tool_input = _parse_json_field(rows[i].get("tool_input"))
+            tool_id = f"hist_{rows[i].get('message_id', str(i))}"
+            messages.append({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": rows[i].get("tool_name", ""),
+                    "input": tool_input,
+                }],
+            })
+            i += 1
+            # Check for following tool_result
+            if i < n and rows[i]["role"] == "tool_result":
+                tool_output = _parse_json_field(rows[i].get("tool_output"))
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps(tool_output),
+                    }],
+                })
+                i += 1
+
+        elif role == "tool_result":
+            i += 1  # Orphan tool_result — skip to avoid API errors
+
+        else:
+            i += 1  # Unknown role, skip
+
+    return messages
+
+
+def _flush_messages(conversation_id: str, ops: list[tuple], tokens_in: int = 0, tokens_out: int = 0):
+    """Batch-write accumulated message operations to the database.
+
+    Each op is (role, content, tool_name, tool_input, tool_output).
+    Token counts are applied to the first and last messages respectively.
+    """
+    if not ops:
+        return
+    with _ai_db() as conn:
+        for i, (role, content, tname, tinput, toutput) in enumerate(ops):
+            _append_message(
+                conn, conversation_id, role, content,
+                tool_name=tname or "",
+                tool_input=tinput,
+                tool_output=toutput,
+                tokens_in=tokens_in if i == 0 else 0,
+                tokens_out=tokens_out if i == len(ops) - 1 else 0,
+            )
+
+
 # ── Streaming Orchestrator ────────────────────────────────────────────
 
 async def stream_ai_response(
@@ -1286,217 +1416,169 @@ async def stream_ai_response(
 
     yield _sse({"type": "meta", "conversation_id": conversation_id})
 
-    # Load conversation history
+    # ── Load and reconstruct conversation history ─────────────────────
     with _ai_db() as conn:
         rows = conn.execute(
-            "SELECT role, content, tool_name, tool_input, tool_output "
+            "SELECT message_id, role, content, tool_name, tool_input, tool_output "
             "FROM ai_messages WHERE conversation_id = %s ORDER BY created_at ASC",
             (conversation_id,),
         ).fetchall()
 
-    # Build messages for Anthropic
-    messages = []
-    for row in rows[-20:]:  # Last 20 messages for context window
-        r = row["role"]
-        if r == "user":
-            messages.append({"role": "user", "content": row["content"]})
-        elif r == "assistant":
-            messages.append({"role": "assistant", "content": row["content"]})
-        # Tool calls/results are handled implicitly by Anthropic's API
+    # Reconstruct Anthropic-compatible history with tool_use/tool_result blocks
+    history = [dict(r) for r in rows]
+    messages = _reconstruct_history(history[-30:])  # Last 30 DB rows for context
 
-    # Add current user message
+    # ── Add current user message ──────────────────────────────────────
     from privacy import redact_pii
     clean_message = redact_pii(message)
     messages.append({"role": "user", "content": clean_message})
 
-    # Store user message
+    # Store user message and auto-title on first message
     with _ai_db() as conn:
         _append_message(conn, conversation_id, "user", clean_message)
-        # Auto-title from first message
-        if len(rows) == 0:
+        if not history:
             title = clean_message[:80]
             conn.execute(
                 "UPDATE ai_conversations SET title = %s WHERE conversation_id = %s",
                 (title, conversation_id),
             )
 
-    # Build system prompt
+    # ── Build system prompt ───────────────────────────────────────────
     system = build_ai_system_prompt(user, page_context=page_context)
 
-    # Stream from Anthropic with tool use
+    # ── Multi-turn streaming with tool execution loop ─────────────────
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     tools = _build_tools()
 
+    MAX_TOOL_ROUNDS = 5  # Safety limit — prevents infinite tool loops
+    db_ops: list[tuple] = []  # Accumulated (role, content, tool_name, tool_input, tool_output)
+    total_in = 0
+    total_out = 0
+
     try:
-        full_text = []
-        total_in = 0
-        total_out = 0
+        for _round in range(MAX_TOOL_ROUNDS + 1):
+            response = await client.messages.create(
+                model=AI_MODEL,
+                max_tokens=AI_MAX_TOKENS,
+                system=system,
+                messages=messages,
+                tools=tools,
+                stream=True,
+            )
 
-        # Create initial message
-        response = await client.messages.create(
-            model=AI_MODEL,
-            max_tokens=AI_MAX_TOKENS,
-            system=system,
-            messages=messages,
-            tools=tools,
-            stream=True,
-        )
+            round_text: list[str] = []
+            tool_uses: list[dict] = []
+            cur = {"name": "", "id": "", "json": ""}  # Current tool being parsed
 
-        current_tool_name = ""
-        current_tool_input = ""
-        current_tool_use_id = ""
+            async for event in response:
+                if event.type == "message_start":
+                    usage = getattr(event.message, "usage", None)
+                    if usage:
+                        total_in += getattr(usage, "input_tokens", 0)
 
-        async for event in response:
-            if event.type == "message_start":
-                usage = getattr(event.message, "usage", None)
-                if usage:
-                    total_in += getattr(usage, "input_tokens", 0)
+                elif event.type == "content_block_start":
+                    block = event.content_block
+                    if block.type == "tool_use":
+                        cur = {"name": block.name, "id": block.id, "json": ""}
 
-            elif event.type == "content_block_start":
-                block = event.content_block
-                if block.type == "tool_use":
-                    current_tool_name = block.name
-                    current_tool_use_id = block.id
-                    current_tool_input = ""
-                elif block.type == "text":
-                    pass  # Text block starting
+                elif event.type == "content_block_delta":
+                    delta = event.delta
+                    if delta.type == "text_delta":
+                        round_text.append(delta.text)
+                        yield _sse({"type": "token", "content": delta.text})
+                    elif delta.type == "input_json_delta":
+                        cur["json"] += delta.partial_json
 
-            elif event.type == "content_block_delta":
-                delta = event.delta
-                if delta.type == "text_delta":
-                    full_text.append(delta.text)
-                    yield _sse({"type": "token", "content": delta.text})
-                elif delta.type == "input_json_delta":
-                    current_tool_input += delta.partial_json
+                elif event.type == "content_block_stop":
+                    if cur["name"]:
+                        try:
+                            tool_args = json.loads(cur["json"]) if cur["json"] else {}
+                        except json.JSONDecodeError:
+                            tool_args = {}
+                        tool_uses.append({"id": cur["id"], "name": cur["name"], "input": tool_args})
+                        cur = {"name": "", "id": "", "json": ""}
 
-            elif event.type == "content_block_stop":
-                if current_tool_name:
-                    # Parse tool input
-                    try:
-                        tool_args = json.loads(current_tool_input) if current_tool_input else {}
-                    except json.JSONDecodeError:
-                        tool_args = {}
+                elif event.type == "message_delta":
+                    usage = getattr(event, "usage", None)
+                    if usage:
+                        total_out += getattr(usage, "output_tokens", 0)
 
-                    yield _sse({"type": "tool_call", "name": current_tool_name, "input": tool_args})
+            round_text_str = "".join(round_text)
 
-                    # Check if write action — needs confirmation
-                    if current_tool_name in WRITE_TOOLS:
-                        user_id = user.get("user_id", user.get("email", ""))
-                        conf_id = create_confirmation(
-                            conversation_id, user_id, current_tool_name, tool_args
-                        )
-                        yield _sse({
-                            "type": "confirmation_required",
-                            "confirmation_id": conf_id,
-                            "tool_name": current_tool_name,
-                            "tool_args": tool_args,
-                        })
-                        # Store partial response
-                        with _ai_db() as conn:
-                            text_so_far = "".join(full_text)
-                            if text_so_far.strip():
-                                _append_message(conn, conversation_id, "assistant", text_so_far,
-                                                tokens_in=total_in, tokens_out=total_out)
-                            _append_message(conn, conversation_id, "tool_call",
-                                            tool_name=current_tool_name,
-                                            tool_input=tool_args)
-                        yield _sse({"type": "done"})
-                        return
-                    else:
-                        # Execute read-only tool automatically
-                        result = await _exec_tool(current_tool_name, tool_args, user)
-                        yield _sse({"type": "tool_result", "name": current_tool_name, "output": result})
+            # ── No tool calls → final text response ──────────────────
+            if not tool_uses:
+                if round_text_str.strip():
+                    db_ops.append(("assistant", round_text_str, "", None, None))
+                break
 
-                        # Continue conversation with tool result
-                        # Build new messages including tool use + result
-                        tool_result_messages = messages.copy()
-                        tool_result_messages.append({
-                            "role": "assistant",
-                            "content": [
-                                *([{"type": "text", "text": "".join(full_text)}] if full_text else []),
-                                {
-                                    "type": "tool_use",
-                                    "id": current_tool_use_id,
-                                    "name": current_tool_name,
-                                    "input": tool_args,
-                                },
-                            ],
-                        })
-                        tool_result_messages.append({
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": current_tool_use_id,
-                                    "content": json.dumps(result),
-                                },
-                            ],
-                        })
+            # ── Process tool calls ────────────────────────────────────
+            if round_text_str.strip():
+                db_ops.append(("assistant", round_text_str, "", None, None))
 
-                        # Get follow-up response
-                        full_text_followup = []
-                        followup = await client.messages.create(
-                            model=AI_MODEL,
-                            max_tokens=AI_MAX_TOKENS,
-                            system=system,
-                            messages=tool_result_messages,
-                            tools=tools,
-                            stream=True,
-                        )
-                        async for fe in followup:
-                            if fe.type == "content_block_delta" and fe.delta.type == "text_delta":
-                                full_text_followup.append(fe.delta.text)
-                                yield _sse({"type": "token", "content": fe.delta.text})
-                            elif fe.type == "message_delta":
-                                usage = getattr(fe, "usage", None)
-                                if usage:
-                                    total_out += getattr(usage, "output_tokens", 0)
+            # Build assistant content blocks for API continuation
+            assistant_content: list[dict] = []
+            if round_text_str.strip():
+                assistant_content.append({"type": "text", "text": round_text_str})
 
-                        # Store all messages
-                        with _ai_db() as conn:
-                            text_before_tool = "".join(full_text)
-                            if text_before_tool.strip():
-                                _append_message(conn, conversation_id, "assistant", text_before_tool)
-                            _append_message(conn, conversation_id, "tool_call",
-                                            tool_name=current_tool_name, tool_input=tool_args)
-                            _append_message(conn, conversation_id, "tool_result",
-                                            tool_name=current_tool_name, tool_output=result)
-                            followup_text = "".join(full_text_followup)
-                            if followup_text.strip():
-                                _append_message(conn, conversation_id, "assistant", followup_text,
-                                                tokens_in=total_in, tokens_out=total_out)
+            tool_result_blocks: list[dict] = []
+            write_tool_hit = False
 
-                        yield _sse({"type": "done"})
-                        return
+            for tool in tool_uses:
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": tool["id"],
+                    "name": tool["name"],
+                    "input": tool["input"],
+                })
 
-                    current_tool_name = ""
-                    current_tool_input = ""
-                    current_tool_use_id = ""
+                yield _sse({"type": "tool_call", "name": tool["name"], "input": tool["input"]})
+                db_ops.append(("tool_call", "", tool["name"], tool["input"], None))
 
-            elif event.type == "message_delta":
-                usage = getattr(event, "usage", None)
-                if usage:
-                    total_out += getattr(usage, "output_tokens", 0)
+                # Write tools require user confirmation — stop and wait
+                if tool["name"] in WRITE_TOOLS:
+                    write_tool_hit = True
+                    conf_id = create_confirmation(conversation_id, user_id, tool["name"], tool["input"])
+                    yield _sse({
+                        "type": "confirmation_required",
+                        "confirmation_id": conf_id,
+                        "tool_name": tool["name"],
+                        "tool_args": tool["input"],
+                    })
+                    break
+                else:
+                    # Execute read-only tool automatically
+                    result = await _exec_tool(tool["name"], tool["input"], user)
+                    yield _sse({"type": "tool_result", "name": tool["name"], "output": result})
+                    db_ops.append(("tool_result", "", tool["name"], None, result))
+                    tool_result_blocks.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool["id"],
+                        "content": json.dumps(result),
+                    })
 
-        # Store final assistant message (no tool calls)
-        final_text = "".join(full_text)
-        if final_text.strip():
-            with _ai_db() as conn:
-                _append_message(conn, conversation_id, "assistant", final_text,
-                                tokens_in=total_in, tokens_out=total_out)
+            if write_tool_hit:
+                # Flush accumulated messages and stop — user must confirm
+                _flush_messages(conversation_id, db_ops, total_in, total_out)
+                yield _sse({"type": "done"})
+                return
 
+            # Continue conversation with tool results → next round
+            messages.append({"role": "assistant", "content": assistant_content})
+            messages.append({"role": "user", "content": tool_result_blocks})
+
+        # ── Flush all accumulated messages to DB ──────────────────────
+        _flush_messages(conversation_id, db_ops, total_in, total_out)
         yield _sse({"type": "done"})
 
     except anthropic.APIError as e:
         log.error("Anthropic API error: %s", e)
-        # Fallback to existing chat (no tool-calling)
         yield _sse({"type": "error", "message": "AI assistant temporarily unavailable. Falling back to basic chat."})
         try:
             from chat import stream_chat_response, build_system_prompt
-            fallback_messages = [{"role": "system", "content": build_system_prompt()}]
-            fallback_messages.extend(messages)
+            fallback_msgs = [{"role": "system", "content": build_system_prompt()}]
+            fallback_msgs.extend(m for m in messages if isinstance(m.get("content"), str))
             fallback_text = []
-            async for token in stream_chat_response(fallback_messages):
+            async for token in stream_chat_response(fallback_msgs):
                 fallback_text.append(token)
                 yield _sse({"type": "token", "content": token})
             with _ai_db() as conn:

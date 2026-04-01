@@ -1,136 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, FormEvent, useCallback } from "react";
-import {
-  Send, Plus, Loader2, Sparkles, Wrench, CheckCircle2,
-  XCircle, AlertTriangle, X, ExternalLink,
-} from "lucide-react";
+import { useEffect, useRef, useState, useMemo, FormEvent, useCallback } from "react";
+import { Send, Plus, Loader2, Sparkles, X, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { useAiChat, AiMessage } from "@/hooks/useAiChat";
+import { useAiChat } from "@/hooks/useAiChat";
 import { useLocale } from "@/lib/locale";
-import { cn } from "@/lib/utils";
-
-// ── Markdown formatter ───────────────────────────────────────────────
-function formatMarkdown(text: string): string {
-  return text
-    .replace(
-      /```(\w*)\n?([\s\S]*?)```/g,
-      '<pre class="bg-navy/50 rounded-lg p-3 my-2 text-xs overflow-x-auto border border-border/40"><code>$2</code></pre>',
-    )
-    .replace(/`([^`]+)`/g, '<code class="bg-navy/50 rounded px-1.5 py-0.5 text-xs font-mono">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener" class="text-accent-cyan underline hover:text-accent-cyan/80">$1</a>',
-    )
-    .replace(/\n/g, "<br />");
-}
-
-function ToolCallBubble({ msg }: { msg: AiMessage }) {
-  const { t } = useLocale();
-  const toolLabel = msg.toolName?.replace(/_/g, " ") || "tool";
-  return (
-    <div className="flex justify-start mb-2">
-      <div className="flex items-center gap-2 rounded-lg bg-accent-cyan/5 border border-accent-cyan/20 px-3 py-1.5 text-xs text-accent-cyan">
-        <Wrench className="h-3 w-3" />
-        <span>{t("ai.tool_calling")}: <strong>{toolLabel}</strong></span>
-      </div>
-    </div>
-  );
-}
-
-function ToolResultBubble({ msg }: { msg: AiMessage }) {
-  return (
-    <div className="flex justify-start mb-2">
-      <div className="flex items-center gap-2 rounded-lg bg-green-500/5 border border-green-500/20 px-3 py-1.5 text-xs text-green-400">
-        <CheckCircle2 className="h-3 w-3" />
-        <span>{msg.toolName?.replace(/_/g, " ")} — result received</span>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmationCard({ msg, onConfirm }: {
-  msg: AiMessage;
-  onConfirm: (confirmationId: string, approved: boolean) => void;
-}) {
-  const { t } = useLocale();
-  const [decided, setDecided] = useState(false);
-  const toolLabel = msg.toolName?.replace(/_/g, " ") || "action";
-
-  const handleDecision = (approved: boolean) => {
-    if (decided || !msg.confirmationId) return;
-    setDecided(true);
-    onConfirm(msg.confirmationId, approved);
-  };
-
-  return (
-    <div className="flex justify-start mb-3">
-      <div className="max-w-[95%] rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-        <div className="flex items-center gap-2 text-amber-400 mb-2">
-          <AlertTriangle className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">{t("ai.confirmation_required")}</span>
-        </div>
-        <p className="text-xs text-text-secondary mb-1">
-          {t("ai.wants_to")}: <strong className="text-text-primary">{toolLabel}</strong>
-        </p>
-        {!decided && (
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={() => handleDecision(true)}
-              className="flex items-center gap-1 rounded-lg bg-green-500/10 border border-green-500/30 px-2.5 py-1 text-[11px] font-medium text-green-400 hover:bg-green-500/20 transition-colors"
-            >
-              <CheckCircle2 className="h-3 w-3" />
-              {t("ai.approve")}
-            </button>
-            <button
-              onClick={() => handleDecision(false)}
-              className="flex items-center gap-1 rounded-lg bg-red-500/10 border border-red-500/30 px-2.5 py-1 text-[11px] font-medium text-red-400 hover:bg-red-500/20 transition-colors"
-            >
-              <XCircle className="h-3 w-3" />
-              {t("ai.reject")}
-            </button>
-          </div>
-        )}
-        {decided && (
-          <p className="text-[11px] text-text-muted mt-1 italic">{t("ai.action_submitted")}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MessageBubble({ msg }: { msg: AiMessage }) {
-  const isUser = msg.role === "user";
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-2`}>
-      <div
-        className={cn(
-          "max-w-[90%] rounded-2xl px-3 py-2 text-xs leading-relaxed",
-          isUser
-            ? "bg-accent-cyan text-white rounded-br-md"
-            : "bg-surface-hover text-text-primary rounded-bl-md",
-        )}
-      >
-        {isUser ? (
-          <p>{msg.content}</p>
-        ) : msg.content ? (
-          <div
-            className="prose-xs prose-invert [&_pre]:my-1 [&_code]:text-[10px]"
-            dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
-          />
-        ) : (
-          <span className="inline-flex gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent-cyan/60 animate-bounce [animation-delay:0ms]" />
-            <span className="h-1.5 w-1.5 rounded-full bg-accent-cyan/60 animate-bounce [animation-delay:150ms]" />
-            <span className="h-1.5 w-1.5 rounded-full bg-accent-cyan/60 animate-bounce [animation-delay:300ms]" />
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
+import {
+  ToolCallBubble,
+  ToolResultBubble,
+  ConfirmationCard,
+  MessageBubble,
+  getStreamingState,
+} from "@/components/ai/chat-messages";
 
 // ── AiPanel: Embeddable context panel for layout sidebar ─────────────
 export function AiPanel({ onClose }: { onClose: () => void }) {
@@ -237,24 +119,27 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
         ) : (
           <>
             <AnimatePresence initial={false}>
-              {messages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.12 }}
-                >
-                  {msg.role === "tool_call" ? (
-                    <ToolCallBubble msg={msg} />
-                  ) : msg.role === "tool_result" ? (
-                    <ToolResultBubble msg={msg} />
-                  ) : msg.role === "confirmation" ? (
-                    <ConfirmationCard msg={msg} onConfirm={confirmAction} />
-                  ) : (
-                    <MessageBubble msg={msg} />
-                  )}
-                </motion.div>
-              ))}
+              {messages.map((msg) => {
+                const { streamingMsgId, executingToolIds } = getStreamingState(messages, isStreaming);
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.12 }}
+                  >
+                    {msg.role === "tool_call" ? (
+                      <ToolCallBubble msg={msg} isExecuting={executingToolIds.has(msg.id)} compact />
+                    ) : msg.role === "tool_result" ? (
+                      <ToolResultBubble msg={msg} compact />
+                    ) : msg.role === "confirmation" ? (
+                      <ConfirmationCard msg={msg} onConfirm={confirmAction} compact />
+                    ) : (
+                      <MessageBubble msg={msg} isLastStreaming={msg.id === streamingMsgId} compact />
+                    )}
+                  </motion.div>
+                );
+              })}
             </AnimatePresence>
             <div ref={messagesEndRef} />
           </>
