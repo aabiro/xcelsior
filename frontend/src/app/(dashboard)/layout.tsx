@@ -80,14 +80,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
   }, []);
 
-  // Listen for custom event from AI full-page to open panel
+  // Listen for custom events from AI full-page to open/close panel
   useEffect(() => {
-    const handler = () => {
+    const openHandler = () => {
       setAiPanelOpen(true);
       try { localStorage.setItem(AI_PANEL_KEY, "true"); } catch { /* noop */ }
     };
-    window.addEventListener("xcelsior-open-ai-panel", handler);
-    return () => window.removeEventListener("xcelsior-open-ai-panel", handler);
+    const closeHandler = () => {
+      setAiPanelOpen(false);
+      try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
+    };
+    window.addEventListener("xcelsior-open-ai-panel", openHandler);
+    window.addEventListener("xcelsior-close-ai-panel", closeHandler);
+    return () => {
+      window.removeEventListener("xcelsior-open-ai-panel", openHandler);
+      window.removeEventListener("xcelsior-close-ai-panel", closeHandler);
+    };
   }, []);
 
   // Redirect to login if not authenticated
