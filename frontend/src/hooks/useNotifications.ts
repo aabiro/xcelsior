@@ -39,8 +39,8 @@ export function useNotifications(): UseNotificationsReturn {
     setLoading(true);
     fetchNotifications(false, 50)
       .then((r) => {
-        setNotifications(r.notifications);
-        setUnreadCount(r.unread_count);
+        setNotifications(Array.isArray(r.notifications) ? r.notifications : []);
+        setUnreadCount(r.unread_count ?? 0);
       })
       .catch((e) => console.error("Failed to fetch notifications", e))
       .finally(() => setLoading(false));

@@ -271,7 +271,7 @@ export function useAiChat(): UseAiChatReturn {
       conversationIdRef.current = conversationId;
       try { localStorage.setItem(AI_CONV_KEY, conversationId); } catch {}
 
-      const loaded: AiMessage[] = (data.messages || []).map((m: Record<string, unknown>) => ({
+      const loaded: AiMessage[] = (Array.isArray(data.messages) ? data.messages : []).map((m: Record<string, unknown>) => ({
         id: (m.message_id as string) || crypto.randomUUID(),
         role: m.role as AiMessage["role"],
         content: (m.content as string) || "",
@@ -306,7 +306,7 @@ export function useAiChat(): UseAiChatReturn {
       const res = await fetch("/api/ai/conversations", { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
-      setConversations(data.conversations || []);
+      setConversations(Array.isArray(data.conversations) ? data.conversations : []);
     } catch {
       // Ignore fetch errors
     }
@@ -317,7 +317,7 @@ export function useAiChat(): UseAiChatReturn {
       const res = await fetch("/api/ai/suggestions", { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
-      setSuggestions(data.suggestions || []);
+      setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
     } catch {
       // Ignore fetch errors
     }
