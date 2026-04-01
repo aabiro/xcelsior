@@ -2,7 +2,7 @@
 
 /* Tell Tailwind dark: variants to follow the .dark class on <html>,
    not the OS prefers-color-scheme media query. */
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:is(.dark, .dark *));
 
 /* ── Xcelsior Design Tokens ────────────────────────────────────────── */
 @theme {

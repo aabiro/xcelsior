@@ -25,6 +25,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 
 const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[] }[] = [
+  { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles },
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
   { href: "/dashboard/hosts", key: "dash.hosts", icon: Server },
   { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
@@ -42,7 +43,6 @@ const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles
   { href: "/dashboard/artifacts", key: "dash.artifacts", icon: Package },
   { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin", "provider"] },
   { href: "/dashboard/events", key: "dash.events", icon: Calendar },
-  { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles },
   { href: "/dashboard/admin", key: "dash.admin", icon: Users, roles: ["admin"] },
 ];
 

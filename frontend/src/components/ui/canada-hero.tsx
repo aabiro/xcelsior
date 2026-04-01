@@ -20,9 +20,9 @@ export function CanadaMapHero({
     >
       {/* Aurora glow layers */}
       <div className="pointer-events-none absolute inset-0" style={{ filter: "blur(70px)" }}>
-        <div className="absolute left-[20%] -top-8 h-48 w-72 rounded-full bg-accent-cyan/12" />
-        <div className="absolute left-[50%] top-2 h-36 w-56 rounded-full bg-accent-violet/10" />
-        <div className="absolute right-[10%] top-12 h-28 w-44 rounded-full bg-accent-red/6" />
+        <div className="absolute left-[20%] -top-8 h-48 w-72 rounded-full bg-accent-cyan/12" style={{ animation: "aurora-drift 6s ease-in-out infinite" }} />
+        <div className="absolute left-[50%] top-2 h-36 w-56 rounded-full bg-accent-violet/10" style={{ animation: "aurora-drift 8s ease-in-out infinite 2s" }} />
+        <div className="absolute right-[10%] top-12 h-28 w-44 rounded-full bg-accent-red/6" style={{ animation: "aurora-drift 7s ease-in-out infinite 4s" }} />
       </div>
 
       {/* ── Canada Map SVG (external) ────────────────────────────── */}
