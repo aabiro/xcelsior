@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, FormEvent, useCallback } from "react";
 import {
   Plus, Sparkles, Trash2, ChevronLeft, History,
-  PanelRight, MessageSquare,
+  PanelRight, PanelRightClose, MessageSquare, ArrowLeft,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
@@ -127,8 +127,37 @@ export default function AiAssistantPage() {
 
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [panelActive, setPanelActive] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Detect if the AI side panel is currently open
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(AI_PANEL_KEY);
+      if (stored === "true") setPanelActive(true);
+    } catch { /* SSR */ }
+
+    const handler = () => {
+      try {
+        setPanelActive(localStorage.getItem(AI_PANEL_KEY) === "true");
+      } catch { /* noop */ }
+    };
+    window.addEventListener("storage", handler);
+    window.addEventListener("xcelsior-open-ai-panel", () => setPanelActive(true));
+    window.addEventListener("xcelsior-close-ai-panel", () => setPanelActive(false));
+    return () => {
+      window.removeEventListener("storage", handler);
+      window.removeEventListener("xcelsior-open-ai-panel", () => setPanelActive(true));
+      window.removeEventListener("xcelsior-close-ai-panel", () => setPanelActive(false));
+    };
+  }, []);
+
+  const moveHere = useCallback(() => {
+    try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch {}
+    window.dispatchEvent(new CustomEvent("xcelsior-close-ai-panel"));
+    setPanelActive(false);
+  }, []);
 
   useEffect(() => {
     loadConversations();
@@ -171,6 +200,42 @@ export default function AiAssistantPage() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-background overflow-hidden relative">
+      {/* Panel-active state: chat is in the side panel */}
+      {panelActive ? (
+        <div className="flex flex-1 items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="flex flex-col items-center gap-5 max-w-md text-center px-6"
+          >
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-cyan/15 to-accent-violet/10 ring-1 ring-accent-cyan/10">
+              <PanelRight className="h-6 w-6 text-accent-cyan" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-lg font-semibold text-text-primary">
+                Chat is in the side panel
+              </h2>
+              <p className="text-sm text-text-muted leading-relaxed">
+                You can navigate freely around the app with it, or&hellip;
+              </p>
+            </div>
+            <button
+              onClick={moveHere}
+              className={cn(
+                "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium",
+                "border border-accent-cyan/20 bg-accent-cyan/8 text-accent-cyan",
+                "hover:bg-accent-cyan/15 hover:border-accent-cyan/30",
+                "transition-all duration-200",
+              )}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Move it here
+            </button>
+          </motion.div>
+        </div>
+      ) : (
+      <>
       {/* Conversation sidebar */}
       <ConversationSidebar
         conversations={conversations}
@@ -278,6 +343,8 @@ export default function AiAssistantPage() {
           inputRef={inputRef}
         />
       </div>
+      </>
+      )}
     </div>
   );
 }
