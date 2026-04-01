@@ -4208,7 +4208,6 @@ def api_get_lease(job_id: str):
 
 
 class VerifyHostRequest(BaseModel):
-    host_id: str
     gpu_info: dict = Field(default_factory=dict)
     network_info: dict = Field(default_factory=dict)
 
