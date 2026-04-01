@@ -162,6 +162,7 @@ export default function AiAssistantPage() {
 
   const pinToPanel = useCallback(() => {
     try { localStorage.setItem(AI_PANEL_KEY, "true"); } catch {}
+    window.dispatchEvent(new CustomEvent("xcelsior-open-ai-panel"));
     router.push("/dashboard");
   }, [router]);
 

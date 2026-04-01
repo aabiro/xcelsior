@@ -212,6 +212,14 @@ export function useAiChat(): UseAiChatReturn {
       } finally {
         setIsStreaming(false);
         abortRef.current = null;
+        // Refresh conversation list so sidebar updates
+        try {
+          const r = await fetch("/api/ai/conversations", { credentials: "include" });
+          if (r.ok) {
+            const d = await r.json();
+            setConversations(Array.isArray(d.conversations) ? d.conversations : []);
+          }
+        } catch { /* ignore */ }
       }
     },
     [isStreaming, processSSEStream],

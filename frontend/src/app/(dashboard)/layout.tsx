@@ -80,6 +80,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
   }, []);
 
+  // Listen for custom event from AI full-page to open panel
+  useEffect(() => {
+    const handler = () => {
+      setAiPanelOpen(true);
+      try { localStorage.setItem(AI_PANEL_KEY, "true"); } catch { /* noop */ }
+    };
+    window.addEventListener("xcelsior-open-ai-panel", handler);
+    return () => window.removeEventListener("xcelsior-open-ai-panel", handler);
+  }, []);
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
@@ -236,7 +246,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         transition={{ duration: 0.15 }}
                         className="absolute left-full bottom-0 ml-2 w-72 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
                       >
-                        <GearOnboarding t={t} onNavigate={() => { setGearOpen(false); setOnboardingOpen(false); }} user={user} />
+                        <GearOnboarding t={t} onNavigate={() => { setGearOpen(false); setOnboardingOpen(false); }} user={user} pathname={pathname} />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -456,57 +466,91 @@ const ONBOARDING_STEPS = [
   { key: "instance", labelKey: "gear.step_instance", descKey: "gear.step_instance_desc", href: "/dashboard/instances/new" },
 ] as const;
 
-const STORAGE_KEY = "xcelsior-onboarding";
-
-function useOnboardingState() {
+function useOnboardingState(
+  user: { name?: string; email?: string; role?: string } | null,
+  pathname: string,
+) {
   const [completed, setCompleted] = useState<Record<string, boolean>>({});
   const loadedRef = useRef(false);
 
-  // Load from server, fall back to localStorage
+  // Auto-detect completion from real data
   useEffect(() => {
+    if (!user) return;
     if (loadedRef.current) return;
     loadedRef.current = true;
-    fetch("/api/users/me/preferences", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const serverOnboarding = data?.preferences?.onboarding;
-        if (serverOnboarding && typeof serverOnboarding === "object") {
-          setCompleted(serverOnboarding);
-          // Sync to localStorage as cache
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(serverOnboarding)); } catch {}
-        } else {
-          // Fall back to localStorage for migration
-          try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              setCompleted(parsed);
-              // Migrate localStorage data to server
-              fetch("/api/users/me/preferences", {
-                method: "PUT",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ preferences: { onboarding: parsed } }),
-              }).catch(() => {});
-            }
-          } catch {}
-        }
-      })
-      .catch(() => {
-        // Offline fallback to localStorage
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) setCompleted(JSON.parse(raw));
-        } catch {}
-      });
-  }, []);
 
+    // Fetch preferences first to see what's already been completed
+    fetch("/api/users/me/preferences", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then(async (prefs) => {
+        const serverOnboarding = prefs?.preferences?.onboarding ?? {};
+        const autoDetected: Record<string, boolean> = {};
+
+        // profile: user has set their name
+        autoDetected.profile = !!(user.name && user.name.trim().length > 0);
+
+        // jurisdiction: preserved from stored flag (manual toggle)
+        if (serverOnboarding.jurisdiction) autoDetected.jurisdiction = true;
+
+        // browse: check stored flag or current page
+        autoDetected.browse = !!(serverOnboarding.browse || pathname.startsWith("/dashboard/marketplace"));
+
+        // api_key: trust stored flag if already completed, otherwise check live
+        if (serverOnboarding.api_key) {
+          autoDetected.api_key = true;
+        } else {
+          try {
+            const res = await fetch("/api/keys", { credentials: "include" });
+            const data = res.ok ? await res.json() : null;
+            autoDetected.api_key = Array.isArray(data?.keys) && data.keys.length > 0;
+          } catch { autoDetected.api_key = false; }
+        }
+
+        // instance: trust stored flag if already completed, otherwise check live
+        if (serverOnboarding.instance) {
+          autoDetected.instance = true;
+        } else {
+          try {
+            const res = await fetch("/instances", { credentials: "include" });
+            const data = res.ok ? await res.json() : null;
+            autoDetected.instance = Array.isArray(data?.instances) && data.instances.length > 0;
+          } catch { autoDetected.instance = false; }
+        }
+
+        // Persist if anything changed
+        setCompleted(autoDetected);
+        const changed = Object.keys(autoDetected).some((k) => autoDetected[k] !== serverOnboarding[k]);
+        if (changed) {
+          fetch("/api/users/me/preferences", {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preferences: { onboarding: autoDetected } }),
+          }).catch(() => {});
+        }
+      });
+  }, [user, pathname]);
+
+  // Track marketplace visits as they happen
+  useEffect(() => {
+    if (pathname.startsWith("/dashboard/marketplace") && !completed.browse) {
+      setCompleted((prev) => {
+        const next = { ...prev, browse: true };
+        fetch("/api/users/me/preferences", {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences: { onboarding: next } }),
+        }).catch(() => {});
+        return next;
+      });
+    }
+  }, [pathname, completed.browse]);
+
+  // Manual toggle for items that can't be auto-detected (jurisdiction)
   const toggle = (key: string) => {
     setCompleted((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      // Persist to localStorage as cache
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
-      // Persist to server
       fetch("/api/users/me/preferences", {
         method: "PUT",
         credentials: "include",
@@ -520,16 +564,20 @@ function useOnboardingState() {
   return { completed, toggle };
 }
 
+const AUTO_DETECTED_KEYS = new Set(["profile", "api_key", "browse", "instance"]);
+
 function GearOnboarding({
   t,
   onNavigate,
   user,
+  pathname,
 }: {
   t: (key: string, vars?: Record<string, string | number>) => string;
   onNavigate: () => void;
   user: { name?: string; email?: string; role?: string } | null;
+  pathname: string;
 }) {
-  const { completed, toggle } = useOnboardingState();
+  const { completed, toggle } = useOnboardingState(user, pathname);
   const doneCount = ONBOARDING_STEPS.filter((s) => completed[s.key]).length;
   const allDone = doneCount === ONBOARDING_STEPS.length;
 
@@ -559,19 +607,30 @@ function GearOnboarding({
       <div className="space-y-1">
         {ONBOARDING_STEPS.map((step) => {
           const done = !!completed[step.key];
+          const isAuto = AUTO_DETECTED_KEYS.has(step.key);
           return (
             <div key={step.key} className="flex items-start gap-2 group">
-              <button
-                onClick={() => toggle(step.key)}
-                className="mt-0.5 shrink-0"
-                aria-label={done ? "Mark incomplete" : "Mark complete"}
-              >
-                {done ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald" />
-                ) : (
-                  <Circle className="h-4 w-4 text-text-muted group-hover:text-accent-cyan transition-colors" />
-                )}
-              </button>
+              {isAuto ? (
+                <span className="mt-0.5 shrink-0">
+                  {done ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-text-muted" />
+                  )}
+                </span>
+              ) : (
+                <button
+                  onClick={() => toggle(step.key)}
+                  className="mt-0.5 shrink-0"
+                  aria-label={done ? "Mark incomplete" : "Mark complete"}
+                >
+                  {done ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-text-muted group-hover:text-accent-cyan transition-colors" />
+                  )}
+                </button>
+              )}
               <div className="flex-1 min-w-0">
                 <Link
                   href={step.href}

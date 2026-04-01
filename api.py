@@ -6838,6 +6838,18 @@ def api_mark_all_read(request: Request):
     return {"ok": True, "marked": count}
 
 
+@app.delete("/api/notifications/{notification_id}", tags=["Notifications"])
+def api_delete_notification(request: Request, notification_id: str):
+    """Delete a single notification."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ok = NotificationStore.delete(notification_id, user["email"])
+    if not ok:
+        raise HTTPException(404, "Notification not found")
+    return {"ok": True}
+
+
 @app.get("/api/admin/stats", tags=["Admin"])
 def api_admin_stats(request: Request):
     """Get admin dashboard statistics."""

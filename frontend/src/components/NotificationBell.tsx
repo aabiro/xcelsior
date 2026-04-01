@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Bell, Check, CheckCheck, ExternalLink } from "lucide-react";
+import { Bell, Check, CheckCheck, ExternalLink, Trash2 } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -30,7 +30,7 @@ function notifHref(notif: { type: string; data: Record<string, unknown> }): stri
 }
 
 export function NotificationBell() {
-  const { notifications, unreadCount, loading, markRead, markAllRead, refresh } =
+  const { notifications, unreadCount, loading, markRead, markAllRead, deleteNotification, refresh } =
     useNotifications();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -127,7 +127,13 @@ export function NotificationBell() {
                           <Check className="h-3.5 w-3.5" />
                         </button>
                       )}
-                      <ExternalLink className="h-3 w-3 text-text-muted" />
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteNotification(n.id); }}
+                        className="p-1 rounded hover:bg-surface text-text-muted hover:text-red-400"
+                        title="Delete notification"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </Link>
                 );
@@ -136,17 +142,15 @@ export function NotificationBell() {
           </div>
 
           {/* Footer */}
-          {notifications.length > 0 && (
-            <div className="border-t border-border px-4 py-2 text-center">
-              <Link
-                href="/dashboard/notifications"
-                onClick={() => setOpen(false)}
-                className="text-xs text-ice-blue hover:underline"
-              >
-                View all notifications
-              </Link>
-            </div>
-          )}
+          <div className="border-t border-border px-4 py-2 text-center">
+            <Link
+              href="/dashboard/notifications"
+              onClick={() => setOpen(false)}
+              className="text-xs text-ice-blue hover:underline"
+            >
+              View all notifications
+            </Link>
+          </div>
         </div>
       )}
     </div>
