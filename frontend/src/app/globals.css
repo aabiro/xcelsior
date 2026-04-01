@@ -105,6 +105,49 @@ html.light ::-webkit-scrollbar-thumb:hover {
   animation: cursor-blink 0.8s step-end infinite;
 }
 
+/* ── AI Typing Dots Pulse ──────────────────────────────────────────── */
+@keyframes ai-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+.animate-ai-pulse {
+  animation: ai-pulse 1.2s ease-in-out infinite;
+}
+
+/* ── AI Icon Glow (empty state) ────────────────────────────────────── */
+@keyframes ai-glow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+.animate-ai-glow {
+  animation: ai-glow 3s ease-in-out infinite;
+}
+
+/* ── AI Panel Slide Backdrop ───────────────────────────────────────── */
+@keyframes panel-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.ai-panel-border {
+  position: relative;
+}
+.ai-panel-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    var(--color-accent-cyan) 30%,
+    var(--color-accent-violet) 70%,
+    transparent 100%
+  );
+  opacity: 0.15;
+}
+
 /* ── Skeleton Loading Animation ────────────────────────────────────── */
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.3; }
