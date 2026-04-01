@@ -6,6 +6,7 @@ import {
   PanelRight, MessageSquare,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { useAiChat, AiMessage, AiConversation } from "@/hooks/useAiChat";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
@@ -115,6 +116,7 @@ function ConversationSidebar({
 // ── Main Page ────────────────────────────────────────────────────────
 export default function AiAssistantPage() {
   const { t } = useLocale();
+  const router = useRouter();
   const {
     messages, isStreaming, error, conversationId,
     conversations, suggestions,
@@ -160,8 +162,8 @@ export default function AiAssistantPage() {
 
   const pinToPanel = useCallback(() => {
     try { localStorage.setItem(AI_PANEL_KEY, "true"); } catch {}
-    window.history.back();
-  }, []);
+    router.push("/dashboard");
+  }, [router]);
 
   const isEmpty = messages.length === 0;
   const { streamingMsgId, executingToolIds } = getStreamingState(messages, isStreaming);
