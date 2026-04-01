@@ -6,6 +6,7 @@ import {
   fetchUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
+  deleteNotification as apiDeleteNotification,
 } from "@/lib/api";
 import type { Notification } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -16,6 +17,7 @@ export interface UseNotificationsReturn {
   loading: boolean;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
   refresh: () => void;
 }
 
@@ -79,5 +81,14 @@ export function useNotifications(): UseNotificationsReturn {
     setUnreadCount(0);
   }, []);
 
-  return { notifications, unreadCount, loading, markRead, markAllRead, refresh };
+  const deleteNotification = useCallback(async (id: string) => {
+    await apiDeleteNotification(id);
+    setNotifications((prev) => {
+      const removed = prev.find((n) => n.id === id);
+      if (removed && !removed.read) setUnreadCount((c) => Math.max(0, c - 1));
+      return prev.filter((n) => n.id !== id);
+    });
+  }, []);
+
+  return { notifications, unreadCount, loading, markRead, markAllRead, deleteNotification, refresh };
 }

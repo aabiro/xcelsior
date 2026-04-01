@@ -467,6 +467,7 @@ const en: Record<string, string> = {
   "dash.ai": "Xcel AI",
   "dash.settings": "Settings",
   "dash.admin": "Admin",
+  "dash.team": "Team",
   "dash.sign_out": "Sign out",
 
   /* ── Dashboard — Overview ───────────────────────────────────────────── */

@@ -467,6 +467,7 @@ const fr: Record<string, string> = {
   "dash.ai": "Xcel IA",
   "dash.settings": "Paramètres",
   "dash.admin": "Admin",
+  "dash.team": "Équipe",
   "dash.sign_out": "Déconnexion",
 
   /* ── Tableau de bord — Aperçu ────────────────────────────────────────── */

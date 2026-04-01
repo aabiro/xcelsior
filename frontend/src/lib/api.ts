@@ -827,6 +827,13 @@ export async function markAllNotificationsRead() {
   });
 }
 
+export async function deleteNotification(notificationId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/notifications/${encodeURIComponent(notificationId)}`,
+    { method: "DELETE" },
+  );
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 export interface Host {
   host_id: string;

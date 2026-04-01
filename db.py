@@ -1096,6 +1096,15 @@ class NotificationStore:
             cur = conn.execute("DELETE FROM notifications WHERE created_at < %s", (cutoff,))
             return cur.rowcount
 
+    @staticmethod
+    def delete(notification_id: str, user_email: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM notifications WHERE id = %s AND user_email = %s",
+                (notification_id, user_email),
+            )
+            return cur.rowcount > 0
+
 
 # Global event bus instance
 event_bus = PgEventBus()
