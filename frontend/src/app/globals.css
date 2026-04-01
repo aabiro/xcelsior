@@ -96,6 +96,15 @@ html.light ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 
+/* ── AI Typewriter Cursor Blink ─────────────────────────────────────── */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.animate-cursor-blink {
+  animation: cursor-blink 0.8s step-end infinite;
+}
+
 /* ── Skeleton Loading Animation ────────────────────────────────────── */
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.3; }
