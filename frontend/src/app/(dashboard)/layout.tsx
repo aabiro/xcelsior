@@ -432,8 +432,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: 384, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="hidden md:flex flex-col border-l border-border/60 bg-background overflow-hidden"
+            transition={{ type: "spring", damping: 30, stiffness: 280, mass: 0.8 }}
+            className="hidden md:flex flex-col border-l border-border/30 bg-background/95 backdrop-blur-md ai-panel-border overflow-hidden"
           >
             <AiPanel onClose={closeAiPanel} />
           </motion.aside>
