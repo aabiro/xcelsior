@@ -998,6 +998,29 @@ def api_register_host(h: HostIn):
         owner=h.host_id,
     )
 
+    # ── Auto-create verification + reputation records ────────────────────
+    # Ensures the host appears on the trust page immediately (as "unverified")
+    # and gets a baseline reputation score.  Hardware verification scoring
+    # happens later when the agent sends a full benchmark report.
+    try:
+        ve = get_verification_engine()
+        if not ve.store.get_verification(h.host_id):
+            from verification import HostVerification, HostVerificationState
+
+            ve.store.save_verification(
+                HostVerification(
+                    verification_id=str(uuid.uuid4())[:12],
+                    host_id=h.host_id,
+                    state=HostVerificationState.UNVERIFIED,
+                )
+            )
+            log.info("VERIFY RECORD created for new host %s", h.host_id)
+        # Bootstrap reputation — email verification is implicit for registered users
+        re = get_reputation_engine()
+        re.add_verification(h.host_id, VerificationType.EMAIL)
+    except Exception:
+        log.exception("Non-fatal: could not bootstrap verification/reputation for %s", h.host_id)
+
     broadcast_sse(
         "host_update",
         {
@@ -4458,8 +4481,9 @@ def api_claim_free_credits(customer_id: str, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Authentication required")
-    # Ensure the authenticated user matches the customer_id
-    uid = user.get("customer_id") or user.get("user_id") or ""
+    # Resolve customer_id from full user profile (session may lack it)
+    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
+    uid = (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
     if uid != customer_id:
         raise HTTPException(403, "You can only claim credits for your own account")
 
@@ -4486,7 +4510,9 @@ def api_free_credits_status(customer_id: str, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Authentication required")
-    uid = user.get("customer_id") or user.get("user_id") or ""
+    # Resolve customer_id from full user profile (session may lack it)
+    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
+    uid = (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
     if uid != customer_id:
         raise HTTPException(403, "Forbidden")
     be = get_billing_engine()
@@ -5884,6 +5910,16 @@ def api_agent_verify(payload: VerificationReportPayload):
     """Receive comprehensive benchmark report and run verification checks."""
     ve = get_verification_engine()
     result = ve.run_verification(payload.host_id, payload.report)
+
+    # Wire verification → reputation: grant HARDWARE_AUDIT points on pass
+    if result.state == "verified" or (hasattr(result.state, "value") and result.state.value == "verified"):
+        try:
+            re = get_reputation_engine()
+            re.add_verification(payload.host_id, VerificationType.HARDWARE_AUDIT)
+            log.info("REPUTATION HARDWARE_AUDIT granted for verified host %s", payload.host_id)
+        except Exception:
+            log.exception("Non-fatal: could not update reputation for %s", payload.host_id)
+
     return {
         "ok": True,
         "host_id": payload.host_id,

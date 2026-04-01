@@ -144,7 +144,7 @@ function HistoryDrawer({
         const res = await fetch("/api/chat/conversations", { credentials: "include" });
         if (res.ok) {
           const data = await res.json();
-          setConversations(data.conversations ?? []);
+          setConversations(Array.isArray(data.conversations) ? data.conversations : []);
         }
       } catch {
         // No-op
