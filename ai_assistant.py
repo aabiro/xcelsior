@@ -22,7 +22,7 @@ log = logging.getLogger("xcelsior.ai_assistant")
 
 FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in ("true", "1", "yes")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-3-5-haiku-latest")
+AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-20250414")
 AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS", "4096"))
 AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))  # per minute per user
 CONFIRMATION_TTL_SEC = 300  # 5 minutes to approve/reject
