@@ -78,6 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const closeAiPanel = useCallback(() => {
     setAiPanelOpen(false);
     try { localStorage.setItem(AI_PANEL_KEY, "false"); } catch { /* noop */ }
+    window.dispatchEvent(new CustomEvent("xcelsior-close-ai-panel"));
   }, []);
 
   // Listen for custom events from AI full-page to open/close panel
@@ -497,8 +498,8 @@ function useOnboardingState(
         // profile: user has set their name
         autoDetected.profile = !!(user.name && user.name.trim().length > 0);
 
-        // jurisdiction: preserved from stored flag (manual toggle)
-        if (serverOnboarding.jurisdiction) autoDetected.jurisdiction = true;
+        // jurisdiction: auto-detect from stored flag or visiting settings page
+        autoDetected.jurisdiction = !!(serverOnboarding.jurisdiction || pathname.startsWith("/dashboard/settings"));
 
         // browse: check stored flag or current page
         autoDetected.browse = !!(serverOnboarding.browse || pathname.startsWith("/dashboard/marketplace"));
@@ -539,7 +540,7 @@ function useOnboardingState(
       });
   }, [user, pathname]);
 
-  // Track marketplace visits as they happen
+  // Track marketplace & settings visits as they happen
   useEffect(() => {
     if (pathname.startsWith("/dashboard/marketplace") && !completed.browse) {
       setCompleted((prev) => {
@@ -553,7 +554,19 @@ function useOnboardingState(
         return next;
       });
     }
-  }, [pathname, completed.browse]);
+    if (pathname.startsWith("/dashboard/settings") && !completed.jurisdiction) {
+      setCompleted((prev) => {
+        const next = { ...prev, jurisdiction: true };
+        fetch("/api/users/me/preferences", {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences: { onboarding: next } }),
+        }).catch(() => {});
+        return next;
+      });
+    }
+  }, [pathname, completed.browse, completed.jurisdiction]);
 
   // Manual toggle for items that can't be auto-detected (jurisdiction)
   const toggle = (key: string) => {
@@ -572,7 +585,7 @@ function useOnboardingState(
   return { completed, toggle };
 }
 
-const AUTO_DETECTED_KEYS = new Set(["profile", "api_key", "browse", "instance"]);
+const AUTO_DETECTED_KEYS = new Set(["profile", "api_key", "browse", "instance", "jurisdiction"]);
 
 function GearOnboarding({
   t,

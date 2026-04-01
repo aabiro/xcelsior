@@ -7116,7 +7116,7 @@ def api_marketplace_search(body: MarketplaceSearchParams):
 def api_marketplace_spot_prices():
     """Get current spot prices for all GPU models."""
     me = get_marketplace_engine()
-    prices = me.get_current_spot_prices()
+    prices = me.get_current_spot_prices_list()
     return {"ok": True, "spot_prices": prices}
 
 

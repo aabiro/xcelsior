@@ -347,15 +347,19 @@ class MarketplaceEngine:
         cutoff = time.time() - (hours * 3600)
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT * FROM spot_price_history
+                """SELECT gpu_model, clearing_price_cents, recorded_at
+                   FROM spot_price_history
                    WHERE gpu_model = %s AND recorded_at >= %s
                    ORDER BY recorded_at DESC LIMIT %s""",
                 (gpu_model, cutoff, limit),
             ).fetchall()
-            return [dict(r) for r in rows]
+            return [
+                {"gpu_model": r["gpu_model"], "spot_cents": r["clearing_price_cents"], "recorded_at": r["recorded_at"]}
+                for r in rows
+            ]
 
     def get_current_spot_prices(self) -> dict:
-        """Get latest spot price per GPU model."""
+        """Get latest spot price per GPU model (dict format for internal use)."""
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT DISTINCT ON (gpu_model) gpu_model, clearing_price_cents
@@ -363,6 +367,19 @@ class MarketplaceEngine:
                    ORDER BY gpu_model, recorded_at DESC""",
             ).fetchall()
             return {r["gpu_model"]: r["clearing_price_cents"] for r in rows}
+
+    def get_current_spot_prices_list(self) -> list[dict]:
+        """Get latest spot price per GPU model (array format for API)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT DISTINCT ON (gpu_model) gpu_model, clearing_price_cents, recorded_at
+                   FROM spot_price_history
+                   ORDER BY gpu_model, recorded_at DESC""",
+            ).fetchall()
+            return [
+                {"gpu_model": r["gpu_model"], "spot_cents": r["clearing_price_cents"], "recorded_at": r["recorded_at"]}
+                for r in rows
+            ]
 
     # ── Reserved Instances ────────────────────────────────────────────
 
