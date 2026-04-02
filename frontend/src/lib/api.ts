@@ -620,6 +620,48 @@ export async function disableSms() {
   return apiFetch<{ ok: boolean }>("/api/auth/mfa/sms", { method: "DELETE" });
 }
 
+// Passkeys (WebAuthn)
+export async function passkeyRegisterOptions(deviceName: string = "Security Key") {
+  return apiFetch<{ ok: boolean; options: Record<string, unknown>; state_id: string }>(
+    "/api/auth/mfa/passkey/register-options",
+    { method: "POST", body: JSON.stringify({ device_name: deviceName }) },
+  );
+}
+
+export async function passkeyRegisterComplete(stateId: string, credential: Record<string, unknown>) {
+  return apiFetch<{ ok: boolean; message: string; method_id: number; device_name: string; backup_codes?: string[] }>(
+    "/api/auth/mfa/passkey/register-complete",
+    { method: "POST", body: JSON.stringify({ state_id: stateId, credential }) },
+  );
+}
+
+export async function deletePasskey(methodId: number) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    "/api/auth/mfa/passkey/delete",
+    { method: "POST", body: JSON.stringify({ method_id: methodId }) },
+  );
+}
+
+export async function passkeyAuthenticateOptions(challengeId: string) {
+  return apiFetch<{ ok: boolean; options: Record<string, unknown>; state_id: string }>(
+    "/api/auth/mfa/passkey/authenticate-options",
+    { method: "POST", body: JSON.stringify({ challenge_id: challengeId }) },
+  );
+}
+
+export async function passkeyAuthenticateComplete(stateId: string, credential: Record<string, unknown>) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    user?: { user_id: string; email: string; name: string; role: string; customer_id: string; provider_id?: string };
+  }>("/api/auth/mfa/passkey/authenticate-complete", {
+    method: "POST",
+    body: JSON.stringify({ state_id: stateId, credential }),
+  });
+}
+
 // MFA Login verification
 export async function verifyMfaLogin(challengeId: string, method: string, code: string) {
   return apiFetch<{

@@ -72,6 +72,10 @@ export default function SettingsPage() {
   const [smsSending, setSmsSending] = useState(false);
   const [smsVerifying, setSmsVerifying] = useState(false);
   const [smsCodeSent, setSmsCodeSent] = useState(false);
+  // Passkey setup
+  const [passkeyName, setPasskeyName] = useState("");
+  const [passkeyRegistering, setPasskeyRegistering] = useState(false);
+  const [passkeyRemoving, setPasskeyRemoving] = useState<number | null>(null);
 
   // Consent
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
@@ -371,6 +375,83 @@ export default function SettingsPage() {
       toast.success("SMS verification disabled");
       loadMfa();
     } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to disable SMS"); }
+  };
+
+  // ── Passkey helpers ──
+  function bufferToBase64url(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function base64urlToBuffer(b64: string): ArrayBuffer {
+    const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  const handlePasskeyAdd = async () => {
+    if (!window.PublicKeyCredential) {
+      toast.error(t("dash.settings.mfa_passkey_unsupported"));
+      return;
+    }
+    setPasskeyRegistering(true);
+    try {
+      const optRes = await api.passkeyRegisterOptions(passkeyName || "Security Key");
+      const publicKey = optRes.options.publicKey as Record<string, unknown>;
+
+      // Convert base64url strings to ArrayBuffer for browser API
+      const createOptions: CredentialCreationOptions = {
+        publicKey: {
+          ...publicKey,
+          challenge: base64urlToBuffer(publicKey.challenge as string),
+          user: {
+            ...(publicKey.user as Record<string, unknown>),
+            id: base64urlToBuffer((publicKey.user as Record<string, string>).id),
+          },
+          excludeCredentials: ((publicKey.excludeCredentials as Array<Record<string, string>>) || []).map((c) => ({
+            ...c,
+            id: base64urlToBuffer(c.id),
+          })),
+        } as PublicKeyCredentialCreationOptions,
+      };
+
+      const credential = await navigator.credentials.create(createOptions) as PublicKeyCredential;
+      if (!credential) throw new Error("No credential returned");
+
+      const attestation = credential.response as AuthenticatorAttestationResponse;
+      const completeRes = await api.passkeyRegisterComplete(optRes.state_id, {
+        id: credential.id,
+        rawId: bufferToBase64url(credential.rawId),
+        type: credential.type,
+        response: {
+          clientDataJSON: bufferToBase64url(attestation.clientDataJSON),
+          attestationObject: bufferToBase64url(attestation.attestationObject),
+        },
+      });
+      toast.success(t("dash.settings.mfa_passkey_success"));
+      if (completeRes.backup_codes) setBackupCodes(completeRes.backup_codes);
+      setPasskeyName("");
+      loadMfa();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        toast.error("Passkey registration cancelled");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Failed to register passkey");
+      }
+    } finally { setPasskeyRegistering(false); }
+  };
+
+  const handlePasskeyDelete = async (methodId: number) => {
+    setPasskeyRemoving(methodId);
+    try {
+      await api.deletePasskey(methodId);
+      toast.success("Passkey removed");
+      loadMfa();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to remove passkey"); }
+    finally { setPasskeyRemoving(null); }
   };
 
   const handleRegenerateBackupCodes = async () => {
@@ -920,6 +1001,53 @@ export default function SettingsPage() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* ── Passkeys ── */}
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium flex items-center gap-2"><Key className="h-4 w-4" /> {t("dash.settings.mfa_passkey_title")}</p>
+                <p className="text-xs text-text-muted mt-0.5">{t("dash.settings.mfa_passkey_desc")}</p>
+              </div>
+            </div>
+
+            {/* Existing passkeys */}
+            {mfaMethods.filter((m) => m.type === "passkey" && m.enabled).map((pk) => (
+              <div key={pk.id} className="flex items-center justify-between rounded-md bg-surface px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Key className="h-3.5 w-3.5 text-emerald" />
+                  <span className="text-sm">{pk.device_name || "Security Key"}</span>
+                  <span className="text-xs text-text-muted">{new Date(pk.created_at * 1000).toLocaleDateString()}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-accent-red border-accent-red/30 hover:bg-accent-red/10"
+                  disabled={passkeyRemoving === pk.id}
+                  onClick={() => {
+                    if (!window.confirm(t("dash.settings.mfa_passkey_remove_desc", { name: pk.device_name || "Security Key" }))) return;
+                    handlePasskeyDelete(pk.id);
+                  }}
+                >
+                  {passkeyRemoving === pk.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                </Button>
+              </div>
+            ))}
+
+            {/* Add new passkey */}
+            <div className="flex gap-2">
+              <Input
+                value={passkeyName}
+                onChange={(e) => setPasskeyName(e.target.value)}
+                placeholder={t("dash.settings.mfa_passkey_name_placeholder")}
+                className="flex-1"
+              />
+              <Button onClick={handlePasskeyAdd} disabled={passkeyRegistering}>
+                {passkeyRegistering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                {passkeyRegistering ? t("dash.settings.mfa_passkey_registering") : t("dash.settings.mfa_passkey_add")}
+              </Button>
+            </div>
           </div>
 
           {/* ── Backup Codes ── */}

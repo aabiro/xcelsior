@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Eye, EyeOff, Loader2, Shield } from "lucide-react";
-import { login as apiLogin, oauthInitiate, verifyMfaLogin, sendMfaSms } from "@/lib/api";
+import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
+import { login as apiLogin, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 
@@ -25,10 +25,11 @@ export default function LoginPage() {
   const [mfaRequired, setMfaRequired] = useState(false);
   const [mfaChallengeId, setMfaChallengeId] = useState("");
   const [mfaMethods, setMfaMethods] = useState<string[]>([]);
-  const [mfaMethod, setMfaMethod] = useState<"totp" | "sms" | "backup">("totp");
+  const [mfaMethod, setMfaMethod] = useState<"totp" | "sms" | "backup" | "passkey">("totp");
   const [mfaCode, setMfaCode] = useState("");
   const [mfaVerifying, setMfaVerifying] = useState(false);
   const [smsSent, setSmsSent] = useState(false);
+  const [passkeyAuthenticating, setPasskeyAuthenticating] = useState(false);
 
   // If already authenticated, redirect to dashboard
   if (!authLoading && user) {
@@ -48,7 +49,8 @@ export default function LoginPage() {
         setMfaChallengeId(res.challenge_id || "");
         setMfaMethods(res.methods || []);
         // Default to first available method
-        if (res.methods?.includes("totp")) setMfaMethod("totp");
+        if (res.methods?.includes("passkey")) setMfaMethod("passkey");
+        else if (res.methods?.includes("totp")) setMfaMethod("totp");
         else if (res.methods?.includes("sms")) setMfaMethod("sms");
         else setMfaMethod("backup");
         return;
@@ -86,6 +88,68 @@ export default function LoginPage() {
     }
   }
 
+  function bufferToBase64url(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function base64urlToBuffer(b64: string): ArrayBuffer {
+    const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  async function handlePasskeyAuth() {
+    setError("");
+    setPasskeyAuthenticating(true);
+    try {
+      const optRes = await passkeyAuthenticateOptions(mfaChallengeId);
+      const publicKey = optRes.options.publicKey as Record<string, unknown>;
+
+      const getOptions: CredentialRequestOptions = {
+        publicKey: {
+          ...publicKey,
+          challenge: base64urlToBuffer(publicKey.challenge as string),
+          allowCredentials: ((publicKey.allowCredentials as Array<Record<string, string>>) || []).map((c) => ({
+            ...c,
+            id: base64urlToBuffer(c.id),
+          })),
+        } as PublicKeyCredentialRequestOptions,
+      };
+
+      const assertion = await navigator.credentials.get(getOptions) as PublicKeyCredential;
+      if (!assertion) throw new Error("No credential returned");
+
+      const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
+      const result = await passkeyAuthenticateComplete(optRes.state_id, {
+        id: assertion.id,
+        rawId: bufferToBase64url(assertion.rawId),
+        type: assertion.type,
+        response: {
+          authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
+          clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
+          signature: bufferToBase64url(assertionResponse.signature),
+          userHandle: assertionResponse.userHandle ? bufferToBase64url(assertionResponse.userHandle) : null,
+        },
+      });
+      if (result.ok) {
+        await login();
+        router.push("/dashboard");
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        setError("Passkey authentication was cancelled");
+      } else {
+        setError(err instanceof Error ? err.message : t("auth.mfa_passkey_error"));
+      }
+    } finally {
+      setPasskeyAuthenticating(false);
+    }
+  }
+
   async function handleOAuth(provider: string) {
     try {
       const res = await oauthInitiate(provider);
@@ -113,6 +177,14 @@ export default function LoginPage() {
 
             {/* Method selector tabs */}
             <div className="flex gap-1 mb-6 rounded-lg bg-surface p-1">
+              {mfaMethods.includes("passkey") && (
+                <button
+                  onClick={() => { setMfaMethod("passkey"); setMfaCode(""); setError(""); }}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "passkey" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                >
+                  {t("auth.mfa_passkey_label")}
+                </button>
+              )}
               {mfaMethods.includes("totp") && (
                 <button
                   onClick={() => { setMfaMethod("totp"); setMfaCode(""); setError(""); }}
@@ -137,6 +209,19 @@ export default function LoginPage() {
               </button>
             </div>
 
+            {mfaMethod === "passkey" ? (
+              <div className="space-y-4">
+                {error && (
+                  <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
+                    {error}
+                  </div>
+                )}
+                <p className="text-sm text-center text-text-secondary">{t("auth.mfa_passkey_prompt")}</p>
+                <Button className="w-full" onClick={handlePasskeyAuth} disabled={passkeyAuthenticating}>
+                  {passkeyAuthenticating ? <><Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_passkey_authenticating")}</> : <><Key className="h-4 w-4" /> {t("auth.mfa_verify")}</>}
+                </Button>
+              </div>
+            ) : (
             <form onSubmit={handleMfaVerify} className="space-y-4">
               {error && (
                 <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
@@ -166,6 +251,7 @@ export default function LoginPage() {
                 {mfaVerifying ? <><Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_verifying")}</> : t("auth.mfa_verify")}
               </Button>
             </form>
+            )}
 
             <button
               onClick={() => { setMfaRequired(false); setMfaCode(""); setError(""); }}
