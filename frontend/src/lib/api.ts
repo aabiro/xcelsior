@@ -32,10 +32,13 @@ export class ApiError extends Error {
 export async function login(email: string, password: string) {
   return apiFetch<{
     ok: boolean;
-    access_token: string;
-    token_type: string;
-    expires_in: number;
-    user: { user_id: string; email: string; role: string; name?: string; customer_id?: string };
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    user?: { user_id: string; email: string; role: string; name?: string; customer_id?: string };
+    mfa_required?: boolean;
+    challenge_id?: string;
+    methods?: string[];
   }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
@@ -538,6 +541,13 @@ export async function requestPasswordReset(email: string) {
   });
 }
 
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  return apiFetch<{ ok: boolean; message: string }>("/api/auth/password-reset/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+}
+
 // ── Change Password ───────────────────────────────────────────────────
 export async function changePassword(currentPassword: string, newPassword: string) {
   return apiFetch<{ ok: boolean; message: string }>("/api/auth/change-password", {
@@ -549,6 +559,98 @@ export async function changePassword(currentPassword: string, newPassword: strin
 // ── Account Deletion ──────────────────────────────────────────────────
 export async function deleteAccount() {
   return apiFetch<{ ok: boolean }>("/api/auth/me", { method: "DELETE" });
+}
+
+// ── MFA / Two-Factor Authentication ───────────────────────────────────
+
+export interface MfaMethod {
+  id: number;
+  type: string;
+  enabled: boolean;
+  device_name?: string;
+  phone_number?: string;
+  created_at: number;
+}
+
+export interface MfaStatusResponse {
+  ok: boolean;
+  mfa_enabled: boolean;
+  methods: MfaMethod[];
+  backup_codes_remaining: number;
+}
+
+export async function fetchMfaMethods() {
+  return apiFetch<MfaStatusResponse>("/api/auth/mfa/methods");
+}
+
+// TOTP
+export async function setupTotp() {
+  return apiFetch<{ ok: boolean; secret: string; provisioning_uri: string; method_id: number }>(
+    "/api/auth/mfa/totp/setup", { method: "POST" },
+  );
+}
+
+export async function verifyTotp(code: string, methodId?: number) {
+  return apiFetch<{ ok: boolean; message: string; backup_codes?: string[] }>(
+    "/api/auth/mfa/totp/verify",
+    { method: "POST", body: JSON.stringify({ code, method_id: methodId }) },
+  );
+}
+
+export async function disableTotp() {
+  return apiFetch<{ ok: boolean }>("/api/auth/mfa/totp", { method: "DELETE" });
+}
+
+// SMS
+export async function setupSms(phoneNumber: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    "/api/auth/mfa/sms/setup",
+    { method: "POST", body: JSON.stringify({ phone_number: phoneNumber }) },
+  );
+}
+
+export async function verifySms(code: string) {
+  return apiFetch<{ ok: boolean; message: string; backup_codes?: string[] }>(
+    "/api/auth/mfa/sms/verify",
+    { method: "POST", body: JSON.stringify({ code }) },
+  );
+}
+
+export async function disableSms() {
+  return apiFetch<{ ok: boolean }>("/api/auth/mfa/sms", { method: "DELETE" });
+}
+
+// MFA Login verification
+export async function verifyMfaLogin(challengeId: string, method: string, code: string) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    user?: { user_id: string; email: string; name: string; role: string; customer_id: string; provider_id?: string };
+  }>("/api/auth/mfa/verify", {
+    method: "POST",
+    body: JSON.stringify({ challenge_id: challengeId, method, code }),
+  });
+}
+
+export async function sendMfaSms(challengeId: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    "/api/auth/mfa/sms/send",
+    { method: "POST", body: JSON.stringify({ challenge_id: challengeId }) },
+  );
+}
+
+// Backup codes
+export async function regenerateBackupCodes() {
+  return apiFetch<{ ok: boolean; backup_codes: string[] }>(
+    "/api/auth/mfa/backup-codes/regenerate",
+    { method: "POST" },
+  );
+}
+
+export async function disableAllMfa() {
+  return apiFetch<{ ok: boolean }>("/api/auth/mfa/all", { method: "DELETE" });
 }
 
 // ── API Keys ──────────────────────────────────────────────────────────

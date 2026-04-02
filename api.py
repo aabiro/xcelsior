@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
-from db import start_pg_listen, UserStore, NotificationStore, emit_event
+from db import start_pg_listen, UserStore, NotificationStore, MfaStore, emit_event
 
 from scheduler import (
     register_host,
@@ -2313,6 +2313,7 @@ def api_auth_login(body: LoginRequest):
     """Authenticate with email and password.
 
     Returns a Bearer token valid for 30 days.
+    If MFA is enabled, returns mfa_required=True with a challenge_id instead.
     """
     email = body.email.strip().lower()
 
@@ -2328,6 +2329,28 @@ def api_auth_login(body: LoginRequest):
     password_hash, _ = _hash_password(body.password, user["salt"])
     if not hmac.compare_digest(password_hash, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+
+    # ── MFA check ──
+    if _USE_PERSISTENT_AUTH and user.get("mfa_enabled"):
+        methods = MfaStore.list_methods(email)
+        enabled_methods = [m for m in methods if m.get("enabled")]
+        if enabled_methods:
+            challenge_id = secrets.token_urlsafe(32)
+            # Store a temporary partial session token
+            partial_token = secrets.token_urlsafe(48)
+            MfaStore.create_challenge({
+                "challenge_id": challenge_id,
+                "email": email,
+                "session_token": partial_token,
+                "created_at": time.time(),
+                "expires_at": time.time() + 300,  # 5-minute window
+            })
+            return JSONResponse(content={
+                "ok": True,
+                "mfa_required": True,
+                "challenge_id": challenge_id,
+                "methods": [m["method_type"] for m in enabled_methods if m["method_type"] != "passkey"],
+            })
 
     session = _create_session(email, user)
 
@@ -2825,7 +2848,7 @@ class PasswordResetRequest(BaseModel):
 
 @app.post("/api/auth/password-reset", tags=["Auth"])
 def api_auth_password_reset(req: PasswordResetRequest):
-    """Initiate a password reset. Returns a one-time reset token (dev mode)."""
+    """Initiate a password reset. Sends email with reset link."""
     reset_token = None
     if _USE_PERSISTENT_AUTH:
         user = UserStore.get_user(req.email)
@@ -2847,6 +2870,23 @@ def api_auth_password_reset(req: PasswordResetRequest):
             reset_token = secrets.token_urlsafe(32)
             user["reset_token"] = reset_token
             user["reset_token_expires"] = time.time() + 3600
+
+    # Send password reset email (best-effort)
+    if reset_token:
+        base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+        reset_url = f"{base_url}/reset-password?token={reset_token}"
+        _send_team_email(
+            to_email=req.email,
+            subject="Reset your Xcelsior password",
+            body_text=(
+                f"You requested a password reset for your Xcelsior account.\n\n"
+                f"Click the link below to set a new password. This link expires in 1 hour.\n\n"
+                f"{reset_url}\n\n"
+                f"If you didn't request this, you can safely ignore this email."
+            ),
+            cta_url=reset_url,
+            cta_label="Reset Password",
+        )
 
     return {
         "ok": True,
@@ -2940,6 +2980,455 @@ def api_auth_change_password(request: Request, req: ChangePasswordRequest):
             stored["salt"] = salt
 
     return {"ok": True, "message": "Password changed successfully"}
+
+
+# ── Two-Factor Authentication (MFA) ─────────────────────────────────
+
+def _verify_totp_code(secret: str, code: str) -> bool:
+    """Verify a TOTP code, allowing ±1 window for clock drift."""
+    import pyotp
+    totp = pyotp.TOTP(secret)
+    return totp.verify(code, valid_window=1)
+
+
+def _hash_backup_code(code: str) -> str:
+    """Hash a backup code for storage."""
+    import hashlib
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
+def _generate_backup_codes(count: int = 10) -> list[str]:
+    """Generate a set of backup codes."""
+    codes = []
+    for _ in range(count):
+        part1 = secrets.token_hex(2).upper()
+        part2 = secrets.token_hex(2).upper()
+        codes.append(f"{part1}-{part2}")
+    return codes
+
+
+def _complete_mfa_login(email: str, challenge_id: str) -> JSONResponse:
+    """Complete login after successful MFA verification."""
+    challenge = MfaStore.get_challenge(challenge_id)
+    if not challenge or challenge["email"] != email:
+        raise HTTPException(400, "Invalid MFA challenge")
+    if time.time() > challenge["expires_at"]:
+        MfaStore.delete_challenge(challenge_id)
+        raise HTTPException(400, "MFA challenge expired")
+
+    MfaStore.delete_challenge(challenge_id)
+
+    user = UserStore.get_user(email)
+    if not user:
+        raise HTTPException(400, "User not found")
+
+    session = _create_session(email, user)
+    body = {
+        "ok": True,
+        "access_token": session["token"],
+        "token_type": "Bearer",
+        "expires_in": SESSION_EXPIRY,
+        "user": {
+            "user_id": user["user_id"],
+            "email": email,
+            "name": user["name"],
+            "role": user["role"],
+            "customer_id": user["customer_id"],
+            "provider_id": user.get("provider_id"),
+        },
+    }
+    resp = JSONResponse(content=body)
+    _set_auth_cookie(resp, session["token"])
+    return resp
+
+
+def _refresh_mfa_enabled(email: str) -> None:
+    """Recalculate mfa_enabled flag for user based on active methods."""
+    methods = MfaStore.list_methods(email)
+    enabled = any(m.get("enabled") for m in methods)
+    UserStore.update_user(email, {"mfa_enabled": 1 if enabled else 0})
+
+
+# ── MFA: List methods ──
+
+@app.get("/api/auth/mfa/methods", tags=["Auth – MFA"])
+def api_mfa_list_methods(request: Request):
+    """List the user's configured MFA methods."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    methods = MfaStore.list_methods(user["email"])
+    backup_codes = MfaStore.list_backup_codes(user["email"])
+    return {
+        "ok": True,
+        "mfa_enabled": bool(user.get("mfa_enabled")),
+        "methods": [
+            {
+                "id": m["id"],
+                "type": m["method_type"],
+                "enabled": bool(m["enabled"]),
+                "device_name": m.get("device_name"),
+                "phone_number": m.get("phone_number", "")[-4:] if m.get("phone_number") else None,
+                "created_at": m["created_at"],
+            }
+            for m in methods
+        ],
+        "backup_codes_remaining": sum(1 for c in backup_codes if not c["used"]),
+    }
+
+
+# ── MFA: TOTP Setup ──
+
+@app.post("/api/auth/mfa/totp/setup", tags=["Auth – MFA"])
+def api_mfa_totp_setup(request: Request):
+    """Generate a TOTP secret and QR code URI for setup."""
+    import pyotp
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    # Check if TOTP already enabled
+    existing = MfaStore.get_method_by_type(user["email"], "totp")
+    if existing:
+        raise HTTPException(400, "TOTP is already enabled")
+
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(
+        name=user["email"],
+        issuer_name="Xcelsior",
+    )
+
+    # Store secret temporarily (not enabled until verified)
+    method_id = MfaStore.create_method({
+        "email": user["email"],
+        "method_type": "totp",
+        "secret": secret,
+        "enabled": 0,
+        "created_at": time.time(),
+    })
+
+    return {
+        "ok": True,
+        "secret": secret,
+        "provisioning_uri": provisioning_uri,
+        "method_id": method_id,
+    }
+
+
+class TotpVerifyRequest(BaseModel):
+    code: str
+    method_id: int | None = None
+
+
+@app.post("/api/auth/mfa/totp/verify", tags=["Auth – MFA"])
+def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
+    """Verify a TOTP code to complete setup and enable TOTP."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    methods = MfaStore.list_methods(user["email"])
+    totp_method = None
+    for m in methods:
+        if m["method_type"] == "totp":
+            if req.method_id and m["id"] == req.method_id:
+                totp_method = m
+                break
+            if not m["enabled"]:
+                totp_method = m
+                break
+            totp_method = m
+
+    if not totp_method or not totp_method.get("secret"):
+        raise HTTPException(400, "No TOTP method found. Run setup first.")
+
+    if not _verify_totp_code(totp_method["secret"], req.code):
+        raise HTTPException(400, "Invalid code. Please try again.")
+
+    # Enable the method
+    from db import auth_connection
+    with auth_connection() as conn:
+        conn.execute("UPDATE mfa_methods SET enabled = 1 WHERE id = %s", (totp_method["id"],))
+
+    _refresh_mfa_enabled(user["email"])
+
+    # Generate backup codes if none exist yet
+    existing_codes = MfaStore.list_backup_codes(user["email"])
+    backup_codes = None
+    if not existing_codes:
+        backup_codes = _generate_backup_codes()
+        code_hashes = [_hash_backup_code(c) for c in backup_codes]
+        MfaStore.create_backup_codes(user["email"], code_hashes)
+
+    return {
+        "ok": True,
+        "message": "TOTP enabled successfully",
+        "backup_codes": backup_codes,
+    }
+
+
+@app.delete("/api/auth/mfa/totp", tags=["Auth – MFA"])
+def api_mfa_totp_disable(request: Request):
+    """Disable and remove TOTP."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    MfaStore.delete_methods_by_type(user["email"], "totp")
+    _refresh_mfa_enabled(user["email"])
+    return {"ok": True, "message": "TOTP disabled"}
+
+
+# ── MFA: SMS ──
+
+class SmsSetupRequest(BaseModel):
+    phone_number: str  # E.164 format, e.g. +14165551234
+
+
+@app.post("/api/auth/mfa/sms/setup", tags=["Auth – MFA"])
+def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
+    """Register a phone number for SMS MFA. Sends a verification code."""
+    import re
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    phone = req.phone_number.strip()
+    if not re.match(r"^\+[1-9]\d{6,14}$", phone):
+        raise HTTPException(400, "Invalid phone number. Use E.164 format (e.g. +14165551234)")
+
+    existing = MfaStore.get_method_by_type(user["email"], "sms")
+    if existing:
+        raise HTTPException(400, "SMS MFA is already enabled")
+
+    # Generate 6-digit verification code
+    code = f"{secrets.randbelow(1000000):06d}"
+    code_hash = _hash_backup_code(code)  # reuse SHA-256 helper for code storage
+    sms_challenge_id = f"sms-setup:{user['email']}"
+    # Remove any existing SMS setup challenge
+    MfaStore.delete_challenge(sms_challenge_id)
+    MfaStore.create_challenge({
+        "challenge_id": sms_challenge_id,
+        "email": user["email"],
+        "challenge_data": json.dumps({"code_hash": code_hash, "phone": phone}),
+        "created_at": time.time(),
+        "expires_at": time.time() + 600,
+    })
+
+    # Send SMS via email (best-effort) or log in dev
+    if os.environ.get("XCELSIOR_ENV") == "test":
+        return {"ok": True, "message": "Verification code sent", "test_code": code}
+
+    # Best-effort: send verification code via email for now
+    _send_team_email(
+        to_email=user["email"],
+        subject="Your Xcelsior SMS verification code",
+        body_text=f"Your SMS verification code is: {code}\n\nThis code expires in 10 minutes.",
+        cta_url=None,
+        cta_label="",
+    )
+
+    return {"ok": True, "message": "Verification code sent"}
+
+
+class SmsVerifyRequest(BaseModel):
+    code: str
+
+
+@app.post("/api/auth/mfa/sms/verify", tags=["Auth – MFA"])
+def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
+    """Verify the SMS code to complete SMS MFA setup."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    sms_challenge_id = f"sms-setup:{user['email']}"
+    pending = MfaStore.get_challenge(sms_challenge_id)
+    if not pending:
+        raise HTTPException(400, "No pending SMS verification. Run setup first.")
+    if time.time() > pending["expires_at"]:
+        MfaStore.delete_challenge(sms_challenge_id)
+        raise HTTPException(400, "Verification code expired")
+    pending_data = json.loads(pending["challenge_data"])
+    if _hash_backup_code(req.code) != pending_data["code_hash"]:
+        raise HTTPException(400, "Invalid verification code")
+
+    MfaStore.delete_challenge(sms_challenge_id)
+
+    MfaStore.create_method({
+        "email": user["email"],
+        "method_type": "sms",
+        "phone_number": pending_data["phone"],
+        "enabled": 1,
+        "created_at": time.time(),
+    })
+    _refresh_mfa_enabled(user["email"])
+
+    # Generate backup codes if none exist
+    existing_codes = MfaStore.list_backup_codes(user["email"])
+    backup_codes = None
+    if not existing_codes:
+        backup_codes = _generate_backup_codes()
+        code_hashes = [_hash_backup_code(c) for c in backup_codes]
+        MfaStore.create_backup_codes(user["email"], code_hashes)
+
+    return {
+        "ok": True,
+        "message": "SMS MFA enabled successfully",
+        "backup_codes": backup_codes,
+    }
+
+
+@app.delete("/api/auth/mfa/sms", tags=["Auth – MFA"])
+def api_mfa_sms_disable(request: Request):
+    """Disable and remove SMS MFA."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    MfaStore.delete_methods_by_type(user["email"], "sms")
+    _refresh_mfa_enabled(user["email"])
+    return {"ok": True, "message": "SMS MFA disabled"}
+
+
+# ── MFA: Login verification ──
+
+class MfaVerifyLogin(BaseModel):
+    challenge_id: str
+    method: str  # totp | sms | backup
+    code: str
+
+
+@app.post("/api/auth/mfa/verify", tags=["Auth – MFA"])
+def api_mfa_verify_login(req: MfaVerifyLogin):
+    """Verify MFA code during login to complete authentication."""
+    challenge = MfaStore.get_challenge(req.challenge_id)
+    if not challenge:
+        raise HTTPException(400, "Invalid MFA challenge")
+    if time.time() > challenge["expires_at"]:
+        MfaStore.delete_challenge(req.challenge_id)
+        raise HTTPException(400, "MFA challenge expired. Please sign in again.")
+
+    email = challenge["email"]
+
+    if req.method == "totp":
+        method = MfaStore.get_method_by_type(email, "totp")
+        if not method or not method.get("secret"):
+            raise HTTPException(400, "TOTP not configured")
+        if not _verify_totp_code(method["secret"], req.code):
+            raise HTTPException(400, "Invalid code")
+        return _complete_mfa_login(email, req.challenge_id)
+
+    elif req.method == "sms":
+        # For login SMS verification, generate and send code
+        method = MfaStore.get_method_by_type(email, "sms")
+        if not method:
+            raise HTTPException(400, "SMS MFA not configured")
+
+        # Check if code matches the one we sent
+        sms_login_id = f"sms-login:{email}"
+        pending = MfaStore.get_challenge(sms_login_id)
+        if not pending:
+            raise HTTPException(400, "No SMS code sent. Request one first.")
+        if time.time() > pending["expires_at"]:
+            MfaStore.delete_challenge(sms_login_id)
+            raise HTTPException(400, "Code expired")
+        pending_data = json.loads(pending["challenge_data"])
+        if _hash_backup_code(req.code) != pending_data["code_hash"]:
+            raise HTTPException(400, "Invalid code")
+        MfaStore.delete_challenge(sms_login_id)
+        return _complete_mfa_login(email, req.challenge_id)
+
+    elif req.method == "backup":
+        code_hash = _hash_backup_code(req.code)
+        if not MfaStore.use_backup_code(email, code_hash):
+            raise HTTPException(400, "Invalid backup code")
+        return _complete_mfa_login(email, req.challenge_id)
+
+    else:
+        raise HTTPException(400, f"Unsupported MFA method: {req.method}")
+
+
+class MfaSendSmsRequest(BaseModel):
+    challenge_id: str
+
+
+@app.post("/api/auth/mfa/sms/send", tags=["Auth – MFA"])
+def api_mfa_sms_send_login(req: MfaSendSmsRequest):
+    """Send an SMS verification code during MFA login challenge."""
+    challenge = MfaStore.get_challenge(req.challenge_id)
+    if not challenge:
+        raise HTTPException(400, "Invalid MFA challenge")
+    if time.time() > challenge["expires_at"]:
+        MfaStore.delete_challenge(req.challenge_id)
+        raise HTTPException(400, "MFA challenge expired")
+
+    email = challenge["email"]
+    method = MfaStore.get_method_by_type(email, "sms")
+    if not method:
+        raise HTTPException(400, "SMS MFA not configured")
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    code_hash = _hash_backup_code(code)
+    sms_login_id = f"sms-login:{email}"
+    MfaStore.delete_challenge(sms_login_id)
+    MfaStore.create_challenge({
+        "challenge_id": sms_login_id,
+        "email": email,
+        "challenge_data": json.dumps({"code_hash": code_hash}),
+        "created_at": time.time(),
+        "expires_at": time.time() + 600,
+    })
+
+    # Send code via email for now
+    user = UserStore.get_user(email)
+    if user:
+        _send_team_email(
+            to_email=email,
+            subject="Your Xcelsior login code",
+            body_text=f"Your login verification code is: {code}\n\nThis code expires in 10 minutes.",
+            cta_url=None,
+            cta_label="",
+        )
+
+    if os.environ.get("XCELSIOR_ENV") == "test":
+        return {"ok": True, "message": "Code sent", "test_code": code}
+    return {"ok": True, "message": "Code sent"}
+
+
+# ── MFA: Backup codes ──
+
+@app.post("/api/auth/mfa/backup-codes/regenerate", tags=["Auth – MFA"])
+def api_mfa_regenerate_backup_codes(request: Request):
+    """Regenerate backup recovery codes. Invalidates all previous codes."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    if not user.get("mfa_enabled"):
+        raise HTTPException(400, "MFA is not enabled")
+
+    codes = _generate_backup_codes()
+    code_hashes = [_hash_backup_code(c) for c in codes]
+    MfaStore.create_backup_codes(user["email"], code_hashes)
+
+    return {"ok": True, "backup_codes": codes}
+
+
+# ── MFA: Disable all ──
+
+@app.delete("/api/auth/mfa/all", tags=["Auth – MFA"])
+def api_mfa_disable_all(request: Request):
+    """Disable all MFA methods for the user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    from db import auth_connection
+    with auth_connection() as conn:
+        conn.execute("DELETE FROM mfa_methods WHERE email = %s", (user["email"],))
+        conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (user["email"],))
+
+    UserStore.update_user(user["email"], {"mfa_enabled": 0})
+    return {"ok": True, "message": "All MFA methods disabled"}
 
 
 # ── Team / Organization Management ───────────────────────────────────

@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { ApiKeyInfo, ConsentRecord, TeamInfo, TeamMember, UserSshKey } from "@/lib/api";
+import QRCode from "qrcode";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -51,6 +52,26 @@ export default function SettingsPage() {
   const [showPw, setShowPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
+
+  // MFA
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [mfaMethods, setMfaMethods] = useState<api.MfaMethod[]>([]);
+  const [mfaBackupRemaining, setMfaBackupRemaining] = useState(0);
+  const [mfaLoading, setMfaLoading] = useState(false);
+  // TOTP setup
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string; methodId: number } | null>(null);
+  const [totpQrDataUrl, setTotpQrDataUrl] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpVerifying, setTotpVerifying] = useState(false);
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  // SMS setup
+  const [smsSetup, setSmsSetup] = useState(false);
+  const [smsPhone, setSmsPhone] = useState("");
+  const [smsCountryCode, setSmsCountryCode] = useState("+1");
+  const [smsCode, setSmsCode] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsVerifying, setSmsVerifying] = useState(false);
+  const [smsCodeSent, setSmsCodeSent] = useState(false);
 
   // Consent
   const [consents, setConsents] = useState<ConsentRecord[]>([]);
@@ -194,7 +215,19 @@ export default function SettingsPage() {
 
     // Load teams
     loadTeams();
+
+    // Load MFA status
+    loadMfa();
   }, [userId, loadTeams]);
+
+  const loadMfa = useCallback(async () => {
+    try {
+      const res = await api.fetchMfaMethods();
+      setMfaEnabled(res.mfa_enabled);
+      setMfaMethods(res.methods || []);
+      setMfaBackupRemaining(res.backup_codes_remaining || 0);
+    } catch { /* MFA not available yet */ }
+  }, []);
 
   // ── Profile Save ──
   const handleSave = async () => {
@@ -266,6 +299,99 @@ export default function SettingsPage() {
   };
 
   // ── Change Password ──
+  // ── MFA Handlers ──
+  const handleTotpSetup = async () => {
+    setMfaLoading(true);
+    try {
+      const res = await api.setupTotp();
+      setTotpSetup({ secret: res.secret, uri: res.provisioning_uri, methodId: res.method_id });
+      // Generate QR code locally — never send secret to external services
+      const dataUrl = await QRCode.toDataURL(res.provisioning_uri, { width: 200, margin: 1 });
+      setTotpQrDataUrl(dataUrl);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to set up TOTP"); }
+    finally { setMfaLoading(false); }
+  };
+
+  const handleTotpVerify = async () => {
+    if (totpCode.length !== 6) return;
+    setTotpVerifying(true);
+    try {
+      const res = await api.verifyTotp(totpCode, totpSetup?.methodId);
+      toast.success("Authenticator app enabled");
+      if (res.backup_codes) setBackupCodes(res.backup_codes);
+      setTotpSetup(null);
+      setTotpQrDataUrl(null);
+      setTotpCode("");
+      loadMfa();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Invalid code"); }
+    finally { setTotpVerifying(false); }
+  };
+
+  const handleTotpDisable = async () => {
+    if (!window.confirm("Are you sure you want to disable your authenticator app?")) return;
+    try {
+      await api.disableTotp();
+      toast.success("Authenticator app disabled");
+      loadMfa();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to disable TOTP"); }
+  };
+
+  const handleSmsSetup = async () => {
+    const phone = `${smsCountryCode}${smsPhone.replace(/\D/g, "")}`;
+    if (phone.length < 8) { toast.error("Enter a valid phone number"); return; }
+    setSmsSending(true);
+    try {
+      await api.setupSms(phone);
+      setSmsCodeSent(true);
+      toast.success("Verification code sent");
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to send code"); }
+    finally { setSmsSending(false); }
+  };
+
+  const handleSmsVerify = async () => {
+    if (smsCode.length !== 6) return;
+    setSmsVerifying(true);
+    try {
+      const res = await api.verifySms(smsCode);
+      toast.success("SMS verification enabled");
+      if (res.backup_codes) setBackupCodes(res.backup_codes);
+      setSmsSetup(false);
+      setSmsCode("");
+      setSmsPhone("");
+      setSmsCodeSent(false);
+      loadMfa();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Invalid code"); }
+    finally { setSmsVerifying(false); }
+  };
+
+  const handleSmsDisable = async () => {
+    if (!window.confirm("Are you sure you want to disable SMS verification?")) return;
+    try {
+      await api.disableSms();
+      toast.success("SMS verification disabled");
+      loadMfa();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to disable SMS"); }
+  };
+
+  const handleRegenerateBackupCodes = async () => {
+    try {
+      const res = await api.regenerateBackupCodes();
+      setBackupCodes(res.backup_codes);
+      loadMfa();
+      toast.success("New backup codes generated");
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to regenerate codes"); }
+  };
+
+  const handleDisableAllMfa = async () => {
+    if (!window.confirm("This will remove ALL two-factor authentication methods and backup codes. Are you sure?")) return;
+    try {
+      await api.disableAllMfa();
+      toast.success("All 2FA methods disabled");
+      setBackupCodes(null);
+      loadMfa();
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to disable 2FA"); }
+  };
+
   const handleChangePassword = async () => {
     if (newPw.length < 8) { toast.error("Password must be at least 8 characters"); return; }
     if (newPw !== confirmPw) { toast.error("Passwords do not match"); return; }
@@ -591,6 +717,258 @@ export default function SettingsPage() {
           >
             {changingPw ? <><Loader2 className="h-4 w-4 animate-spin" /> Changing…</> : t("dash.settings.change_pw")}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* ── Two-Factor Authentication ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-4 w-4" /> {t("dash.settings.mfa_title")}
+          </CardTitle>
+          <CardDescription>{t("dash.settings.mfa_desc")}</CardDescription>
+          {mfaEnabled && (
+            <div className="flex items-center gap-2 mt-2">
+              <CheckCircle className="h-4 w-4 text-emerald" />
+              <span className="text-xs text-emerald font-medium">{t("dash.settings.mfa_enabled")}</span>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* ── TOTP Authenticator ── */}
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Key className="h-3.5 w-3.5 text-ice-blue" />
+                  {t("dash.settings.mfa_totp_title")}
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">{t("dash.settings.mfa_totp_desc")}</p>
+              </div>
+              {mfaMethods.some((m) => m.type === "totp" && m.enabled) ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-emerald font-medium flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" /> Active
+                  </span>
+                  <Button variant="outline" size="sm" onClick={handleTotpDisable} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                    {t("dash.settings.mfa_disable")}
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={handleTotpSetup} disabled={mfaLoading}>
+                  {mfaLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {t("dash.settings.mfa_totp_setup")}
+                </Button>
+              )}
+            </div>
+            {totpSetup && (
+              <div className="mt-3 space-y-3 rounded-lg bg-surface p-4">
+                <p className="text-sm text-text-secondary">{t("dash.settings.mfa_totp_scan")}</p>
+                {/* QR Code generated locally — secret never leaves browser */}
+                <div className="flex justify-center">
+                  <div className="rounded-lg bg-white p-3">
+                    {totpQrDataUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={totpQrDataUrl}
+                        alt="TOTP QR Code"
+                        width={200}
+                        height={200}
+                        className="rounded"
+                      />
+                    ) : (
+                      <div className="h-[200px] w-[200px] flex items-center justify-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-text-muted" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-text-muted">{t("dash.settings.mfa_totp_manual")}</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs font-mono bg-background rounded px-2 py-1.5 select-all border border-border break-all">
+                      {totpSetup.secret}
+                    </code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(totpSetup.secret); toast.success("Copied"); }}
+                      className="text-text-muted hover:text-text-primary"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("dash.settings.mfa_totp_verify")}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder={t("dash.settings.mfa_code_placeholder")}
+                      className="font-mono w-32 text-center tracking-widest"
+                      maxLength={6}
+                    />
+                    <Button onClick={handleTotpVerify} disabled={totpVerifying || totpCode.length !== 6}>
+                      {totpVerifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {t("dash.settings.mfa_verify")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── SMS Verification ── */}
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Bell className="h-3.5 w-3.5 text-accent-gold" />
+                  {t("dash.settings.mfa_sms_title")}
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">{t("dash.settings.mfa_sms_desc")}</p>
+              </div>
+              {mfaMethods.some((m) => m.type === "sms" && m.enabled) ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-emerald font-medium flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" /> Active
+                  </span>
+                  <span className="text-xs text-text-muted">
+                    •••• {mfaMethods.find((m) => m.type === "sms")?.phone_number}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={handleSmsDisable} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                    {t("dash.settings.mfa_disable")}
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setSmsSetup(true)}>
+                  {t("dash.settings.mfa_sms_setup")}
+                </Button>
+              )}
+            </div>
+            {smsSetup && !mfaMethods.some((m) => m.type === "sms" && m.enabled) && (
+              <div className="mt-3 space-y-3 rounded-lg bg-surface p-4">
+                {!smsCodeSent ? (
+                  <div className="space-y-2">
+                    <Label>{t("dash.settings.mfa_sms_phone")}</Label>
+                    <div className="flex gap-2">
+                      <select
+                        value={smsCountryCode}
+                        onChange={(e) => setSmsCountryCode(e.target.value)}
+                        className="rounded-md border border-border bg-background px-2 py-1.5 text-sm min-w-[100px]"
+                      >
+                        <option value="+1">🇨🇦 +1</option>
+                        <option value="+1">🇺🇸 +1</option>
+                        <option value="+44">🇬🇧 +44</option>
+                        <option value="+33">🇫🇷 +33</option>
+                        <option value="+49">🇩🇪 +49</option>
+                        <option value="+61">🇦🇺 +61</option>
+                        <option value="+81">🇯🇵 +81</option>
+                        <option value="+82">🇰🇷 +82</option>
+                        <option value="+86">🇨🇳 +86</option>
+                        <option value="+91">🇮🇳 +91</option>
+                        <option value="+55">🇧🇷 +55</option>
+                        <option value="+52">🇲🇽 +52</option>
+                        <option value="+39">🇮🇹 +39</option>
+                        <option value="+34">🇪🇸 +34</option>
+                        <option value="+31">🇳🇱 +31</option>
+                        <option value="+46">🇸🇪 +46</option>
+                        <option value="+47">🇳🇴 +47</option>
+                        <option value="+41">🇨🇭 +41</option>
+                        <option value="+65">🇸🇬 +65</option>
+                        <option value="+972">🇮🇱 +972</option>
+                        <option value="+971">🇦🇪 +971</option>
+                        <option value="+64">🇳🇿 +64</option>
+                        <option value="+48">🇵🇱 +48</option>
+                        <option value="+351">🇵🇹 +351</option>
+                        <option value="+353">🇮🇪 +353</option>
+                        <option value="+354">🇮🇸 +354</option>
+                        <option value="+358">🇫🇮 +358</option>
+                        <option value="+45">🇩🇰 +45</option>
+                        <option value="+43">🇦🇹 +43</option>
+                        <option value="+32">🇧🇪 +32</option>
+                      </select>
+                      <Input
+                        type="tel"
+                        value={smsPhone}
+                        onChange={(e) => setSmsPhone(e.target.value)}
+                        placeholder="4165551234"
+                        className="flex-1 font-mono"
+                      />
+                      <Button onClick={handleSmsSetup} disabled={smsSending}>
+                        {smsSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        Send Code
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{t("dash.settings.mfa_sms_verify")}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={smsCode}
+                        onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        placeholder={t("dash.settings.mfa_code_placeholder")}
+                        className="font-mono w-32 text-center tracking-widest"
+                        maxLength={6}
+                      />
+                      <Button onClick={handleSmsVerify} disabled={smsVerifying || smsCode.length !== 6}>
+                        {smsVerifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        {t("dash.settings.mfa_verify")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Backup Codes ── */}
+          {mfaEnabled && (
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">{t("dash.settings.mfa_backup_title")}</p>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {t("dash.settings.mfa_backup_remaining", { count: String(mfaBackupRemaining) })}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleRegenerateBackupCodes}>
+                  {t("dash.settings.mfa_backup_regenerate")}
+                </Button>
+              </div>
+              {backupCodes && (
+                <div className="space-y-2">
+                  <p className="text-xs text-accent-gold flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> {t("dash.settings.mfa_backup_desc")}
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-background border border-border p-3">
+                    {backupCodes.map((code, i) => (
+                      <code key={i} className="text-xs font-mono text-text-primary select-all">{code}</code>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(backupCodes.join("\n"));
+                      toast.success("Backup codes copied");
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy All
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Disable all */}
+          {mfaEnabled && (
+            <div className="pt-2 border-t border-border">
+              <Button variant="outline" size="sm" onClick={handleDisableAllMfa} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                <AlertTriangle className="h-3.5 w-3.5" /> {t("dash.settings.mfa_disable_all")}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
