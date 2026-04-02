@@ -743,6 +743,9 @@ class UserStore:
             "canada_only_routing",
             "preferences",
             "mfa_enabled",
+            "email_verified",
+            "email_verification_token",
+            "email_verification_expires",
         }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
@@ -785,8 +788,8 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO sessions (token, email, user_id, role, name, created_at, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sessions (token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     session["token"],
@@ -796,6 +799,9 @@ class UserStore:
                     session.get("name", ""),
                     session.get("created_at", time.time()),
                     session["expires_at"],
+                    session.get("ip_address"),
+                    session.get("user_agent"),
+                    session.get("last_active", session.get("created_at", time.time())),
                 ),
             )
 
@@ -823,6 +829,24 @@ class UserStore:
         with auth_connection() as conn:
             cursor = conn.execute("DELETE FROM sessions WHERE expires_at < %s", (time.time(),))
             return cursor.rowcount
+
+    @staticmethod
+    def list_user_sessions(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active "
+                "FROM sessions WHERE email = %s AND expires_at > %s ORDER BY last_active DESC",
+                (email, time.time()),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def update_session_last_active(token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE sessions SET last_active = %s WHERE token = %s",
+                (time.time(), token),
+            )
 
     # ── API Keys ──
 

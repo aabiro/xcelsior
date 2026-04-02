@@ -48,8 +48,10 @@ export async function login(email: string, password: string) {
 export async function register(email: string, password: string, name?: string) {
   return apiFetch<{
     ok: boolean;
-    access_token: string;
-    user: { user_id: string; email: string; role: string };
+    access_token?: string;
+    email_verification_required?: boolean;
+    message?: string;
+    user?: { user_id: string; email: string; role: string };
   }>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, name }),
@@ -1372,4 +1374,46 @@ export async function fetchBurstStatus() {
   return apiFetch<{ ok: boolean; active_instances: number; total_spending: number; budget_remaining: number }>(
     "/api/v2/burst/status",
   );
+}
+
+// ── Email Verification ────────────────────────────────────────────────
+
+export async function verifyEmail(token: string) {
+  return apiFetch<{
+    ok: boolean;
+    access_token?: string;
+    user?: { user_id: string; email: string; role: string; name?: string; customer_id?: string };
+  }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendVerification(email: string) {
+  return apiFetch<{ ok: boolean; message: string }>("/api/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+// ── Session Management ────────────────────────────────────────────────
+
+export interface SessionInfo {
+  token_prefix: string;
+  is_current: boolean;
+  ip_address: string;
+  user_agent: string;
+  created_at: number;
+  last_active: number;
+  expires_at: number;
+}
+
+export async function fetchSessions() {
+  return apiFetch<{ ok: boolean; sessions: SessionInfo[] }>("/api/auth/sessions");
+}
+
+export async function revokeSession(tokenPrefix: string) {
+  return apiFetch<{ ok: boolean; message: string }>(`/api/auth/sessions/${tokenPrefix}`, {
+    method: "DELETE",
+  });
 }

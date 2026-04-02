@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
-import { login as apiLogin, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete } from "@/lib/api";
+import { login as apiLogin, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 
@@ -30,6 +30,12 @@ export default function LoginPage() {
   const [mfaVerifying, setMfaVerifying] = useState(false);
   const [smsSent, setSmsSent] = useState(false);
   const [passkeyAuthenticating, setPasskeyAuthenticating] = useState(false);
+
+  // Email verification state
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   // If already authenticated, redirect to dashboard
   if (!authLoading && user) {
@@ -58,6 +64,14 @@ export default function LoginPage() {
       await login();
       router.push("/dashboard");
     } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        const body = err.body as { email_verification_required?: boolean; email?: string } | undefined;
+        if (body?.email_verification_required) {
+          setEmailNotVerified(true);
+          setUnverifiedEmail(body.email || email);
+          return;
+        }
+      }
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
@@ -157,6 +171,56 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "OAuth failed");
     }
+  }
+
+  async function handleResendVerification() {
+    setResending(true);
+    setResendSuccess(false);
+    try {
+      await resendVerification(unverifiedEmail);
+      setResendSuccess(true);
+    } catch {
+      // Don't reveal error
+    } finally {
+      setResending(false);
+    }
+  }
+
+  // Email not verified screen
+  if (emailNotVerified) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md p-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10">
+            <Shield className="h-8 w-8 text-amber-400" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">{t("auth.verify_required")}</h1>
+          <p className="text-text-secondary mb-6">
+            {t("auth.verify_required_desc")} <strong className="text-text-primary">{unverifiedEmail}</strong>
+          </p>
+          <div className="space-y-3">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleResendVerification}
+              disabled={resending}
+            >
+              {resending ? t("auth.verify_resending") : t("auth.verify_resend")}
+            </Button>
+            {resendSuccess && (
+              <p className="text-sm text-green-400">{t("auth.verify_resent")}</p>
+            )}
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => { setEmailNotVerified(false); setError(""); }}
+            >
+              {t("auth.verify_back")}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   return (

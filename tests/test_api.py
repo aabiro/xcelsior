@@ -21,6 +21,7 @@ os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_AUTH_DB_PATH"] = os.path.join(_tmpdir, "auth.db")
 os.environ["XCELSIOR_ENV"] = "test"
 os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"  # Prevent 429s in tests
+os.environ["XCELSIOR_AUTH_RATE_LIMIT_REQUESTS"] = "5000"  # Prevent auth 429s in tests
 
 # Fake OAuth credentials so /api/auth/oauth/{provider} returns 200 instead of 503
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
