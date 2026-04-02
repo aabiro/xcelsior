@@ -2349,7 +2349,7 @@ def api_auth_login(body: LoginRequest):
                 "ok": True,
                 "mfa_required": True,
                 "challenge_id": challenge_id,
-                "methods": [m["method_type"] for m in enabled_methods if m["method_type"] != "passkey"],
+                "methods": [m["method_type"] for m in enabled_methods],
             })
 
     session = _create_session(email, user)
@@ -3049,6 +3049,24 @@ def _refresh_mfa_enabled(email: str) -> None:
     UserStore.update_user(email, {"mfa_enabled": 1 if enabled else 0})
 
 
+def _send_sms(phone_number: str, message: str) -> bool:
+    """Send a real SMS via Twilio.  Falls back to email if Twilio is not configured."""
+    sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    from_phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
+    if not sid or not token or not from_phone:
+        return False
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        client.messages.create(body=message, from_=from_phone, to=phone_number)
+        log.info("SMS sent to %s", phone_number[-4:])
+        return True
+    except Exception as e:
+        log.warning("SMS send failed to %s: %s", phone_number[-4:], e)
+        return False
+
+
 # ── MFA: List methods ──
 
 @app.get("/api/auth/mfa/methods", tags=["Auth – MFA"])
@@ -3219,14 +3237,16 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Verification code sent", "test_code": code}
 
-    # Best-effort: send verification code via email for now
-    _send_team_email(
-        to_email=user["email"],
-        subject="Your Xcelsior SMS verification code",
-        body_text=f"Your SMS verification code is: {code}\n\nThis code expires in 10 minutes.",
-        cta_url=None,
-        cta_label="",
-    )
+    # Try real SMS first, fall back to email
+    sms_sent = _send_sms(phone, f"Your Xcelsior verification code is: {code}")
+    if not sms_sent:
+        _send_team_email(
+            to_email=user["email"],
+            subject="Your Xcelsior SMS verification code",
+            body_text=f"Your SMS verification code is: {code}\n\nThis code expires in 10 minutes.",
+            cta_url=None,
+            cta_label="",
+        )
 
     return {"ok": True, "message": "Verification code sent"}
 
@@ -3288,6 +3308,326 @@ def api_mfa_sms_disable(request: Request):
     MfaStore.delete_methods_by_type(user["email"], "sms")
     _refresh_mfa_enabled(user["email"])
     return {"ok": True, "message": "SMS MFA disabled"}
+
+
+# ── MFA: Passkey (WebAuthn) ──
+
+import base64 as _b64
+
+_WEBAUTHN_RP_ID = os.environ.get("XCELSIOR_WEBAUTHN_RP_ID", "xcelsior.ca")
+_WEBAUTHN_RP_NAME = "Xcelsior"
+_WEBAUTHN_ORIGIN = os.environ.get("XCELSIOR_WEBAUTHN_ORIGIN", "https://xcelsior.ca")
+
+
+def _get_fido2_server():
+    from fido2.server import Fido2Server
+    from fido2.webauthn import PublicKeyCredentialRpEntity
+    rp = PublicKeyCredentialRpEntity(id=_WEBAUTHN_RP_ID, name=_WEBAUTHN_RP_NAME)
+    return Fido2Server(rp)
+
+
+def _b64url_encode(data: bytes) -> str:
+    return _b64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _b64url_decode(s: str) -> bytes:
+    padding = 4 - len(s) % 4
+    if padding != 4:
+        s += "=" * padding
+    return _b64.urlsafe_b64decode(s)
+
+
+def _webauthn_options_to_json(options) -> dict:
+    """Recursively convert WebAuthn options to JSON-safe dict (bytes → base64url)."""
+    if isinstance(options, bytes):
+        return _b64url_encode(options)
+    if isinstance(options, dict):
+        return {k: _webauthn_options_to_json(v) for k, v in options.items()}
+    if isinstance(options, (list, tuple)):
+        return [_webauthn_options_to_json(v) for v in options]
+    return options
+
+
+class PasskeyRegisterRequest(BaseModel):
+    device_name: str = "Security Key"
+
+
+@app.post("/api/auth/mfa/passkey/register-options", tags=["Auth – MFA"])
+def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Request):
+    """Generate WebAuthn registration options for adding a new passkey."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    from fido2.webauthn import PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor, PublicKeyCredentialType
+
+    server = _get_fido2_server()
+    user_entity = PublicKeyCredentialUserEntity(
+        id=user["user_id"].encode(),
+        name=user["email"],
+        display_name=user.get("name") or user["email"],
+    )
+
+    # Exclude existing passkeys
+    existing = MfaStore.list_methods(user["email"])
+    exclude_creds = []
+    for m in existing:
+        if m["method_type"] == "passkey" and m.get("credential_id"):
+            exclude_creds.append(
+                PublicKeyCredentialDescriptor(
+                    type=PublicKeyCredentialType.PUBLIC_KEY,
+                    id=_b64url_decode(m["credential_id"]),
+                )
+            )
+
+    options, state = server.register_begin(user_entity, exclude_creds)
+    options_dict = _webauthn_options_to_json(dict(options))
+
+    # Store state in challenge
+    state_id = f"passkey-reg:{secrets.token_urlsafe(16)}"
+    MfaStore.create_challenge({
+        "challenge_id": state_id,
+        "email": user["email"],
+        "challenge_data": json.dumps({
+            "state": _webauthn_options_to_json(state),
+            "device_name": req.device_name,
+        }),
+        "created_at": time.time(),
+        "expires_at": time.time() + 300,
+    })
+
+    return {"ok": True, "options": options_dict, "state_id": state_id}
+
+
+class PasskeyRegisterCompleteRequest(BaseModel):
+    state_id: str
+    credential: dict
+
+
+@app.post("/api/auth/mfa/passkey/register-complete", tags=["Auth – MFA"])
+def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, request: Request):
+    """Complete passkey registration with the browser's attestation response."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    challenge = MfaStore.get_challenge(req.state_id)
+    if not challenge or challenge["email"] != user["email"]:
+        raise HTTPException(400, "Invalid registration session")
+    if time.time() > challenge["expires_at"]:
+        MfaStore.delete_challenge(req.state_id)
+        raise HTTPException(400, "Registration session expired")
+
+    challenge_data = json.loads(challenge["challenge_data"])
+    stored_state = challenge_data["state"]
+    device_name = challenge_data.get("device_name", "Security Key")
+
+    # Reconstruct state with bytes
+    state = {
+        "challenge": _b64url_decode(stored_state["challenge"]),
+        "user_verification": stored_state.get("user_verification"),
+    }
+
+    # Reconstruct credential response with bytes
+    cred = req.credential
+    response_data = {
+        "id": cred["id"],
+        "rawId": _b64url_decode(cred["rawId"]),
+        "response": {
+            "clientDataJSON": _b64url_decode(cred["response"]["clientDataJSON"]),
+            "attestationObject": _b64url_decode(cred["response"]["attestationObject"]),
+        },
+        "type": cred.get("type", "public-key"),
+    }
+
+    server = _get_fido2_server()
+    try:
+        auth_data = server.register_complete(state, response_data)
+    except Exception as e:
+        log.warning("Passkey registration failed: %s", e)
+        raise HTTPException(400, "Passkey registration verification failed")
+
+    MfaStore.delete_challenge(req.state_id)
+
+    # Store credential
+    cred_data = auth_data.credential_data
+    credential_id_b64 = _b64url_encode(cred_data.credential_id)
+    public_key_b64 = _b64url_encode(bytes(cred_data))
+
+    method_id = MfaStore.create_method({
+        "email": user["email"],
+        "method_type": "passkey",
+        "credential_id": credential_id_b64,
+        "public_key": public_key_b64,
+        "sign_count": 0,
+        "device_name": device_name,
+        "enabled": 1,
+        "created_at": time.time(),
+    })
+    _refresh_mfa_enabled(user["email"])
+
+    # Generate backup codes if none exist
+    existing_codes = MfaStore.list_backup_codes(user["email"])
+    backup_codes = None
+    if not existing_codes:
+        backup_codes = _generate_backup_codes()
+        code_hashes = [_hash_backup_code(c) for c in backup_codes]
+        MfaStore.create_backup_codes(user["email"], code_hashes)
+
+    return {
+        "ok": True,
+        "message": "Passkey registered successfully",
+        "method_id": method_id,
+        "device_name": device_name,
+        "backup_codes": backup_codes,
+    }
+
+
+class PasskeyDeleteRequest(BaseModel):
+    method_id: int
+
+
+@app.post("/api/auth/mfa/passkey/delete", tags=["Auth – MFA"])
+def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
+    """Remove a registered passkey."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    method = MfaStore.get_method(req.method_id)
+    if not method or method["email"] != user["email"] or method["method_type"] != "passkey":
+        raise HTTPException(404, "Passkey not found")
+
+    MfaStore.delete_method(req.method_id, user["email"])
+    _refresh_mfa_enabled(user["email"])
+    return {"ok": True, "message": "Passkey removed"}
+
+
+class PasskeyAuthenticateOptionsRequest(BaseModel):
+    challenge_id: str
+
+
+@app.post("/api/auth/mfa/passkey/authenticate-options", tags=["Auth – MFA"])
+def api_mfa_passkey_authenticate_options(req: PasskeyAuthenticateOptionsRequest):
+    """Generate WebAuthn authentication options during login MFA challenge."""
+    challenge = MfaStore.get_challenge(req.challenge_id)
+    if not challenge:
+        raise HTTPException(400, "Invalid MFA challenge")
+    if time.time() > challenge["expires_at"]:
+        MfaStore.delete_challenge(req.challenge_id)
+        raise HTTPException(400, "MFA challenge expired")
+
+    email = challenge["email"]
+    from fido2.webauthn import PublicKeyCredentialDescriptor, PublicKeyCredentialType
+
+    methods = MfaStore.list_methods(email)
+    allow_creds = []
+    for m in methods:
+        if m["method_type"] == "passkey" and m.get("enabled") and m.get("credential_id"):
+            allow_creds.append(
+                PublicKeyCredentialDescriptor(
+                    type=PublicKeyCredentialType.PUBLIC_KEY,
+                    id=_b64url_decode(m["credential_id"]),
+                )
+            )
+
+    if not allow_creds:
+        raise HTTPException(400, "No passkeys registered")
+
+    server = _get_fido2_server()
+    options, state = server.authenticate_begin(allow_creds)
+    options_dict = _webauthn_options_to_json(dict(options))
+
+    # Store WebAuthn state
+    state_id = f"passkey-auth:{secrets.token_urlsafe(16)}"
+    MfaStore.create_challenge({
+        "challenge_id": state_id,
+        "email": email,
+        "challenge_data": json.dumps({
+            "state": _webauthn_options_to_json(state),
+            "login_challenge_id": req.challenge_id,
+        }),
+        "created_at": time.time(),
+        "expires_at": time.time() + 300,
+    })
+
+    return {"ok": True, "options": options_dict, "state_id": state_id}
+
+
+class PasskeyAuthenticateCompleteRequest(BaseModel):
+    state_id: str
+    credential: dict
+
+
+@app.post("/api/auth/mfa/passkey/authenticate-complete", tags=["Auth – MFA"])
+def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteRequest):
+    """Verify passkey authentication to complete MFA login."""
+    challenge = MfaStore.get_challenge(req.state_id)
+    if not challenge:
+        raise HTTPException(400, "Invalid authentication session")
+    if time.time() > challenge["expires_at"]:
+        MfaStore.delete_challenge(req.state_id)
+        raise HTTPException(400, "Authentication session expired")
+
+    challenge_data = json.loads(challenge["challenge_data"])
+    stored_state = challenge_data["state"]
+    login_challenge_id = challenge_data["login_challenge_id"]
+    email = challenge["email"]
+
+    # Verify the login challenge is still valid
+    login_challenge = MfaStore.get_challenge(login_challenge_id)
+    if not login_challenge or login_challenge["email"] != email:
+        raise HTTPException(400, "Invalid MFA login challenge")
+
+    # Reconstruct state
+    state = {
+        "challenge": _b64url_decode(stored_state["challenge"]),
+        "user_verification": stored_state.get("user_verification"),
+    }
+
+    # Reconstruct credential response
+    cred = req.credential
+    response_data = {
+        "id": cred["id"],
+        "rawId": _b64url_decode(cred["rawId"]),
+        "response": {
+            "authenticatorData": _b64url_decode(cred["response"]["authenticatorData"]),
+            "clientDataJSON": _b64url_decode(cred["response"]["clientDataJSON"]),
+            "signature": _b64url_decode(cred["response"]["signature"]),
+        },
+        "type": cred.get("type", "public-key"),
+    }
+    if cred["response"].get("userHandle"):
+        response_data["response"]["userHandle"] = _b64url_decode(cred["response"]["userHandle"])
+
+    # Reconstruct stored credentials for verification
+    from fido2.webauthn import AttestedCredentialData
+
+    methods = MfaStore.list_methods(email)
+    stored_creds = []
+    for m in methods:
+        if m["method_type"] == "passkey" and m.get("enabled") and m.get("public_key"):
+            stored_creds.append(AttestedCredentialData(_b64url_decode(m["public_key"])))
+
+    if not stored_creds:
+        raise HTTPException(400, "No passkeys found")
+
+    server = _get_fido2_server()
+    try:
+        result = server.authenticate_complete(state, stored_creds, response_data)
+    except Exception as e:
+        log.warning("Passkey authentication failed: %s", e)
+        raise HTTPException(400, "Passkey authentication failed")
+
+    MfaStore.delete_challenge(req.state_id)
+
+    # Update sign count for the matched credential
+    authenticated_cred_id = _b64url_encode(result.credential_id)
+    passkey_method = MfaStore.get_passkey_by_credential(authenticated_cred_id)
+    if passkey_method:
+        MfaStore.update_passkey_sign_count(passkey_method["id"], passkey_method["sign_count"] + 1)
+
+    return _complete_mfa_login(email, login_challenge_id)
 
 
 # ── MFA: Login verification ──
@@ -3379,19 +3719,22 @@ def api_mfa_sms_send_login(req: MfaSendSmsRequest):
         "expires_at": time.time() + 600,
     })
 
-    # Send code via email for now
-    user = UserStore.get_user(email)
-    if user:
-        _send_team_email(
-            to_email=email,
-            subject="Your Xcelsior login code",
-            body_text=f"Your login verification code is: {code}\n\nThis code expires in 10 minutes.",
-            cta_url=None,
-            cta_label="",
-        )
-
+    # Send SMS (try Twilio first, fall back to email)
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Code sent", "test_code": code}
+
+    sms_sent = _send_sms(method.get("phone_number", ""), f"Your Xcelsior login code is: {code}")
+    if not sms_sent:
+        user = UserStore.get_user(email)
+        if user:
+            _send_team_email(
+                to_email=email,
+                subject="Your Xcelsior login code",
+                body_text=f"Your login verification code is: {code}\n\nThis code expires in 10 minutes.",
+                cta_url=None,
+                cta_label="",
+            )
+
     return {"ok": True, "message": "Code sent"}
 
 

@@ -1253,6 +1253,25 @@ class MfaStore:
                 (email, method_type),
             )
 
+    # ── Passkey helpers ──
+
+    @staticmethod
+    def get_passkey_by_credential(credential_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_methods WHERE credential_id = %s AND method_type = 'passkey' AND enabled = 1",
+                (credential_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def update_passkey_sign_count(method_id: int, sign_count: int) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE mfa_methods SET sign_count = %s WHERE id = %s",
+                (sign_count, method_id),
+            )
+
     # ── Backup Codes ──
 
     @staticmethod
