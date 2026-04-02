@@ -10,7 +10,7 @@ import { StatusBadge, Badge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
-  Copy, Globe, Container, Square,
+  Copy, Globe, Container, Square, Loader2,
 } from "lucide-react";
 import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
 import type { Instance } from "@/lib/api";
@@ -392,10 +392,22 @@ export default function InstanceDetailPage() {
         <div className="flex items-center gap-2 mb-3">
           <Terminal className="h-4 w-4 text-text-muted" />
           <h2 className="text-sm font-semibold text-text-secondary">{t("dash.instances.logs")}</h2>
+          {instance.status === "queued" && (
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-accent-gold">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Waiting for assignment…
+            </span>
+          )}
+          {instance.status === "assigned" && (
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Setting up instance…
+            </span>
+          )}
         </div>
         <LogViewer
           jobId={id}
-          live={instance.status === "running" || instance.status === "assigned"}
+          live={instance.status === "running" || instance.status === "assigned" || instance.status === "queued"}
         />
       </Card>
 

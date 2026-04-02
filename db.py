@@ -742,6 +742,7 @@ class UserStore:
             "notifications_enabled",
             "canada_only_routing",
             "preferences",
+            "mfa_enabled",
         }
         fields = {k: v for k, v in updates.items() if k in allowed}
         if not fields:
@@ -1174,3 +1175,154 @@ def start_pg_listen(callback, channel="xcelsior_events"):
     t = threading.Thread(target=_listen_loop, daemon=True, name="pg-listen")
     t.start()
     return t
+
+
+# ────────────────────────────────────────────────────────────────────
+# MFA Store
+# ────────────────────────────────────────────────────────────────────
+
+class MfaStore:
+    """MFA methods, backup codes, and challenges backed by PostgreSQL."""
+
+    # ── Methods ──
+
+    @staticmethod
+    def list_methods(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM mfa_methods WHERE email = %s ORDER BY created_at",
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def get_method(method_id: int) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_methods WHERE id = %s", (method_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def get_method_by_type(email: str, method_type: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_methods WHERE email = %s AND method_type = %s AND enabled = 1",
+                (email, method_type),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def create_method(data: dict) -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO mfa_methods (email, method_type, secret, phone_number,
+                    credential_id, public_key, sign_count, device_name, enabled, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    data["email"],
+                    data["method_type"],
+                    data.get("secret"),
+                    data.get("phone_number"),
+                    data.get("credential_id"),
+                    data.get("public_key"),
+                    data.get("sign_count", 0),
+                    data.get("device_name"),
+                    data.get("enabled", 1),
+                    data.get("created_at", time.time()),
+                ),
+            ).fetchone()
+            return row["id"]
+
+    @staticmethod
+    def delete_method(method_id: int, email: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM mfa_methods WHERE id = %s AND email = %s",
+                (method_id, email),
+            )
+
+    @staticmethod
+    def delete_methods_by_type(email: str, method_type: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM mfa_methods WHERE email = %s AND method_type = %s",
+                (email, method_type),
+            )
+
+    # ── Backup Codes ──
+
+    @staticmethod
+    def list_backup_codes(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM mfa_backup_codes WHERE email = %s ORDER BY id",
+                (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def create_backup_codes(email: str, code_hashes: list[str]) -> None:
+        now = time.time()
+        with auth_connection() as conn:
+            # Delete old codes
+            conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (email,))
+            for h in code_hashes:
+                conn.execute(
+                    "INSERT INTO mfa_backup_codes (email, code_hash, used, created_at) VALUES (%s, %s, 0, %s)",
+                    (email, h, now),
+                )
+
+    @staticmethod
+    def use_backup_code(email: str, code_hash: str) -> bool:
+        """Mark a backup code as used. Returns True if a valid unused code was found."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM mfa_backup_codes WHERE email = %s AND code_hash = %s AND used = 0",
+                (email, code_hash),
+            ).fetchone()
+            if not row:
+                return False
+            conn.execute("UPDATE mfa_backup_codes SET used = 1 WHERE id = %s", (row["id"],))
+            return True
+
+    # ── Challenges ──
+
+    @staticmethod
+    def create_challenge(data: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO mfa_challenges (challenge_id, email, session_token, challenge_data, created_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    data["challenge_id"],
+                    data["email"],
+                    data.get("session_token"),
+                    data.get("challenge_data"),
+                    data.get("created_at", time.time()),
+                    data["expires_at"],
+                ),
+            )
+
+    @staticmethod
+    def get_challenge(challenge_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM mfa_challenges WHERE challenge_id = %s", (challenge_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def delete_challenge(challenge_id: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM mfa_challenges WHERE challenge_id = %s", (challenge_id,))
+
+    @staticmethod
+    def cleanup_expired_challenges() -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM mfa_challenges WHERE expires_at < %s", (time.time(),))

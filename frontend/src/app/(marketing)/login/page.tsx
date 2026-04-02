@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { login as apiLogin, oauthInitiate } from "@/lib/api";
+import { Eye, EyeOff, Loader2, Shield } from "lucide-react";
+import { login as apiLogin, oauthInitiate, verifyMfaLogin, sendMfaSms } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 
@@ -16,8 +17,18 @@ export default function LoginPage() {
   const { t } = useLocale();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // MFA state
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaChallengeId, setMfaChallengeId] = useState("");
+  const [mfaMethods, setMfaMethods] = useState<string[]>([]);
+  const [mfaMethod, setMfaMethod] = useState<"totp" | "sms" | "backup">("totp");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaVerifying, setMfaVerifying] = useState(false);
+  const [smsSent, setSmsSent] = useState(false);
 
   // If already authenticated, redirect to dashboard
   if (!authLoading && user) {
@@ -30,13 +41,48 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await apiLogin(email, password);
+      const res = await apiLogin(email, password);
+      // Check if MFA is required
+      if (res.mfa_required) {
+        setMfaRequired(true);
+        setMfaChallengeId(res.challenge_id || "");
+        setMfaMethods(res.methods || []);
+        // Default to first available method
+        if (res.methods?.includes("totp")) setMfaMethod("totp");
+        else if (res.methods?.includes("sms")) setMfaMethod("sms");
+        else setMfaMethod("backup");
+        return;
+      }
       await login();
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleMfaVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setMfaVerifying(true);
+    try {
+      await verifyMfaLogin(mfaChallengeId, mfaMethod, mfaCode);
+      await login();
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verification failed");
+    } finally {
+      setMfaVerifying(false);
+    }
+  }
+
+  async function handleSendSms() {
+    try {
+      await sendMfaSms(mfaChallengeId);
+      setSmsSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send SMS");
     }
   }
 
@@ -52,6 +98,85 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md p-8">
+        {mfaRequired ? (
+          /* ── MFA Challenge ── */
+          <>
+            <div className="mb-8 text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-ice-blue/10">
+                <Shield className="h-6 w-6 text-ice-blue" />
+              </div>
+              <h1 className="text-2xl font-bold">{t("auth.mfa_title")}</h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                {t("auth.mfa_subtitle")}
+              </p>
+            </div>
+
+            {/* Method selector tabs */}
+            <div className="flex gap-1 mb-6 rounded-lg bg-surface p-1">
+              {mfaMethods.includes("totp") && (
+                <button
+                  onClick={() => { setMfaMethod("totp"); setMfaCode(""); setError(""); }}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "totp" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                >
+                  {t("auth.mfa_totp_label")}
+                </button>
+              )}
+              {mfaMethods.includes("sms") && (
+                <button
+                  onClick={() => { setMfaMethod("sms"); setMfaCode(""); setError(""); setSmsSent(false); }}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "sms" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+                >
+                  {t("auth.mfa_sms_label")}
+                </button>
+              )}
+              <button
+                onClick={() => { setMfaMethod("backup"); setMfaCode(""); setError(""); }}
+                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "backup" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+              >
+                {t("auth.mfa_backup_label")}
+              </button>
+            </div>
+
+            <form onSubmit={handleMfaVerify} className="space-y-4">
+              {error && (
+                <div className="rounded-lg bg-accent-red/10 border border-accent-red/30 p-3 text-sm text-accent-red">
+                  {error}
+                </div>
+              )}
+
+              {mfaMethod === "sms" && !smsSent && (
+                <Button type="button" variant="outline" className="w-full" onClick={handleSendSms}>
+                  {t("auth.mfa_send_sms")}
+                </Button>
+              )}
+
+              <div className="space-y-2">
+                <Label>{mfaMethod === "backup" ? t("auth.mfa_backup_label") : t("auth.mfa_code_placeholder")}</Label>
+                <Input
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(mfaMethod === "backup" ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder={mfaMethod === "backup" ? "XXXX-XXXX" : "000000"}
+                  className="font-mono text-center text-lg tracking-widest"
+                  maxLength={mfaMethod === "backup" ? 9 : 6}
+                  autoFocus
+                />
+              </div>
+
+              <Button type="submit" className="w-full" disabled={mfaVerifying || !mfaCode}>
+                {mfaVerifying ? <><Loader2 className="h-4 w-4 animate-spin" /> {t("auth.mfa_verifying")}</> : t("auth.mfa_verify")}
+              </Button>
+            </form>
+
+            <button
+              onClick={() => { setMfaRequired(false); setMfaCode(""); setError(""); }}
+              className="mt-4 block w-full text-center text-sm text-text-muted hover:text-text-primary"
+            >
+              ← {t("auth.login_title")}
+            </button>
+          </>
+        ) : (
+        /* ── Normal Login ── */
+        <>
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-accent-red">
             <span className="text-2xl font-bold text-white">X</span>
@@ -127,13 +252,23 @@ export default function LoginPage() {
                 {t("auth.forgot_link")}
               </Link>
             </div>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(!showPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                tabIndex={-1}
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? t("auth.login_loading") : t("auth.login_button")}
@@ -146,6 +281,8 @@ export default function LoginPage() {
             {t("auth.login_signup_link")}
           </Link>
         </p>
+        </>
+        )}
       </Card>
     </div>
   );

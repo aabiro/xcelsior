@@ -46,6 +46,10 @@ rich>=13.7.0
 # ── Security ──────────────────────────────────────────────────────────
 cryptography>=42.0.0
 
+# ── Two-Factor Authentication ─────────────────────────────────────────
+pyotp>=2.9.0
+qrcode[pil]>=7.4.0
+
 # ── Observability — OpenTelemetry ─────────────────────────────────────
 opentelemetry-api>=1.25.0
 opentelemetry-sdk>=1.25.0
