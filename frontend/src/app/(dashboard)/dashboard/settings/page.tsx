@@ -16,6 +16,7 @@ import type { ApiKeyInfo, ConsentRecord, TeamInfo, TeamMember, UserSshKey } from
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { COUNTRY_CODES } from "@/lib/country-codes";
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -96,6 +97,11 @@ export default function SettingsPage() {
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [deletingTeam, setDeletingTeam] = useState(false);
   const [deleteTeamConfirm, setDeleteTeamConfirm] = useState(false);
+
+  // Sessions
+  const [sessions, setSessions] = useState<api.SessionInfo[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [revokingSession, setRevokingSession] = useState<string | null>(null);
 
   const loadTeams = useCallback(async () => {
     try {
@@ -222,6 +228,9 @@ export default function SettingsPage() {
 
     // Load MFA status
     loadMfa();
+
+    // Load sessions
+    loadSessions();
   }, [userId, loadTeams]);
 
   const loadMfa = useCallback(async () => {
@@ -232,6 +241,28 @@ export default function SettingsPage() {
       setMfaBackupRemaining(res.backup_codes_remaining || 0);
     } catch { /* MFA not available yet */ }
   }, []);
+
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const res = await api.fetchSessions();
+      setSessions(res.sessions || []);
+    } catch { /* sessions not available yet */ }
+    finally { setSessionsLoading(false); }
+  }, []);
+
+  const handleRevokeSession = async (tokenPrefix: string) => {
+    setRevokingSession(tokenPrefix);
+    try {
+      await api.revokeSession(tokenPrefix);
+      toast.success(t("dash.settings.session_revoked"));
+      loadSessions();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to revoke session");
+    } finally {
+      setRevokingSession(null);
+    }
+  };
 
   // ── Profile Save ──
   const handleSave = async () => {
@@ -937,36 +968,11 @@ export default function SettingsPage() {
                         onChange={(e) => setSmsCountryCode(e.target.value)}
                         className="rounded-md border border-border bg-background px-2 py-1.5 text-sm min-w-[100px]"
                       >
-                        <option value="+1">🇨🇦 +1</option>
-                        <option value="+1">🇺🇸 +1</option>
-                        <option value="+44">🇬🇧 +44</option>
-                        <option value="+33">🇫🇷 +33</option>
-                        <option value="+49">🇩🇪 +49</option>
-                        <option value="+61">🇦🇺 +61</option>
-                        <option value="+81">🇯🇵 +81</option>
-                        <option value="+82">🇰🇷 +82</option>
-                        <option value="+86">🇨🇳 +86</option>
-                        <option value="+91">🇮🇳 +91</option>
-                        <option value="+55">🇧🇷 +55</option>
-                        <option value="+52">🇲🇽 +52</option>
-                        <option value="+39">🇮🇹 +39</option>
-                        <option value="+34">🇪🇸 +34</option>
-                        <option value="+31">🇳🇱 +31</option>
-                        <option value="+46">🇸🇪 +46</option>
-                        <option value="+47">🇳🇴 +47</option>
-                        <option value="+41">🇨🇭 +41</option>
-                        <option value="+65">🇸🇬 +65</option>
-                        <option value="+972">🇮🇱 +972</option>
-                        <option value="+971">🇦🇪 +971</option>
-                        <option value="+64">🇳🇿 +64</option>
-                        <option value="+48">🇵🇱 +48</option>
-                        <option value="+351">🇵🇹 +351</option>
-                        <option value="+353">🇮🇪 +353</option>
-                        <option value="+354">🇮🇸 +354</option>
-                        <option value="+358">🇫🇮 +358</option>
-                        <option value="+45">🇩🇰 +45</option>
-                        <option value="+43">🇦🇹 +43</option>
-                        <option value="+32">🇧🇪 +32</option>
+                        {COUNTRY_CODES.map((c) => (
+                          <option key={`${c.code}-${c.name}`} value={c.code}>
+                            {c.flag} {c.code}
+                          </option>
+                        ))}
                       </select>
                       <Input
                         type="tel"
@@ -1268,6 +1274,60 @@ export default function SettingsPage() {
                 </div>
               )}
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Active Sessions ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4" /> {t("dash.settings.sessions_title")}</CardTitle>
+          <CardDescription>{t("dash.settings.sessions_desc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {sessionsLoading ? (
+            <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-text-muted">{t("dash.settings.sessions_none")}</p>
+          ) : (
+            sessions.map((s) => {
+              const ua = s.user_agent || "";
+              const browser = ua.match(/Chrome|Firefox|Safari|Edge|Opera/)?.[0] || "Unknown browser";
+              const os = ua.match(/Windows|Mac OS|Linux|Android|iOS/)?.[0] || "Unknown OS";
+              const lastActive = s.last_active ? new Date(s.last_active * 1000).toLocaleString() : "—";
+              return (
+                <div key={s.token_prefix} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div className="space-y-0.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{browser} on {os}</p>
+                      {s.is_current && (
+                        <span className="shrink-0 rounded bg-green-500/20 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
+                          {t("dash.settings.sessions_current")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-muted">
+                      {s.ip_address || "Unknown IP"} · {t("dash.settings.sessions_last_active")} {lastActive}
+                    </p>
+                  </div>
+                  {!s.is_current && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-3 shrink-0 text-accent-red border-accent-red/30 hover:bg-accent-red/10"
+                      onClick={() => handleRevokeSession(s.token_prefix)}
+                      disabled={revokingSession === s.token_prefix}
+                    >
+                      {revokingSession === s.token_prefix ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        t("dash.settings.sessions_revoke")
+                      )}
+                    </Button>
+                  )}
+                </div>
+              );
+            })
           )}
         </CardContent>
       </Card>

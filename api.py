@@ -593,6 +593,11 @@ RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
 RATE_LIMIT_WINDOW_SEC = int(os.environ.get("XCELSIOR_RATE_LIMIT_WINDOW_SEC", "60"))
 _RATE_BUCKETS = defaultdict(deque)
 
+# Stricter auth-specific rate limiting: 10 attempts per 5 minutes per IP
+_AUTH_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "10"))
+_AUTH_RATE_LIMIT_WINDOW_SEC = 300
+_AUTH_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+
 
 # ── Phase 13: API Token Auth ─────────────────────────────────────────
 
@@ -715,6 +720,18 @@ def _get_real_client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def _check_auth_rate_limit(request: Request) -> None:
+    """Enforce stricter rate limiting on auth endpoints. Raises 429 if exceeded."""
+    now = time.time()
+    client_ip = _get_real_client_ip(request)
+    bucket = _AUTH_RATE_BUCKETS[client_ip]
+    while bucket and bucket[0] <= now - _AUTH_RATE_LIMIT_WINDOW_SEC:
+        bucket.popleft()
+    if len(bucket) >= _AUTH_RATE_LIMIT_REQUESTS:
+        raise HTTPException(429, "Too many attempts. Please try again later.")
+    bucket.append(now)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -2113,17 +2130,21 @@ def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     return hashed, salt
 
 
-def _create_session(email: str, user: dict) -> dict:
+def _create_session(email: str, user: dict, request: Request | None = None) -> dict:
     """Create a session token for a user."""
     token = secrets.token_urlsafe(48)
+    now = time.time()
     session = {
         "token": token,
         "email": email,
         "user_id": user.get("user_id", email),
         "role": user.get("role", "submitter"),
         "name": user.get("name", ""),
-        "created_at": time.time(),
-        "expires_at": time.time() + SESSION_EXPIRY,
+        "created_at": now,
+        "expires_at": now + SESSION_EXPIRY,
+        "ip_address": _get_real_client_ip(request) if request else None,
+        "user_agent": request.headers.get("user-agent", "")[:512] if request else None,
+        "last_active": now,
     }
     if _USE_PERSISTENT_AUTH:
         UserStore.create_session(session)
@@ -2146,6 +2167,13 @@ def _get_current_user(request: Request) -> dict | None:
     if _USE_PERSISTENT_AUTH:
         session = UserStore.get_session(token)
         if session:
+            # Update last_active periodically (every 5 minutes to reduce DB writes)
+            try:
+                last = session.get("last_active") or 0
+                if time.time() - last > 300:
+                    UserStore.update_session_last_active(token)
+            except Exception:
+                pass
             return dict(session)
         api_key = UserStore.get_api_key(token)
         if api_key:
@@ -2207,12 +2235,13 @@ class ProfileUpdateRequest(BaseModel):
 
 
 @app.post("/api/auth/register", tags=["Auth"])
-def api_auth_register(body: RegisterRequest):
+def api_auth_register(body: RegisterRequest, request: Request):
     """Register a new user with email and password.
 
-    Creates an account and returns a session token for immediate use.
-    Password is hashed with PBKDF2-HMAC-SHA256 + random 16-byte salt.
+    Creates an account and sends a verification email. The user must verify
+    their email before they can log in.
     """
+    _check_auth_rate_limit(request)
     email = body.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(400, "Invalid email address")
@@ -2231,6 +2260,10 @@ def api_auth_register(body: RegisterRequest):
     user_id = f"user-{uuid.uuid4().hex[:12]}"
     customer_id = f"cust-{uuid.uuid4().hex[:8]}"
 
+    # Generate email verification token
+    verification_token = secrets.token_urlsafe(32)
+    verification_expires = time.time() + 86400  # 24 hours
+
     user = {
         "user_id": user_id,
         "email": email,
@@ -2247,7 +2280,16 @@ def api_auth_register(body: RegisterRequest):
 
     if _USE_PERSISTENT_AUTH:
         UserStore.create_user(user)
+        # Set verification fields
+        UserStore.update_user(email, {
+            "email_verified": 0,
+            "email_verification_token": verification_token,
+            "email_verification_expires": verification_expires,
+        })
     else:
+        user["email_verified"] = 0
+        user["email_verification_token"] = verification_token
+        user["email_verification_expires"] = verification_expires
         with _user_lock:
             _users_db[email] = user
 
@@ -2258,7 +2300,6 @@ def api_auth_register(body: RegisterRequest):
     except Exception:
         pass
 
-    session = _create_session(email, user)
     broadcast_sse("user_registered", {"email": email, "user_id": user_id})
 
     # Welcome notification for the new user
@@ -2266,55 +2307,68 @@ def api_auth_register(body: RegisterRequest):
         NotificationStore.create(
             email, "system",
             "Welcome to Xcelsior!",
-            "Your account is ready. Launch your first GPU instance or register a host to start earning.",
+            "Your account is ready. Please verify your email to get started.",
             {"user_id": user_id},
         )
     except Exception:
         pass
 
-    # Welcome email
+    # Send verification email
+    base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    verify_url = f"{base_url}/verify-email?token={verification_token}"
     try:
         display_name = user["name"]
         _send_team_email(
             email,
-            f"Welcome to Xcelsior, {display_name}!",
+            f"Verify your email, {display_name}",
             f"Hi {display_name},\n\n"
             "Thanks for signing up for Xcelsior — Canada's sovereign GPU compute marketplace.\n\n"
-            "Your account is active and ready to go. From your dashboard you can browse available GPU hosts, "
-            "launch compute instances, and track your usage — all billed in CAD with full Canadian data residency.\n\n"
-            "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
-            "We'd love to hear from you.",
-            cta_url="https://xcelsior.ca/dashboard",
-            cta_label="Go to Dashboard",
+            "Please verify your email address by clicking the button below. This link expires in 24 hours.\n\n"
+            f"{verify_url}\n\n"
+            "If you didn't create this account, you can safely ignore this email.",
+            cta_url=verify_url,
+            cta_label="Verify Email",
         )
     except Exception:
         pass
 
-    body = {
+    # In test mode, auto-verify and return session (no email service)
+    if XCELSIOR_ENV == "test":
+        if _USE_PERSISTENT_AUTH:
+            UserStore.update_user(email, {"email_verified": 1, "email_verification_token": None, "email_verification_expires": None})
+        else:
+            with _user_lock:
+                if email in _users_db:
+                    _users_db[email]["email_verified"] = 1
+        session = _create_session(email, user, request)
+        return {
+            "ok": True,
+            "access_token": session["token"],
+            "token_type": "Bearer",
+            "user": {
+                "email": email,
+                "name": user["name"],
+                "role": user.get("role", "submitter"),
+                "user_id": user["user_id"],
+                "customer_id": user["customer_id"],
+            },
+        }
+
+    return JSONResponse(content={
         "ok": True,
-        "access_token": session["token"],
-        "token_type": "Bearer",
-        "expires_in": SESSION_EXPIRY,
-        "user": {
-            "user_id": user_id,
-            "email": email,
-            "name": user["name"],
-            "role": user["role"],
-            "customer_id": customer_id,
-        },
-    }
-    resp = JSONResponse(content=body)
-    _set_auth_cookie(resp, session["token"])
-    return resp
+        "email_verification_required": True,
+        "message": "Account created. Please check your email to verify your address.",
+    })
 
 
 @app.post("/api/auth/login", tags=["Auth"])
-def api_auth_login(body: LoginRequest):
+def api_auth_login(body: LoginRequest, request: Request):
     """Authenticate with email and password.
 
     Returns a Bearer token valid for 30 days.
     If MFA is enabled, returns mfa_required=True with a challenge_id instead.
     """
+    _check_auth_rate_limit(request)
     email = body.email.strip().lower()
 
     if _USE_PERSISTENT_AUTH:
@@ -2329,6 +2383,15 @@ def api_auth_login(body: LoginRequest):
     password_hash, _ = _hash_password(body.password, user["salt"])
     if not hmac.compare_digest(password_hash, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+
+    # Check email verification
+    if not user.get("email_verified"):
+        return JSONResponse(status_code=403, content={
+            "ok": False,
+            "email_verification_required": True,
+            "email": email,
+            "error": {"code": "email_not_verified", "message": "Please verify your email address before logging in."},
+        })
 
     # ── MFA check ──
     if _USE_PERSISTENT_AUTH and user.get("mfa_enabled"):
@@ -2352,7 +2415,7 @@ def api_auth_login(body: LoginRequest):
                 "methods": [m["method_type"] for m in enabled_methods],
             })
 
-    session = _create_session(email, user)
+    session = _create_session(email, user, request)
 
     # Ensure a welcome notification exists (checks ALL notifications, not just unread,
     # so marking-all-read won't re-trigger on next login)
@@ -2551,7 +2614,10 @@ def api_auth_oauth_callback(provider: str, request: Request):
         }
         if _USE_PERSISTENT_AUTH:
             UserStore.create_user(user)
+            # OAuth users are auto-verified (provider verified their email)
+            UserStore.update_user(email, {"email_verified": 1})
         else:
+            user["email_verified"] = 1
             with _user_lock:
                 _users_db[email] = user
     else:
@@ -2559,7 +2625,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
         if not user.get("name") and name:
             user["name"] = name
 
-    session = _create_session(email, user)
+    session = _create_session(email, user, request)
 
     # Ensure welcome notification exists
     try:
@@ -2847,8 +2913,9 @@ class PasswordResetRequest(BaseModel):
 
 
 @app.post("/api/auth/password-reset", tags=["Auth"])
-def api_auth_password_reset(req: PasswordResetRequest):
+def api_auth_password_reset(req: PasswordResetRequest, request: Request):
     """Initiate a password reset. Sends email with reset link."""
+    _check_auth_rate_limit(request)
     reset_token = None
     if _USE_PERSISTENT_AUTH:
         user = UserStore.get_user(req.email)
@@ -2901,8 +2968,9 @@ class PasswordResetConfirm(BaseModel):
 
 
 @app.post("/api/auth/password-reset/confirm", tags=["Auth"])
-def api_auth_password_reset_confirm(req: PasswordResetConfirm):
+def api_auth_password_reset_confirm(req: PasswordResetConfirm, request: Request):
     """Confirm password reset with token and set new password."""
+    _check_auth_rate_limit(request)
     if len(req.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
 
@@ -3007,7 +3075,7 @@ def _generate_backup_codes(count: int = 10) -> list[str]:
     return codes
 
 
-def _complete_mfa_login(email: str, challenge_id: str) -> JSONResponse:
+def _complete_mfa_login(email: str, challenge_id: str, request: Request | None = None) -> JSONResponse:
     """Complete login after successful MFA verification."""
     challenge = MfaStore.get_challenge(challenge_id)
     if not challenge or challenge["email"] != email:
@@ -3022,7 +3090,7 @@ def _complete_mfa_login(email: str, challenge_id: str) -> JSONResponse:
     if not user:
         raise HTTPException(400, "User not found")
 
-    session = _create_session(email, user)
+    session = _create_session(email, user, request)
     body = {
         "ok": True,
         "access_token": session["token"],
@@ -3049,22 +3117,21 @@ def _refresh_mfa_enabled(email: str) -> None:
     UserStore.update_user(email, {"mfa_enabled": 1 if enabled else 0})
 
 
-def _send_sms(phone_number: str, message: str) -> bool:
-    """Send a real SMS via Twilio.  Falls back to email if Twilio is not configured."""
+def _send_sms(phone_number: str, message: str) -> None:
+    """Send an SMS via Twilio. Raises on failure."""
+    from twilio.rest import Client
     sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     from_phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
     if not sid or not token or not from_phone:
-        return False
+        raise HTTPException(500, "SMS service is not configured")
     try:
-        from twilio.rest import Client
         client = Client(sid, token)
         client.messages.create(body=message, from_=from_phone, to=phone_number)
         log.info("SMS sent to %s", phone_number[-4:])
-        return True
     except Exception as e:
-        log.warning("SMS send failed to %s: %s", phone_number[-4:], e)
-        return False
+        log.error("SMS send failed to %s: %s", phone_number[-4:], e)
+        raise HTTPException(502, "Failed to send SMS. Please try again.")
 
 
 # ── MFA: List methods ──
@@ -3233,21 +3300,10 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
         "expires_at": time.time() + 600,
     })
 
-    # Send SMS via email (best-effort) or log in dev
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Verification code sent", "test_code": code}
 
-    # Try real SMS first, fall back to email
-    sms_sent = _send_sms(phone, f"Your Xcelsior verification code is: {code}")
-    if not sms_sent:
-        _send_team_email(
-            to_email=user["email"],
-            subject="Your Xcelsior SMS verification code",
-            body_text=f"Your SMS verification code is: {code}\n\nThis code expires in 10 minutes.",
-            cta_url=None,
-            cta_label="",
-        )
-
+    _send_sms(phone, f"Your Xcelsior verification code is: {code}")
     return {"ok": True, "message": "Verification code sent"}
 
 
@@ -3560,7 +3616,7 @@ class PasskeyAuthenticateCompleteRequest(BaseModel):
 
 
 @app.post("/api/auth/mfa/passkey/authenticate-complete", tags=["Auth – MFA"])
-def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteRequest):
+def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteRequest, request: Request):
     """Verify passkey authentication to complete MFA login."""
     challenge = MfaStore.get_challenge(req.state_id)
     if not challenge:
@@ -3627,7 +3683,7 @@ def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteReques
     if passkey_method:
         MfaStore.update_passkey_sign_count(passkey_method["id"], passkey_method["sign_count"] + 1)
 
-    return _complete_mfa_login(email, login_challenge_id)
+    return _complete_mfa_login(email, login_challenge_id, request)
 
 
 # ── MFA: Login verification ──
@@ -3639,8 +3695,9 @@ class MfaVerifyLogin(BaseModel):
 
 
 @app.post("/api/auth/mfa/verify", tags=["Auth – MFA"])
-def api_mfa_verify_login(req: MfaVerifyLogin):
+def api_mfa_verify_login(req: MfaVerifyLogin, request: Request):
     """Verify MFA code during login to complete authentication."""
+    _check_auth_rate_limit(request)
     challenge = MfaStore.get_challenge(req.challenge_id)
     if not challenge:
         raise HTTPException(400, "Invalid MFA challenge")
@@ -3656,7 +3713,7 @@ def api_mfa_verify_login(req: MfaVerifyLogin):
             raise HTTPException(400, "TOTP not configured")
         if not _verify_totp_code(method["secret"], req.code):
             raise HTTPException(400, "Invalid code")
-        return _complete_mfa_login(email, req.challenge_id)
+        return _complete_mfa_login(email, req.challenge_id, request)
 
     elif req.method == "sms":
         # For login SMS verification, generate and send code
@@ -3676,13 +3733,13 @@ def api_mfa_verify_login(req: MfaVerifyLogin):
         if _hash_backup_code(req.code) != pending_data["code_hash"]:
             raise HTTPException(400, "Invalid code")
         MfaStore.delete_challenge(sms_login_id)
-        return _complete_mfa_login(email, req.challenge_id)
+        return _complete_mfa_login(email, req.challenge_id, request)
 
     elif req.method == "backup":
         code_hash = _hash_backup_code(req.code)
         if not MfaStore.use_backup_code(email, code_hash):
             raise HTTPException(400, "Invalid backup code")
-        return _complete_mfa_login(email, req.challenge_id)
+        return _complete_mfa_login(email, req.challenge_id, request)
 
     else:
         raise HTTPException(400, f"Unsupported MFA method: {req.method}")
@@ -3693,8 +3750,9 @@ class MfaSendSmsRequest(BaseModel):
 
 
 @app.post("/api/auth/mfa/sms/send", tags=["Auth – MFA"])
-def api_mfa_sms_send_login(req: MfaSendSmsRequest):
+def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
     """Send an SMS verification code during MFA login challenge."""
+    _check_auth_rate_limit(request)
     challenge = MfaStore.get_challenge(req.challenge_id)
     if not challenge:
         raise HTTPException(400, "Invalid MFA challenge")
@@ -3719,22 +3777,10 @@ def api_mfa_sms_send_login(req: MfaSendSmsRequest):
         "expires_at": time.time() + 600,
     })
 
-    # Send SMS (try Twilio first, fall back to email)
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Code sent", "test_code": code}
 
-    sms_sent = _send_sms(method.get("phone_number", ""), f"Your Xcelsior login code is: {code}")
-    if not sms_sent:
-        user = UserStore.get_user(email)
-        if user:
-            _send_team_email(
-                to_email=email,
-                subject="Your Xcelsior login code",
-                body_text=f"Your login verification code is: {code}\n\nThis code expires in 10 minutes.",
-                cta_url=None,
-                cta_label="",
-            )
-
+    _send_sms(method.get("phone_number", ""), f"Your Xcelsior login code is: {code}")
     return {"ok": True, "message": "Code sent"}
 
 
@@ -3772,6 +3818,218 @@ def api_mfa_disable_all(request: Request):
 
     UserStore.update_user(user["email"], {"mfa_enabled": 0})
     return {"ok": True, "message": "All MFA methods disabled"}
+
+
+# ── Email Verification ────────────────────────────────────────────────
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+@app.post("/api/auth/verify-email", tags=["Auth"])
+def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
+    """Verify a user's email address with the token sent during registration."""
+    _check_auth_rate_limit(request)
+    if _USE_PERSISTENT_AUTH:
+        from db import auth_connection
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT email, email_verification_expires FROM users WHERE email_verification_token = %s",
+                (req.token,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(400, "Invalid verification token")
+            if time.time() > (row["email_verification_expires"] or 0):
+                raise HTTPException(400, "Verification link has expired. Please request a new one.")
+            conn.execute(
+                "UPDATE users SET email_verified = 1, email_verification_token = NULL, email_verification_expires = NULL WHERE email = %s",
+                (row["email"],),
+            )
+        email = row["email"]
+    else:
+        with _user_lock:
+            for em, u in _users_db.items():
+                if u.get("email_verification_token") == req.token:
+                    if time.time() > u.get("email_verification_expires", 0):
+                        raise HTTPException(400, "Verification link has expired. Please request a new one.")
+                    u["email_verified"] = 1
+                    u.pop("email_verification_token", None)
+                    u.pop("email_verification_expires", None)
+                    email = em
+                    break
+            else:
+                raise HTTPException(400, "Invalid verification token")
+
+    # Auto-login after verification
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        with _user_lock:
+            user = _users_db.get(email)
+
+    if not user:
+        raise HTTPException(400, "User not found")
+
+    session = _create_session(email, user, request)
+
+    # Send welcome email now that they're verified
+    try:
+        display_name = user.get("name", email.split("@")[0])
+        _send_team_email(
+            email,
+            f"Welcome to Xcelsior, {display_name}!",
+            f"Hi {display_name},\n\n"
+            "Your email is verified and your account is active.\n\n"
+            "From your dashboard you can browse available GPU hosts, "
+            "launch compute instances, and track your usage — all billed in CAD with full Canadian data residency.\n\n"
+            "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
+            "We'd love to hear from you.",
+            cta_url="https://xcelsior.ca/dashboard",
+            cta_label="Go to Dashboard",
+        )
+    except Exception:
+        pass
+
+    body = {
+        "ok": True,
+        "access_token": session["token"],
+        "token_type": "Bearer",
+        "expires_in": SESSION_EXPIRY,
+        "user": {
+            "user_id": user["user_id"],
+            "email": email,
+            "name": user.get("name", ""),
+            "role": user.get("role", "submitter"),
+            "customer_id": user.get("customer_id"),
+        },
+    }
+    resp = JSONResponse(content=body)
+    _set_auth_cookie(resp, session["token"])
+    return resp
+
+
+@app.post("/api/auth/resend-verification", tags=["Auth"])
+def api_auth_resend_verification(req: ResendVerificationRequest, request: Request):
+    """Resend the email verification link."""
+    _check_auth_rate_limit(request)
+    email = req.email.strip().lower()
+
+    if _USE_PERSISTENT_AUTH:
+        user = UserStore.get_user(email)
+    else:
+        with _user_lock:
+            user = _users_db.get(email)
+
+    if not user:
+        # Don't reveal whether the email exists
+        return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
+
+    if user.get("email_verified"):
+        return {"ok": True, "message": "Email is already verified."}
+
+    verification_token = secrets.token_urlsafe(32)
+    verification_expires = time.time() + 86400
+
+    if _USE_PERSISTENT_AUTH:
+        UserStore.update_user(email, {
+            "email_verification_token": verification_token,
+            "email_verification_expires": verification_expires,
+        })
+    else:
+        with _user_lock:
+            u = _users_db.get(email)
+            if u:
+                u["email_verification_token"] = verification_token
+                u["email_verification_expires"] = verification_expires
+
+    base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    verify_url = f"{base_url}/verify-email?token={verification_token}"
+    try:
+        display_name = user.get("name", email.split("@")[0])
+        _send_team_email(
+            email,
+            f"Verify your email, {display_name}",
+            f"Hi {display_name},\n\n"
+            "Please verify your email address by clicking the button below. This link expires in 24 hours.\n\n"
+            f"{verify_url}\n\n"
+            "If you didn't create this account, you can safely ignore this email.",
+            cta_url=verify_url,
+            cta_label="Verify Email",
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
+
+
+# ── Session Management ────────────────────────────────────────────────
+
+
+@app.get("/api/auth/sessions", tags=["Auth"])
+def api_auth_list_sessions(request: Request):
+    """List active sessions for the current user."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    current_token = ""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        current_token = auth[7:]
+    if not current_token:
+        current_token = request.cookies.get(_AUTH_COOKIE_NAME, "")
+
+    if _USE_PERSISTENT_AUTH:
+        sessions = UserStore.list_user_sessions(user["email"])
+    else:
+        with _user_lock:
+            sessions = [
+                s for s in _sessions.values()
+                if s.get("email") == user["email"] and s["expires_at"] > time.time()
+            ]
+
+    result = []
+    for s in sessions:
+        token = s["token"]
+        result.append({
+            "token_prefix": token[:8],
+            "is_current": token == current_token,
+            "ip_address": s.get("ip_address", ""),
+            "user_agent": s.get("user_agent", ""),
+            "created_at": s.get("created_at"),
+            "last_active": s.get("last_active"),
+            "expires_at": s.get("expires_at"),
+        })
+
+    return {"ok": True, "sessions": result}
+
+
+@app.delete("/api/auth/sessions/{token_prefix}", tags=["Auth"])
+def api_auth_revoke_session(token_prefix: str, request: Request):
+    """Revoke a specific session by its token prefix."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    if _USE_PERSISTENT_AUTH:
+        sessions = UserStore.list_user_sessions(user["email"])
+        for s in sessions:
+            if s["token"][:8] == token_prefix:
+                UserStore.delete_session(s["token"])
+                return {"ok": True, "message": "Session revoked"}
+    else:
+        with _user_lock:
+            for tok, s in list(_sessions.items()):
+                if s.get("email") == user["email"] and tok[:8] == token_prefix:
+                    del _sessions[tok]
+                    return {"ok": True, "message": "Session revoked"}
+
+    raise HTTPException(404, "Session not found")
 
 
 # ── Team / Organization Management ───────────────────────────────────

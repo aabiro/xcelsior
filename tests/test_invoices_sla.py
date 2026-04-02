@@ -14,6 +14,7 @@ os.environ["XCELSIOR_API_TOKEN"] = ""
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior.db")
 os.environ["XCELSIOR_ENV"] = "test"
 os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"
+os.environ["XCELSIOR_AUTH_RATE_LIMIT_REQUESTS"] = "5000"
 os.environ.setdefault("XCELSIOR_BILLING_DB", os.path.join(_tmpdir, "billing.db"))
 
 import scheduler

@@ -21,6 +21,7 @@ os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
+os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
 import db as db_mod
 from db import UserStore, auth_connection

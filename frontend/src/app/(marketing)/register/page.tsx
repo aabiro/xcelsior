@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Eye, EyeOff } from "lucide-react";
-import { register as apiRegister, oauthInitiate } from "@/lib/api";
+import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
+import { register as apiRegister, oauthInitiate, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 
@@ -21,19 +21,40 @@ export default function RegisterPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      await apiRegister(email, password, name || undefined);
+      const res = await apiRegister(email, password, name || undefined);
+      if (res.email_verification_required) {
+        setVerificationSent(true);
+        return;
+      }
+      // Fallback: if server returns a token directly (e.g. test mode)
       await login();
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setResending(true);
+    setResendSuccess(false);
+    try {
+      await resendVerification(email);
+      setResendSuccess(true);
+    } catch {
+      // silent — don't reveal if email exists
+    } finally {
+      setResending(false);
     }
   }
 
@@ -44,6 +65,46 @@ export default function RegisterPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "OAuth failed");
     }
+  }
+
+  // Email verification sent screen
+  if (verificationSent) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md p-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-ice-blue/10">
+            <Mail className="h-8 w-8 text-ice-blue" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">{t("auth.verify_check_email")}</h1>
+          <p className="text-text-secondary mb-6">
+            {t("auth.verify_sent_to")} <strong className="text-text-primary">{email}</strong>
+          </p>
+          <p className="text-sm text-text-muted mb-6">
+            {t("auth.verify_instructions")}
+          </p>
+          <div className="space-y-3">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleResend}
+              disabled={resending}
+            >
+              {resending ? t("auth.verify_resending") : t("auth.verify_resend")}
+            </Button>
+            {resendSuccess && (
+              <div className="flex items-center justify-center gap-2 text-sm text-green-400">
+                <CheckCircle className="h-4 w-4" />
+                {t("auth.verify_resent")}
+              </div>
+            )}
+          </div>
+          <p className="mt-6 text-center text-sm text-text-secondary">
+            {t("auth.register_signin")}{" "}
+            <Link href="/login" className="text-ice-blue hover:underline">{t("auth.register_signin_link")}</Link>
+          </p>
+        </Card>
+      </div>
+    );
   }
 
   return (
