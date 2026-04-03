@@ -256,11 +256,53 @@ EOF
     success "Code synced (env=$TARGET_ENV)"
 }
 
+validate_build_env() {
+    # Frontend build bakes NEXT_PUBLIC_* vars at compile time — if they're
+    # blank the build succeeds silently but features (analytics, Google
+    # verification, Stripe) will be missing at runtime.  Warn early so
+    # the operator can fix .env before a wasted build cycle.
+    log "Validating frontend build-time env vars..."
+
+    local missing=()
+    # Required: the site won't render correctly without an API URL
+    local required_vars=(NEXT_PUBLIC_API_URL)
+    # Recommended: not fatal, but worth a heads-up
+    local recommended_vars=(
+        NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+        NEXT_PUBLIC_GA_MEASUREMENT_ID
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    )
+
+    for var in "${required_vars[@]}"; do
+        val=$(grep "^${var}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+        if [[ -z "$val" ]]; then
+            missing+=("$var (REQUIRED)")
+        fi
+    done
+
+    for var in "${recommended_vars[@]}"; do
+        val=$(grep "^${var}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+        if [[ -z "$val" ]]; then
+            warn "Optional var $var is not set — feature will be disabled in this build"
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        for m in "${missing[@]}"; do
+            error "Missing env var: $m"
+        done
+    fi
+    success "Build-time env vars validated"
+}
+
 deploy_docker() {
     log "Deploying with Docker Compose ($TARGET_ENV)..."
     
     # Verify .env exists on server
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
+
+    # Validate build-time env vars before spending time on docker build
+    validate_build_env
 
     # Build images (separate SSH call so a timeout here doesn't leave containers down)
     log "Building Docker images..."
