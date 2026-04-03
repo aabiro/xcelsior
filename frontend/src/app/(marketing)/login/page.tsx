@@ -164,15 +164,15 @@ export default function LoginPage() {
     }
   }
 
-  // Track last-used OAuth provider
+  // Track last-used OAuth provider (read from cookie set by API on OAuth login)
   const [lastOAuth, setLastOAuth] = useState<string | null>(null);
   useEffect(() => {
-    setLastOAuth(localStorage.getItem("xcelsior_last_oauth"));
+    const match = document.cookie.match(/(?:^|;\s*)xcelsior_last_oauth=([^;]*)/);
+    setLastOAuth(match ? decodeURIComponent(match[1]) : null);
   }, []);
 
   async function handleOAuth(provider: string) {
     try {
-      localStorage.setItem("xcelsior_last_oauth", provider);
       const res = await oauthInitiate(provider);
       window.location.href = res.auth_url;
     } catch (err) {

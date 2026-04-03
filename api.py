@@ -2215,21 +2215,30 @@ _AUTH_COOKIE_NAME = "xcelsior_session"
 def _set_auth_cookie(response, token: str):
     """Add httpOnly session cookie to response."""
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
-    response.set_cookie(
+    is_prod = _base.startswith("https")
+    kwargs: dict = dict(
         key=_AUTH_COOKIE_NAME,
         value=token,
         max_age=SESSION_EXPIRY,
         httponly=True,
-        secure=_base.startswith("https"),
+        secure=is_prod,
         samesite="lax",
         path="/",
     )
+    # Share cookie across subdomains (docs.xcelsior.ca, xcelsior.ca, etc.)
+    if is_prod:
+        kwargs["domain"] = ".xcelsior.ca"
+    response.set_cookie(**kwargs)
     return response
 
 
 def _clear_auth_cookie(response):
     """Remove session cookie."""
-    response.delete_cookie(key=_AUTH_COOKIE_NAME, path="/")
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    kwargs: dict = dict(key=_AUTH_COOKIE_NAME, path="/")
+    if _base.startswith("https"):
+        kwargs["domain"] = ".xcelsior.ca"
+    response.delete_cookie(**kwargs)
     return response
 
 
@@ -2868,6 +2877,13 @@ def api_auth_oauth_callback(provider: str, request: Request):
         # Update name if it was empty
         if not user.get("name") and name:
             user["name"] = name
+        # Always update oauth_provider on login so we track the most recent
+        if _USE_PERSISTENT_AUTH:
+            UserStore.update_user(email, {"oauth_provider": provider})
+        else:
+            user["oauth_provider"] = provider
+            with _user_lock:
+                _users_db[email] = user
 
     session = _create_session(email, user, request)
 
@@ -2886,6 +2902,16 @@ def api_auth_oauth_callback(provider: str, request: Request):
     # Set httpOnly cookie and redirect to dashboard
     resp = RedirectResponse("/dashboard", status_code=302)
     _set_auth_cookie(resp, session["token"])
+    # Non-httpOnly cookie so login page JS can show "Last used" badge
+    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+    _oauth_kw: dict = dict(
+        key="xcelsior_last_oauth", value=provider,
+        max_age=86400 * 365, httponly=False,
+        secure=_base.startswith("https"), samesite="lax", path="/",
+    )
+    if _base.startswith("https"):
+        _oauth_kw["domain"] = ".xcelsior.ca"
+    resp.set_cookie(**_oauth_kw)
     return resp
 
 
@@ -2919,6 +2945,7 @@ def api_auth_me(request: Request):
             "country": full_user.get("country", "CA"),
             "province": full_user.get("province", "ON"),
             "team_id": full_user.get("team_id"),
+            "oauth_provider": full_user.get("oauth_provider"),
             "created_at": full_user.get("created_at", 0),
         },
     }
