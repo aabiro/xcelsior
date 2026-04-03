@@ -4,6 +4,7 @@ import os
 import time
 import json
 import tempfile
+import urllib.error
 from unittest.mock import patch, MagicMock
 import pytest
 
@@ -119,7 +120,10 @@ class TestServiceStatus:
         assert status["wallet_ready"] is True
         assert status["network"] == "main"
         assert status["blocks"] == 123
-        mock_ready.assert_called_once_with(bitcoin.BTC_RPC_WALLET or bitcoin.BTC_AUTO_WALLET)
+        mock_ready.assert_called_once_with(
+            bitcoin.BTC_RPC_WALLET or bitcoin.BTC_AUTO_WALLET,
+            timeout=bitcoin.BTC_STATUS_RPC_TIMEOUT,
+        )
 
     def test_reports_unavailable_when_rpc_is_offline(self, mock_rpc):
         mock_rpc.side_effect = OSError("Connection refused")
@@ -146,6 +150,42 @@ class TestServiceStatus:
         assert status["rpc_reachable"] is True
         assert status["wallet_ready"] is False
         assert "no receiving keys available" in status["reason"]
+
+
+class TestRpcFallback:
+    def test_falls_back_to_localhost_when_primary_host_times_out(self):
+        response_data = json.dumps({
+            "jsonrpc": "2.0",
+            "result": {"chain": "main", "blocks": 123},
+            "error": None,
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        def fake_urlopen(req, timeout=0):
+            if "203.0.113.25" in req.full_url:
+                raise urllib.error.URLError(TimeoutError("timed out"))
+            assert "127.0.0.1" in req.full_url
+            return mock_resp
+
+        original_resolved = bitcoin._resolved_rpc_host
+        try:
+            bitcoin._resolved_rpc_host = None
+            with patch("bitcoin.BTC_RPC_HOST", "203.0.113.25"), patch(
+                "bitcoin.BTC_RPC_FALLBACK_HOSTS",
+                (),
+            ), patch("bitcoin._running_in_docker", return_value=False), patch(
+                "bitcoin.urllib.request.urlopen",
+                side_effect=fake_urlopen,
+            ):
+                result = bitcoin._rpc_call("getblockchaininfo", timeout=0.01)
+
+            assert result["chain"] == "main"
+            assert bitcoin._resolved_rpc_host == "127.0.0.1"
+        finally:
+            bitcoin._resolved_rpc_host = original_resolved
 
 
 # ── Deposit Creation ──────────────────────────────────────────────────
@@ -429,13 +469,23 @@ class TestRpcClient:
         mock_rpc.return_value = "bc1qnew123"
         addr = bitcoin.get_new_address("test-label")
         assert addr == "bc1qnew123"
-        mock_rpc.assert_called_once_with("getnewaddress", ["test-label", "bech32"], wallet=None)
+        mock_rpc.assert_called_once_with(
+            "getnewaddress",
+            ["test-label", "bech32"],
+            wallet=None,
+            timeout=None,
+        )
 
     def test_get_received_by_address(self, mock_rpc):
         mock_rpc.return_value = 0.00123456
         amount = bitcoin.get_received_by_address("bc1qtest", 3)
         assert amount == 0.00123456
-        mock_rpc.assert_called_once_with("getreceivedbyaddress", ["bc1qtest", 3], wallet=None)
+        mock_rpc.assert_called_once_with(
+            "getreceivedbyaddress",
+            ["bc1qtest", 3],
+            wallet=None,
+            timeout=None,
+        )
 
     def test_rpc_error_raises(self):
         error_resp = json.dumps({"result": None, "error": {"code": -5, "message": "Invalid address"}}).encode()

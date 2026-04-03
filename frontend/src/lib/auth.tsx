@@ -12,6 +12,17 @@ import {
 import type { ReactNode } from "react";
 import { getMe, logout as apiLogout, refreshToken } from "@/lib/api";
 
+/** Revoke the session server-side then redirect to the login page. */
+function forceLogout(reason: string) {
+  apiLogout()
+    .catch(() => {})
+    .finally(() => {
+      if (typeof window !== "undefined") {
+        window.location.href = `/login?reason=${encodeURIComponent(reason)}`;
+      }
+    });
+}
+
 interface User {
   user_id: string;
   email: string;
@@ -69,11 +80,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (logoutTimer.current) clearTimeout(logoutTimer.current);
     warnTimer.current = setTimeout(() => setSessionExpiring(true), IDLE_WARN_MIN * 60_000);
     logoutTimer.current = setTimeout(() => {
-      // Inactivity exceeded — let session die
+      // Inactivity exceeded — revoke session server-side and redirect
       setUser(null);
-      if (typeof window !== "undefined") {
-        window.location.href = "/login?reason=idle";
-      }
+      forceLogout("idle");
     }, IDLE_LOGOUT_MIN * 60_000);
   }, []);
 
@@ -81,18 +90,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
     const EVENTS = ["mousedown", "keydown", "touchstart", "scroll"] as const;
-    // Throttle: only reset if >30 s since last reset to avoid perf issues
+    // Throttle: only reset if >30 s since last reset.
+    // Once the expiry banner is showing, ignore activity — user must
+    // explicitly click "Continue Session" to stay logged in.
     const handler = () => {
+      if (sessionExpiring) return;
       if (Date.now() - lastActivity.current > 30_000) resetIdleTimers();
     };
-    resetIdleTimers(); // start timers on login
+    if (!sessionExpiring) resetIdleTimers(); // start timers on login (but don't restart if banner is up)
     EVENTS.forEach((e) => window.addEventListener(e, handler, { passive: true }));
     return () => {
       EVENTS.forEach((e) => window.removeEventListener(e, handler));
-      if (warnTimer.current) clearTimeout(warnTimer.current);
-      if (logoutTimer.current) clearTimeout(logoutTimer.current);
+      if (!sessionExpiring) {
+        if (warnTimer.current) clearTimeout(warnTimer.current);
+        if (logoutTimer.current) clearTimeout(logoutTimer.current);
+      }
     };
-  }, [user, resetIdleTimers]);
+  }, [user, sessionExpiring, resetIdleTimers]);
 
   const login = useCallback(async () => {
     try {
