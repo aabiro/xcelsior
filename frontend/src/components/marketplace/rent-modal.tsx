@@ -84,10 +84,12 @@ export function RentModal({ listing, onClose }: RentModalProps) {
         const res = await api.submitInstance({
           host_id: listing.host_id,
           gpu_model: listing.gpu_model,
+          vram_needed_gb: listing.vram_gb || 24,
           tier,
           name: instanceName.trim(),
         });
-        setInstanceId(res.instance_id || res.id || "");
+        const inst = res.instance as Record<string, unknown> | undefined;
+        setInstanceId((inst?.job_id as string) || "");
       }
       setStep("success");
       toast.success("Instance launched successfully");

@@ -86,11 +86,10 @@ def test_job_lifecycle_and_billing_via_api():
     _admit_host("h-int-1")
 
     create = client.post("/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium"})
-    job_id = create.json()["instance"]["job_id"]
-
-    process = client.post("/queue/process")
-    assert process.status_code == 200
-    assert len(process.json()["assigned"]) == 1
+    inst = create.json()["instance"]
+    job_id = inst["job_id"]
+    # auto queue processing assigns during submit
+    assert inst["status"] in ("assigned", "running")
 
     client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "h-int-1"})
     time.sleep(1.1)
@@ -160,11 +159,8 @@ class TestFullJobLifecycle:
             },
         ).json()["instance"]
         job_id = job["job_id"]
-        assert job["status"] == "queued"
-
-        # Process queue → assigned
-        resp = client.post("/queue/process")
-        assert len(resp.json()["assigned"]) == 1
+        # auto queue processing assigns during submit
+        assert job["status"] in ("assigned", "running")
 
         # Run and complete
         client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "lc-h1"})
@@ -230,12 +226,8 @@ class TestSovereignRouting:
             },
         ).json()["instance"]
 
-        client.post("/queue/process")
-        detail = client.get(f"/instance/{job['job_id']}")
-        assigned = detail.json()["instance"].get("host_id")
-        # Sovereign should prefer CA host (if jurisdiction-aware allocator is used)
-        # At minimum the job should be assigned to some host
-        assert assigned is not None
+        # auto queue processing assigns during submit
+        assert job.get("host_id") is not None
 
     def test_canada_only_flag_blocks_foreign_hosts(self):
         """XCELSIOR_CANADA_ONLY=true should only schedule on CA hosts."""
@@ -511,10 +503,8 @@ class TestSecurityAdmission:
             },
         ).json()["instance"]
 
-        client.post("/queue/process")
-
-        detail = client.get(f"/instance/{job['job_id']}")
-        assert detail.json()["instance"]["status"] == "queued"
+        # auto queue processing ran during submit but no admitted host
+        assert job["status"] == "queued"
 
     def test_admitted_host_receives_work(self):
         """Admitted host → job assigned."""
@@ -540,10 +530,8 @@ class TestSecurityAdmission:
             },
         ).json()["instance"]
 
-        client.post("/queue/process")
-
-        detail = client.get(f"/instance/{job['job_id']}")
-        assert detail.json()["instance"]["status"] in ("assigned", "running")
+        # auto queue processing assigns during submit
+        assert job["status"] in ("assigned", "running")
 
     def test_version_report_via_api(self):
         """POST /agent/versions reports node versions and gets admission result."""

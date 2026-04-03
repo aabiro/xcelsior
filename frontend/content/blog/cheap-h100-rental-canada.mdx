@@ -1,0 +1,88 @@
+---
+title: "Cheap H100 Rental in Canada: Pricing Guide for 2026"
+description: "H100 GPUs are the gold standard for AI training, but they're expensive. Here's how to find affordable H100 rental in Canada — with real pricing comparisons and tips to cut costs."
+date: "2026-04-01"
+author: "Xcelsior Team"
+tags: ["H100", "pricing", "GPU rental", "Canada", "cost comparison"]
+image: "/blog/cheap-h100-canada.jpg"
+---
+
+## The H100 Problem
+
+NVIDIA's H100 is the most sought-after GPU for AI training. With 80GB of HBM3 memory and massive tensor core throughput, it's the chip that powers GPT-scale model training. The problem? It's expensive:
+
+- **Buying outright**: $30,000–$40,000 per card (if you can find one)
+- **AWS (p5.48xlarge, 8x H100)**: ~$98/hr USD — that's ~$135 CAD/hr
+- **Reserved pricing**: Requires 1–3 year commits at $50,000+ USD
+
+For Canadian teams, the math gets worse once you factor in USD/CAD exchange rates, cross-border data transfer costs, and CLOUD Act compliance risk.
+
+## H100 Rental Pricing Comparison (2026)
+
+Here's what you'd pay for a single H100 80GB GPU hour across major providers:
+
+| Provider | Price/hr | Currency | Jurisdiction |
+|---|---|---|---|
+| AWS (ca-central-1) | $5.60 | USD | US (CLOUD Act) |
+| Azure (Canada Central) | $5.40 | USD | US (CLOUD Act) |
+| Lambda Cloud | $3.99 | USD | US |
+| CoreWeave | $4.76 | USD | US |
+| **Xcelsior** | **$4.50** | **CAD** | **Canada** |
+
+At current exchange rates, Xcelsior's CAD pricing works out to roughly $3.25 USD — **40% cheaper** than AWS Canada and under genuine Canadian jurisdiction.
+
+## Why H100s Are Cheaper on Xcelsior
+
+Xcelsior is a marketplace, not a hyperscaler. That means:
+
+- **No data-centre overhead** — GPU capacity comes from verified providers who already own the hardware. No billion-dollar facility costs to amortize.
+- **Community pricing** — Providers set competitive rates to attract jobs. Market dynamics keep prices low.
+- **CAD-native** — No currency conversion markup. You pay in Canadian dollars, providers receive Canadian dollars.
+- **No minimums** — Rent by the hour. No reserved instance commitments.
+
+## How to Cut H100 Costs Further
+
+### 1. Use the AI Compute Access Fund
+
+Xcelsior's [AI Compute Access Fund](https://xcelsior.ca/pricing) provides rebates for Canadian startups, research institutions, and open-source projects. If you qualify, this can reduce your effective rate by 15–30%.
+
+### 2. Optimize Your Training
+
+Before throwing more H100 hours at the problem:
+
+- **Mixed precision training** — Use FP16/BF16 to nearly double throughput
+- **Gradient checkpointing** — Trade compute for VRAM, use fewer GPUs
+- **Efficient data loading** — Don't let your H100s sit idle waiting for data
+- **Checkpointing** — Xcelsior supports automatic checkpointing so interrupted jobs resume, not restart
+
+### 3. Consider Multi-GPU vs. Single-GPU
+
+An 8x H100 node is great for large-scale training, but many workloads can be broken into smaller parallel jobs on fewer GPUs. Running 4 separate 1x H100 jobs on Xcelsior may be cheaper than a single 4x H100 reserved instance on AWS.
+
+### 4. Use RTX 4090s for Development
+
+H100s are for production training runs. For prototyping, hyperparameter sweeps, and small-scale experiments, an RTX 4090 at ~$0.80 CAD/hr on Xcelsior gives you 24GB VRAM at a fraction of the cost.
+
+## When to Use an H100
+
+H100s make sense for:
+
+- **Large language model training** (7B+ parameters)
+- **Multi-node distributed training** with fast NVLink/InfiniBand
+- **Production inference** serving at scale
+- **Large batch sizes** that benefit from 80GB HBM3
+
+For fine-tuning, LoRA, inference on smaller models, or development work, A100s ($3.20 CAD/hr) or RTX 4090s ($0.80 CAD/hr) often deliver better cost-efficiency.
+
+## Getting Started
+
+1. **Sign up** at [xcelsior.ca/register](https://xcelsior.ca/register)
+2. **Browse H100 availability** on the [marketplace](https://xcelsior.ca/dashboard)
+3. **Launch an instance** — select H100, configure VRAM and isolation tier
+4. **SSH in** and start training
+
+For multi-GPU and HPC workloads, Xcelsior supports [Slurm scheduling](https://docs.xcelsior.ca/guides/jobs) and distributed training across multiple hosts.
+
+---
+
+*H100 access shouldn't require a US cloud account and a six-figure commitment. Rent by the hour, in CAD, under Canadian law.*

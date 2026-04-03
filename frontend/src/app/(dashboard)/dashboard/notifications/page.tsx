@@ -7,29 +7,33 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import {
   Bell, CheckCheck, Search, Inbox, Server, Cpu, AlertTriangle, DollarSign, Shield, Info,
+  Trash2, ArrowLeft, ExternalLink, X, Check,
 } from "lucide-react";
 import {
   fetchNotifications,
   markNotificationRead,
   markAllNotificationsRead,
+  deleteNotification,
 } from "@/lib/api";
 import type { Notification } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
-const TYPE_META: Record<string, { icon: React.ReactNode; color: string }> = {
-  job_submitted:        { icon: <Cpu className="h-4 w-4" />,            color: "text-blue-400" },
-  job_completed:        { icon: <Cpu className="h-4 w-4" />,            color: "text-green-400" },
-  job_failed:           { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-red-400" },
-  job_status:           { icon: <Cpu className="h-4 w-4" />,            color: "text-yellow-400" },
-  host_registered:      { icon: <Server className="h-4 w-4" />,         color: "text-green-400" },
-  host_removed:         { icon: <Server className="h-4 w-4" />,         color: "text-red-400" },
-  preemption_scheduled: { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-orange-400" },
-  billing_alert:        { icon: <DollarSign className="h-4 w-4" />,     color: "text-yellow-400" },
-  security_alert:       { icon: <Shield className="h-4 w-4" />,         color: "text-red-400" },
+const TYPE_META: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
+  job_submitted:        { icon: <Cpu className="h-4 w-4" />,            color: "text-blue-400",   label: "Job Submitted" },
+  job_completed:        { icon: <Cpu className="h-4 w-4" />,            color: "text-green-400",  label: "Job Completed" },
+  job_failed:           { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-red-400",    label: "Job Failed" },
+  job_status:           { icon: <Cpu className="h-4 w-4" />,            color: "text-yellow-400", label: "Job Status" },
+  host_registered:      { icon: <Server className="h-4 w-4" />,         color: "text-green-400",  label: "Host Registered" },
+  host_removed:         { icon: <Server className="h-4 w-4" />,         color: "text-red-400",    label: "Host Removed" },
+  preemption_scheduled: { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-orange-400", label: "Preemption Scheduled" },
+  billing_alert:        { icon: <DollarSign className="h-4 w-4" />,     color: "text-yellow-400", label: "Billing Alert" },
+  security_alert:       { icon: <Shield className="h-4 w-4" />,         color: "text-red-400",    label: "Security Alert" },
 };
 
 function getTypeMeta(type: string) {
-  return TYPE_META[type] ?? { icon: <Info className="h-4 w-4" />, color: "text-text-muted" };
+  return TYPE_META[type] ?? { icon: <Info className="h-4 w-4" />, color: "text-text-muted", label: type.replace(/_/g, " ") };
 }
 
 function timeAgo(epoch: number): string {
@@ -40,16 +44,15 @@ function timeAgo(epoch: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function formatTimestamp(epoch: number): string {
+  return new Date(epoch * 1000).toLocaleString();
+}
+
 function notificationHref(n: Notification): string | null {
   const data = n.data ?? {};
   if (data.job_id) return `/dashboard/instances/${data.job_id}`;
   if (data.host_id) return `/dashboard/hosts/${data.host_id}`;
   return null;
-}
-
-/** Build a type-based fallback route when no deep-link exists. */
-function notificationRoute(n: Notification): string {
-  return notificationHref(n) ?? routeForType(n.type);
 }
 
 function routeForType(type: string): string {
@@ -66,6 +69,7 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -98,6 +102,17 @@ export default function NotificationsPage() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: 1 })));
   }
 
+  async function handleDelete(id: string) {
+    try {
+      await deleteNotification(id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      if (selectedId === id) setSelectedId(null);
+      toast.success("Notification deleted");
+    } catch {
+      toast.error("Failed to delete notification");
+    }
+  }
+
   // Collect unique types for the filter dropdown
   const types = Array.from(new Set(notifications.map((n) => n.type)));
 
@@ -111,6 +126,7 @@ export default function NotificationsPage() {
   });
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const selected = selectedId ? notifications.find((n) => n.id === selectedId) ?? null : null;
 
   return (
     <div className="space-y-6">
@@ -163,75 +179,165 @@ export default function NotificationsPage() {
         </CardContent>
       </Card>
 
-      {/* Notification list */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm text-text-muted">
-            {loading ? "Loading..." : `${filtered.length} Notification${filtered.length !== 1 ? "s" : ""}`}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y divide-border">
-          {!loading && filtered.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-text-muted">
-              <Inbox className="h-10 w-10 mb-3 opacity-40" />
-              <p className="text-sm">No notifications to show.</p>
-            </div>
-          )}
-          {filtered.map((n) => {
-            const meta = getTypeMeta(n.type);
-            const href = notificationRoute(n);
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Notification list */}
+        <Card className={cn(selected ? "lg:col-span-2" : "lg:col-span-3")}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-text-muted">
+              {loading ? "Loading..." : `${filtered.length} Notification${filtered.length !== 1 ? "s" : ""}`}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-border">
+            {!loading && filtered.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-text-muted">
+                <Inbox className="h-10 w-10 mb-3 opacity-40" />
+                <p className="text-sm">No notifications to show.</p>
+              </div>
+            )}
+            {filtered.map((n) => {
+              const meta = getTypeMeta(n.type);
+              const isSelected = selectedId === n.id;
 
-            const inner = (
-              <>
-                {/* Icon */}
-                <div className={`mt-0.5 flex-shrink-0 ${meta.color}`}>{meta.icon}</div>
+              return (
+                <div
+                  key={n.id}
+                  onClick={() => { handleMarkRead(n.id); setSelectedId(n.id); }}
+                  className={cn(
+                    "flex items-start gap-3 py-3 px-2 rounded-md transition-colors hover:bg-surface-hover cursor-pointer",
+                    !n.read && "bg-accent-blue/5",
+                    isSelected && "ring-1 ring-accent-cyan/40 bg-accent-cyan/5",
+                  )}
+                >
+                  {/* Icon */}
+                  <div className={`mt-0.5 flex-shrink-0 ${meta.color}`}>{meta.icon}</div>
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium ${!n.read ? "text-text-primary" : "text-text-muted"}`}>
-                      {n.title}
-                    </span>
-                    {!n.read && <span className="h-2 w-2 rounded-full bg-accent-blue flex-shrink-0" />}
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-sm font-medium truncate", !n.read ? "text-text-primary" : "text-text-muted")}>
+                        {n.title}
+                      </span>
+                      {!n.read && <span className="h-2 w-2 rounded-full bg-accent-blue flex-shrink-0" />}
+                    </div>
+                    <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{n.body}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[11px] text-text-muted">{timeAgo(n.created_at)}</span>
+                      <span className="text-[11px] text-text-muted bg-surface-hover rounded px-1.5 py-0.5">
+                        {n.type.replace(/_/g, " ")}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-xs text-text-muted mt-0.5 line-clamp-2">{n.body}</p>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[11px] text-text-muted">{timeAgo(n.created_at)}</span>
-                    <span className="text-[11px] text-text-muted bg-surface-hover rounded px-1.5 py-0.5">
-                      {n.type.replace(/_/g, " ")}
-                    </span>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                    {!n.read && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleMarkRead(n.id); }}
+                        className="p-1 rounded hover:bg-surface text-text-muted hover:text-text-primary"
+                        title="Mark as read"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }}
+                      className="p-1 rounded hover:bg-surface text-text-muted hover:text-red-400"
+                      title="Delete notification"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
+              );
+            })}
+          </CardContent>
+        </Card>
 
-                {/* Mark-read button */}
-                {!n.read && (
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleMarkRead(n.id);
-                    }}
-                    className="flex-shrink-0 text-xs text-text-muted hover:text-text-primary mt-1"
-                    title="Mark as read"
+        {/* Detail panel */}
+        {selected && (
+          <Card className="lg:col-span-1 self-start sticky top-6">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Notification Detail</CardTitle>
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="p-1 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary"
+                  title="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Type badge + timestamp */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn("flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 bg-surface-hover", getTypeMeta(selected.type).color)}>
+                  {getTypeMeta(selected.type).icon}
+                  {getTypeMeta(selected.type).label}
+                </span>
+                {!selected.read && (
+                  <span className="text-xs font-medium text-accent-blue bg-accent-blue/10 rounded-full px-2 py-0.5">Unread</span>
+                )}
+              </div>
+
+              {/* Title */}
+              <h3 className="text-base font-semibold text-text-primary leading-snug">{selected.title}</h3>
+
+              {/* Full body */}
+              <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
+                {selected.body || <span className="text-text-muted italic">No additional details.</span>}
+              </div>
+
+              {/* Metadata */}
+              <div className="space-y-1.5 text-xs text-text-muted border-t border-border pt-3">
+                <div className="flex justify-between">
+                  <span>Time</span>
+                  <span>{formatTimestamp(selected.created_at)}</span>
+                </div>
+                {selected.data && Object.keys(selected.data).length > 0 && (
+                  <>
+                    {Object.entries(selected.data).map(([k, v]) => (
+                      <div key={k} className="flex justify-between gap-4">
+                        <span className="shrink-0">{k.replace(/_/g, " ")}</span>
+                        <span className="truncate text-right font-mono text-[11px]">{String(v)}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-2 border-t border-border pt-3">
+                {notificationHref(selected) && (
+                  <Link
+                    href={notificationHref(selected)!}
+                    className="flex items-center justify-center gap-1.5 rounded-lg bg-accent-cyan/10 hover:bg-accent-cyan/20 text-accent-cyan text-sm font-medium py-2 transition-colors"
                   >
-                    <CheckCheck className="h-4 w-4" />
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    View Related Resource
+                  </Link>
+                )}
+                {!selected.read && (
+                  <button
+                    onClick={() => handleMarkRead(selected.id)}
+                    className="flex items-center justify-center gap-1.5 rounded-lg bg-surface-hover hover:bg-surface text-text-secondary text-sm font-medium py-2 transition-colors"
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" />
+                    Mark as Read
                   </button>
                 )}
-              </>
-            );
-
-            const cls = `flex items-start gap-3 py-3 px-2 rounded-md transition-colors ${
-              !n.read ? "bg-accent-blue/5" : ""
-            } hover:bg-surface-hover cursor-pointer`;
-
-            return (
-              <Link key={n.id} href={href} onClick={() => handleMarkRead(n.id)} className={cls}>
-                {inner}
-              </Link>
-            );
-          })}
-        </CardContent>
-      </Card>
+                <button
+                  onClick={() => handleDelete(selected.id)}
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium py-2 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Notification
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

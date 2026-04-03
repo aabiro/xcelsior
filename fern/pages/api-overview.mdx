@@ -28,22 +28,22 @@ The API is organized into these endpoint groups:
 | Group | Description | Key Endpoints |
 |-------|-------------|---------------|
 | **Hosts** | GPU host registration and management | `PUT /host`, `GET /hosts` |
-| **Jobs** | Job submission and lifecycle | `POST /job`, `GET /jobs` |
+| **Instances** | Instance submission and lifecycle | `POST /instance`, `GET /instances` |
 | **Billing** | Wallets, invoices, refunds | `GET /api/billing/wallet/{id}` |
 | **Marketplace** | Rig listings and browsing | `GET /marketplace` |
 | **Spot Pricing** | Dynamic pricing and preemption | `GET /spot-prices` |
 | **Reputation** | Trust scores and verification | `GET /api/reputation/{id}` |
-| **Verification** | Hardware attestation | `POST /api/reputation/verify` |
-| **SLA** | Uptime tracking and enforcement | `GET /api/sla/status/{id}` |
-| **Providers** | Stripe Connect onboarding | `POST /api/providers/onboard` |
+| **Verification** | Hardware attestation | `POST /api/verify/{host_id}` |
+| **SLA** | Uptime tracking and enforcement | `GET /api/sla/{host_id}` |
+| **Providers** | Stripe Connect onboarding | `POST /api/providers/register` |
 | **Artifacts** | Upload/download presigned URLs | `POST /api/artifacts/upload` |
-| **Jurisdiction** | Data residency and sovereignty | `GET /api/jurisdiction/trace` |
+| **Jurisdiction** | Data residency and sovereignty | `GET /api/jurisdiction/residency-trace/{job_id}` |
 | **Compliance** | Tax rates and province matrix | `GET /api/compliance/provinces` |
-| **Privacy** | PIPEDA consent management | `GET /api/privacy/consents` |
+| **Privacy** | PIPEDA consent management | `GET /api/v2/privacy/consents` |
 | **Transparency** | Legal requests and canary | `GET /api/transparency/report` |
-| **Telemetry** | Real-time GPU metrics | `GET /api/telemetry/{host_id}` |
+| **Telemetry** | Real-time GPU metrics | `GET /agent/telemetry/{host_id}` |
 | **Agent** | Worker agent communication | `POST /agent/versions` |
-| **Autoscale** | Auto-scaling pool management | `POST /api/autoscale/pool` |
+| **Autoscale** | Auto-scaling pool management | `GET /autoscale/pool` |
 | **Events** | Event sourcing and state machine | `GET /api/events` |
 | **Infrastructure** | Health checks and metrics | `GET /healthz` |
 
@@ -90,7 +90,7 @@ Rate-limited responses return `429` with a `Retry-After` header.
 List endpoints support pagination:
 
 ```bash
-GET /jobs?offset=0&limit=50
+GET /instances?offset=0&limit=50
 ```
 
 ## SSE Streaming

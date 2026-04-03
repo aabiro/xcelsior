@@ -40,7 +40,7 @@ function DirectDepositForm({ customerId, onClose, onSuccess }: DepositModalProps
   const [step, setStep] = useState<"amount" | "success">("amount");
 
   const numericAmount = parseFloat(amount);
-  const isValid = !isNaN(numericAmount) && numericAmount >= 1 && numericAmount <= 10000;
+  const isValid = !isNaN(numericAmount) && numericAmount >= 5 && numericAmount <= 10000;
 
   const handleDeposit = useCallback(async () => {
     if (!isValid || submitting) return;
@@ -107,9 +107,9 @@ function DirectDepositForm({ customerId, onClose, onSuccess }: DepositModalProps
               <Label htmlFor="amount" className="mb-1.5 block text-text-secondary text-xs">Custom amount (CAD)</Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted font-mono text-sm">$</span>
-                <Input id="amount" type="number" min="1" max="10000" step="0.01" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="pl-8 font-mono" />
+                <Input id="amount" type="number" min="5" max="10000" step="0.01" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="pl-8 font-mono" />
               </div>
-              {amount && !isValid && <p className="text-xs text-accent-red mt-1">Enter between $1.00 and $10,000.00</p>}
+              {amount && !isValid && <p className="text-xs text-accent-red mt-1">Minimum top-up is $5.00 (max $10,000.00)</p>}
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
@@ -134,7 +134,7 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
   const [cardComplete, setCardComplete] = useState(false);
 
   const numericAmount = parseFloat(amount);
-  const isValid = !isNaN(numericAmount) && numericAmount >= 1 && numericAmount <= 10000;
+  const isValid = !isNaN(numericAmount) && numericAmount >= 5 && numericAmount <= 10000;
 
   const handleProceedToCard = () => {
     if (isValid) setStep("card");
@@ -263,7 +263,7 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
                 <Input
                   id="amount"
                   type="number"
-                  min="1"
+                  min="5"
                   max="10000"
                   step="0.01"
                   placeholder="0.00"
@@ -273,7 +273,7 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
                 />
               </div>
               {amount && !isValid && (
-                <p className="text-xs text-accent-red mt-1">Enter between $1.00 and $10,000.00</p>
+                <p className="text-xs text-accent-red mt-1">Minimum top-up is $5.00 (max $10,000.00)</p>
               )}
             </div>
 

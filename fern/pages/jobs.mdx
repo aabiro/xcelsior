@@ -1,17 +1,17 @@
 ---
-title: Jobs & Scheduling
-subtitle: Submit, schedule, and manage AI/ML compute jobs.
+title: Instances & Scheduling
+subtitle: Submit, schedule, and manage AI/ML compute instances.
 slug: jobs
 ---
 
 ## Overview
 
-Jobs are the core unit of work on Xcelsior. Submitters create jobs specifying their compute requirements, and the scheduler matches them to available GPU hosts.
+Instances are the core unit of work on Xcelsior. Submitters create instances specifying their compute requirements, and the scheduler matches them to available GPU hosts.
 
-## Submitting a Job
+## Submitting an Instance
 
 ```bash
-curl -X POST https://xcelsior.ca/job \
+curl -X POST https://xcelsior.ca/instance \
   -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -22,16 +22,16 @@ curl -X POST https://xcelsior.ca/job \
   }'
 ```
 
-### Job Fields
+### Instance Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Job identifier |
+| `name` | string | Instance identifier |
 | `vram_needed_gb` | float | Required GPU VRAM in GB |
 | `priority` | int | 1-10 (higher = more urgent) |
 | `tier` | string | Isolation tier: `community`, `secure`, `regulated`, `sovereign` |
 
-## Job Lifecycle
+## Instance Lifecycle
 
 ```
 queued → assigned → running → completed
@@ -62,12 +62,12 @@ Trigger scheduling manually:
 POST /queue/process
 ```
 
-## Spot Jobs
+## Spot Instances
 
-Submit interruptible jobs at a bid price:
+Submit interruptible instances at a bid price:
 
 ```bash
-curl -X POST https://xcelsior.ca/spot/job \
+curl -X POST https://xcelsior.ca/spot/instance \
   -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
   -d '{
     "name": "batch-embeddings",
@@ -76,23 +76,23 @@ curl -X POST https://xcelsior.ca/spot/job \
   }'
 ```
 
-Spot jobs can be preempted if a higher-priority job arrives. Run preemption cycles:
+Spot instances can be preempted if a higher-priority instance arrives. Run preemption cycles:
 
 ```bash
 POST /spot/preemption-cycle
 ```
 
-## Listing Jobs
+## Listing Instances
 
 ```bash
-GET /jobs                    # All jobs
-GET /job/{job_id}            # Single job details
-GET /api/slurm/jobs          # Slurm-compatible job listing
+GET /instances               # All instances
+GET /instance/{job_id}       # Single instance details
+GET /api/slurm/instances     # Slurm-compatible instance listing
 ```
 
-## Job Artifacts
+## Instance Artifacts
 
-After completion, access job outputs:
+After completion, access instance outputs:
 
 ```bash
 GET /api/artifacts/{job_id}  # List artifacts

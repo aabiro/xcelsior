@@ -5,10 +5,11 @@ import {
   TrendingDown,
   Minus,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface StatCardProps {
   label: string;
-  value: string | number;
+  value: ReactNode;
   icon?: LucideIcon;
   trend?: "up" | "down" | "flat";
   trendValue?: string;

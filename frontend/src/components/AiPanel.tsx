@@ -78,6 +78,7 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
           </button>
           <Link
             href="/dashboard/ai"
+            onClick={onClose}
             className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
             title={t("ai.open_full")}
           >

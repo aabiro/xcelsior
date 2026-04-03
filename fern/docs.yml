@@ -7,7 +7,7 @@ logo:
   light: ./assets/logo-light.svg
   dark: ./assets/logo-dark.svg
   href: https://xcelsior.ca
-  height: 45
+  height: 36
 
 colors:
   accent-primary:
@@ -28,6 +28,13 @@ colors:
 
 favicon: ./assets/favicon.svg
 
+playground:
+  environments:
+    - url: https://xcelsior.ca
+      name: Production
+    - url: http://localhost:9500
+      name: Local Dev
+
 css: ./assets/custom.css
 
 navbar-links:
@@ -35,11 +42,14 @@ navbar-links:
     text: Dashboard
     url: https://xcelsior.ca/dashboard
   - type: secondary
+    text: Pricing
+    url: https://xcelsior.ca/pricing
+  - type: secondary
+    text: Blog
+    url: https://xcelsior.ca/blog
+  - type: secondary
     text: GitHub
     url: https://github.com/aabiro/xcelsior
-  - type: secondary
-    text: Status
-    url: https://xcelsior.ca/healthz
 
 tabs:
   guides:
@@ -108,3 +118,5 @@ navigation:
 footer-links:
   github: https://github.com/aabiro/xcelsior
   website: https://xcelsior.ca
+  blog: https://xcelsior.ca/blog
+  pricing: https://xcelsior.ca/pricing

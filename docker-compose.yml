@@ -88,7 +88,7 @@ services:
 
   scheduler-worker:
     build: .
-    command: python -c "import time,scheduler; [scheduler.process_queue() or time.sleep(2) for _ in iter(int,1)]"
+    command: python -c "import time,scheduler; [scheduler.scheduler_tick() or time.sleep(2) for _ in iter(int,1)]"
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
@@ -118,13 +118,14 @@ services:
       XCELSIOR_EMAIL_TO: ${XCELSIOR_EMAIL_TO:-}
       XCELSIOR_TG_TOKEN: ${XCELSIOR_TG_TOKEN:-}
       XCELSIOR_TG_CHAT_ID: ${XCELSIOR_TG_CHAT_ID:-}
-      XCELSIOR_SSH_KEY_PATH: ${XCELSIOR_SSH_KEY_PATH:-~/.ssh/xcelsior}
-      XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-xcelsior}
+      XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
+      XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
       XCELSIOR_REGISTRY: ${XCELSIOR_REGISTRY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - xcelsior-data:/data
+      - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
     restart: unless-stopped
 
   frontend:

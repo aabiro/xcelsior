@@ -21,12 +21,13 @@ export default function AdminPage() {
   const { t } = useLocale();
   const { user } = useAuth();
   const router = useRouter();
+  const isAdmin = !!user?.is_admin;
 
   useEffect(() => {
-    if (user && user.role !== "admin") router.replace("/dashboard");
-  }, [user, router]);
+    if (user && !isAdmin) router.replace("/dashboard");
+  }, [user, isAdmin, router]);
 
-  if (!user || user.role !== "admin") return null;
+  if (!user || !isAdmin) return null;
 
   return <AdminContent />;
 }
@@ -101,9 +102,10 @@ function AdminContent() {
 
   const handleVerificationAction = async (hostId: string, action: "approve" | "reject") => {
     try {
-      await fetch(`/api/admin/verification/${encodeURIComponent(hostId)}/${action}`, {
+      const res = await fetch(`/api/verify/${encodeURIComponent(hostId)}/${action}`, {
         method: "POST", credentials: "include",
       });
+      if (!res.ok) throw new Error();
       setVerificationQueue((q) => q.filter((h) => h.host_id !== hostId));
       toast.success(`Host ${action}d`);
     } catch { toast.error(`Failed to ${action} host`); }
@@ -191,6 +193,7 @@ function AdminContent() {
                     <tr className="border-b border-border text-text-secondary">
                       <th className="py-3 pr-4 text-left font-medium">Email</th>
                       <th className="py-3 px-4 text-left font-medium">Role</th>
+                      <th className="py-3 px-4 text-center font-medium">Access</th>
                       <th className="py-3 px-4 text-center font-medium">Status</th>
                       <th className="py-3 px-4 text-center font-medium">Created</th>
                     </tr>
@@ -200,7 +203,12 @@ function AdminContent() {
                       <tr key={u.id || u.email} className="border-b border-border/50 hover:bg-surface-hover">
                         <td className="py-3 pr-4 font-medium">{u.email}</td>
                         <td className="py-3 px-4">
-                          <Badge variant={u.role === "admin" ? "active" : "default"}>{u.role || "user"}</Badge>
+                          <Badge variant="default">{u.role || "submitter"}</Badge>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <Badge variant={u.is_admin ? "active" : "default"}>
+                            {u.is_admin ? "Platform Admin" : "Standard"}
+                          </Badge>
                         </td>
                         <td className="py-3 px-4 text-center">
                           <StatusBadge status={u.is_active ? "active" : "offline"} />

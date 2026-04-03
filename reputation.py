@@ -562,11 +562,14 @@ class ReputationEngine:
         """Top-N hosts/users by reputation score."""
         with self.store._conn() as conn:
             rows = conn.execute(
-                """SELECT entity_id, final_score, tier, jobs_completed,
-                          reliability_score, search_boost, pricing_premium_pct
-                   FROM reputation_scores
-                   WHERE entity_type = %s
-                   ORDER BY final_score DESC
+                """SELECT r.entity_id, r.final_score AS score, r.tier,
+                          r.jobs_completed, r.reliability_score,
+                          r.search_boost, r.pricing_premium_pct,
+                          h.payload->>'gpu_model' AS gpu_model
+                   FROM reputation_scores r
+                   LEFT JOIN hosts h ON h.host_id = r.entity_id
+                   WHERE r.entity_type = %s
+                   ORDER BY r.final_score DESC
                    LIMIT %s""",
                 (entity_type, limit),
             ).fetchall()

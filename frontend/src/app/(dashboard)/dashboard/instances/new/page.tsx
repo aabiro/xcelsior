@@ -13,6 +13,32 @@ import type { PricingReference } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+/* ── Past-values history (for native datalist suggestions) ───── */
+const LS_KEY = "xcelsior:instance-history";
+const MAX_HISTORY = 15;
+
+function getHistory(): Record<string, string[]> {
+  if (typeof window === "undefined") return {};
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }
+  catch { return {}; }
+}
+
+function saveHistory(vals: Record<string, string>) {
+  try {
+    const hist = getHistory();
+    for (const [k, v] of Object.entries(vals)) {
+      if (!v.trim()) continue;
+      const arr = hist[k] || [];
+      const idx = arr.indexOf(v);
+      if (idx !== -1) arr.splice(idx, 1);
+      arr.unshift(v);
+      if (arr.length > MAX_HISTORY) arr.length = MAX_HISTORY;
+      hist[k] = arr;
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify(hist));
+  } catch { /* ignore quota errors */ }
+}
+
 const TIERS = ["on-demand", "spot", "reserved"] as const;
 const PRIORITIES = [
   { label: "Low", value: 0 },
@@ -47,11 +73,15 @@ export default function NewInstancePage() {
   const [province, setProvince] = useState("");
   const [nfsMount, setNfsMount] = useState("");
 
+  // Past values for datalist dropdowns
+  const [pastValues, setPastValues] = useState<Record<string, string[]>>({});
+
   // Reference data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
   const [provinces, setProvinces] = useState<Record<string, { tax_rate: number; description: string }>>({});
 
   useEffect(() => {
+    setPastValues(getHistory());
     fetchPricingReference()
       .then((r) => setPricing(r.reference || []))
       .catch((e) => console.error("Failed to load pricing", e));
@@ -78,16 +108,27 @@ export default function NewInstancePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const instanceName = name.trim() || `instance-${Date.now().toString(36)}`;
     setSubmitting(true);
     try {
       const res = await submitInstance({
-        name: name || undefined,
-        vram_needed_gb: Number(vramNeeded),
+        name: instanceName,
+        vram_needed_gb: Number(vramNeeded) || 24,
         num_gpus: Number(numGpus),
         priority,
         tier,
         image: image || undefined,
         nfs_path: nfsMount || undefined,
+      });
+      // Save form values for future datalist suggestions
+      saveHistory({
+        name: instanceName,
+        image,
+        gpuModel,
+        vramNeeded,
+        numGpus,
+        durationHrs,
+        nfsMount,
       });
       toast.success("Instance submitted");
       const jobId = (res as { instance?: { job_id?: string } })?.instance?.job_id;
@@ -116,7 +157,7 @@ export default function NewInstancePage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} autoComplete="on" className="space-y-6">
         {/* Template Selector */}
         <Card className="space-y-4">
           <div className="flex items-center gap-2">
@@ -165,26 +206,38 @@ export default function NewInstancePage() {
             <Label htmlFor="name">{t("dash.newinstance.name")}</Label>
             <Input
               id="name"
+              name="instance-name"
+              autoComplete="on"
+              list="past-names"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("dash.newinstance.name_placeholder")}
             />
+            <datalist id="past-names">
+              {(pastValues.name || []).map((v) => <option key={v} value={v} />)}
+            </datalist>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="image">{t("dash.newinstance.docker")}</Label>
             <Input
               id="image"
+              name="docker-image"
+              autoComplete="on"
+              list="past-images"
               value={image}
               onChange={(e) => setImage(e.target.value)}
               placeholder={t("dash.newinstance.docker_placeholder")}
             />
+            <datalist id="past-images">
+              {(pastValues.image || []).map((v) => <option key={v} value={v} />)}
+            </datalist>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="gpu">{t("dash.newinstance.gpu_model")}</Label>
-              <Select id="gpu" value={gpuModel} onChange={(e) => setGpuModel(e.target.value)}>
+              <Select id="gpu" name="gpu-model" autoComplete="on" value={gpuModel} onChange={(e) => setGpuModel(e.target.value)}>
                 <option value="">{t("dash.newinstance.gpu_auto")}</option>
                 {gpuModels.map((m) => (
                   <option key={m} value={m}>{m}</option>
@@ -196,11 +249,17 @@ export default function NewInstancePage() {
               <Label htmlFor="vram">{t("dash.newinstance.vram")}</Label>
               <Input
                 id="vram"
+                name="vram-gb"
+                autoComplete="on"
+                list="past-vram"
                 type="number"
                 min="1"
                 value={vramNeeded}
                 onChange={(e) => setVramNeeded(e.target.value)}
               />
+              <datalist id="past-vram">
+                {(pastValues.vramNeeded || []).map((v) => <option key={v} value={v} />)}
+              </datalist>
             </div>
           </div>
 
@@ -209,17 +268,23 @@ export default function NewInstancePage() {
               <Label htmlFor="numGpus">{t("dash.newinstance.gpu_count")}</Label>
               <Input
                 id="numGpus"
+                name="num-gpus"
+                autoComplete="on"
+                list="past-numgpus"
                 type="number"
                 min="1"
                 max="8"
                 value={numGpus}
                 onChange={(e) => setNumGpus(e.target.value)}
               />
+              <datalist id="past-numgpus">
+                {(pastValues.numGpus || []).map((v) => <option key={v} value={v} />)}
+              </datalist>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="tier">{t("dash.newinstance.pricing_tier")}</Label>
-              <Select id="tier" value={tier} onChange={(e) => setTier(e.target.value as typeof tier)}>
+              <Select id="tier" name="pricing-tier" autoComplete="on" value={tier} onChange={(e) => setTier(e.target.value as typeof tier)}>
                 {TIERS.map((t) => (
                   <option key={t} value={t}>{t.replace("-", " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>
                 ))}
@@ -228,7 +293,7 @@ export default function NewInstancePage() {
 
             <div className="space-y-2">
               <Label htmlFor="priority">{t("dash.newinstance.priority")}</Label>
-              <Select id="priority" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
+              <Select id="priority" name="job-priority" autoComplete="on" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
                 {PRIORITIES.map((p) => (
                   <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
@@ -246,7 +311,7 @@ export default function NewInstancePage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="province">{t("dash.newinstance.province")}</Label>
-              <Select id="province" value={province} onChange={(e) => setProvince(e.target.value)}>
+              <Select id="province" name="province" autoComplete="on" value={province} onChange={(e) => setProvince(e.target.value)}>
                 <option value="">{t("dash.newinstance.province_auto")}</option>
                 {Object.entries(provinces).map(([code, info]) => (
                   <option key={code} value={code}>{code} — {info.description}</option>
@@ -257,12 +322,18 @@ export default function NewInstancePage() {
               <Label htmlFor="duration">{t("dash.newinstance.duration")}</Label>
               <Input
                 id="duration"
+                name="duration-hours"
+                autoComplete="on"
+                list="past-duration"
                 type="number"
                 min="0.5"
                 step="0.5"
                 value={durationHrs}
                 onChange={(e) => setDurationHrs(e.target.value)}
               />
+              <datalist id="past-duration">
+                {(pastValues.durationHrs || []).map((v) => <option key={v} value={v} />)}
+              </datalist>
             </div>
           </div>
         </Card>
@@ -275,10 +346,16 @@ export default function NewInstancePage() {
             <Label htmlFor="nfs">{t("dash.newinstance.nfs")}</Label>
             <Input
               id="nfs"
+              name="nfs-mount"
+              autoComplete="on"
+              list="past-nfs"
               value={nfsMount}
               onChange={(e) => setNfsMount(e.target.value)}
               placeholder={t("dash.newinstance.nfs_placeholder")}
             />
+            <datalist id="past-nfs">
+              {(pastValues.nfsMount || []).map((v) => <option key={v} value={v} />)}
+            </datalist>
             <p className="text-xs text-text-muted">
               {t("dash.newinstance.nfs_desc")}
             </p>

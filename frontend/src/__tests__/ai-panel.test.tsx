@@ -47,8 +47,27 @@ vi.mock("framer-motion", () => ({
 }));
 
 vi.mock("next/link", () => ({
-  default: ({ children, href, ...rest }: { children: React.ReactNode; href: string; [k: string]: unknown }) => (
-    <a href={href} {...(rest as React.AnchorHTMLAttributes<HTMLAnchorElement>)}>{children}</a>
+  default: ({
+    children,
+    href,
+    onClick,
+    ...rest
+  }: {
+    children: React.ReactNode;
+    href: string;
+    onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+    [k: string]: unknown;
+  }) => (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        onClick?.(e);
+      }}
+      {...(rest as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
+    >
+      {children}
+    </a>
   ),
 }));
 
@@ -189,6 +208,12 @@ describe("AiPanel component", () => {
     expect(screen.getByTitle("ai.open_full")).toHaveAttribute("href", "/dashboard/ai");
   });
 
+  it("closes the side panel when opening the full AI page", () => {
+    const { onClose } = renderPanel();
+    fireEvent.click(screen.getByTitle("ai.open_full"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("renders Beta badge", () => {
     renderPanel();
     expect(screen.getByText("Beta")).toBeInTheDocument();
@@ -202,6 +227,6 @@ describe("AiPanel component", () => {
   it("shows loading dots for empty assistant message", () => {
     _m.messages = [{ id: "1", role: "assistant", content: "", timestamp: 1000 }];
     const { container } = renderPanel();
-    expect(container.querySelectorAll(".animate-bounce").length).toBe(3);
+    expect(container.querySelectorAll(".animate-ai-pulse").length).toBe(3);
   });
 });

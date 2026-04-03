@@ -33,10 +33,10 @@ Quebec's *Act respecting the protection of personal information in the private s
 
 ### Province-Level Filtering
 
-Jobs can be restricted to specific provinces:
+Instances can be restricted to specific provinces:
 
 ```bash
-POST /job
+POST /instance
 {
   "name": "sensitive-analysis",
   "vram_needed_gb": 24,
@@ -83,3 +83,10 @@ Returns GST/HST/PST/QST rates for all provinces and territories.
 | `GET /api/privacy/retention` | Data retention policy |
 | `POST /api/privacy/export` | Request data export |
 | `DELETE /api/privacy/data` | Request data deletion |
+
+## Further Reading
+
+- [PIPEDA Compliant GPU Cloud](https://xcelsior.ca/blog/pipeda-compliant-gpu-cloud) — Practical compliance guide for AI teams
+- [Data Sovereignty vs. Data Residency](https://xcelsior.ca/blog/sovereignty-vs-residency) — Why the distinction matters
+- [Quebec Law 25 and GPU Compute](https://xcelsior.ca/blog/law-25-gpu-compute) — Province-specific requirements
+- [Data Sovereignty](https://xcelsior.ca/sovereignty) — Xcelsior's sovereignty promise

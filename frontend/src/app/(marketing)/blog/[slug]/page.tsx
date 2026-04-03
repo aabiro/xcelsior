@@ -34,8 +34,30 @@ export default async function BlogPostPage({ params }: Props) {
   const post = getPostBySlug(slug);
   if (!post) notFound();
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description: post.description,
+    datePublished: post.date,
+    author: { "@type": "Person", name: post.author },
+    publisher: {
+      "@type": "Organization",
+      name: "Xcelsior Computing Inc.",
+      url: "https://xcelsior.ca",
+      logo: { "@type": "ImageObject", url: "https://xcelsior.ca/xcelsior_icon_512x512.png" },
+    },
+    mainEntityOfPage: `https://xcelsior.ca/blog/${slug}`,
+    keywords: post.tags.join(", "),
+    image: post.image ? `https://xcelsior.ca${post.image}` : `https://xcelsior.ca/blog/${slug}/opengraph-image`,
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-24">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Link
         href="/blog"
         className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors mb-8"

@@ -80,6 +80,11 @@ export function Footer() {
                 </Link>
               </li>
               <li>
+                <Link href="/support" className="text-sm text-text-secondary hover:text-text-primary">
+                  {t("footer.support")}
+                </Link>
+              </li>
+              <li>
                 <a href="mailto:hello@xcelsior.ca" className="text-sm text-text-secondary hover:text-text-primary">
                   {t("footer.contact")}
                 </a>

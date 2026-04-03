@@ -5,7 +5,9 @@
 import json
 import logging
 import os
+import sqlite3
 import time
+import urllib.parse
 import urllib.request
 import uuid
 from contextlib import contextmanager
@@ -18,18 +20,21 @@ BTC_RPC_HOST = os.environ.get("XCELSIOR_BTC_RPC_HOST", "127.0.0.1")
 BTC_RPC_PORT = int(os.environ.get("XCELSIOR_BTC_RPC_PORT", "8332"))
 BTC_RPC_USER = os.environ.get("XCELSIOR_BTC_RPC_USER", "")
 BTC_RPC_PASS = os.environ.get("XCELSIOR_BTC_RPC_PASS", "")
+BTC_RPC_WALLET = os.environ.get("XCELSIOR_BTC_RPC_WALLET", "").strip()
+BTC_AUTO_WALLET = os.environ.get("XCELSIOR_BTC_AUTO_WALLET", "xcelsior").strip() or "xcelsior"
 BTC_CONFIRMATIONS = int(os.environ.get("XCELSIOR_BTC_CONFIRMATIONS", "3"))
 BTC_DEPOSIT_EXPIRY = int(os.environ.get("XCELSIOR_BTC_DEPOSIT_EXPIRY", "1800"))  # 30 min
 BTC_ENABLED = os.environ.get("XCELSIOR_BTC_ENABLED", "false").lower() == "true"
 
 _rate_cache: dict = {"rate": 0.0, "fetched_at": 0.0}
+_active_wallet_name: str | None = BTC_RPC_WALLET or None
 RATE_CACHE_TTL = 300  # 5 minutes
 
 
 # ── Bitcoin Core RPC ──────────────────────────────────────────────────
 
 
-def _rpc_call(method: str, params: list | None = None) -> dict:
+def _rpc_call(method: str, params: list | None = None, wallet: str | None = None) -> dict:
     """Call Bitcoin Core JSON-RPC."""
     payload = json.dumps({
         "jsonrpc": "2.0",
@@ -39,6 +44,9 @@ def _rpc_call(method: str, params: list | None = None) -> dict:
     }).encode()
 
     url = f"http://{BTC_RPC_HOST}:{BTC_RPC_PORT}"
+    if wallet:
+        quoted = urllib.parse.quote(wallet, safe="")
+        url = f"{url}/wallet/{quoted}"
     import base64
     auth = base64.b64encode(f"{BTC_RPC_USER}:{BTC_RPC_PASS}".encode()).decode()
 
@@ -57,24 +65,96 @@ def _rpc_call(method: str, params: list | None = None) -> dict:
         return result["result"]
 
 
+def _wallet_has_receiving_keys(info: dict) -> bool:
+    """Return True when a wallet can hand out fresh receiving addresses."""
+    if not info.get("private_keys_enabled", False):
+        return False
+    if info.get("blank", False):
+        return False
+    return int(info.get("keypoolsize", 0)) > 0 or int(info.get("keypoolsize_hd_internal", 0)) > 0
+
+
+def _ensure_wallet_ready(wallet_name: str) -> None:
+    """Load or create a dedicated receiving wallet, then verify it has keys."""
+    try:
+        loaded = _rpc_call("listwallets")
+    except Exception:
+        loaded = []
+
+    if wallet_name not in loaded:
+        try:
+            _rpc_call("loadwallet", [wallet_name])
+        except Exception:
+            # If the wallet does not exist yet, create a fresh descriptor wallet.
+            _rpc_call("createwallet", [wallet_name])
+
+    info = _rpc_call("getwalletinfo", wallet=wallet_name)
+    if _wallet_has_receiving_keys(info):
+        return
+
+    try:
+        _rpc_call("keypoolrefill", wallet=wallet_name)
+    except Exception:
+        pass
+
+    info = _rpc_call("getwalletinfo", wallet=wallet_name)
+    if not _wallet_has_receiving_keys(info):
+        raise RuntimeError(
+            f"Bitcoin wallet '{wallet_name}' has no receiving keys available",
+        )
+
+
+def _should_provision_wallet(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "no available keys" in msg
+        or "wallet file not specified" in msg
+        or "requested wallet does not exist" in msg
+        or "method not found" in msg
+    )
+
+
+def _wallet_rpc_call(method: str, params: list | None = None):
+    """Call the active wallet, provisioning a dedicated wallet if the default one is unusable."""
+    global _active_wallet_name
+
+    wallet_name = _active_wallet_name if _active_wallet_name is not None else BTC_RPC_WALLET
+    try:
+        return _rpc_call(method, params, wallet=wallet_name or None)
+    except Exception as exc:
+        if not _should_provision_wallet(exc):
+            raise
+
+        fallback_wallet = BTC_RPC_WALLET or BTC_AUTO_WALLET
+        _ensure_wallet_ready(fallback_wallet)
+        _active_wallet_name = fallback_wallet
+        log.warning(
+            "BTC wallet fallback engaged: using '%s' after address generation failed on '%s' (%s)",
+            fallback_wallet,
+            wallet_name or "<default>",
+            exc,
+        )
+        return _rpc_call(method, params, wallet=fallback_wallet)
+
+
 def get_new_address(label: str = "xcelsior") -> str:
     """Generate a new receiving address from the node wallet."""
-    return _rpc_call("getnewaddress", [label, "bech32"])
+    return _wallet_rpc_call("getnewaddress", [label, "bech32"])
 
 
 def get_received_by_address(address: str, min_conf: int = 0) -> float:
     """Get total BTC received by an address."""
-    return float(_rpc_call("getreceivedbyaddress", [address, min_conf]))
+    return float(_wallet_rpc_call("getreceivedbyaddress", [address, min_conf]))
 
 
 def get_transaction(txid: str) -> dict:
     """Get transaction details."""
-    return _rpc_call("gettransaction", [txid])
+    return _wallet_rpc_call("gettransaction", [txid])
 
 
 def list_received_by_address(min_conf: int = 0, include_empty: bool = True) -> list:
     """List all receiving addresses and amounts."""
-    return _rpc_call("listreceivedbyaddress", [min_conf, include_empty])
+    return _wallet_rpc_call("listreceivedbyaddress", [min_conf, include_empty])
 
 
 # ── BTC/CAD Rate ──────────────────────────────────────────────────────
@@ -103,13 +183,148 @@ def get_btc_cad_rate() -> float:
         raise RuntimeError("Unable to fetch BTC/CAD rate") from e
 
 
+def describe_service_error(exc: Exception | str) -> str:
+    """Normalize low-level BTC service failures into concise user-facing text."""
+    message = exc.strip() if isinstance(exc, str) else str(exc).strip()
+    normalized = message.lower()
+
+    if (
+        "unable to fetch btc/cad rate" in normalized
+        or "failed to fetch btc/cad rate" in normalized
+    ):
+        return "Bitcoin pricing service is currently unavailable"
+
+    if any(
+        token in normalized
+        for token in (
+            "connection refused",
+            "timed out",
+            "timeout",
+            "failed to establish a new connection",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "urlopen error",
+            "connection reset by peer",
+        )
+    ):
+        return "Bitcoin node is offline or unavailable"
+
+    return message or "Bitcoin service is currently unavailable"
+
+
+def get_service_status() -> dict:
+    """Report whether new BTC deposits can currently be created."""
+    wallet_name = BTC_RPC_WALLET or BTC_AUTO_WALLET
+    status = {
+        "enabled": BTC_ENABLED,
+        "available": False,
+        "reason": "Bitcoin deposits are not enabled",
+        "wallet_name": wallet_name,
+        "rpc_reachable": False,
+        "wallet_ready": False,
+    }
+
+    if not BTC_ENABLED:
+        return status
+
+    try:
+        chain_info = _rpc_call("getblockchaininfo")
+        status["rpc_reachable"] = True
+        status["network"] = chain_info.get("chain")
+        status["blocks"] = chain_info.get("blocks")
+    except Exception as exc:
+        status["reason"] = describe_service_error(exc)
+        return status
+
+    try:
+        _ensure_wallet_ready(wallet_name)
+        status["wallet_ready"] = True
+    except Exception as exc:
+        status["reason"] = describe_service_error(exc)
+        return status
+
+    status["available"] = True
+    status["reason"] = "ok"
+    return status
+
+
 # ── PostgreSQL Store ───────────────────────────────────────────────────
+
+
+def _ensure_sqlite_tables(conn: sqlite3.Connection) -> None:
+    """Ensure BTC-related tables exist for lightweight SQLite-backed tests."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS crypto_deposits (
+               deposit_id TEXT PRIMARY KEY,
+               customer_id TEXT NOT NULL,
+               btc_address TEXT NOT NULL,
+               amount_btc REAL NOT NULL,
+               amount_cad REAL NOT NULL,
+               btc_cad_rate REAL NOT NULL,
+               status TEXT NOT NULL DEFAULT 'pending',
+               confirmations INTEGER NOT NULL DEFAULT 0,
+               txid TEXT NOT NULL DEFAULT '',
+               created_at REAL NOT NULL,
+               expires_at REAL NOT NULL,
+               confirmed_at REAL NOT NULL DEFAULT 0,
+               credited_at REAL NOT NULL DEFAULT 0
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_status ON crypto_deposits(status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_customer ON crypto_deposits(customer_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_address ON crypto_deposits(btc_address)"
+    )
+
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS fintrac_reports (
+               report_id TEXT PRIMARY KEY,
+               customer_id TEXT NOT NULL,
+               report_type TEXT NOT NULL,
+               trigger_amount_cad REAL NOT NULL,
+               trigger_currency TEXT NOT NULL,
+               aggregate_window_start REAL NOT NULL,
+               aggregate_window_end REAL NOT NULL,
+               status TEXT NOT NULL DEFAULT 'pending',
+               created_at REAL NOT NULL,
+               notes TEXT NOT NULL DEFAULT ''
+           )"""
+    )
+
+
+class _SqliteCompatConnection:
+    """Adapt Postgres-style `%s` placeholders to SQLite's `?` placeholders."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    def execute(self, query: str, params: tuple | list | None = None):
+        normalized_query = query.replace("%s", "?")
+        return self._conn.execute(normalized_query, params or ())
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
 
 
 @contextmanager
 def _conn():
+    backend = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
+
+    if backend != "postgres":
+        from db import sqlite_transaction
+
+        with sqlite_transaction() as c:
+            _ensure_sqlite_tables(c)
+            yield _SqliteCompatConnection(c)
+        return
+
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as c:
         c.row_factory = dict_row

@@ -1,0 +1,72 @@
+---
+title: "How to Rent a GPU in Canada Without Leaving Canadian Jurisdiction"
+description: "A practical guide to renting GPUs in Canada — from hyperscaler regions to sovereign providers like Xcelsior. Learn what to look for, how pricing works, and why jurisdiction matters."
+date: "2026-03-28"
+author: "Xcelsior Team"
+tags: ["GPU rental", "Canada", "cloud compute", "sovereignty", "getting started"]
+image: "/blog/rent-gpu-canada.jpg"
+---
+
+## Why Rent a GPU in Canada?
+
+If you're training machine learning models, running inference, or processing large datasets, buying your own GPU hardware is expensive and hard to maintain. Renting GPU time by the hour is the standard approach — but for Canadian teams, **where** you rent matters just as much as **what** you rent.
+
+Three reasons jurisdiction matters when you rent a GPU in Canada:
+
+- **PIPEDA compliance** — Canada's federal privacy law requires that personal data handled by Canadian businesses stays under Canadian legal jurisdiction. A US-controlled cloud provider operating a Canadian region doesn't satisfy this.
+- **CLOUD Act exposure** — US-headquartered providers (AWS, Azure, GCP) can be compelled to hand over data stored anywhere in the world, including their Canadian regions.
+- **Latency and data transfer** — If your datasets are already in Canada, keeping compute local avoids cross-border transfer costs and latency.
+
+## Your Options for Renting GPUs in Canada
+
+### 1. Hyperscaler "Canada Regions"
+
+AWS (ca-central-1), Azure (Canada Central/East), and GCP (northamerica-northeast1) all offer GPU instances in Canadian data centres. They're reliable and well-documented, but:
+
+- You're still under US jurisdiction via the CLOUD Act
+- Pricing is in USD with markup compared to US regions
+- Availability for high-end GPUs (H100, A100) is often limited
+- Reserved instances require 1–3 year commitments
+
+### 2. Canadian Bare-Metal Providers
+
+Companies like OVHcloud (Beauharnois, QC) offer bare-metal GPU servers. You get dedicated hardware, but:
+
+- No elasticity — you're paying whether or not you're computing
+- Limited GPU selection (often previous-gen cards)
+- You manage drivers, CUDA, containers, and networking yourself
+
+### 3. Xcelsior — Sovereign GPU Marketplace
+
+[Xcelsior](https://xcelsior.ca) aggregates GPU capacity from verified Canadian hosts into a managed marketplace:
+
+- **Pay-per-hour in CAD** — no commitments, no currency conversion
+- **GPU selection** — RTX 4090, A100, H100 available from community and data-centre providers
+- **True sovereignty** — Canadian-owned platform, Canadian-hosted infrastructure, no CLOUD Act exposure
+- **Compliance built in** — PIPEDA and Quebec Law 25 compliance automation, province-level data residency controls
+- **Managed experience** — secure isolation, automated scheduling, checkpoint support, SSH access
+
+## What Does It Cost to Rent a GPU in Canada?
+
+Pricing varies by GPU model and provider. Here's a rough comparison for a single GPU hour:
+
+| GPU | AWS (ca-central-1) | Xcelsior |
+|---|---|---|
+| A100 80GB | ~$4.10 USD | ~$3.20 CAD |
+| H100 80GB | ~$5.60 USD | ~$4.50 CAD |
+| RTX 4090 | N/A | ~$0.80 CAD |
+
+Xcelsior prices are in Canadian dollars with no currency conversion fees. The [AI Compute Access Fund](https://xcelsior.ca/pricing) provides additional rebates for Canadian startups and research institutions.
+
+## Getting Started
+
+1. **Create an account** at [xcelsior.ca/register](https://xcelsior.ca/register)
+2. **Add credits** to your wallet (CAD, credit card or crypto)
+3. **Launch an instance** — pick your GPU, VRAM, and isolation tier
+4. **SSH in** and start training
+
+Full setup guide: [docs.xcelsior.ca](https://docs.xcelsior.ca)
+
+## Bottom Line
+
+Renting a GPU in Canada doesn't have to mean choosing between sovereignty and convenience. With Xcelsior, you get managed GPU compute that stays under Canadian law — with competitive pricing in CAD and no vendor lock-in.

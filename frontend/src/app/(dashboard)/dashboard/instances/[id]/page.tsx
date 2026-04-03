@@ -171,7 +171,7 @@ export default function InstanceDetailPage() {
                         ? isCurrent && (instance.status === "failed" || instance.status === "cancelled")
                           ? "border-accent-red bg-accent-red"
                           : "border-emerald bg-emerald"
-                        : "border-border bg-navy"
+                        : "border-text-muted/50 bg-text-muted/20"
                     }`}
                   />
                   <span className={`mt-1.5 text-xs capitalize ${reached ? "text-text-primary" : "text-text-muted"}`}>
@@ -179,7 +179,7 @@ export default function InstanceDetailPage() {
                   </span>
                 </div>
                 {i < STATUS_STEPS.length - 1 && (
-                  <div className={`h-0.5 flex-1 ${i < currentStepIdx ? "bg-emerald" : "bg-border"}`} />
+                  <div className={`h-0.5 flex-1 ${i < currentStepIdx ? "bg-emerald" : "bg-text-muted/30"}`} />
                 )}
               </div>
             );

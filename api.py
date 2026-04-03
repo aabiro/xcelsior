@@ -37,6 +37,7 @@ from scheduler import (
     load_billing,
     configure_alerts,
     ALERT_CONFIG,
+    alert,
     generate_ssh_keypair,
     get_public_key,
     API_TOKEN,
@@ -74,6 +75,8 @@ from scheduler import (
     register_compute_score,
     get_compute_score,
     allocate_compute_aware,
+    run_job,
+    kill_job,
     # v2.1 additions
     allocate_jurisdiction_aware,
     process_queue_sovereign,
@@ -920,10 +923,12 @@ class HostIn(BaseModel):
 
 class JobIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    vram_needed_gb: float = Field(gt=0)
+    vram_needed_gb: float = Field(default=0, ge=0)
     priority: int = Field(default=0, ge=0, le=10)
     tier: str | None = None
     num_gpus: int = Field(default=1, ge=1, le=64)
+    host_id: str | None = None  # Direct host assignment (marketplace)
+    gpu_model: str | None = None  # Hint for VRAM lookup
     nfs_server: str | None = None
     nfs_path: str | None = None
     nfs_mount_point: str | None = None
@@ -1087,17 +1092,48 @@ def api_check_hosts():
 # ── Instance endpoints ─────────────────────────────────────────────────────
 
 
-@app.post("/instance", tags=["Instances"])
-def api_submit_instance(j: JobIn):
-    """Submit a job to the queue. Tier overrides priority.
+def _refresh_job(job_id: str):
+    """Re-read a job from the DB to get updated status/host/container fields."""
+    for j in list_jobs():
+        if j["job_id"] == job_id:
+            return j
+    return None
 
-    Multi-GPU: Set num_gpus > 1 for multi-GPU jobs.
-    NFS: Optionally specify nfs_server + nfs_path for shared storage.
+
+@app.post("/instance", tags=["Instances"])
+def api_submit_instance(j: JobIn, request: Request):
+    """Submit a job to the queue or directly assign to a host.
+
+    If host_id is provided (marketplace launch), the job is assigned directly
+    to that host and container start is attempted immediately. Otherwise,
+    the job is queued and process_queue runs to find a host.
     """
+    user = _require_auth(request)
+
+    # If host_id provided but no vram, look it up from the host record
+    vram_needed = j.vram_needed_gb
+    target_host_id = j.host_id
+    if target_host_id and vram_needed <= 0:
+        hosts = list_hosts()
+        hmap = {h["host_id"]: h for h in hosts}
+        target = hmap.get(target_host_id)
+        if target:
+            vram_needed = float(target.get("total_vram_gb", 24) or 24)
+        else:
+            vram_needed = 24.0
+    elif vram_needed <= 0:
+        # Auto GPU: use the smallest available host's free VRAM so the job
+        # can actually be scheduled rather than defaulting to 24 GB.
+        hosts = list_hosts()
+        if hosts:
+            vram_needed = float(min(h.get("free_vram_gb", 0) for h in hosts) or 4.0)
+        else:
+            vram_needed = 4.0  # minimal default when no hosts available
+
     with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
         job = submit_job(
             j.name,
-            j.vram_needed_gb,
+            vram_needed,
             j.priority,
             tier=j.tier,
             num_gpus=j.num_gpus,
@@ -1109,7 +1145,44 @@ def api_submit_instance(j: JobIn):
             command=j.command,
             ssh_port=j.ssh_port,
         )
+        # Track job ownership
+        job["submitted_by"] = user.get("email", "")
+        job["customer_id"] = user.get("customer_id", user.get("user_id", ""))
         broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
+
+        # Direct host assignment: assign + start immediately
+        if target_host_id:
+            try:
+                updated = update_job_status(job["job_id"], "assigned", host_id=target_host_id)
+                if updated and updated.get("status") == "assigned":
+                    hosts = list_hosts()
+                    hmap = {h["host_id"]: h for h in hosts}
+                    host = hmap.get(target_host_id)
+                    if host:
+                        container_id = run_job(updated, host, docker_image=j.image or None)
+                        if container_id:
+                            job = _refresh_job(job["job_id"]) or job
+                            log.info("Direct launch: job %s running on host %s", job["job_id"], target_host_id)
+                        else:
+                            job = _refresh_job(job["job_id"]) or job
+                            log.warning("Direct launch: container start failed for job %s on host %s",
+                                        job["job_id"], target_host_id)
+                    else:
+                        log.warning("Direct launch: host %s not found, job %s stays queued", target_host_id, job["job_id"])
+                        update_job_status(job["job_id"], "queued")
+                        job = _refresh_job(job["job_id"]) or job
+            except Exception as e:
+                log.error("Direct launch failed for job %s: %s", job["job_id"], e)
+                job = _refresh_job(job["job_id"]) or job
+        else:
+            # Auto-process queue to try to assign immediately
+            try:
+                process_queue()
+                # Refresh job status after queue processing
+                job = _refresh_job(job["job_id"]) or job
+            except Exception as e:
+                log.warning("Queue processing after submit failed: %s", e)
+
         return {"ok": True, "instance": job}
 
 
@@ -1206,8 +1279,16 @@ def api_cancel_instance(job_id: str):
     if job.get("status") in ("completed", "failed", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Instance already {job['status']}")
 
-    # If running on a host, schedule container stop via preemption mechanism
+    # If running on a host, kill the container directly and also schedule via agent
     if job.get("host_id") and job.get("status") in ("running", "assigned", "leased"):
+        hosts = list_hosts()
+        hmap = {h["host_id"]: h for h in hosts}
+        host = hmap.get(job["host_id"])
+        if host:
+            try:
+                kill_job(job, host)
+            except Exception as e:
+                log.warning("Container kill failed for %s: %s", job_id, e)
         with _agent_lock:
             _agent_preempt[job["host_id"]].append(job_id)
 
@@ -1305,6 +1386,7 @@ async def api_instance_log_stream(request: Request, job_id: str):
     - `job_status` — status change (data: {job_id, status})
     - `connected` — initial handshake (data: {job_id, status: "streaming"})
     """
+    _require_auth(request)
     # Verify job exists
     jobs = list_jobs()
     if not any(j["job_id"] == job_id for j in jobs):
@@ -1322,12 +1404,13 @@ async def api_instance_log_stream(request: Request, job_id: str):
 
 
 @app.get("/instances/{job_id}/logs", tags=["Instances"])
-def api_instance_logs(job_id: str, limit: int = 100):
+def api_instance_logs(job_id: str, request: Request, limit: int = 100):
     """Get buffered log lines for a job (non-streaming).
 
     Returns the last `limit` log lines from the in-memory buffer.
     For real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).
     """
+    _require_auth(request)
     buf = _job_log_buffers.get(job_id, [])
     return {"ok": True, "job_id": job_id, "logs": buf[-limit:], "total": len(buf)}
 
@@ -1340,30 +1423,37 @@ def api_instance_logs(job_id: str, limit: int = 100):
 _ws_connections: dict[str, set[WebSocket]] = defaultdict(set)  # job_id -> {ws, ...}
 
 
-def _validate_ws_auth(websocket: WebSocket) -> bool:
-    """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware)."""
+def _validate_ws_auth(websocket: WebSocket) -> dict | None:
+    """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware).
+    Returns user dict on success, None on failure."""
     if not AUTH_REQUIRED:
-        return True
+        return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": 1}
     api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
     token = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
     if not token:
         token = websocket.query_params.get("token", "")
     if not token:
-        return False
+        return None
     if api_token and hmac.compare_digest(token, api_token):
-        return True
+        return {"email": "api-token", "user_id": "api-token", "role": "admin", "is_admin": 1}
     if _USE_PERSISTENT_AUTH:
-        if UserStore.get_session(token):
-            return True
-        if UserStore.get_api_key(token):
-            return True
+        session = UserStore.get_session(token)
+        if session:
+            return dict(session)
+        api_key = UserStore.get_api_key(token)
+        if api_key:
+            return {
+                "email": api_key["email"],
+                "user_id": api_key["user_id"],
+                "role": api_key.get("role", "submitter"),
+            }
     else:
         with _user_lock:
             if token in _sessions and _sessions[token]["expires_at"] > time.time():
-                return True
+                return _sessions[token]
             if token in _api_keys:
-                return True
-    return False
+                return _api_keys[token]
+    return None
 
 
 @app.websocket("/ws/instances/{job_id}")
@@ -1516,28 +1606,49 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     # For local dev: direct docker exec
     shell = instance.get("shell", "/bin/bash")
     docker_cmd = [
-        "docker", "exec", "-i", container_id, shell,
+        "docker", "exec", "-it", container_id, shell,
     ]
 
     session_start = time.time()
     process = None
     closed = False
+    master_fd = None
 
     try:
+        import pty as _pty, fcntl, struct, termios
+        master_fd, slave_fd = _pty.openpty()
         process = await asyncio.create_subprocess_exec(
             *docker_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
         )
-    except FileNotFoundError:
-        await websocket.send_json({"type": "error", "message": "Docker not available on this host"})
-        await websocket.close(code=4003)
-        return
-    except Exception as exc:
-        await websocket.send_json({"type": "error", "message": str(exc)})
-        await websocket.close(code=4003)
-        return
+        os.close(slave_fd)
+        os.set_blocking(master_fd, False)
+    except (FileNotFoundError, ImportError, OSError):
+        # Fallback: no PTY support (resize won't work)
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+            master_fd = None
+        try:
+            docker_cmd[2] = "-i"  # downgrade to -i (no tty)
+            process = await asyncio.create_subprocess_exec(
+                *docker_cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            await websocket.send_json({"type": "error", "message": "Docker not available on this host"})
+            await websocket.close(code=4003)
+            return
+        except Exception as exc:
+            await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.close(code=4003)
+            return
 
     await websocket.send_json({"type": "output", "data": f"Connected to {instance.get('name', instance_id)}\\r\\n"})
 
@@ -1547,11 +1658,30 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     async def _stdout_relay():
         """Read container stdout and relay to browser."""
         nonlocal closed, bytes_this_second, last_rate_reset
+        loop = asyncio.get_event_loop()
         try:
-            while not closed and process and process.stdout:
-                chunk = await asyncio.wait_for(
-                    process.stdout.read(4096), timeout=5.0
-                )
+            while not closed:
+                if master_fd is not None:
+                    # PTY mode: read from master fd
+                    try:
+                        chunk = await asyncio.wait_for(
+                            loop.run_in_executor(None, lambda: os.read(master_fd, 4096)),
+                            timeout=5.0,
+                        )
+                    except (OSError, asyncio.TimeoutError):
+                        if closed:
+                            break
+                        continue
+                elif process and process.stdout:
+                    # Pipe mode fallback
+                    try:
+                        chunk = await asyncio.wait_for(
+                            process.stdout.read(4096), timeout=5.0
+                        )
+                    except asyncio.TimeoutError:
+                        continue
+                else:
+                    break
                 if not chunk:
                     break
                 # Rate limiting
@@ -1591,14 +1721,23 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                 except asyncio.TimeoutError:
                     continue
                 msg = json.loads(raw)
-                if msg.get("type") == "input" and process and process.stdin:
+                if msg.get("type") == "input":
                     data = msg.get("data", "")
-                    process.stdin.write(data.encode("utf-8"))
-                    await process.stdin.drain()
+                    if master_fd is not None:
+                        os.write(master_fd, data.encode("utf-8"))
+                    elif process and process.stdin:
+                        process.stdin.write(data.encode("utf-8"))
+                        await process.stdin.drain()
                 elif msg.get("type") == "resize":
-                    # Resize not directly supported with docker exec -i
-                    # Would need PTY allocation for proper resize
-                    pass
+                    cols = int(msg.get("cols", 80))
+                    rows = int(msg.get("rows", 24))
+                    if master_fd is not None:
+                        try:
+                            import fcntl, struct, termios
+                            winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+                        except (ImportError, OSError):
+                            pass
                 elif msg.get("type") == "ping":
                     await websocket.send_json({"type": "pong", "ts": time.time()})
         except (WebSocketDisconnect, RuntimeError):
@@ -1615,6 +1754,11 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             task.cancel()
     finally:
         closed = True
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
         if process:
             try:
                 process.kill()
@@ -1634,8 +1778,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
 
 
 @app.post("/billing/bill/{job_id}", tags=["Billing"])
-def api_bill_instance(job_id: str):
+def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
+    _require_auth(request)
     with otel_span("billing.bill_job", {"job.id": job_id}):
         record = bill_job(job_id)
         if not record:
@@ -1644,8 +1789,9 @@ def api_bill_instance(job_id: str):
 
 
 @app.post("/billing/bill-all", tags=["Billing"])
-def api_bill_all():
+def api_bill_all(request: Request):
     """Bill all unbilled completed jobs."""
+    _require_auth(request)
     bills = bill_all_completed()
     return {"billed": len(bills), "bills": bills}
 
@@ -1695,15 +1841,17 @@ class AlertConfig(BaseModel):
 
 
 @app.get("/alerts/config", tags=["Infrastructure"])
-def api_get_alert_config():
+def api_get_alert_config(request: Request):
     """Get current alert config (passwords redacted)."""
+    _require_admin(request)
     safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
     return {"config": safe}
 
 
 @app.put("/alerts/config", tags=["Infrastructure"])
-def api_set_alert_config(cfg: AlertConfig):
+def api_set_alert_config(cfg: AlertConfig, request: Request):
     """Update alert config at runtime."""
+    _require_admin(request)
     updates = {k: v for k, v in cfg.model_dump().items() if v is not None}
     configure_alerts(**updates)
     return {"ok": True, "updated": list(updates.keys())}
@@ -1713,8 +1861,9 @@ def api_set_alert_config(cfg: AlertConfig):
 
 
 @app.post("/ssh/keygen", tags=["Infrastructure"])
-def api_generate_ssh_key():
+def api_generate_ssh_key(request: Request):
     """Generate an Ed25519 SSH keypair for host access."""
+    _require_auth(request)
     path = generate_ssh_keypair()
     pub = get_public_key(path)
     return {"ok": True, "key_path": path, "public_key": pub}
@@ -2130,6 +2279,37 @@ def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     return hashed, salt
 
 
+VALID_ACCOUNT_ROLES = {"submitter", "provider"}
+
+
+def _admin_flag(value) -> int:
+    """Normalize truthy admin values from DB/session payloads."""
+    if isinstance(value, str):
+        return 1 if value.strip().lower() in {"1", "true", "yes", "on"} else 0
+    return 1 if value else 0
+
+
+def _is_platform_admin(user: dict | None) -> bool:
+    """Platform admin privilege is independent from the account role."""
+    if not user:
+        return False
+    return _admin_flag(user.get("is_admin")) == 1 or user.get("role") == "admin"
+
+
+def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
+    """Overlay live user/account data onto a session or API-key auth payload."""
+    merged = dict(base or {})
+    if full_user:
+        merged["role"] = full_user.get("role", merged.get("role", "submitter"))
+        merged["name"] = full_user.get("name", merged.get("name", ""))
+        merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
+        merged["provider_id"] = full_user.get("provider_id", merged.get("provider_id"))
+        merged["is_admin"] = 1 if _is_platform_admin(full_user) else 0
+    else:
+        merged["is_admin"] = 1 if _is_platform_admin(merged) else 0
+    return merged
+
+
 def _create_session(email: str, user: dict, request: Request | None = None) -> dict:
     """Create a session token for a user."""
     token = secrets.token_urlsafe(48)
@@ -2139,6 +2319,7 @@ def _create_session(email: str, user: dict, request: Request | None = None) -> d
         "email": email,
         "user_id": user.get("user_id", email),
         "role": user.get("role", "submitter"),
+        "is_admin": 1 if _is_platform_admin(user) else 0,
         "name": user.get("name", ""),
         "created_at": now,
         "expires_at": now + SESSION_EXPIRY,
@@ -2164,6 +2345,16 @@ def _get_current_user(request: Request) -> dict | None:
         token = request.cookies.get(_AUTH_COOKIE_NAME, "")
     if not token:
         return None
+    # Master API token → admin user
+    master = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    if master and hmac.compare_digest(token, master):
+        return {
+            "email": "api-token@xcelsior.ca",
+            "user_id": "api-admin",
+            "role": "admin",
+            "is_admin": 1,
+            "name": "API Token",
+        }
     if _USE_PERSISTENT_AUTH:
         session = UserStore.get_session(token)
         if session:
@@ -2174,33 +2365,71 @@ def _get_current_user(request: Request) -> dict | None:
                     UserStore.update_session_last_active(token)
             except Exception:
                 pass
-            return dict(session)
+            full_user = UserStore.get_user(session["email"])
+            return _merge_auth_user(dict(session), full_user)
         api_key = UserStore.get_api_key(token)
         if api_key:
-            return {
-                "email": api_key["email"],
-                "user_id": api_key["user_id"],
-                "role": api_key.get("role", "submitter"),
-                "name": api_key.get("name", ""),
-                "scope": api_key.get("scope", "full-access"),
-            }
+            full_user = UserStore.get_user(api_key["email"])
+            return _merge_auth_user(
+                {
+                    "email": api_key["email"],
+                    "user_id": api_key["user_id"],
+                    "role": api_key.get("role", "submitter"),
+                    "is_admin": api_key.get("is_admin", 0),
+                    "name": api_key.get("name", ""),
+                    "scope": api_key.get("scope", "full-access"),
+                },
+                full_user,
+            )
     else:
         with _user_lock:
             session = _sessions.get(token)
+            full_user = _users_db.get(session["email"]) if session else None
         if session and session["expires_at"] > time.time():
-            return session
+            return _merge_auth_user(session, full_user)
         with _user_lock:
             api_key = _api_keys.get(token)
+            full_user = _users_db.get(api_key["email"]) if api_key else None
         if api_key:
             api_key["last_used"] = time.time()
-            return {
-                "email": api_key["email"],
-                "user_id": api_key["user_id"],
-                "role": api_key.get("role", "submitter"),
-                "name": api_key.get("name", ""),
-                "scope": api_key.get("scope", "full-access"),
-            }
+            return _merge_auth_user(
+                {
+                    "email": api_key["email"],
+                    "user_id": api_key["user_id"],
+                    "role": api_key.get("role", "submitter"),
+                    "is_admin": api_key.get("is_admin", 0),
+                    "name": api_key.get("name", ""),
+                    "scope": api_key.get("scope", "full-access"),
+                },
+                full_user,
+            )
     return None
+
+
+def _require_auth(request: Request) -> dict:
+    """Return the current user or raise 401."""
+    if not AUTH_REQUIRED:
+        return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": 1}
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    return user
+
+
+def _require_admin(request: Request) -> dict:
+    """Return the current user or raise 403 if they lack platform admin access."""
+    user = _require_auth(request)
+    if not _is_platform_admin(user):
+        raise HTTPException(403, "Admin access required")
+    return user
+
+
+def _require_provider_or_admin(request: Request) -> dict:
+    """Return the current user or raise 403 if they lack provider/admin access."""
+    user = _require_auth(request)
+    if user.get("role") != "provider" and not _is_platform_admin(user):
+        raise HTTPException(403, "Provider or admin access required")
+    return user
 
 
 def _require_write_access(request: Request):
@@ -2219,7 +2448,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str = ""
-    role: str = "submitter"  # submitter | provider | admin
+    role: str = "submitter"  # submitter | provider
 
 
 class LoginRequest(BaseModel):
@@ -2243,10 +2472,15 @@ def api_auth_register(body: RegisterRequest, request: Request):
     """
     _check_auth_rate_limit(request)
     email = body.email.strip().lower()
+    requested_role = (body.role or "submitter").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(400, "Invalid email address")
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+    if requested_role == "admin":
+        raise HTTPException(403, "Platform admin access cannot be self-assigned")
+    if requested_role not in VALID_ACCOUNT_ROLES:
+        raise HTTPException(400, "Role must be submitter or provider")
 
     if _USE_PERSISTENT_AUTH:
         if UserStore.user_exists(email):
@@ -2270,7 +2504,8 @@ def api_auth_register(body: RegisterRequest, request: Request):
         "name": body.name or email.split("@")[0],
         "password_hash": password_hash,
         "salt": salt,
-        "role": body.role,
+        "role": requested_role,
+        "is_admin": 0,
         "customer_id": customer_id,
         "provider_id": None,
         "country": "CA",
@@ -2302,12 +2537,18 @@ def api_auth_register(body: RegisterRequest, request: Request):
 
     broadcast_sse("user_registered", {"email": email, "user_id": user_id})
 
+    # Telegram alert for new signup
+    try:
+        alert("New Signup", f"{user['name']} ({email}) — role: {user.get('role', 'submitter')}")
+    except Exception:
+        pass
+
     # Welcome notification for the new user
     try:
         NotificationStore.create(
             email, "system",
             "Welcome to Xcelsior!",
-            "Your account is ready. Please verify your email to get started.",
+            "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
             {"user_id": user_id},
         )
     except Exception:
@@ -2349,6 +2590,7 @@ def api_auth_register(body: RegisterRequest, request: Request):
                 "email": email,
                 "name": user["name"],
                 "role": user.get("role", "submitter"),
+                "is_admin": 1 if _is_platform_admin(user) else 0,
                 "user_id": user["user_id"],
                 "customer_id": user["customer_id"],
             },
@@ -2424,7 +2666,7 @@ def api_auth_login(body: LoginRequest, request: Request):
             NotificationStore.create(
                 email, "system",
                 "Welcome to Xcelsior!",
-                "Your account is ready. Launch your first GPU instance or register a host to start earning.",
+                "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
             )
     except Exception:
@@ -2440,6 +2682,7 @@ def api_auth_login(body: LoginRequest, request: Request):
             "email": email,
             "name": user["name"],
             "role": user["role"],
+            "is_admin": 1 if _is_platform_admin(user) else 0,
             "customer_id": user["customer_id"],
             "provider_id": user.get("provider_id"),
         },
@@ -2605,6 +2848,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
             "password_hash": "",
             "salt": "",
             "role": "submitter",
+            "is_admin": 0,
             "customer_id": customer_id,
             "provider_id": None,
             "country": "CA",
@@ -2633,7 +2877,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
             NotificationStore.create(
                 email, "system",
                 "Welcome to Xcelsior!",
-                "Your account is ready. Launch your first GPU instance or register a host to start earning.",
+                "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
             )
     except Exception:
@@ -2669,6 +2913,7 @@ def api_auth_me(request: Request):
             "email": email,
             "name": full_user.get("name", user.get("name", "")),
             "role": full_user.get("role", user.get("role", "submitter")),
+            "is_admin": 1 if _is_platform_admin(full_user or user) else 0,
             "customer_id": full_user.get("customer_id", ""),
             "provider_id": full_user.get("provider_id"),
             "country": full_user.get("country", "CA"),
@@ -2685,13 +2930,20 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    requested_role = None
+    if body.role is not None:
+        requested_role = body.role.strip().lower()
+        if requested_role == "admin":
+            raise HTTPException(403, "Platform admin access cannot be self-assigned")
+        if requested_role not in VALID_ACCOUNT_ROLES:
+            raise HTTPException(400, "Role must be submitter or provider")
 
     if _USE_PERSISTENT_AUTH:
         updates = {}
         if body.name is not None:
             updates["name"] = body.name
-        if body.role is not None:
-            updates["role"] = body.role
+        if requested_role is not None:
+            updates["role"] = requested_role
         if body.country is not None:
             updates["country"] = body.country
         if body.province is not None:
@@ -2706,8 +2958,8 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
                 raise HTTPException(404, "User not found")
             if body.name is not None:
                 full_user["name"] = body.name
-            if body.role is not None:
-                full_user["role"] = body.role
+            if requested_role is not None:
+                full_user["role"] = requested_role
             if body.country is not None:
                 full_user["country"] = body.country
             if body.province is not None:
@@ -2824,6 +3076,7 @@ async def api_generate_api_key(request: Request):
         "email": user["email"],
         "user_id": user["user_id"],
         "role": user.get("role", "submitter"),
+        "is_admin": 1 if _is_platform_admin(user) else 0,
         "scope": scope,
         "created_at": time.time(),
         "last_used": None,
@@ -3101,6 +3354,7 @@ def _complete_mfa_login(email: str, challenge_id: str, request: Request | None =
             "email": email,
             "name": user["name"],
             "role": user["role"],
+            "is_admin": 1 if _is_platform_admin(user) else 0,
             "customer_id": user["customer_id"],
             "provider_id": user.get("provider_id"),
         },
@@ -3905,6 +4159,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
             "email": email,
             "name": user.get("name", ""),
             "role": user.get("role", "submitter"),
+            "is_admin": 1 if _is_platform_admin(user) else 0,
             "customer_id": user.get("customer_id"),
         },
     }
@@ -4370,12 +4625,13 @@ class SlurmSubmitIn(BaseModel):
 
 
 @app.post("/api/slurm/submit", tags=["Infrastructure"])
-def api_slurm_submit(body: SlurmSubmitIn):
+def api_slurm_submit(body: SlurmSubmitIn, request: Request):
     """Submit an Xcelsior job to a Slurm cluster (HPC bridge).
 
     Translates the job to an sbatch script and submits. Set dry_run=true
     to see the generated script without submitting.
     """
+    _require_provider_or_admin(request)
     from slurm_adapter import submit_to_slurm, register_slurm_job
 
     job_dict = {
@@ -4400,8 +4656,9 @@ def api_slurm_submit(body: SlurmSubmitIn):
 
 
 @app.get("/api/slurm/status/{slurm_job_id}", tags=["Infrastructure"])
-def api_slurm_status(slurm_job_id: str):
+def api_slurm_status(slurm_job_id: str, request: Request):
     """Check the status of a Slurm job."""
+    _require_provider_or_admin(request)
     from slurm_adapter import get_slurm_job_status
 
     status = get_slurm_job_status(slurm_job_id)
@@ -4411,8 +4668,9 @@ def api_slurm_status(slurm_job_id: str):
 
 
 @app.delete("/api/slurm/{slurm_job_id}", tags=["Infrastructure"])
-def api_slurm_cancel(slurm_job_id: str):
+def api_slurm_cancel(slurm_job_id: str, request: Request):
     """Cancel a Slurm job."""
+    _require_provider_or_admin(request)
     from slurm_adapter import cancel_slurm_job
 
     result = cancel_slurm_job(slurm_job_id)
@@ -4422,8 +4680,9 @@ def api_slurm_cancel(slurm_job_id: str):
 
 
 @app.get("/api/slurm/profiles", tags=["Infrastructure"])
-def api_slurm_profiles():
+def api_slurm_profiles(request: Request):
     """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
+    _require_provider_or_admin(request)
     from slurm_adapter import CLUSTER_PROFILES
 
     return {"profiles": {k: v["name"] for k, v in CLUSTER_PROFILES.items()}}
@@ -4541,16 +4800,18 @@ class CanadaToggle(BaseModel):
 
 
 @app.get("/canada", tags=["Jurisdiction"])
-def api_canada_status():
+def api_canada_status(request: Request):
     """Check if Canada-only mode is active."""
+    _require_admin(request)
     import scheduler
 
     return {"canada_only": scheduler.CANADA_ONLY}
 
 
 @app.put("/canada", tags=["Jurisdiction"])
-def api_set_canada(toggle: CanadaToggle):
+def api_set_canada(toggle: CanadaToggle, request: Request):
     """Toggle Canada-only mode."""
+    _require_admin(request)
     set_canada_only(toggle.enabled)
     return {"ok": True, "canada_only": toggle.enabled}
 
@@ -4592,28 +4853,32 @@ class PoolHost(BaseModel):
 
 
 @app.post("/autoscale/pool", tags=["Autoscale"])
-def api_add_to_pool(h: PoolHost):
+def api_add_to_pool(h: PoolHost, request: Request):
     """Add a host to the autoscale pool."""
+    _require_admin(request)
     entry = add_to_pool(h.host_id, h.ip, h.gpu_model, h.vram_gb, h.cost_per_hour, h.country)
     return {"ok": True, "pool_entry": entry}
 
 
 @app.delete("/autoscale/pool/{host_id}", tags=["Autoscale"])
-def api_remove_from_pool(host_id: str):
+def api_remove_from_pool(host_id: str, request: Request):
     """Remove a host from the autoscale pool."""
+    _require_admin(request)
     remove_from_pool(host_id)
     return {"ok": True, "removed": host_id}
 
 
 @app.get("/autoscale/pool", tags=["Autoscale"])
-def api_get_pool():
+def api_get_pool(request: Request):
     """List the autoscale pool."""
+    _require_admin(request)
     return {"pool": load_autoscale_pool()}
 
 
 @app.post("/autoscale/cycle", tags=["Autoscale"])
-def api_autoscale_cycle():
+def api_autoscale_cycle(request: Request):
     """Run a full autoscale cycle: scale up, process queue, scale down."""
+    _require_admin(request)
     provisioned, assigned, deprovisioned = autoscale_cycle()
     return {
         "provisioned": [{"host_id": h["host_id"], "gpu": h["gpu_model"]} for h in provisioned],
@@ -4625,15 +4890,17 @@ def api_autoscale_cycle():
 
 
 @app.post("/autoscale/up", tags=["Autoscale"])
-def api_autoscale_up():
+def api_autoscale_up(request: Request):
     """Scale up: provision hosts for queued jobs."""
+    _require_admin(request)
     provisioned = autoscale_up()
     return {"provisioned": [{"host_id": h["host_id"], "gpu": h["gpu_model"]} for h in provisioned]}
 
 
 @app.post("/autoscale/down", tags=["Autoscale"])
-def api_autoscale_down():
+def api_autoscale_down(request: Request):
     """Scale down: deprovision idle autoscaled hosts."""
+    _require_admin(request)
     deprovisioned = autoscale_down()
     return {"deprovisioned": deprovisioned}
 
@@ -5010,17 +5277,29 @@ def api_spot_prices():
 
 
 @app.post("/spot-prices/update", tags=["Spot Pricing"])
-def api_update_spot_prices():
+def api_update_spot_prices(request: Request):
     """Trigger spot price recalculation."""
+    _require_admin(request)
     prices = update_spot_prices()
     broadcast_sse("spot_prices_updated", {"prices": prices})
     return {"ok": True, "prices": prices}
 
 
 @app.post("/spot/instance", tags=["Spot Pricing"])
-def api_submit_spot_instance(j: SpotJobIn):
+def api_submit_spot_instance(j: SpotJobIn, request: Request):
     """Submit a spot job with a maximum bid price."""
+    user = _require_auth(request)
     job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier)
+    job["submitted_by"] = user.get("email", "")
+    job["customer_id"] = user.get("customer_id", user.get("user_id", ""))
+
+    # Auto-process queue
+    try:
+        process_queue()
+        job = _refresh_job(job["job_id"]) or job
+    except Exception:
+        pass
+
     broadcast_sse(
         "spot_job_submitted",
         {
@@ -5033,8 +5312,9 @@ def api_submit_spot_instance(j: SpotJobIn):
 
 
 @app.post("/spot/preemption-cycle", tags=["Spot Pricing"])
-def api_preemption_cycle():
+def api_preemption_cycle(request: Request):
     """Run a preemption cycle — reclaim resources from underbidding spot jobs."""
+    _require_admin(request)
     preempted = preemption_cycle()
     return {"ok": True, "preempted": preempted}
 
@@ -5071,7 +5351,32 @@ def api_list_compute_scores():
 
 @app.get("/healthz", tags=["Infrastructure"])
 def healthz():
-    return {"ok": True, "status": "healthy", "env": XCELSIOR_ENV}
+    """Health check — verifies database connectivity and returns real system status."""
+    checks = {"env": XCELSIOR_ENV}
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            r = conn.execute("SELECT 1 AS ok").fetchone()
+            checks["database"] = "connected" if r else "error"
+
+            # Counts for observability
+            hosts = conn.execute("SELECT COUNT(*) as cnt FROM hosts WHERE status = 'active'").fetchone()
+            jobs = conn.execute("SELECT COUNT(*) as cnt FROM jobs WHERE status = 'running'").fetchone()
+            queued = conn.execute("SELECT COUNT(*) as cnt FROM jobs WHERE status = 'queued'").fetchone()
+            checks["active_hosts"] = hosts["cnt"] if hosts else 0
+            checks["running_jobs"] = jobs["cnt"] if jobs else 0
+            checks["queued_jobs"] = queued["cnt"] if queued else 0
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "status": "unhealthy", **checks},
+        )
+    checks["status"] = "healthy"
+    return {"ok": True, **checks}
 
 
 @app.get("/readyz", tags=["Infrastructure"])
@@ -5380,12 +5685,13 @@ def api_verified_hosts():
 
 
 @app.post("/api/verify/{host_id}/approve", tags=["Verification"])
-def api_admin_approve_host(host_id: str, notes: str = ""):
+def api_admin_approve_host(host_id: str, request: Request, notes: str = ""):
     """Admin manually approves a host, overriding automated checks.
 
     Sets host verification state to 'verified' regardless of check results.
     Useful when an admin has physically inspected hardware or reviewed logs.
     """
+    _require_admin(request)
     ve = get_verification_engine()
     store = ve.store
     existing = store.get_verification(host_id)
@@ -5412,11 +5718,12 @@ def api_admin_approve_host(host_id: str, notes: str = ""):
 
 
 @app.post("/api/verify/{host_id}/reject", tags=["Verification"])
-def api_admin_reject_host(host_id: str, reason: str = "Admin rejection"):
+def api_admin_reject_host(host_id: str, request: Request, reason: str = "Admin rejection"):
     """Admin manually rejects/deverifies a host.
 
     Sets host verification state to 'deverified' so it cannot receive jobs.
     """
+    _require_admin(request)
     ve = get_verification_engine()
     store = ve.store
     existing = store.get_verification(host_id)
@@ -5876,6 +6183,12 @@ def api_crypto_deposit(req: CryptoDepositRequest):
     """Create a BTC deposit request. Returns address, amount, and QR data."""
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
+    service_status = _btc_mod.get_service_status()
+    if not service_status.get("available", False):
+        raise HTTPException(
+            503,
+            service_status.get("reason") or "Bitcoin service is currently unavailable",
+        )
     if req.amount_cad < 1 or req.amount_cad > 10000:
         raise HTTPException(400, "Amount must be between $1 and $10,000 CAD")
     try:
@@ -5883,7 +6196,8 @@ def api_crypto_deposit(req: CryptoDepositRequest):
         return {"ok": True, **result}
     except Exception as e:
         log.error("Crypto deposit error: %s", e)
-        raise HTTPException(503, "Bitcoin node is temporarily unavailable — please try again later or use card deposit")
+        detail = _btc_mod.describe_service_error(e)
+        raise HTTPException(503, detail)
 
 
 @app.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
@@ -5923,8 +6237,14 @@ def api_crypto_refresh(deposit_id: str):
 @app.get("/api/billing/crypto/enabled", tags=["Billing"])
 def api_crypto_enabled():
     """Check if Bitcoin deposits are enabled."""
-    enabled = bool(_btc_mod and _btc_mod.BTC_ENABLED)
-    return {"ok": True, "enabled": enabled}
+    if not _btc_mod:
+        return {
+            "ok": True,
+            "enabled": False,
+            "available": False,
+            "reason": "Bitcoin deposits are not enabled",
+        }
+    return {"ok": True, **_btc_mod.get_service_status()}
 
 
 # ── Reputation ────────────────────────────────────────────────────────
@@ -6914,12 +7234,13 @@ def api_transparency_report(months: int = 12):
 
 
 @app.get("/api/audit/verify-chain", tags=["Events"])
-def api_verify_event_chain():
+def api_verify_event_chain(request: Request):
     """Verify the tamper-evident hash chain on all events.
 
     Returns chain integrity status. If any event was modified after
     being written, the chain will report the break point.
     """
+    _require_admin(request)
     store = get_event_store()
     result = store.verify_chain()
     return {"ok": True, "chain_integrity": result}
@@ -7037,7 +7358,7 @@ class SLAEnforceRequest(BaseModel):
 
 
 @app.post("/api/sla/enforce", tags=["SLA"])
-def api_sla_enforce(req: SLAEnforceRequest):
+def api_sla_enforce(req: SLAEnforceRequest, request: Request):
     """Run monthly SLA enforcement for a host.
 
     Calculates uptime percentage, downtime incidents, and credits owed
@@ -7046,6 +7367,7 @@ def api_sla_enforce(req: SLAEnforceRequest):
     - 90–95% uptime → 25% credit
     - <90% uptime   → 100% credit
     """
+    _require_admin(request)
     engine = get_sla_engine()
     record = engine.enforce_monthly(
         req.host_id,
@@ -7774,15 +8096,17 @@ def api_v1_inference_poll(job_id: str):
 
 
 @app.get("/api/alerts/config", tags=["Infrastructure"])
-def api_get_alert_config_alias():
+def api_get_alert_config_alias(request: Request):
     """Alias for /alerts/config with /api/ prefix."""
+    _require_admin(request)
     safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
     return {"config": safe}
 
 
 @app.put("/api/alerts/config", tags=["Infrastructure"])
-def api_set_alert_config_alias(cfg: AlertConfig):
+def api_set_alert_config_alias(cfg: AlertConfig, request: Request):
     """Alias for PUT /alerts/config with /api/ prefix."""
+    _require_admin(request)
     updates = {k: v for k, v in cfg.model_dump().items() if v is not None}
     configure_alerts(**updates)
     return {"ok": True, "updated": list(updates.keys())}
@@ -7803,8 +8127,9 @@ def api_list_all_artifacts():
 
 
 @app.get("/api/slurm/instances", tags=["Infrastructure"])
-def api_slurm_list_instances():
+def api_slurm_list_instances(request: Request):
     """List all tracked Slurm jobs."""
+    _require_provider_or_admin(request)
     from slurm_adapter import _load_slurm_map, get_slurm_job_status
     job_map = _load_slurm_map()
     jobs = []
@@ -7943,9 +8268,7 @@ def api_delete_notification(request: Request, notification_id: str):
 @app.get("/api/admin/stats", tags=["Admin"])
 def api_admin_stats(request: Request):
     """Get admin dashboard statistics."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    _require_admin(request)
     hosts = list_hosts(active_only=False)
     active_hosts = [h for h in hosts if h.get("state") == "idle" or h.get("state") == "busy"]
     jobs = list_jobs()
@@ -7966,9 +8289,7 @@ def api_admin_stats(request: Request):
 @app.get("/api/admin/users", tags=["Admin"])
 def api_admin_users(request: Request):
     """List all users for admin panel."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    _require_admin(request)
     if _USE_PERSISTENT_AUTH:
         users = UserStore.list_users()
     else:
@@ -7977,6 +8298,7 @@ def api_admin_users(request: Request):
         {
             "email": u.get("email", ""),
             "role": u.get("role", "submitter"),
+            "is_admin": 1 if _is_platform_admin(u) else 0,
             "is_active": True,
             "created_at": u.get("created_at", ""),
         }
@@ -7988,9 +8310,7 @@ def api_admin_users(request: Request):
 @app.get("/api/admin/verification-queue", tags=["Admin"])
 def api_admin_verification_queue(request: Request):
     """Get verification queue for admin panel."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    _require_admin(request)
     ve = get_verification_engine()
     store = ve.store
     try:
@@ -8298,30 +8618,124 @@ def api_marketplace_release(allocation_id: str):
     return {"ok": True}
 
 
+# ── GPU Availability (shared by Serverless + Volumes) ─────────────────
+
+@app.get("/api/v2/gpu/available", tags=["GPU"])
+def api_gpu_available():
+    """List available GPU types with regions, VRAM, pricing, and counts.
+
+    Used by both Serverless and Volumes to populate GPU/region pickers.
+    Queries gpu_offers first, then hosts table. If neither has data,
+    returns an empty list — no fake inventory.
+    """
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            rows = conn.execute(
+                """SELECT gpu_model, vram_gb, region, province,
+                          COUNT(*) FILTER (WHERE available = true) AS count_available,
+                          MIN(ask_cents_per_hour) AS min_price_cents
+                   FROM gpu_offers
+                   GROUP BY gpu_model, vram_gb, region, province
+                   ORDER BY gpu_model, region""",
+            ).fetchall()
+        gpus = []
+        source = "gpu_offers"
+        for r in rows:
+            gpus.append({
+                "gpu_model": r["gpu_model"],
+                "vram_gb": r["vram_gb"],
+                "region": r["region"],
+                "province": r.get("province", ""),
+                "count_available": r["count_available"],
+                "price_per_hour_cad": round(r["min_price_cents"] / 100, 2) if r["min_price_cents"] else 0,
+            })
+        if not gpus:
+            # Fallback: derive from registered hosts
+            source = "hosts"
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                hosts = conn.execute(
+                    """SELECT gpu_model, total_vram_gb, region, province,
+                              COUNT(*) FILTER (WHERE status = 'active') AS count_available,
+                              MIN(cost_per_hour) AS min_price
+                       FROM hosts
+                       WHERE admitted = true
+                       GROUP BY gpu_model, total_vram_gb, region, province
+                       ORDER BY gpu_model""",
+                ).fetchall()
+            for h in hosts:
+                gpus.append({
+                    "gpu_model": h.get("gpu_model", "Unknown"),
+                    "vram_gb": h.get("total_vram_gb", 0),
+                    "region": h.get("region", "ca-east"),
+                    "province": h.get("province", ""),
+                    "count_available": h.get("count_available", 0),
+                    "price_per_hour_cad": round(float(h.get("min_price", 0)), 2),
+                })
+        if not gpus:
+            source = "none"
+            log.warning("GPU availability: no GPUs found in gpu_offers or hosts tables")
+        return {"ok": True, "gpus": gpus, "source": source}
+    except Exception as e:
+        log.error("GPU availability query failed: %s", e)
+        raise HTTPException(503, f"GPU availability service unavailable: {e}")
+
+
 # ── Inference v2: OpenAI-Compatible ───────────────────────────────────
 
 class InferenceEndpointCreate(BaseModel):
     model_name: str
+    gpu_type: str = ""
+    region: str = "ca-east"
+    docker_image: str = "xcelsior/vllm:latest"
     min_workers: int = 0
     max_workers: int = 3
+    max_batch_size: int = 8
+    max_concurrent: int = 4
     scaledown_window_sec: int = 300
+    mode: str = "sync"            # sync or async
+    health_endpoint: str = "/health"
+    api_format: str = "openai"    # openai or custom
 
 
 @app.post("/api/v2/inference/endpoints", tags=["Inference v2"])
 def api_inference_create_endpoint(body: InferenceEndpointCreate, request: Request):
-    """Create a serverless inference endpoint."""
+    """Create a serverless inference endpoint.
+
+    If min_workers >= 1, a worker container is provisioned immediately.
+    Billing is real-time from credits (per-second compute + per-token inference).
+    """
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    if body.mode not in ("sync", "async"):
+        raise HTTPException(400, "mode must be 'sync' or 'async'")
+    if body.api_format not in ("openai", "custom"):
+        raise HTTPException(400, "api_format must be 'openai' or 'custom'")
     ie = get_inference_engine()
-    ep = ie.create_endpoint(
-        owner_id=user.get("user_id", user.get("email", "")),
-        model_name=body.model_name,
-        min_workers=body.min_workers,
-        max_workers=body.max_workers,
-        scaledown_window_sec=body.scaledown_window_sec,
-    )
-    return {"ok": True, "endpoint": ep}
+    try:
+        ep = ie.create_endpoint(
+            owner_id=user.get("user_id", user.get("email", "")),
+            model_id=body.model_name,
+            gpu_type=body.gpu_type,
+            region=body.region,
+            docker_image=body.docker_image,
+            min_workers=body.min_workers,
+            max_workers=body.max_workers,
+            max_batch_size=body.max_batch_size,
+            max_concurrent=body.max_concurrent,
+            scaledown_window_sec=body.scaledown_window_sec,
+            mode=body.mode,
+            health_endpoint=body.health_endpoint,
+            api_format=body.api_format,
+        )
+        return {"ok": True, "endpoint": ep}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/v2/inference/endpoints", tags=["Inference v2"])
@@ -8336,13 +8750,44 @@ def api_inference_list_endpoints(request: Request):
 
 
 @app.get("/api/v2/inference/endpoints/{endpoint_id}", tags=["Inference v2"])
-def api_inference_get_endpoint(endpoint_id: str):
+def api_inference_get_endpoint(endpoint_id: str, request: Request):
     """Get inference endpoint details."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
     ie = get_inference_engine()
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
     return {"ok": True, "endpoint": ep}
+
+
+@app.get("/api/v2/inference/endpoints/{endpoint_id}/health", tags=["Inference v2"])
+def api_inference_endpoint_health(endpoint_id: str, request: Request):
+    """Get health status for an inference endpoint and its workers."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ie = get_inference_engine()
+    ep = ie.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+    health = ie.get_endpoint_health(endpoint_id)
+    return {"ok": True, "health": health}
+
+
+@app.get("/api/v2/inference/endpoints/{endpoint_id}/usage", tags=["Inference v2"])
+def api_inference_endpoint_usage(endpoint_id: str, request: Request):
+    """Get usage stats for an inference endpoint."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    ie = get_inference_engine()
+    ep = ie.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+    usage = ie.get_endpoint_usage(endpoint_id)
+    return {"ok": True, "usage": usage}
 
 
 @app.delete("/api/v2/inference/endpoints/{endpoint_id}", tags=["Inference v2"])
@@ -8438,14 +8883,15 @@ class VolumeCreate(BaseModel):
 
 @app.post("/api/v2/volumes", tags=["Volumes"])
 def api_volume_create(body: VolumeCreate, request: Request):
-    """Create a new persistent volume."""
+    """Create a new persistent volume. Billed in real-time from credits."""
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    customer_id = user.get("user_id", user.get("email", ""))
     ve = get_volume_engine()
     try:
         vol = ve.create_volume(
-            owner_id=user.get("user_id", user.get("email", "")),
+            owner_id=customer_id,
             name=body.name,
             size_gb=body.size_gb,
             region=body.region,
@@ -8466,6 +8912,9 @@ def api_volume_list(request: Request):
         raise HTTPException(401, "Not authenticated")
     ve = get_volume_engine()
     volumes = ve.list_volumes(user.get("user_id", user.get("email", "")))
+    for v in volumes:
+        v["price_per_gb_month_cad"] = VOLUME_PRICE_PER_GB_MONTH_CAD
+        v["monthly_cost_cad"] = round(v.get("size_gb", 0) * VOLUME_PRICE_PER_GB_MONTH_CAD, 2)
     return {"ok": True, "volumes": volumes}
 
 
@@ -8503,15 +8952,34 @@ def api_volume_attach(volume_id: str, body: VolumeAttachRequest, request: Reques
 
 @app.post("/api/v2/volumes/{volume_id}/detach", tags=["Volumes"])
 def api_volume_detach(volume_id: str, request: Request):
-    """Detach a volume from its instance."""
+    """Detach a volume from its current instance."""
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    body_data = {}
     ve = get_volume_engine()
-    instance_id = body_data.get("instance_id", "")
-    ve.detach_volume(volume_id, instance_id)
-    return {"ok": True}
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    owner_id = user.get("user_id", user.get("email", ""))
+    if vol.get("owner_id") != owner_id:
+        raise HTTPException(403, "Not your volume")
+    # Find active attachment and detach
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+        att = conn.execute(
+            "SELECT instance_id FROM volume_attachments WHERE volume_id = %s AND detached_at = 0",
+            (volume_id,),
+        ).fetchone()
+    if not att:
+        raise HTTPException(400, "Volume is not attached to any instance")
+    try:
+        ve.detach_volume(volume_id, att["instance_id"])
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.delete("/api/v2/volumes/{volume_id}", tags=["Volumes"])
@@ -8521,8 +8989,14 @@ def api_volume_delete(volume_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     ve = get_volume_engine()
+    owner_id = user.get("user_id", user.get("email", ""))
     try:
-        ve.delete_volume(volume_id)
+        result = ve.delete_volume(volume_id, owner_id=owner_id)
+        # Refund prorated storage credit
+        try:
+            vol_data = ve.get_volume(volume_id)  # already deleted, won't find
+        except Exception:
+            pass
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(409, str(e))

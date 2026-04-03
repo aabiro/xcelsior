@@ -1,5 +1,26 @@
 /** API client — all requests use httpOnly cookie auth (credentials: include). */
 
+let _refreshing: Promise<boolean> | null = null;
+
+async function _tryRefresh(): Promise<boolean> {
+  try {
+    await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function _redirectToLogin() {
+  if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+    window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+  }
+}
+
 async function apiFetch<T = unknown>(
   path: string,
   opts: RequestInit = {},
@@ -10,9 +31,36 @@ async function apiFetch<T = unknown>(
     ...(extraHeaders as Record<string, string>),
   };
   const res = await fetch(path, { credentials: "include", headers, ...rest });
+  if (res.status === 401) {
+    // Try refreshing the session once
+    if (!_refreshing) _refreshing = _tryRefresh();
+    const ok = await _refreshing;
+    _refreshing = null;
+    if (ok) {
+      // Retry the original request
+      const retry = await fetch(path, { credentials: "include", headers, ...rest });
+      if (retry.ok) return retry.json();
+      if (retry.status === 401) {
+        _redirectToLogin();
+        throw new ApiError(401, "Session expired");
+      }
+      const body = await retry.json().catch(() => ({}));
+      throw new ApiError(
+        retry.status,
+        body?.detail || body?.error?.message || body?.message || retry.statusText,
+        body,
+      );
+    }
+    _redirectToLogin();
+    throw new ApiError(401, "Session expired");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body?.error?.message || res.statusText, body);
+    throw new ApiError(
+      res.status,
+      body?.detail || body?.error?.message || body?.message || res.statusText,
+      body,
+    );
   }
   return res.json();
 }
@@ -35,7 +83,7 @@ export async function login(email: string, password: string) {
     access_token?: string;
     token_type?: string;
     expires_in?: number;
-    user?: { user_id: string; email: string; role: string; name?: string; customer_id?: string };
+    user?: { user_id: string; email: string; role: string; is_admin?: boolean; name?: string; customer_id?: string };
     mfa_required?: boolean;
     challenge_id?: string;
     methods?: string[];
@@ -51,7 +99,7 @@ export async function register(email: string, password: string, name?: string) {
     access_token?: string;
     email_verification_required?: boolean;
     message?: string;
-    user?: { user_id: string; email: string; role: string };
+    user?: { user_id: string; email: string; role: string; is_admin?: boolean };
   }>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, name }),
@@ -72,10 +120,12 @@ export async function getMe() {
       email: string;
       name?: string;
       role: string;
+      is_admin?: boolean;
       country?: string;
       province?: string;
       avatar_url?: string;
       customer_id?: string;
+      provider_id?: string;
     };
   }>("/api/auth/me");
 }
@@ -106,7 +156,7 @@ export async function fetchInstances() {
 }
 
 export async function submitInstance(data: Record<string, unknown>) {
-  return apiFetch<{ ok: boolean; instance_id?: string; id?: string }>(
+  return apiFetch<{ ok: boolean; instance?: Record<string, unknown>; instance_id?: string; id?: string }>(
     "/instance", { method: "POST", body: JSON.stringify(data) },
   );
 }
@@ -169,7 +219,17 @@ export async function createPaymentIntent(customerId: string, amountCad: number,
 // ── Bitcoin Deposits ─────────────────────────────────────────────────
 
 export async function checkCryptoEnabled() {
-  return apiFetch<{ ok: boolean; enabled: boolean }>("/api/billing/crypto/enabled");
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    available?: boolean;
+    reason?: string;
+    wallet_name?: string;
+    rpc_reachable?: boolean;
+    wallet_ready?: boolean;
+    network?: string;
+    blocks?: number;
+  }>("/api/billing/crypto/enabled");
 }
 
 export async function createCryptoDeposit(customerId: string, amountCad: number) {
@@ -657,7 +717,7 @@ export async function passkeyAuthenticateComplete(stateId: string, credential: R
     access_token?: string;
     token_type?: string;
     expires_in?: number;
-    user?: { user_id: string; email: string; name: string; role: string; customer_id: string; provider_id?: string };
+    user?: { user_id: string; email: string; name: string; role: string; is_admin?: boolean; customer_id: string; provider_id?: string };
   }>("/api/auth/mfa/passkey/authenticate-complete", {
     method: "POST",
     body: JSON.stringify({ state_id: stateId, credential }),
@@ -671,7 +731,7 @@ export async function verifyMfaLogin(challengeId: string, method: string, code: 
     access_token?: string;
     token_type?: string;
     expires_in?: number;
-    user?: { user_id: string; email: string; name: string; role: string; customer_id: string; provider_id?: string };
+    user?: { user_id: string; email: string; name: string; role: string; is_admin?: boolean; customer_id: string; provider_id?: string };
   }>("/api/auth/mfa/verify", {
     method: "POST",
     body: JSON.stringify({ challenge_id: challengeId, method, code }),
@@ -880,7 +940,7 @@ export async function fetchAdminStats() {
 }
 
 export async function fetchAdminUsers() {
-  return apiFetch<{ ok: boolean; users: { email: string; role: string; is_active: boolean; created_at: string }[] }>(
+  return apiFetch<{ ok: boolean; users: { email: string; role: string; is_admin?: boolean; is_active: boolean; created_at: string }[] }>(
     "/api/admin/users",
   );
 }
@@ -1109,6 +1169,8 @@ export interface ReputationEntry {
   rank: number;
   jobs_completed?: number;
   uptime?: number;
+  gpu_model?: string;
+  reliability_score?: number;
 }
 
 export interface InstanceLog {
@@ -1210,13 +1272,35 @@ export interface GPUOffer {
 export interface InferenceEndpoint {
   endpoint_id: string;
   owner_id: string;
-  model_name: string;
+  model_id: string;
+  model_name?: string;
+  gpu_type: string;
+  region: string;
+  docker_image: string;
+  mode: string;
+  health_endpoint: string;
+  api_format: string;
   status: string;
   min_workers: number;
   max_workers: number;
+  vram_required_gb: number;
+  worker_job_id: string | null;
   total_requests: number;
-  avg_latency_ms: number;
+  total_tokens_generated: number;
+  total_cost_cad: number;
+  cost_per_hour_cad?: number;
+  avg_latency_ms?: number;
   created_at: number;
+  updated_at: number;
+}
+
+export interface GpuAvailability {
+  gpu_model: string;
+  vram_gb: number;
+  region: string;
+  province: string;
+  count_available: number;
+  price_per_hour_cad: number;
 }
 
 export interface Volume {
@@ -1228,6 +1312,8 @@ export interface Volume {
   encrypted: boolean;
   status: string;
   created_at: number;
+  price_per_gb_month_cad?: number;
+  monthly_cost_cad?: number;
 }
 
 export interface SpotPricePoint {
@@ -1284,11 +1370,25 @@ export async function createMarketplaceReservation(data: {
 
 // ── v2 Inference API ──────────────────────────────────────────────────
 
+export async function fetchAvailableGPUs() {
+  return apiFetch<{ ok: boolean; gpus: GpuAvailability[] }>(
+    "/api/v2/gpu/available",
+  );
+}
+
 export async function createInferenceEndpoint(data: {
   model_name: string;
+  gpu_type?: string;
+  region?: string;
+  docker_image?: string;
   min_workers?: number;
   max_workers?: number;
+  max_batch_size?: number;
+  max_concurrent?: number;
   scaledown_window_sec?: number;
+  mode?: string;
+  health_endpoint?: string;
+  api_format?: string;
 }) {
   return apiFetch<{ ok: boolean; endpoint: InferenceEndpoint }>(
     "/api/v2/inference/endpoints",
@@ -1299,6 +1399,18 @@ export async function createInferenceEndpoint(data: {
 export async function listInferenceEndpoints() {
   return apiFetch<{ ok: boolean; endpoints: InferenceEndpoint[] }>(
     "/api/v2/inference/endpoints",
+  );
+}
+
+export async function getInferenceEndpointHealth(endpointId: string) {
+  return apiFetch<{ ok: boolean; health: Record<string, unknown> }>(
+    `/api/v2/inference/endpoints/${encodeURIComponent(endpointId)}/health`,
+  );
+}
+
+export async function getInferenceEndpointUsage(endpointId: string) {
+  return apiFetch<{ ok: boolean; usage: Record<string, unknown> }>(
+    `/api/v2/inference/endpoints/${encodeURIComponent(endpointId)}/usage`,
   );
 }
 
@@ -1382,7 +1494,7 @@ export async function verifyEmail(token: string) {
   return apiFetch<{
     ok: boolean;
     access_token?: string;
-    user?: { user_id: string; email: string; role: string; name?: string; customer_id?: string };
+    user?: { user_id: string; email: string; role: string; is_admin?: boolean; name?: string; customer_id?: string };
   }>("/api/auth/verify-email", {
     method: "POST",
     body: JSON.stringify({ token }),

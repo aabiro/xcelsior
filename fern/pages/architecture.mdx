@@ -50,7 +50,7 @@ slug: architecture
 
 ### Job Lifecycle
 
-1. **Submit** → `POST /job` creates job with `queued` status
+1. **Submit** → `POST /instance` creates instance with `queued` status
 2. **Schedule** → `POST /queue/process` runs allocation algorithm
 3. **Assign** → Job matched to admitted host with sufficient VRAM
 4. **Execute** → Worker agent pulls job, runs in sandboxed container
