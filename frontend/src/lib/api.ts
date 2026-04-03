@@ -17,7 +17,11 @@ async function _tryRefresh(): Promise<boolean> {
 
 function _redirectToLogin() {
   if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-    window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    // Only redirect to login from protected routes (dashboard)
+    // Marketing pages should silently handle unauthenticated state
+    if (window.location.pathname.startsWith("/dashboard")) {
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    }
   }
 }
 

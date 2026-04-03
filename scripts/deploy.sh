@@ -590,10 +590,41 @@ main() {
             TARGET_ENV="prod"
             resolve_env
             check_ssh
+
+            # ── Smart conditional steps ──
+            local local_hash remote_hash
+            local_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            remote_hash=$(ssh_cmd "cat /opt/xcelsior/.deploy_hash 2>/dev/null" || echo "none")
+
+            if [[ "$local_hash" == "$remote_hash" ]]; then
+                log "Remote is already at ${BOLD}${local_hash:0:8}${NC} — nothing to deploy."
+                health_check
+                exit 0
+            fi
+
             backup_current
             sync_code
-            install_nginx_configs
-            deploy_docker
+
+            # Write deploy hash so next run can skip if unchanged
+            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
+
+            # Only reinstall nginx if config files changed
+            if git -C "$PROJECT_DIR" diff --name-only "$remote_hash" "$local_hash" -- nginx/ 2>/dev/null | grep -q .; then
+                install_nginx_configs
+            else
+                log "Nginx configs unchanged — skipping"
+            fi
+
+            # Only rebuild Docker images if Dockerfile, requirements, or frontend changed
+            if git -C "$PROJECT_DIR" diff --name-only "$remote_hash" "$local_hash" -- Dockerfile requirements.txt frontend/ pyproject.toml 2>/dev/null | grep -q .; then
+                deploy_docker
+            else
+                # Still run migrations + restart even without rebuild
+                log "No build-impacting files changed — running migrations and restart only"
+                ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration check failed"
+                ssh_cmd "cd /opt/xcelsior && docker compose up -d" || error "Docker up failed"
+            fi
+
             health_check
             success "Deployment complete! Visit https://$DOMAIN"
             ;;
