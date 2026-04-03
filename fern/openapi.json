@@ -11958,6 +11958,14 @@
         ],
         "title": "ConsentRequest"
       }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "API token from your Xcelsior dashboard. Pass as: Authorization: Bearer <token>"
+      }
     }
   },
   "tags": [
@@ -12052,6 +12060,11 @@
     {
       "name": "Inference v2",
       "description": "Production serverless inference with OpenAI-compatible API."
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
     }
   ]
 }
