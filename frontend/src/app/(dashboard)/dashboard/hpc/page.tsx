@@ -47,12 +47,13 @@ export default function HpcPage() {
   const { t } = useLocale();
   const { user } = useAuth();
   const router = useRouter();
+  const hasHpcAccess = !!user?.is_admin || user?.role === "provider";
 
   useEffect(() => {
-    if (user && user.role !== "admin" && user.role !== "provider") router.replace("/dashboard");
-  }, [user, router]);
+    if (user && !hasHpcAccess) router.replace("/dashboard");
+  }, [user, hasHpcAccess, router]);
 
-  if (!user || (user.role !== "admin" && user.role !== "provider")) return null;
+  if (!user || !hasHpcAccess) return null;
 
   return <HpcContent />;
 }

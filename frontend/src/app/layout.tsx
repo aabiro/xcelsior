@@ -34,7 +34,15 @@ export const metadata: Metadata = {
     "sovereign cloud",
   ],
   metadataBase: new URL("https://xcelsior.ca"),
-  alternates: { canonical: "https://xcelsior.ca" },
+  alternates: {
+    canonical: "https://xcelsior.ca",
+    languages: {
+      "en-CA": "https://xcelsior.ca",
+      "fr-CA": "https://xcelsior.ca",
+      "x-default": "https://xcelsior.ca",
+    },
+    types: { "application/rss+xml": "https://xcelsior.ca/feed.xml" },
+  },
   openGraph: {
     images: [
       {
@@ -50,6 +58,7 @@ export const metadata: Metadata = {
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
+    alternateLocale: ["fr_CA"],
     type: "website",
   },
   twitter: {
@@ -59,6 +68,9 @@ export const metadata: Metadata = {
     description: "Canada-first GPU compute marketplace. Ever upward.",
   },
   robots: { index: true, follow: true },
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
+  },
   icons: {
     icon: "/favicon.svg",
     apple: [
@@ -75,6 +87,23 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://docs.xcelsior.ca" />
+        <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+        {process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID && (
+          <>
+            <script
+              async
+              src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID}`}
+            />
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID}',{anonymize_ip:true});`,
+              }}
+            />
+          </>
+        )}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

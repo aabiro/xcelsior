@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import type { AiMessage } from "@/hooks/useAiChat";
+import { useTypewriterText } from "@/hooks/useTypewriterText";
 
 // ── Markdown formatter ───────────────────────────────────────────────
 
@@ -258,6 +259,11 @@ export function MessageBubble({
 }) {
   const isUser = msg.role === "user";
   const dotSize = compact ? "h-1 w-1" : "h-1.5 w-1.5";
+  const { displayedText, isTyping } = useTypewriterText(msg.content, {
+    animate: !isUser && Boolean(isLastStreaming),
+    resetKey: msg.id,
+  });
+  const showStreamingCursor = !isUser && (Boolean(isLastStreaming) || isTyping);
 
   return (
     <div
@@ -289,9 +295,9 @@ export function MessageBubble({
                 "prose-invert [&_pre]:my-1 [&_a]:text-accent-cyan",
                 compact ? "prose-xs [&_code]:text-[10px]" : "prose-sm [&_code]:text-xs",
               )}
-              dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
+              dangerouslySetInnerHTML={{ __html: formatMarkdown(displayedText) }}
             />
-            {isLastStreaming && (
+            {showStreamingCursor && (
               <span
                 className="inline-block w-[2px] h-[1em] bg-accent-cyan rounded-full ml-0.5 align-text-bottom animate-cursor-blink"
                 aria-hidden="true"
@@ -368,13 +374,15 @@ export function EmptyState({
       <p className={cn("text-text-secondary mb-5 max-w-md leading-relaxed", compact ? "text-[11px]" : "text-sm")}>{description}</p>
 
       {suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2 justify-center max-w-lg">
-          {suggestions.slice(0, compact ? 4 : 6).map((s, i) => (
-            <motion.button
-              key={i}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05, duration: 0.2 }}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          className="flex flex-wrap gap-2 justify-center max-w-lg"
+        >
+          {suggestions.slice(0, compact ? 4 : 6).map((s) => (
+            <button
+              key={`${s.label}-${s.prompt}`}
               onClick={() => onSuggestion(s.prompt)}
               className={cn(
                 "rounded-full border border-border/50 bg-surface/60 text-text-secondary backdrop-blur-sm",
@@ -384,9 +392,9 @@ export function EmptyState({
               )}
             >
               {s.label}
-            </motion.button>
+            </button>
           ))}
-        </div>
+        </motion.div>
       )}
     </div>
   );

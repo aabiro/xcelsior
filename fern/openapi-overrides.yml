@@ -1,3 +1,1144 @@
 # Xcelsior OpenAPI overrides for Fern SDK generation
-# Maps endpoints to SDK groups & methods for cleaner API surface
-paths: {}
+# Maps endpoints to clean SDK method names via x-fern-sdk-method-name
+# and groups via x-fern-sdk-group-name so the generated TypeScript SDK
+# has intuitive names like client.hosts.list() instead of client.hosts.apiListHosts().
+
+paths:
+  # ── Hosts ─────────────────────────────────────────────────────────
+  /hosts:
+    get:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: list
+  /host:
+    put:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: register
+  /host/{host_id}:
+    get:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: get
+    delete:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: remove
+  /hosts/check:
+    post:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: check
+  /hosts/ca:
+    get:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: listCanadian
+  /compute-scores:
+    get:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: listComputeScores
+  /compute-score/{host_id}:
+    get:
+      x-fern-sdk-group-name: hosts
+      x-fern-sdk-method-name: getComputeScore
+
+  # ── Instances (Jobs) ──────────────────────────────────────────────
+  /instance:
+    post:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: create
+  /instance/{job_id}:
+    get:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: get
+    patch:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: update
+  /instance/{job_id}/requeue:
+    post:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: requeue
+  /instances:
+    get:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: list
+  /instances/{job_id}/cancel:
+    post:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: cancel
+  /instances/{job_id}/logs:
+    get:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: getLogs
+  /instances/{job_id}/logs/stream:
+    get:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: streamLogs
+  /tiers:
+    get:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: listTiers
+  /failover:
+    post:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: failover
+  /queue/process:
+    post:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: processQueue
+
+  # ── Billing ───────────────────────────────────────────────────────
+  /billing:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getSummary
+  /billing/bill-all:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: billAll
+  /billing/bill/{job_id}:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: billInstance
+  /api/billing/wallet/{customer_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getWallet
+  /api/billing/wallet/{customer_id}/deposit:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: deposit
+  /api/billing/wallet/{customer_id}/history:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getWalletHistory
+  /api/billing/wallet/{customer_id}/depletion:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getWalletDepletion
+  /api/billing/invoice/{customer_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getInvoice
+  /api/billing/invoice/{customer_id}/download:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: downloadInvoice
+  /api/billing/invoices/{customer_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: listInvoices
+  /api/billing/usage/{customer_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getUsage
+  /api/billing/refund:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: refund
+  /api/billing/payment-intent:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: createPaymentIntent
+  /api/billing/attestation:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getAttestation
+  /api/billing/free-credits/{customer_id}:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: claimFreeCredits
+  /api/billing/free-credits/{customer_id}/status:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getFreeCreditsStatus
+  /api/billing/export/caf/{customer_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: exportCaf
+  /api/billing/crypto/enabled:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: cryptoEnabled
+  /api/billing/crypto/rate:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: cryptoRate
+  /api/billing/crypto/deposit:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: cryptoDeposit
+  /api/billing/crypto/deposit/{deposit_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: cryptoDepositStatus
+  /api/billing/crypto/refresh/{deposit_id}:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: cryptoRefresh
+  /api/analytics/usage:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getAnalytics
+  /api/billing/gst-threshold:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getGstThreshold
+  /api/billing/gst-threshold/{provider_id}:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getProviderGstThreshold
+  /api/v2/billing/auto-topup:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getAutoTopup
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: configureAutoTopup
+  /api/pricing/estimate:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: estimateCost
+  /api/pricing/reference:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: getReferencePricing
+  /api/pricing/reserve:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: reserveCommitment
+  /api/pricing/reserved-plans:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: listReservedPlans
+
+  # ── Marketplace ───────────────────────────────────────────────────
+  /marketplace:
+    get:
+      x-fern-sdk-group-name: marketplace
+      x-fern-sdk-method-name: list
+  /marketplace/list:
+    post:
+      x-fern-sdk-group-name: marketplace
+      x-fern-sdk-method-name: createListing
+  /marketplace/search:
+    get:
+      x-fern-sdk-group-name: marketplace
+      x-fern-sdk-method-name: search
+  /marketplace/stats:
+    get:
+      x-fern-sdk-group-name: marketplace
+      x-fern-sdk-method-name: getStats
+  /marketplace/bill/{job_id}:
+    post:
+      x-fern-sdk-group-name: marketplace
+      x-fern-sdk-method-name: billJob
+  /marketplace/{host_id}:
+    delete:
+      x-fern-sdk-group-name: marketplace
+      x-fern-sdk-method-name: unlist
+
+  # ── Marketplace v2 ────────────────────────────────────────────────
+  /api/v2/marketplace/search:
+    post:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: search
+  /api/v2/marketplace/offers:
+    post:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: createOffer
+  /api/v2/marketplace/allocate:
+    post:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: allocate
+  /api/v2/marketplace/release/{allocation_id}:
+    post:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: release
+  /api/v2/marketplace/reservations:
+    post:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: createReservation
+  /api/v2/marketplace/reservations/{reservation_id}:
+    delete:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: cancelReservation
+  /api/v2/marketplace/spot-prices:
+    get:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: getSpotPrices
+  /api/v2/marketplace/spot-prices/{gpu_model}/history:
+    get:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: getSpotHistory
+  /api/v2/marketplace/stats:
+    get:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: getStats
+
+  # ── Reputation ────────────────────────────────────────────────────
+  /api/reputation/{entity_id}:
+    get:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: get
+  /api/reputation/{entity_id}/breakdown:
+    get:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: getBreakdown
+  /api/reputation/{entity_id}/history:
+    get:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: getHistory
+  /api/reputation/leaderboard:
+    get:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: leaderboard
+  /api/reputation/me:
+    get:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: me
+  /api/reputation/verify:
+    post:
+      x-fern-sdk-group-name: reputation
+      x-fern-sdk-method-name: verify
+
+  # ── Auth ──────────────────────────────────────────────────────────
+  /api/auth/register:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: register
+  /api/auth/login:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: login
+  /api/auth/logout:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: logout
+  /api/auth/refresh:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: refresh
+  /api/auth/me:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: me
+    delete:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: deleteAccount
+    patch:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: updateProfile
+  /api/auth/me/data-export:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: exportData
+  /api/auth/change-password:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: changePassword
+  /api/auth/password-reset:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: requestPasswordReset
+  /api/auth/password-reset/confirm:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: confirmPasswordReset
+  /api/auth/oauth/{provider}:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: oauthInitiate
+  /api/auth/oauth/{provider}/callback:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: oauthCallback
+  /api/keys:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: listApiKeys
+  /api/keys/generate:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: generateApiKey
+  /api/keys/{key_preview}:
+    delete:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: revokeApiKey
+  /api/users/me/preferences:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: getPreferences
+    put:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: setPreferences
+
+  # ── Teams ─────────────────────────────────────────────────────────
+  /api/teams:
+    post:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: create
+  /api/teams/me:
+    get:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: list
+  /api/teams/{team_id}:
+    get:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: get
+    delete:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: delete
+  /api/teams/{team_id}/members:
+    post:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: addMember
+  /api/teams/{team_id}/members/{email}:
+    delete:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: removeMember
+    patch:
+      x-fern-sdk-group-name: teams
+      x-fern-sdk-method-name: updateMemberRole
+
+  # ── Compliance ────────────────────────────────────────────────────
+  /api/compliance/provinces:
+    get:
+      x-fern-sdk-group-name: compliance
+      x-fern-sdk-method-name: getProvinces
+  /api/compliance/status:
+    get:
+      x-fern-sdk-group-name: compliance
+      x-fern-sdk-method-name: getStatus
+  /api/compliance/tax-rates:
+    get:
+      x-fern-sdk-group-name: compliance
+      x-fern-sdk-method-name: getTaxRates
+  /api/compliance/trust-tier-requirements:
+    get:
+      x-fern-sdk-group-name: compliance
+      x-fern-sdk-method-name: getTrustTierRequirements
+  /api/compliance/quebec-pia-check:
+    post:
+      x-fern-sdk-group-name: compliance
+      x-fern-sdk-method-name: quebecPiaCheck
+
+  # ── Artifacts ─────────────────────────────────────────────────────
+  /api/artifacts:
+    get:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: listAll
+  /api/artifacts/{job_id}:
+    get:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: list
+  /api/artifacts/{job_id}/expiry:
+    get:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: getExpiry
+  /api/artifacts/upload:
+    post:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: requestUpload
+  /api/artifacts/download:
+    post:
+      x-fern-sdk-group-name: artifacts
+      x-fern-sdk-method-name: requestDownload
+
+  # ── Privacy ───────────────────────────────────────────────────────
+  /api/privacy/consent:
+    post:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: recordConsent
+  /api/privacy/consent/{entity_id}:
+    get:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: getConsents
+  /api/privacy/consent/{entity_id}/{consent_type}:
+    delete:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: revokeConsent
+  /api/privacy/config:
+    post:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: saveConfig
+  /api/privacy/config/{org_id}:
+    get:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: getConfig
+  /api/privacy/retention-policies:
+    get:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: getRetentionPolicies
+  /api/privacy/retention-summary:
+    get:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: getRetentionSummary
+  /api/privacy/purge-expired:
+    post:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: purgeExpired
+  /api/v2/privacy/consent:
+    post:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: recordConsentV2
+  /api/v2/privacy/consent/{purpose}:
+    delete:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: withdrawConsentV2
+  /api/v2/privacy/consents:
+    get:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: listConsentsV2
+  /api/v2/privacy/erase:
+    post:
+      x-fern-sdk-group-name: privacy
+      x-fern-sdk-method-name: rightToErasure
+
+  # ── Transparency ──────────────────────────────────────────────────
+  /api/transparency/report:
+    get:
+      x-fern-sdk-group-name: transparency
+      x-fern-sdk-method-name: getReport
+  /api/transparency/legal-request:
+    post:
+      x-fern-sdk-group-name: transparency
+      x-fern-sdk-method-name: recordLegalRequest
+  /api/transparency/legal-request/{request_id}/respond:
+    post:
+      x-fern-sdk-group-name: transparency
+      x-fern-sdk-method-name: respondToLegalRequest
+
+  # ── Telemetry ─────────────────────────────────────────────────────
+  /agent/telemetry:
+    post:
+      x-fern-sdk-group-name: telemetry
+      x-fern-sdk-method-name: submit
+  /agent/telemetry/{host_id}:
+    get:
+      x-fern-sdk-group-name: telemetry
+      x-fern-sdk-method-name: get
+  /api/telemetry/all:
+    get:
+      x-fern-sdk-group-name: telemetry
+      x-fern-sdk-method-name: getAll
+
+  # ── SLA ───────────────────────────────────────────────────────────
+  /api/sla/{host_id}:
+    get:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: getStatus
+  /api/sla/targets:
+    get:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: getTargets
+  /api/sla/downtimes:
+    get:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: getDowntimes
+  /api/sla/hosts-summary:
+    get:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: getHostsSummary
+  /api/sla/violations/{host_id}:
+    get:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: getViolations
+  /api/sla/enforce:
+    post:
+      x-fern-sdk-group-name: sla
+      x-fern-sdk-method-name: enforce
+
+  # ── Providers ─────────────────────────────────────────────────────
+  /api/providers:
+    get:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: list
+  /api/providers/register:
+    post:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: register
+  /api/providers/webhook:
+    post:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: webhook
+  /api/providers/{provider_id}:
+    get:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: get
+  /api/providers/{provider_id}/earnings:
+    get:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: getEarnings
+  /api/providers/{provider_id}/incorporation:
+    post:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: uploadIncorporation
+  /api/providers/{provider_id}/payout:
+    post:
+      x-fern-sdk-group-name: providers
+      x-fern-sdk-method-name: payout
+
+  # ── Inference ─────────────────────────────────────────────────────
+  /api/inference:
+    post:
+      x-fern-sdk-group-name: inference
+      x-fern-sdk-method-name: submit
+  /api/inference/models/available:
+    get:
+      x-fern-sdk-group-name: inference
+      x-fern-sdk-method-name: listModels
+  /api/inference/{job_id}:
+    get:
+      x-fern-sdk-group-name: inference
+      x-fern-sdk-method-name: getResult
+  /api/inference/{job_id}/result:
+    post:
+      x-fern-sdk-group-name: inference
+      x-fern-sdk-method-name: postResult
+
+  # ── Inference v2 ──────────────────────────────────────────────────
+  /api/v2/inference/endpoints:
+    get:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: listEndpoints
+    post:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: createEndpoint
+  /api/v2/inference/endpoints/{endpoint_id}:
+    get:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: getEndpoint
+    delete:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: deleteEndpoint
+  /api/v2/inference/complete/{request_id}:
+    post:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: complete
+  /v1/chat/completions:
+    post:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: chatCompletions
+  /v1/inference:
+    post:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: sync
+  /v1/inference/async:
+    post:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: async
+  /v1/inference/{job_id}:
+    get:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: poll
+
+  # ── Notifications ─────────────────────────────────────────────────
+  /api/notifications:
+    get:
+      x-fern-sdk-group-name: notifications
+      x-fern-sdk-method-name: list
+  /api/notifications/unread-count:
+    get:
+      x-fern-sdk-group-name: notifications
+      x-fern-sdk-method-name: getUnreadCount
+  /api/notifications/{notification_id}/read:
+    post:
+      x-fern-sdk-group-name: notifications
+      x-fern-sdk-method-name: markRead
+  /api/notifications/read-all:
+    post:
+      x-fern-sdk-group-name: notifications
+      x-fern-sdk-method-name: markAllRead
+
+  # ── Admin ─────────────────────────────────────────────────────────
+  /api/admin/stats:
+    get:
+      x-fern-sdk-group-name: admin
+      x-fern-sdk-method-name: getStats
+  /api/admin/users:
+    get:
+      x-fern-sdk-group-name: admin
+      x-fern-sdk-method-name: listUsers
+  /api/admin/verification-queue:
+    get:
+      x-fern-sdk-group-name: admin
+      x-fern-sdk-method-name: getVerificationQueue
+
+  # ── Chat ──────────────────────────────────────────────────────────
+  /api/chat:
+    post:
+      x-fern-sdk-group-name: chat
+      x-fern-sdk-method-name: send
+  /api/chat/conversations:
+    get:
+      x-fern-sdk-group-name: chat
+      x-fern-sdk-method-name: listConversations
+  /api/chat/history/{conversation_id}:
+    get:
+      x-fern-sdk-group-name: chat
+      x-fern-sdk-method-name: getHistory
+  /api/chat/suggestions:
+    get:
+      x-fern-sdk-group-name: chat
+      x-fern-sdk-method-name: getSuggestions
+  /api/chat/feedback:
+    post:
+      x-fern-sdk-group-name: chat
+      x-fern-sdk-method-name: sendFeedback
+
+  # ── AI Assistant ──────────────────────────────────────────────────
+  /api/ai/chat:
+    post:
+      x-fern-sdk-group-name: aiAssistant
+      x-fern-sdk-method-name: chat
+  /api/ai/confirm:
+    post:
+      x-fern-sdk-group-name: aiAssistant
+      x-fern-sdk-method-name: confirm
+  /api/ai/conversations:
+    get:
+      x-fern-sdk-group-name: aiAssistant
+      x-fern-sdk-method-name: listConversations
+  /api/ai/conversations/{conversation_id}:
+    get:
+      x-fern-sdk-group-name: aiAssistant
+      x-fern-sdk-method-name: getConversation
+    delete:
+      x-fern-sdk-group-name: aiAssistant
+      x-fern-sdk-method-name: deleteConversation
+  /api/ai/suggestions:
+    get:
+      x-fern-sdk-group-name: aiAssistant
+      x-fern-sdk-method-name: getSuggestions
+
+  # ── SSH Keys ──────────────────────────────────────────────────────
+  /api/ssh/keys:
+    get:
+      x-fern-sdk-group-name: sshKeys
+      x-fern-sdk-method-name: list
+    post:
+      x-fern-sdk-group-name: sshKeys
+      x-fern-sdk-method-name: add
+  /api/ssh/keys/{key_id}:
+    delete:
+      x-fern-sdk-group-name: sshKeys
+      x-fern-sdk-method-name: delete
+
+  # ── Agent ─────────────────────────────────────────────────────────
+  /agent/versions:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: submitVersions
+  /agent/benchmark:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: submitBenchmark
+  /agent/verify:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: verify
+  /agent/mining-alert:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: miningAlert
+  /agent/work/{host_id}:
+    get:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: getWork
+  /agent/popular-images:
+    get:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: getPopularImages
+  /agent/preempt/{host_id}:
+    get:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: checkPreemption
+  /agent/preempt/{host_id}/{job_id}:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: schedulePreemption
+  /agent/lease/claim:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: claimLease
+  /agent/lease/renew:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: renewLease
+  /agent/lease/release:
+    post:
+      x-fern-sdk-group-name: agent
+      x-fern-sdk-method-name: releaseLease
+
+  # ── Spot Pricing ──────────────────────────────────────────────────
+  /spot-prices:
+    get:
+      x-fern-sdk-group-name: spotPricing
+      x-fern-sdk-method-name: get
+  /spot-prices/update:
+    post:
+      x-fern-sdk-group-name: spotPricing
+      x-fern-sdk-method-name: update
+  /spot/instance:
+    post:
+      x-fern-sdk-group-name: spotPricing
+      x-fern-sdk-method-name: submitSpotInstance
+  /spot/preemption-cycle:
+    post:
+      x-fern-sdk-group-name: spotPricing
+      x-fern-sdk-method-name: runPreemptionCycle
+
+  # ── Events ────────────────────────────────────────────────────────
+  /api/events:
+    get:
+      x-fern-sdk-group-name: events
+      x-fern-sdk-method-name: list
+  /api/events/{entity_type}/{entity_id}:
+    get:
+      x-fern-sdk-group-name: events
+      x-fern-sdk-method-name: getByEntity
+  /api/events/leases/{job_id}:
+    get:
+      x-fern-sdk-group-name: events
+      x-fern-sdk-method-name: getLease
+  /api/audit/instance/{job_id}:
+    get:
+      x-fern-sdk-group-name: events
+      x-fern-sdk-method-name: getAuditTrail
+  /api/audit/verify-chain:
+    get:
+      x-fern-sdk-group-name: events
+      x-fern-sdk-method-name: verifyChain
+
+  # ── Verification ──────────────────────────────────────────────────
+  /api/verify/{host_id}:
+    post:
+      x-fern-sdk-group-name: verification
+      x-fern-sdk-method-name: verifyHost
+  /api/verify/{host_id}/status:
+    get:
+      x-fern-sdk-group-name: verification
+      x-fern-sdk-method-name: getStatus
+  /api/verify/{host_id}/approve:
+    post:
+      x-fern-sdk-group-name: verification
+      x-fern-sdk-method-name: approve
+  /api/verify/{host_id}/reject:
+    post:
+      x-fern-sdk-group-name: verification
+      x-fern-sdk-method-name: reject
+  /api/verified-hosts:
+    get:
+      x-fern-sdk-group-name: verification
+      x-fern-sdk-method-name: listVerified
+
+  # ── Autoscale ─────────────────────────────────────────────────────
+  /autoscale/pool:
+    get:
+      x-fern-sdk-group-name: autoscale
+      x-fern-sdk-method-name: getPool
+    post:
+      x-fern-sdk-group-name: autoscale
+      x-fern-sdk-method-name: addToPool
+  /autoscale/pool/{host_id}:
+    delete:
+      x-fern-sdk-group-name: autoscale
+      x-fern-sdk-method-name: removeFromPool
+  /autoscale/up:
+    post:
+      x-fern-sdk-group-name: autoscale
+      x-fern-sdk-method-name: scaleUp
+  /autoscale/down:
+    post:
+      x-fern-sdk-group-name: autoscale
+      x-fern-sdk-method-name: scaleDown
+  /autoscale/cycle:
+    post:
+      x-fern-sdk-group-name: autoscale
+      x-fern-sdk-method-name: cycle
+
+  # ── Jurisdiction ──────────────────────────────────────────────────
+  /api/jurisdiction/hosts:
+    post:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: filterHosts
+  /api/jurisdiction/residency-trace/{job_id}:
+    get:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: getResidencyTrace
+  /api/trust-tiers:
+    get:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: getTrustTiers
+  /canada:
+    get:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: getCanadaStatus
+    put:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: setCanadaStatus
+  /queue/process/ca:
+    post:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: processQueueCanada
+  /api/queue/process-sovereign:
+    post:
+      x-fern-sdk-group-name: jurisdiction
+      x-fern-sdk-method-name: processQueueSovereign
+
+  # ── Volumes ───────────────────────────────────────────────────────
+  /api/v2/volumes:
+    get:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: list
+    post:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: create
+  /api/v2/volumes/{volume_id}:
+    get:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: get
+    delete:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: delete
+  /api/v2/volumes/{volume_id}/attach:
+    post:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: attach
+  /api/v2/volumes/{volume_id}/detach:
+    post:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: detach
+
+  # ── Cloud Burst ───────────────────────────────────────────────────
+  /api/v2/burst/status:
+    get:
+      x-fern-sdk-group-name: cloudBurst
+      x-fern-sdk-method-name: getStatus
+
+  # ── Jobs (Scheduler) ─────────────────────────────────────────────
+  /api/v2/scheduler/process-binpack:
+    post:
+      x-fern-sdk-group-name: jobs
+      x-fern-sdk-method-name: processQueueBinpack
+
+  # ── Infrastructure ────────────────────────────────────────────────
+  /healthz:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: healthz
+  /readyz:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: readyz
+  /metrics:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getMetrics
+  /metrics/prometheus:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getMetricsPrometheus
+  /llms.txt:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getLlmsTxt
+  /dashboard:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: dashboard
+  /api/stream:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: stream
+  /api/nfs/config:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getNfsConfig
+  /api/ssh/pubkey:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getSshPubkey
+  /ssh/pubkey:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getSshPubkeyLegacy
+  /ssh/keygen:
+    post:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: generateSshKey
+  /token/generate:
+    post:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: generateToken
+  /alerts/config:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getAlertConfig
+    put:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: setAlertConfig
+  /api/alerts/config:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: getAlertConfigV2
+    put:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: setAlertConfigV2
+  /builds:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: listBuilds
+  /build:
+    post:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: buildImage
+  /build/{model}/dockerfile:
+    post:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: generateDockerfile
+  /legacy:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: legacyDashboard
+  /legacy/{path}:
+    get:
+      x-fern-sdk-group-name: infrastructure
+      x-fern-sdk-method-name: legacyDashboardPath
+  /api/auth/device:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: deviceCode
+  /api/auth/token:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: deviceToken
+  /api/auth/verify:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: verifyPage
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: verifyDevice
+  /api/slurm/submit:
+    post:
+      x-fern-sdk-group-name: slurm
+      x-fern-sdk-method-name: submit
+  /api/slurm/instances:
+    get:
+      x-fern-sdk-group-name: slurm
+      x-fern-sdk-method-name: listInstances
+  /api/slurm/profiles:
+    get:
+      x-fern-sdk-group-name: slurm
+      x-fern-sdk-method-name: listProfiles
+  /api/slurm/status/{slurm_job_id}:
+    get:
+      x-fern-sdk-group-name: slurm
+      x-fern-sdk-method-name: getStatus
+  /api/slurm/{slurm_job_id}:
+    delete:
+      x-fern-sdk-group-name: slurm
+      x-fern-sdk-method-name: cancel
+
+  # ── MFA ───────────────────────────────────────────────────────────
+  /api/auth/mfa/all:
+    delete:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: disableAll
+  /api/auth/mfa/backup-codes/regenerate:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: regenerateBackupCodes
+  /api/auth/mfa/methods:
+    get:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: listMethods
+  /api/auth/mfa/passkey/authenticate-complete:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: passkeyAuthenticateComplete
+  /api/auth/mfa/passkey/authenticate-options:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: passkeyAuthenticateOptions
+  /api/auth/mfa/passkey/delete:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: passkeyDelete
+  /api/auth/mfa/passkey/register-complete:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: passkeyRegisterComplete
+  /api/auth/mfa/passkey/register-options:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: passkeyRegisterOptions
+  /api/auth/mfa/sms:
+    delete:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: smsDisable
+  /api/auth/mfa/sms/send:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: smsSend
+  /api/auth/mfa/sms/setup:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: smsSetup
+  /api/auth/mfa/sms/verify:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: smsVerify
+  /api/auth/mfa/totp:
+    delete:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: totpDisable
+  /api/auth/mfa/totp/setup:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: totpSetup
+  /api/auth/mfa/totp/verify:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: totpVerify
+  /api/auth/mfa/verify:
+    post:
+      x-fern-sdk-group-name: mfa
+      x-fern-sdk-method-name: verifyLogin
+
+  # ── Additional Auth endpoints ─────────────────────────────────────
+  /api/auth/resend-verification:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: resendVerification
+  /api/auth/sessions:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: listSessions
+  /api/auth/sessions/{token_prefix}:
+    delete:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: revokeSession
+  /api/auth/verify-email:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: verifyEmail
+
+  # ── Additional Notifications ──────────────────────────────────────
+  /api/notifications/{notification_id}:
+    delete:
+      x-fern-sdk-group-name: notifications
+      x-fern-sdk-method-name: delete
+
+  # ── GPU ───────────────────────────────────────────────────────────
+  /api/v2/gpu/available:
+    get:
+      x-fern-sdk-group-name: gpu
+      x-fern-sdk-method-name: listAvailable
+
+  # ── Additional Inference v2 ───────────────────────────────────────
+  /api/v2/inference/endpoints/{endpoint_id}/health:
+    get:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: getEndpointHealth
+  /api/v2/inference/endpoints/{endpoint_id}/usage:
+    get:
+      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-method-name: getEndpointUsage

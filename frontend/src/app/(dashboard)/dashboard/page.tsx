@@ -127,17 +127,40 @@ export default function DashboardOverview() {
                   {leaderboard.slice(0, 5).map((entry, i) => {
                     const rankColors = ["text-accent-gold bg-accent-gold/15", "text-text-secondary bg-surface-hover", "text-accent-red bg-accent-red/10"];
                     const rankClass = rankColors[i] || "text-text-muted bg-surface-hover";
+                    const tierStyles: Record<string, string> = {
+                      diamond: "bg-ice-blue/15 text-ice-blue border-ice-blue/30",
+                      platinum: "bg-accent-violet/15 text-accent-violet border-accent-violet/30",
+                      gold: "bg-accent-gold/15 text-accent-gold border-accent-gold/30",
+                      silver: "bg-text-secondary/15 text-text-secondary border-text-secondary/30",
+                      bronze: "bg-accent-red/15 text-accent-red border-accent-red/30",
+                    };
+                    const tierClass = tierStyles[(entry.tier || "").toLowerCase()] || "bg-surface-hover text-text-muted border-border";
+                    const gpuShort = entry.gpu_model
+                      ? entry.gpu_model.replace(/NVIDIA\s*/i, "").replace(/GeForce\s*/i, "")
+                      : null;
                     return (
                       <div key={entry.entity_id || i} className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/50 p-3 transition-colors hover:bg-surface-hover">
                         <div className="flex items-center gap-3">
                           <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${rankClass}`}>
                             {i + 1}
                           </span>
-                          <span className="text-sm font-medium">{entry.user_id || entry.entity_id}</span>
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium truncate block">{entry.user_id || entry.entity_id}</span>
+                            {entry.jobs_completed != null && entry.jobs_completed > 0 && (
+                              <span className="text-[10px] text-text-muted">{entry.jobs_completed} job{entry.jobs_completed !== 1 ? "s" : ""}</span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-sm font-mono text-accent-cyan">
-                          {entry.score?.toFixed(1) || "—"}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {gpuShort && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald/30 bg-emerald/10 px-2 py-0.5 text-[10px] font-semibold text-emerald">
+                              <Cpu className="h-2.5 w-2.5" />{gpuShort}
+                            </span>
+                          )}
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierClass}`}>
+                            {entry.tier || "new"}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}

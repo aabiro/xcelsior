@@ -164,7 +164,7 @@ class TestAddHostViaAPI:
         assert host["province"] == "ON"
 
     def test_register_host_admits_and_receives_job(self):
-        """Full E2E: register → admit → submit job → process queue → assigned."""
+        """Full E2E: register → admit → submit job → auto-assigned immediately."""
         _reset_state()
         client.put(
             "/host",
@@ -188,11 +188,10 @@ class TestAddHostViaAPI:
             },
         )
         assert job_resp.status_code == 200
-        job_id = job_resp.json()["instance"]["job_id"]
-
-        process_resp = client.post("/queue/process")
-        assert process_resp.status_code == 200
-        assert len(process_resp.json()["assigned"]) == 1
+        inst = job_resp.json()["instance"]
+        job_id = inst["job_id"]
+        # auto queue processing assigns during submit
+        assert inst["status"] in ("assigned", "running")
 
         job_detail = client.get(f"/instance/{job_id}")
         assert job_detail.json()["instance"]["status"] in ("assigned", "running")
@@ -321,7 +320,7 @@ class TestFullJobLifecycleE2E:
         )
         _admit_host("e2e-lc-h1")
 
-        # Submit job
+        # Submit job — auto queue processing assigns immediately
         job_resp = client.post(
             "/instance",
             json={
@@ -331,12 +330,9 @@ class TestFullJobLifecycleE2E:
             },
         )
         assert job_resp.status_code == 200
-        job_id = job_resp.json()["instance"]["job_id"]
-
-        # Process queue
-        process_resp = client.post("/queue/process")
-        assigned = process_resp.json()["assigned"]
-        assert len(assigned) == 1
+        inst = job_resp.json()["instance"]
+        job_id = inst["job_id"]
+        assert inst["status"] in ("assigned", "running")
 
         # Run → Complete
         client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "e2e-lc-h1"})
@@ -377,12 +373,11 @@ class TestFullJobLifecycleE2E:
                 "vram_needed_gb": 40,
             },
         )
-        job_id = job_resp.json()["instance"]["job_id"]
-
-        client.post("/queue/process")
-        detail = client.get(f"/instance/{job_id}")
-        assigned_host = detail.json()["instance"].get("host_id")
-        assert assigned_host in ("mh-2", "mh-3")
+        inst = job_resp.json()["instance"]
+        job_id = inst["job_id"]
+        # auto queue processing assigns during submit
+        assert inst["status"] in ("assigned", "running")
+        assert inst.get("host_id") in ("mh-2", "mh-3")
 
     def test_no_admitted_hosts_job_stays_queued(self):
         """If no hosts are admitted, job remains queued."""
@@ -407,8 +402,7 @@ class TestFullJobLifecycleE2E:
                 "vram_needed_gb": 8,
             },
         )
-        job_id = job_resp.json()["instance"]["job_id"]
-
-        client.post("/queue/process")
-        detail = client.get(f"/instance/{job_id}")
-        assert detail.json()["instance"]["status"] == "queued"
+        inst = job_resp.json()["instance"]
+        job_id = inst["job_id"]
+        # auto queue processing runs during submit but no admitted host → stays queued
+        assert inst["status"] == "queued"

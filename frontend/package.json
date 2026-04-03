@@ -19,6 +19,8 @@
     "@mdx-js/react": "^3.1.1",
     "@next/mdx": "^16.2.1",
     "@react-email/components": "^1.0.10",
+    "@reown/appkit": "^1.8.19",
+    "@reown/appkit-adapter-bitcoin": "^1.8.19",
     "@stripe/react-stripe-js": "^6.0.0",
     "@stripe/stripe-js": "^9.0.0",
     "@types/qrcode": "^1.5.6",

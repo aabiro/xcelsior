@@ -705,9 +705,9 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO users (email, user_id, name, password_hash, salt, role,
+                INSERT INTO users (email, user_id, name, password_hash, salt, role, is_admin,
                     customer_id, provider_id, country, province, oauth_provider, team_id, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     user["email"],
@@ -716,6 +716,7 @@ class UserStore:
                     user.get("password_hash", ""),
                     user.get("salt", ""),
                     user.get("role", "submitter"),
+                    user.get("is_admin", 0),
                     user.get("customer_id"),
                     user.get("provider_id"),
                     user.get("country", "CA"),
@@ -731,6 +732,7 @@ class UserStore:
         allowed = {
             "name",
             "role",
+            "is_admin",
             "country",
             "province",
             "provider_id",
@@ -788,14 +790,15 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO sessions (token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sessions (token, email, user_id, role, is_admin, name, created_at, expires_at, ip_address, user_agent, last_active)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     session["token"],
                     session["email"],
                     session["user_id"],
                     session.get("role", "submitter"),
+                    session.get("is_admin", 0),
                     session.get("name", ""),
                     session.get("created_at", time.time()),
                     session["expires_at"],
@@ -855,8 +858,8 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO api_keys (key, name, email, user_id, role, scope, created_at, last_used)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO api_keys (key, name, email, user_id, role, is_admin, scope, created_at, last_used)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     key_data["key"],
@@ -864,6 +867,7 @@ class UserStore:
                     key_data["email"],
                     key_data["user_id"],
                     key_data.get("role", "submitter"),
+                    key_data.get("is_admin", 0),
                     key_data.get("scope", "full-access"),
                     key_data.get("created_at", time.time()),
                     key_data.get("last_used"),

@@ -30,7 +30,14 @@ export function CanadaMapHero({
         src="/canada-map-arc.svg"
         alt=""
         aria-hidden
-        className="pointer-events-none absolute top-0 right-0 h-full object-cover object-right"
+        className="pointer-events-none absolute top-0 right-0 hidden h-full object-cover object-right dark:block"
+        loading="eager"
+      />
+      <img
+        src="/canada-map-arc-light.svg"
+        alt=""
+        aria-hidden
+        className="pointer-events-none absolute top-0 right-0 block h-full object-cover object-right dark:hidden"
         loading="eager"
       />
 

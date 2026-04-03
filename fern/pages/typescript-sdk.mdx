@@ -21,39 +21,58 @@ pnpm add @xcelsior-gpu/sdk
 ## Quick Start
 
 ```typescript
-import { XcelsiorClient } from "@xcelsior-gpu/sdk";
+import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 
-const client = new XcelsiorClient({
-  token: process.env.XCELSIOR_API_TOKEN!,
-  environment: "https://xcelsior.ca",
+const client = new XcelsiorApiClient({
+  environment: XcelsiorApiEnvironment.Production,
+  headers: {
+    Authorization: `Bearer ${process.env.XCELSIOR_API_KEY}`,
+  },
 });
 
 // List all GPU hosts
-const hosts = await client.hosts.list({ activeOnly: true });
+const hosts = await client.hosts.list();
 console.log(`${hosts.length} active hosts`);
 
-// Submit a job
-const job = await client.jobs.create({
+// Submit an instance
+const instance = await client.instances.create({
   name: "llama-inference",
   vramNeededGb: 24,
   priority: 5,
   tier: "sovereign",
 });
-console.log(`Job ${job.jobId} created`);
+console.log(`Instance ${instance.jobId} created`);
 ```
 
 ## Configuration
 
 ```typescript
-const client = new XcelsiorClient({
-  // Required
-  token: "your-api-token",
+import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 
-  // Optional
-  environment: "https://xcelsior.ca", // default: production
-  timeoutInSeconds: 60,               // request timeout
+const client = new XcelsiorApiClient({
+  // Environment (defaults to production)
+  environment: XcelsiorApiEnvironment.Production, // "https://xcelsior.ca"
+
+  // Authentication via headers
+  headers: {
+    Authorization: "Bearer your-api-key",
+  },
+
+  // Optional settings
+  timeoutInSeconds: 60,  // request timeout
+  maxRetries: 2,         // retry count (default: 2)
 });
 ```
+
+### Configuration Options
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `environment` | `string` | No | API base URL. Defaults to `https://xcelsior.ca` |
+| `headers` | `Record<string, string>` | No | Additional headers (use for `Authorization`) |
+| `timeoutInSeconds` | `number` | No | Request timeout in seconds |
+| `maxRetries` | `number` | No | Number of retries on failure (default: 2) |
+| `fetch` | `typeof fetch` | No | Custom fetch implementation |
 
 ## Usage Examples
 
@@ -71,25 +90,40 @@ await client.hosts.register({
   province: "ON",
 });
 
-// List active hosts
-const hosts = await client.hosts.list({ activeOnly: true });
+// List hosts
+const hosts = await client.hosts.list();
+
+// Get a specific host
+const host = await client.hosts.get("host-id-123");
+
+// Remove a host
+await client.hosts.remove("host-id-123");
+
+// Get compute scores
+const scores = await client.hosts.listComputeScores();
 ```
 
-### Job Management
+### Instance Management
 
 ```typescript
-// Submit a job
-const job = await client.jobs.create({
+// Submit an instance (GPU job)
+const instance = await client.instances.create({
   name: "training-run",
   vramNeededGb: 48,
   priority: 8,
 });
 
 // Check status
-const status = await client.jobs.get(job.jobId);
+const status = await client.instances.get("job-id-123");
 
-// List all jobs
-const jobs = await client.jobs.list();
+// List all instances
+const instances = await client.instances.list();
+
+// Cancel an instance
+await client.instances.cancel("job-id-123");
+
+// Get logs
+const logs = await client.instances.getLogs("job-id-123");
 ```
 
 ### Billing
@@ -105,8 +139,17 @@ await client.billing.deposit("customer-123", {
   currency: "CAD",
 });
 
-// Generate invoice
+// Get invoice
 const invoice = await client.billing.getInvoice("customer-123");
+
+// Get usage
+const usage = await client.billing.getUsage("customer-123");
+
+// Estimate cost
+const estimate = await client.billing.estimateCost({
+  gpuModel: "RTX 4090",
+  hours: 24,
+});
 ```
 
 ### Marketplace
@@ -115,13 +158,19 @@ const invoice = await client.billing.getInvoice("customer-123");
 // Browse available GPUs
 const listings = await client.marketplace.list();
 
-// List your rig
-await client.marketplace.create({
+// Search marketplace
+const results = await client.marketplace.search({ query: "RTX 4090" });
+
+// List your rig on the marketplace
+await client.marketplace.createListing({
   hostId: "my-gpu-01",
   gpuModel: "RTX 4090",
   vramGb: 24,
   pricePerHour: 1.2,
 });
+
+// Get marketplace stats
+const stats = await client.marketplace.getStats();
 ```
 
 ### Reputation
@@ -133,16 +182,103 @@ console.log(`Score: ${rep.score}, Tier: ${rep.tier}`);
 
 // View leaderboard
 const leaders = await client.reputation.leaderboard();
+
+// Get breakdown
+const breakdown = await client.reputation.getBreakdown("my-entity-id");
 ```
+
+### Volumes
+
+```typescript
+// Create a volume
+const volume = await client.volumes.create({
+  name: "training-data",
+  sizeGb: 100,
+});
+
+// Attach to an instance
+await client.volumes.attach(volume.volumeId, { jobId: "job-id-123" });
+
+// Detach
+await client.volumes.detach(volume.volumeId);
+
+// List volumes
+const volumes = await client.volumes.list();
+```
+
+### Inference
+
+```typescript
+// Submit inference job
+const job = await client.inference.submit({
+  model: "llama-3-70b",
+  prompt: "Explain GPU computing",
+});
+
+// List available models
+const models = await client.inference.listModels();
+
+// OpenAI-compatible chat completions
+const response = await client.inferenceV2.chatCompletions({
+  model: "llama-3-70b",
+  messages: [{ role: "user", content: "Hello" }],
+});
+```
+
+## Resource Groups
+
+The SDK organizes endpoints into resource groups accessible as properties on the client:
+
+| Group | Accessor | Description |
+|-------|----------|-------------|
+| Hosts | `client.hosts` | GPU host registration and management |
+| Instances | `client.instances` | Instance (job) creation and lifecycle |
+| Billing | `client.billing` | Wallet, invoices, payments, crypto |
+| Marketplace | `client.marketplace` | GPU marketplace listings |
+| Marketplace v2 | `client.marketplaceV2` | Advanced marketplace (offers, reservations) |
+| Reputation | `client.reputation` | Trust scores and leaderboard |
+| Auth | `client.auth` | Authentication, API keys, OAuth |
+| Teams | `client.teams` | Team management |
+| Volumes | `client.volumes` | Persistent storage volumes |
+| Inference | `client.inference` | Model inference |
+| Inference v2 | `client.inferenceV2` | Endpoints, chat completions |
+| Artifacts | `client.artifacts` | Job artifact upload/download |
+| Events | `client.events` | Event log and audit trail |
+| SLA | `client.sla` | SLA status and violations |
+| Providers | `client.providers` | Provider management and payouts |
+| Notifications | `client.notifications` | Notification management |
+| Privacy | `client.privacy` | Consent and data retention |
+| Compliance | `client.compliance` | Tax rates, provinces, trust tiers |
+| Telemetry | `client.telemetry` | GPU telemetry data |
+| Verification | `client.verification` | Host verification |
+| Infrastructure | `client.infrastructure` | Health, metrics, SSH keys |
+| Spot Pricing | `client.spotPricing` | Spot pricing and preemption |
+| Autoscale | `client.autoscale` | Auto-scaling pool |
+| Jurisdiction | `client.jurisdiction` | Data sovereignty and residency |
+| Transparency | `client.transparency` | Transparency reports |
+| Agent | `client.agent` | Worker agent endpoints |
+| SSH Keys | `client.sshKeys` | SSH key management |
+| Chat | `client.chat` | Support chat |
+| AI Assistant | `client.aiAssistant` | AI assistant chat |
+| Admin | `client.admin` | Admin stats and users |
+| Cloud Burst | `client.cloudBurst` | Cloud burst status |
+| Slurm | `client.slurm` | Slurm job scheduler |
 
 ## Error Handling
 
 ```typescript
+import { XcelsiorApiClient, XcelsiorApiError, XcelsiorApiTimeoutError } from "@xcelsior-gpu/sdk";
+
 try {
-  const job = await client.jobs.create({ ... });
+  const instance = await client.instances.create({ name: "my-job", vramNeededGb: 24 });
 } catch (error) {
-  if (error instanceof XcelsiorError) {
+  if (error instanceof XcelsiorApiTimeoutError) {
+    console.error("Request timed out");
+  } else if (error instanceof XcelsiorApiError) {
     console.error(`API Error ${error.statusCode}: ${error.message}`);
+    console.error("Response body:", error.body);
+  } else {
+    throw error;
   }
 }
 ```
@@ -152,5 +288,22 @@ try {
 The SDK is fully typed. All request/response objects have TypeScript interfaces:
 
 ```typescript
-import type { Job, Host, WalletBalance } from "@xcelsior-gpu/sdk";
+import { XcelsiorApi } from "@xcelsior-gpu/sdk";
+
+// Access types via the XcelsiorApi namespace
+type ValidationError = XcelsiorApi.ValidationError;
+type HttpValidationError = XcelsiorApi.HttpValidationError;
+```
+
+## Passthrough Requests
+
+For endpoints not yet covered by the SDK, use the built-in `fetch` method which inherits your auth, retry, and logging configuration:
+
+```typescript
+const response = await client.fetch("/api/some-new-endpoint", {
+  method: "POST",
+  body: JSON.stringify({ key: "value" }),
+  headers: { "Content-Type": "application/json" },
+});
+const data = await response.json();
 ```

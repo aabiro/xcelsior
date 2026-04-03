@@ -211,18 +211,21 @@ class TestHostRegistrationFlow:
     def test_admitted_host_receives_work(self):
         """Only admitted hosts get job assignments."""
         _register_host("h1", versions=GOOD_VERSIONS)
-        _submit_job("llama3", 16)
-        r = client.post("/queue/process")
+        r = _submit_job("llama3", 16)
         assert r.status_code == 200
-        assert len(r.json()["assigned"]) == 1
+        instance = r.json()["instance"]
+        # Job should be assigned or running (auto queue processing)
+        assert instance["status"] in ("assigned", "running")
+        assert instance["host_id"] == "h1"
 
     def test_pending_host_excluded(self):
         """Pending host with enough VRAM still doesn't get jobs."""
         _register_host("h1")  # No versions → pending
-        _submit_job("llama3", 16)
-        r = client.post("/queue/process")
+        r = _submit_job("llama3", 16)
         assert r.status_code == 200
-        assert len(r.json()["assigned"]) == 0
+        instance = r.json()["instance"]
+        # Should stay queued — no admitted hosts
+        assert instance["status"] == "queued"
 
     def test_host_canadian_company_fields(self):
         """Canadian company fields persist on registration."""
@@ -320,8 +323,15 @@ class TestJobEndpoints:
         assert r.status_code == 422
 
     def test_submit_job_validation_zero_vram(self):
-        """Zero VRAM should fail validation."""
+        """Zero VRAM should get a sane default (not fail)."""
         r = client.post("/instance", json={"name": "test", "vram_needed_gb": 0})
+        assert r.status_code == 200
+        # Default VRAM is based on available hosts; 4.0 when no hosts exist
+        assert r.json()["instance"]["vram_needed_gb"] > 0
+
+    def test_submit_job_validation_negative_vram(self):
+        """Negative VRAM should fail validation."""
+        r = client.post("/instance", json={"name": "test", "vram_needed_gb": -1})
         assert r.status_code == 422
 
     def test_list_jobs(self):
@@ -364,10 +374,16 @@ class TestJobEndpoints:
 
     def test_process_queue(self):
         _register_host("h1", versions=GOOD_VERSIONS)
-        _submit_job("llama3", 16)
-        r = client.post("/queue/process")
+        # submit now auto-processes the queue so the job is assigned immediately
+        r = _submit_job("llama3", 16)
         assert r.status_code == 200
-        assert len(r.json()["assigned"]) == 1
+        inst = r.json()["instance"]
+        assert inst["status"] in ("assigned", "running")
+        assert inst["host_id"] == "h1"
+        # calling process again should have nothing left to assign
+        r2 = client.post("/queue/process")
+        assert r2.status_code == 200
+        assert len(r2.json()["assigned"]) == 0
 
     def test_submit_multi_gpu_job(self):
         """Multi-GPU job support (num_gpus > 1)."""
@@ -1095,7 +1111,20 @@ class TestUserAuth:
         assert d["user"]["email"] == "testauth@xcelsior.ca"
         assert d["user"]["name"] == "Test User"
         assert d["user"]["role"] == "submitter"
+        assert d["user"]["is_admin"] is False
         assert d["user"]["customer_id"].startswith("cust-")
+
+    def test_register_rejects_admin_role(self):
+        """POST /api/auth/register cannot self-assign platform admin access."""
+        r = client.post(
+            "/api/auth/register",
+            json={
+                "email": "adminselfassign@xcelsior.ca",
+                "password": "securepass123",
+                "role": "admin",
+            },
+        )
+        assert r.status_code == 403
 
     def test_register_duplicate_email(self):
         """POST /api/auth/register with existing email returns 409."""
@@ -1186,6 +1215,7 @@ class TestUserAuth:
         assert d["ok"] is True
         assert d["user"]["email"] == "profiletest@xcelsior.ca"
         assert d["user"]["name"] == "Profile User"
+        assert d["user"]["is_admin"] is False
 
     def test_get_profile_unauthenticated(self):
         """GET /api/auth/me without token returns 401."""
@@ -1213,7 +1243,23 @@ class TestUserAuth:
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
         assert me["user"]["name"] == "Updated Name"
         assert me["user"]["role"] == "provider"
+        assert me["user"]["is_admin"] is False
         assert me["user"]["province"] == "BC"
+
+    def test_update_profile_rejects_admin_role_change(self):
+        """PATCH /api/auth/me cannot self-assign platform admin access."""
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "adminpatch@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        r = client.patch(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"role": "admin"},
+        )
+        assert r.status_code == 403
 
     def test_refresh_token(self):
         """POST /api/auth/refresh returns new token and invalidates old."""
@@ -1248,6 +1294,66 @@ class TestUserAuth:
             "/api/auth/login", json={"email": "deletetest@xcelsior.ca", "password": "testpass123"}
         )
         assert r2.status_code == 401
+
+
+class TestPlatformAdminSecurity:
+    """Tests for platform admin privilege separation and enforcement."""
+
+    def test_admin_endpoint_requires_platform_admin(self, monkeypatch):
+        import api as api_mod
+
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "plainsubmitter@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        r = client.get("/api/admin/stats", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 403
+
+    def test_submitter_with_admin_flag_can_access_admin_endpoints(self, monkeypatch):
+        import api as api_mod
+
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        email = "aaryn.alexander@gmail.com"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "testpass123", "role": "submitter"},
+        ).json()
+        token = reg["access_token"]
+
+        with api_mod._user_lock:
+            api_mod._users_db[email]["is_admin"] = 1
+            api_mod._users_db[email]["role"] = "submitter"
+
+        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
+        assert me["user"]["role"] == "submitter"
+        assert me["user"]["is_admin"] is True
+
+        r = client.get("/api/admin/stats", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+
+    def test_slurm_profiles_require_provider_or_admin(self, monkeypatch):
+        import api as api_mod
+
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "hpcsubmitter@xcelsior.ca", "password": "testpass123", "role": "submitter"},
+        ).json()
+        token = reg["access_token"]
+
+        r = client.get("/api/slurm/profiles", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 403
+
+        reg_provider = client.post(
+            "/api/auth/register",
+            json={"email": "hpcprovider@xcelsior.ca", "password": "testpass123", "role": "provider"},
+        ).json()
+        provider_token = reg_provider["access_token"]
+        r2 = client.get("/api/slurm/profiles", headers={"Authorization": f"Bearer {provider_token}"})
+        assert r2.status_code == 200
 
 
 class TestApiKeys:

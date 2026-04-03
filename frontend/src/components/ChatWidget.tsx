@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
+import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 
@@ -54,15 +55,23 @@ function formatMarkdown(text: string): string {
 // ── Message Bubble ───────────────────────────────────────────────────
 function MessageBubble({
   msg,
+  isLastStreaming,
   onFeedback,
   feedbackGiven,
 }: {
   msg: ChatMessage;
+  isLastStreaming?: boolean;
   onFeedback?: (id: string, vote: "up" | "down") => void;
   feedbackGiven?: "up" | "down" | null;
 }) {
   const { t } = useLocale();
   const isUser = msg.role === "user";
+  const { displayedText, isTyping } = useTypewriterText(msg.content, {
+    animate: !isUser && Boolean(isLastStreaming),
+    resetKey: msg.id,
+  });
+  const showStreamingCursor = !isUser && (Boolean(isLastStreaming) || isTyping);
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-3 group`}>
       <div
@@ -78,8 +87,14 @@ function MessageBubble({
           <>
             <div
               className="prose-sm prose-invert [&_pre]:my-1 [&_code]:text-xs"
-              dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
+              dangerouslySetInnerHTML={{ __html: formatMarkdown(displayedText) }}
             />
+            {showStreamingCursor && (
+              <span
+                className="inline-block w-[2px] h-[1em] bg-accent-red rounded-full ml-0.5 align-text-bottom animate-cursor-blink"
+                aria-hidden="true"
+              />
+            )}
             {/* Thumbs up/down feedback */}
             {onFeedback && (
               <div className="flex items-center gap-1 mt-1.5">
@@ -208,6 +223,9 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const { messages, isStreaming, error, sendMessage, clearChat, setMessages } = useChatStream();
+  const lastStreamingAssistantId = isStreaming
+    ? [...messages].reverse().find((msg) => msg.role === "assistant")?.id ?? null
+    : null;
 
   // Mobile swipe-to-dismiss
   const dragY = useMotionValue(0);
@@ -538,17 +556,6 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
                       <p className="text-xs text-text-muted mb-4">
                         {t("chat.greeting_sub")}
                       </p>
-                      <div className="flex flex-wrap gap-2 justify-center">
-                        {suggestions.map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => handleSuggestion(s)}
-                            className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                          >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
                       <p className="text-[10px] text-text-muted mt-4">{t("chat.shortcut_hint")}</p>
                     </div>
                   ) : (
@@ -557,6 +564,7 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
                         <MessageBubble
                           key={msg.id}
                           msg={msg}
+                          isLastStreaming={msg.id === lastStreamingAssistantId}
                           onFeedback={msg.role === "assistant" ? handleFeedback : undefined}
                           feedbackGiven={feedback[msg.id] ?? null}
                         />
@@ -616,6 +624,25 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
                       {t("chat.disclaimer")}
                     </p>
                   </form>
+                  {/* Suggestion chips — below input, visible only in empty chat */}
+                  {messages.length === 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                      className="flex flex-wrap gap-2 justify-center px-4 pb-3"
+                    >
+                      {suggestions.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => handleSuggestion(s)}
+                          className="rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
                 </div>
               </>
             )}

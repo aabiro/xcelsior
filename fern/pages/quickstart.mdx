@@ -63,7 +63,7 @@ python cli.py run my-model 8.0
 Or via the API:
 
 ```bash
-curl -X POST http://localhost:8000/job \
+curl -X POST http://localhost:8000/instance \
   -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "llama-inference", "vram_needed_gb": 8.0, "priority": 5}'

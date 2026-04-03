@@ -25,9 +25,9 @@ export function Navbar() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
         <Link href="/" className="flex items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className="hidden dark:block h-11" />
+          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className="hidden dark:block h-11" width={160} height={44} fetchPriority="high" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className="block dark:hidden h-11" />
+          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className="block dark:hidden h-11" width={160} height={44} fetchPriority="high" />
           <span className="rounded bg-accent-red/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-red">
             Beta
           </span>

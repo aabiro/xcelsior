@@ -765,8 +765,32 @@ def check_hosts():
     for host_id, ip in alerts:
         log.warning("HOST DEAD %s (%s)", host_id, ip)
         alert_host_dead(host_id, ip)
+        # Requeue running jobs from dead host so they get rescheduled
+        _requeue_dead_host_jobs(host_id, ip)
 
     return results
+
+
+def _requeue_dead_host_jobs(host_id: str, ip: str):
+    """Requeue all running/assigned jobs from a dead host so they get rescheduled."""
+    try:
+        with _atomic_mutation() as conn:
+            jobs = conn.execute(
+                "SELECT job_id, name FROM jobs WHERE host_id = %s AND status IN ('running', 'assigned', 'leased')",
+                (host_id,),
+            ).fetchall()
+            if not jobs:
+                return
+            requeued_ids = [j["job_id"] for j in jobs]
+            conn.execute(
+                """UPDATE jobs SET status = 'queued', host_id = NULL, started_at = 0
+                   WHERE host_id = %s AND status IN ('running', 'assigned', 'leased')""",
+                (host_id,),
+            )
+        log.warning("REQUEUED %d jobs from dead host %s (%s): %s",
+                     len(requeued_ids), host_id, ip, requeued_ids)
+    except Exception as e:
+        log.error("Failed to requeue jobs from dead host %s: %s", host_id, e)
 
 
 def health_loop(interval=5, callback=None):
@@ -1168,6 +1192,65 @@ def process_queue():
     return assigned
 
 
+def process_assigned():
+    """Pick up 'assigned' jobs and start their containers.
+
+    The scheduler loop calls process_queue() to move jobs from queued->assigned,
+    then process_assigned() to move assigned->running by SSHing into the host
+    and starting the Docker container.
+    """
+    assigned_jobs = list_jobs(status="assigned")
+    if not assigned_jobs:
+        return []
+
+    hosts = list_hosts(active_only=False)
+    host_map = {h["host_id"]: h for h in hosts}
+    started = []
+
+    for job in assigned_jobs:
+        host_id = job.get("host_id")
+        if not host_id:
+            log.warning("RUNNER: assigned job %s has no host_id, requeueing", job.get("job_id"))
+            update_job_status(job["job_id"], "queued")
+            continue
+
+        host = host_map.get(host_id)
+        if not host:
+            log.warning("RUNNER: host %s not found for job %s, requeueing", host_id, job.get("job_id"))
+            update_job_status(job["job_id"], "queued")
+            continue
+
+        try:
+            docker_image = job.get("image") or None
+            container_id = run_job(job, host, docker_image=docker_image)
+            if container_id:
+                log.info("RUNNER: job %s started on host %s (container=%s)",
+                         job["job_id"], host_id, container_id)
+                started.append((job, host))
+            else:
+                log.warning("RUNNER: container start failed for job %s on host %s",
+                            job["job_id"], host_id)
+                # run_job already sets status to "failed"
+        except Exception as e:
+            log.error("RUNNER: exception starting job %s on host %s: %s",
+                      job["job_id"], host_id, e)
+            update_job_status(job["job_id"], "failed")
+
+    return started
+
+
+def scheduler_tick():
+    """Single scheduler iteration: assign queued jobs, then start assigned ones."""
+    try:
+        process_queue()
+    except Exception as e:
+        log.error("Scheduler queue error: %s", e)
+    try:
+        process_assigned()
+    except Exception as e:
+        log.error("Scheduler runner error: %s", e)
+
+
 # ── Phase 5 & 6: Run Job / Kill Job ──────────────────────────────────
 
 
@@ -1260,6 +1343,11 @@ def run_job(job, host, docker_image=None):
         f"--name {shlex.quote(container_name)} "
         f"{shlex.quote(image)}"
     )
+    # Append the job command if specified (quote each token to prevent injection)
+    job_command = job.get("command", "").strip()
+    if job_command:
+        tokens = shlex.split(job_command)
+        cmd += " " + " ".join(shlex.quote(t) for t in tokens)
 
     rc, stdout, stderr = ssh_exec(host["ip"], cmd)
     if rc != 0:
@@ -1507,7 +1595,7 @@ ALERT_CONFIG = {
     "smtp_pass": os.environ.get("XCELSIOR_SMTP_PASS", ""),
     "email_from": os.environ.get("XCELSIOR_EMAIL_FROM", ""),
     "email_to": os.environ.get("XCELSIOR_EMAIL_TO", ""),
-    "telegram_enabled": False,
+    "telegram_enabled": bool(os.environ.get("XCELSIOR_TG_TOKEN") and os.environ.get("XCELSIOR_TG_CHAT_ID")),
     "telegram_bot_token": os.environ.get("XCELSIOR_TG_TOKEN", ""),
     "telegram_chat_id": os.environ.get("XCELSIOR_TG_CHAT_ID", ""),
 }

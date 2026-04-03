@@ -45,8 +45,7 @@ export default function HomePage() {
           <motion.div
             className="max-w-3xl"
             initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
+            animate="visible"
           >
             <motion.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
               <MapPin className="h-3 w-3 text-accent-gold" />

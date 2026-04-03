@@ -16,16 +16,18 @@ import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AiPanel } from "@/components/AiPanel";
 import { NotificationBell } from "@/components/NotificationBell";
+import { CreditsButton } from "@/components/CreditsButton";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 
-const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[] }[] = [
-  { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles },
+const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[]; badge?: string }[] = [
+  { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
   { href: "/dashboard/hosts", key: "dash.hosts", icon: Server },
   { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
@@ -133,6 +135,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  const canAccessRole = (requiredRole: string) => (
+    requiredRole === "admin" ? !!user.is_admin : user.role === requiredRole
+  );
+
   const sidebarContent = (mobile: boolean) => (
     <>
       {/* Logo */}
@@ -158,7 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
         {navItems
-          .filter((item) => !item.roles || item.roles.includes(user?.role ?? ""))
+          .filter((item) => !item.roles || item.roles.some(canAccessRole))
           .map((item) => {
           const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
           const label = t(item.key);
@@ -175,7 +181,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               title={!mobile && collapsed ? label : undefined}
             >
               <item.icon className={`h-4 w-4 shrink-0 ${active ? 'drop-shadow-[0_0_4px_rgba(0,212,255,0.5)]' : ''}`} />
-              {(mobile || !collapsed) && <span>{label}</span>}
+              {(mobile || !collapsed) && (
+                <div className="flex items-center gap-2">
+                  <span>{label}</span>
+                  {item.badge && (
+                    <Badge
+                      variant="info"
+                      className="border border-ice-blue/20 px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide"
+                    >
+                      {item.badge}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </Link>
           );
         })}
@@ -359,6 +377,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <ThemeToggle />
             <div className="h-5 w-px bg-border hidden sm:block" />
             <NotificationBell />
+            <CreditsButton />
             <div className="h-6 w-px bg-border hidden sm:block" />
             <div className="relative" ref={profileRef}>
               <button
@@ -406,14 +425,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       >
                         <Users className="h-4 w-4" />
                         {t("dash.team") || "Team"}
-                      </Link>
-                      <Link
-                        href="/dashboard/billing"
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                        onClick={() => setProfileOpen(false)}
-                      >
-                        <CreditCard className="h-4 w-4" />
-                        {t("dash.billing")}
                       </Link>
                       <Link
                         href="/dashboard/settings#api-keys"

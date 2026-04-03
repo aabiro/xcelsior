@@ -279,7 +279,7 @@ class TestWebSocketTerminal:
         pass
 
     def test_terminal_ws_auth_validator(self):
-        """_validate_ws_auth returns False for empty tokens when auth required."""
+        """_validate_ws_auth returns None for empty tokens when auth required."""
         import api
 
         # When auth is required and no token provided
@@ -292,7 +292,7 @@ class TestWebSocketTerminal:
                 query_params = {}
 
             result = api._validate_ws_auth(FakeWebSocket())
-            assert result is False
+            assert result is None
         finally:
             api.AUTH_REQUIRED = original
 

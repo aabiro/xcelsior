@@ -3,10 +3,16 @@
 import os
 import time
 import json
+import tempfile
 from unittest.mock import patch, MagicMock
 import pytest
 
+_tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_btc_test_")
+_tmpdir = _tmp_ctx.name
+
 # Ensure BTC is enabled for tests
+os.environ["XCELSIOR_DB_BACKEND"] = "sqlite"
+os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior_btc_test.db")
 os.environ["XCELSIOR_BTC_ENABLED"] = "true"
 os.environ["XCELSIOR_BTC_RPC_HOST"] = "127.0.0.1"
 os.environ["XCELSIOR_BTC_RPC_PORT"] = "18332"
@@ -23,6 +29,7 @@ def _btc_clean_table():
     """Clean crypto_deposits table before each test."""
     with bitcoin._conn() as c:
         c.execute("DELETE FROM crypto_deposits")
+        c.execute("DELETE FROM fintrac_reports")
     yield
 
 
@@ -99,10 +106,78 @@ class TestBtcCadRate:
                     bitcoin.get_btc_cad_rate()
 
 
+class TestServiceStatus:
+    def test_reports_available_when_rpc_and_wallet_are_ready(self, mock_rpc):
+        mock_rpc.return_value = {"chain": "main", "blocks": 123}
+
+        with patch("bitcoin.BTC_ENABLED", True), patch("bitcoin._ensure_wallet_ready") as mock_ready:
+            status = bitcoin.get_service_status()
+
+        assert status["enabled"] is True
+        assert status["available"] is True
+        assert status["rpc_reachable"] is True
+        assert status["wallet_ready"] is True
+        assert status["network"] == "main"
+        assert status["blocks"] == 123
+        mock_ready.assert_called_once_with(bitcoin.BTC_RPC_WALLET or bitcoin.BTC_AUTO_WALLET)
+
+    def test_reports_unavailable_when_rpc_is_offline(self, mock_rpc):
+        mock_rpc.side_effect = OSError("Connection refused")
+
+        with patch("bitcoin.BTC_ENABLED", True):
+            status = bitcoin.get_service_status()
+
+        assert status["enabled"] is True
+        assert status["available"] is False
+        assert status["rpc_reachable"] is False
+        assert status["wallet_ready"] is False
+        assert status["reason"] == "Bitcoin node is offline or unavailable"
+
+    def test_reports_unavailable_when_wallet_is_not_ready(self, mock_rpc):
+        mock_rpc.return_value = {"chain": "main", "blocks": 123}
+
+        with patch("bitcoin.BTC_ENABLED", True), patch(
+            "bitcoin._ensure_wallet_ready",
+            side_effect=RuntimeError("Bitcoin wallet 'xcelsior' has no receiving keys available"),
+        ):
+            status = bitcoin.get_service_status()
+
+        assert status["available"] is False
+        assert status["rpc_reachable"] is True
+        assert status["wallet_ready"] is False
+        assert "no receiving keys available" in status["reason"]
+
+
 # ── Deposit Creation ──────────────────────────────────────────────────
 
 
 class TestCreateDeposit:
+    def test_get_new_address_falls_back_to_dedicated_wallet(self):
+        original_active = bitcoin._active_wallet_name
+        try:
+            bitcoin._active_wallet_name = None
+            with patch("bitcoin._rpc_call") as mock_call:
+                mock_call.side_effect = [
+                    RuntimeError("Bitcoin RPC error: {'code': -19, 'message': 'Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path).'}"),
+                    [],  # listwallets
+                    RuntimeError("Bitcoin RPC error: {'code': -18, 'message': 'Requested wallet does not exist or is not loaded'}"),
+                    {"name": "xcelsior"},  # createwallet
+                    {
+                        "private_keys_enabled": True,
+                        "blank": False,
+                        "keypoolsize": 4000,
+                        "keypoolsize_hd_internal": 4000,
+                    },
+                    "bc1qautofallback123",
+                ]
+
+                address = bitcoin.get_new_address()
+
+            assert address == "bc1qautofallback123"
+            assert bitcoin._active_wallet_name == "xcelsior"
+        finally:
+            bitcoin._active_wallet_name = original_active
+
     def test_creates_deposit(self, mock_rpc, mock_rate):
         mock_rpc.return_value = "bc1qtest123address"
         result = bitcoin.create_deposit("cust-abc", 100.0)
@@ -354,13 +429,13 @@ class TestRpcClient:
         mock_rpc.return_value = "bc1qnew123"
         addr = bitcoin.get_new_address("test-label")
         assert addr == "bc1qnew123"
-        mock_rpc.assert_called_once_with("getnewaddress", ["test-label", "bech32"])
+        mock_rpc.assert_called_once_with("getnewaddress", ["test-label", "bech32"], wallet=None)
 
     def test_get_received_by_address(self, mock_rpc):
         mock_rpc.return_value = 0.00123456
         amount = bitcoin.get_received_by_address("bc1qtest", 3)
         assert amount == 0.00123456
-        mock_rpc.assert_called_once_with("getreceivedbyaddress", ["bc1qtest", 3])
+        mock_rpc.assert_called_once_with("getreceivedbyaddress", ["bc1qtest", 3], wallet=None)
 
     def test_rpc_error_raises(self):
         error_resp = json.dumps({"result": None, "error": {"code": -5, "message": "Invalid address"}}).encode()

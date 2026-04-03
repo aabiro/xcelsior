@@ -9,13 +9,14 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { getMe, logout as apiLogout } from "@/lib/api";
+import { getMe, logout as apiLogout, refreshToken } from "@/lib/api";
 
 interface User {
   user_id: string;
   email: string;
   name?: string;
   role: string;
+  is_admin?: boolean;
   country?: string;
   province?: string;
   avatar_url?: string;
@@ -71,6 +72,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
+
+  // Periodic session keepalive — refresh token every 10 minutes
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(() => {
+      refreshToken().catch(() => {
+        // Refresh failed — session is dead, clear user to trigger redirect
+        setUser(null);
+      });
+    }, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user]);
 
   const value = useMemo(
     () => ({ user, loading, login, logout }),

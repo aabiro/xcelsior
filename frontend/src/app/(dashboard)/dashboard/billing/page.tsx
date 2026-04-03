@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,33 @@ import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { Wallet, WalletTransaction, Invoice, PricingReference } from "@/lib/api";
 import { toast } from "sonner";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
+
+const FREE_CREDIT_AMOUNT = 10;
+const FREE_CREDIT_TRANSFER_DURATION_S = 2.2;
+const FREE_CREDIT_TRANSFER_DURATION_MS = FREE_CREDIT_TRANSFER_DURATION_S * 1000;
+const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
+
+type FreeCreditAnimationState = "idle" | "transferring" | "complete";
+
+interface CreditFlight {
+  amount: number;
+  startLeft: number;
+  startTop: number;
+  deltaX: number;
+  deltaY: number;
+  liftY: number;
+}
+
+interface CreditTransfer {
+  amount: number;
+  from: number;
+  to: number;
+}
+
+function formatCad(amount: number) {
+  return `$${amount.toFixed(2)}`;
+}
 
 export default function BillingPage() {
   const { user } = useAuth();
@@ -37,14 +64,33 @@ export default function BillingPage() {
   }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDeposit, setShowDeposit] = useState(false);
+  const searchParams = useSearchParams();
+
+  // Auto-open deposit modal from ?topup=true (Credits button link)
+  useEffect(() => {
+    if (searchParams.get("topup") === "true") setShowDeposit(true);
+  }, [searchParams]);
+
   const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
-  const [btcEnabled, setBtcEnabled] = useState(false);
+  const [btcStatus, setBtcStatus] = useState({
+    enabled: false,
+    available: false,
+    reason: "",
+  });
   const [cafLoading, setCafLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [freeCreditsAvailable, setFreeCreditsAvailable] = useState(false);
   const [claimingCredits, setClaimingCredits] = useState(false);
-  const [creditsClaimed, setCreditsClaimed] = useState(false);
+  const [freeCreditAnimationState, setFreeCreditAnimationState] = useState<FreeCreditAnimationState>("idle");
+  const [displayWalletBalance, setDisplayWalletBalance] = useState(0);
+  const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);
+  const [creditTransfer, setCreditTransfer] = useState<CreditTransfer | null>(null);
+
+  const walletValueRef = useRef<HTMLSpanElement | null>(null);
+  const promoAmountRef = useRef<HTMLDivElement | null>(null);
+  const walletAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const freeCreditTimersRef = useRef<number[]>([]);
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -74,11 +120,48 @@ export default function BillingPage() {
     }
   }, [customerId]);
 
+  const clearFreeCreditTimers = useCallback(() => {
+    for (const timerId of freeCreditTimersRef.current) {
+      window.clearTimeout(timerId);
+    }
+    freeCreditTimersRef.current = [];
+  }, []);
+
+  const stopWalletAnimation = useCallback(() => {
+    walletAnimationRef.current?.stop();
+    walletAnimationRef.current = null;
+  }, []);
+
+  const animateWalletBalance = useCallback((from: number, to: number) => {
+    stopWalletAnimation();
+    setDisplayWalletBalance(from);
+    walletAnimationRef.current = animate(from, to, {
+      duration: FREE_CREDIT_TRANSFER_DURATION_S,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (value) => setDisplayWalletBalance(Number(value.toFixed(2))),
+      onComplete: () => {
+        setDisplayWalletBalance(to);
+        walletAnimationRef.current = null;
+      },
+    });
+  }, [stopWalletAnimation]);
+
   useEffect(() => { load(); }, [load]);
 
   // Check if BTC deposits are enabled
   useEffect(() => {
-    api.checkCryptoEnabled().then((r) => setBtcEnabled(r.enabled)).catch((e) => console.error("Failed to check crypto status", e));
+    api.checkCryptoEnabled()
+      .then((r) => {
+        setBtcStatus({
+          enabled: r.enabled,
+          available: r.available ?? r.enabled,
+          reason: r.reason ?? "",
+        });
+      })
+      .catch((e) => {
+        console.error("Failed to check crypto status", e);
+        setBtcStatus({ enabled: false, available: false, reason: "" });
+      });
   }, []);
 
   // Check if free signup credits are available
@@ -89,8 +172,71 @@ export default function BillingPage() {
       .catch(() => setFreeCreditsAvailable(false));
   }, [customerId]);
 
+  useEffect(() => {
+    if (freeCreditAnimationState !== "idle") return;
+    setDisplayWalletBalance(wallet?.balance_cad ?? 0);
+  }, [wallet?.balance_cad, freeCreditAnimationState]);
+
+  useEffect(() => {
+    if (freeCreditAnimationState !== "transferring" || !creditTransfer || !customerId) return;
+
+    clearFreeCreditTimers();
+
+    let rafId = 0;
+    rafId = window.requestAnimationFrame(() => {
+      const startRect = promoAmountRef.current?.getBoundingClientRect();
+      const endRect = walletValueRef.current?.getBoundingClientRect();
+
+      animateWalletBalance(creditTransfer.from, creditTransfer.to);
+
+      if (startRect && endRect) {
+        const startCenterX = startRect.left + startRect.width / 2;
+        const startCenterY = startRect.top + startRect.height / 2;
+        const endCenterX = endRect.left + endRect.width / 2;
+        const endCenterY = endRect.top + endRect.height / 2;
+        const deltaY = endCenterY - startCenterY;
+
+        setCreditFlight({
+          amount: creditTransfer.amount,
+          startLeft: startRect.left,
+          startTop: startRect.top,
+          deltaX: endCenterX - startCenterX,
+          deltaY,
+          liftY: Math.max(-72, Math.min(-28, deltaY * 0.35)),
+        });
+      }
+
+      freeCreditTimersRef.current.push(window.setTimeout(() => {
+        setCreditFlight(null);
+        setFreeCreditAnimationState("complete");
+      }, FREE_CREDIT_TRANSFER_DURATION_MS));
+
+      freeCreditTimersRef.current.push(window.setTimeout(() => {
+        setFreeCreditsAvailable(false);
+        setFreeCreditAnimationState("idle");
+        setCreditTransfer(null);
+        void api.fetchWalletHistory(customerId)
+          .then((r) => setTransactions(r.transactions || []))
+          .catch(() => {});
+      }, FREE_CREDIT_TRANSFER_DURATION_MS + FREE_CREDIT_SUCCESS_HOLD_MS));
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [
+    animateWalletBalance,
+    clearFreeCreditTimers,
+    creditTransfer,
+    customerId,
+    freeCreditAnimationState,
+  ]);
+
+  useEffect(() => () => {
+    clearFreeCreditTimers();
+    stopWalletAnimation();
+  }, [clearFreeCreditTimers, stopWalletAnimation]);
+
   const handleClaimFreeCredits = async () => {
-    if (!customerId || claimingCredits) return;
+    if (!customerId || claimingCredits || freeCreditAnimationState !== "idle") return;
     setClaimingCredits(true);
     try {
       const result = await api.claimFreeCredits(customerId);
@@ -98,15 +244,22 @@ export default function BillingPage() {
         toast.info(t("dash.billing.credits_already_claimed"));
         setFreeCreditsAvailable(false);
       } else {
-        setCreditsClaimed(true);
-        setWallet((w) => w ? { ...w, balance_cad: result.balance_cad } : w);
+        const nextBalance = result.balance_cad;
+        const previousBalance = wallet?.balance_cad ?? displayWalletBalance;
+        clearFreeCreditTimers();
+        setCreditFlight(null);
+        setCreditTransfer({
+          amount: result.amount_cad || FREE_CREDIT_AMOUNT,
+          from: previousBalance,
+          to: nextBalance,
+        });
+        setFreeCreditAnimationState("transferring");
+        setWallet((w) => (
+          w
+            ? { ...w, balance_cad: nextBalance }
+            : { customer_id: customerId, balance_cad: nextBalance, currency: "CAD" }
+        ));
         toast.success(t("dash.billing.credits_claimed_toast"));
-        // After animation, hide the card
-        setTimeout(() => {
-          setFreeCreditsAvailable(false);
-          setCreditsClaimed(false);
-          load();
-        }, 3000);
       }
     } catch {
       toast.error("Failed to claim free credits");
@@ -207,6 +360,9 @@ export default function BillingPage() {
     "1_year":  { label: "1 Year", accent: "text-emerald", icon: Leaf },
   };
 
+  const currentWalletBalance = displayWalletBalance;
+  const freeCreditFlowActive = claimingCredits || freeCreditAnimationState !== "idle";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -235,7 +391,21 @@ export default function BillingPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
               label={t("dash.billing.wallet_balance")}
-              value={`$${(wallet?.balance_cad ?? 0).toFixed(2)}`}
+              value={(
+                <span ref={walletValueRef} className="inline-block">
+                  <motion.span
+                    animate={freeCreditAnimationState === "transferring" ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+                    transition={{
+                      duration: freeCreditAnimationState === "transferring" ? FREE_CREDIT_TRANSFER_DURATION_S : 0.2,
+                      times: freeCreditAnimationState === "transferring" ? [0, 0.35, 1] : undefined,
+                      ease: "easeOut",
+                    }}
+                    className="inline-block"
+                  >
+                    {formatCad(currentWalletBalance)}
+                  </motion.span>
+                </span>
+              )}
               icon={DollarSign}
             />
             <StatCard
@@ -267,10 +437,10 @@ export default function BillingPage() {
                 <Card className="relative overflow-hidden border-accent-cyan/30 bg-gradient-to-r from-accent-cyan/10 via-accent-violet/10 to-accent-cyan/10">
                   {/* Animated shimmer */}
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
-                  <CardContent className="relative flex items-center justify-between p-5">
+                  <CardContent className="relative flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex items-center gap-4">
                       <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent-cyan/20">
-                        {creditsClaimed ? (
+                        {freeCreditAnimationState === "complete" ? (
                           <motion.div
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
@@ -279,17 +449,34 @@ export default function BillingPage() {
                             <CheckCircle2 className="h-6 w-6 text-emerald" />
                           </motion.div>
                         ) : (
-                          <Gift className="h-6 w-6 text-accent-cyan" />
+                          <motion.div
+                            animate={freeCreditAnimationState === "transferring" ? { rotate: [0, -6, 6, 0], scale: [1, 1.06, 1] } : { rotate: 0, scale: 1 }}
+                            transition={{
+                              duration: freeCreditAnimationState === "transferring" ? 1.1 : 0.2,
+                              repeat: freeCreditAnimationState === "transferring" ? Infinity : 0,
+                              ease: "easeInOut",
+                            }}
+                          >
+                            <Gift className="h-6 w-6 text-accent-cyan" />
+                          </motion.div>
                         )}
                       </div>
                       <div>
-                        {creditsClaimed ? (
+                        {freeCreditAnimationState === "complete" ? (
                           <motion.div
                             initial={{ opacity: 0, y: 4 }}
                             animate={{ opacity: 1, y: 0 }}
                           >
                             <p className="font-semibold text-emerald">{t("dash.billing.credits_claimed_title")}</p>
                             <p className="text-sm text-text-secondary">{t("dash.billing.credits_claimed_desc")}</p>
+                          </motion.div>
+                        ) : freeCreditAnimationState === "transferring" ? (
+                          <motion.div
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                          >
+                            <p className="font-semibold text-accent-cyan">{t("dash.billing.credits_transferring_title")}</p>
+                            <p className="text-sm text-text-secondary">{t("dash.billing.credits_transferring_desc")}</p>
                           </motion.div>
                         ) : (
                           <>
@@ -299,31 +486,66 @@ export default function BillingPage() {
                         )}
                       </div>
                     </div>
-                    {!creditsClaimed && (
-                      <Button
-                        className="bg-accent-cyan hover:bg-accent-cyan/80 text-navy font-semibold shadow-lg shadow-accent-cyan/20"
-                        onClick={handleClaimFreeCredits}
-                        disabled={claimingCredits}
-                      >
-                        {claimingCredits ? (
-                          <><Loader2 className="h-4 w-4 animate-spin" /> {t("dash.billing.claiming")}</>
-                        ) : (
-                          <><Sparkles className="h-4 w-4" /> {t("dash.billing.claim_credits")}</>
-                        )}
-                      </Button>
-                    )}
-                    {creditsClaimed && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-right"
-                      >
-                        <p className="text-2xl font-bold font-mono text-emerald">+$10.00</p>
-                        <p className="text-xs text-text-muted">CAD</p>
-                      </motion.div>
-                    )}
+                    <div className="flex min-h-10 items-center justify-end">
+                      {freeCreditAnimationState === "transferring" ? (
+                        <div
+                          ref={promoAmountRef}
+                          className={`rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-sm font-semibold font-mono text-emerald shadow-lg shadow-emerald/15 transition-opacity duration-150 ${
+                            creditFlight ? "opacity-0" : "opacity-100"
+                          }`}
+                        >
+                          +{formatCad(creditTransfer?.amount ?? FREE_CREDIT_AMOUNT)}
+                        </div>
+                      ) : freeCreditAnimationState === "complete" ? (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.8, y: 8 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-sm font-semibold text-emerald"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {t("dash.billing.credits_added_badge")}
+                        </motion.div>
+                      ) : (
+                        <Button
+                          className="bg-accent-cyan text-navy font-semibold shadow-lg shadow-accent-cyan/20 hover:bg-accent-cyan/80"
+                          onClick={handleClaimFreeCredits}
+                          disabled={freeCreditFlowActive}
+                        >
+                          {claimingCredits ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" /> {t("dash.billing.claiming")}</>
+                          ) : (
+                            <><Sparkles className="h-4 w-4" /> {t("dash.billing.claim_credits")}</>
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {creditFlight && (
+              <motion.div
+                className="pointer-events-none fixed z-[80] rounded-full border border-emerald/30 bg-emerald/15 px-3 py-1 text-sm font-semibold font-mono text-emerald shadow-xl shadow-emerald/20 backdrop-blur-sm will-change-transform"
+                style={{ left: creditFlight.startLeft, top: creditFlight.startTop }}
+                initial={{
+                  x: 0,
+                  y: 0,
+                  opacity: 1,
+                  scale: 1,
+                }}
+                animate={{
+                  x: [0, creditFlight.deltaX * 0.45, creditFlight.deltaX],
+                  y: [0, creditFlight.liftY, creditFlight.deltaY],
+                  opacity: [1, 1, 0.18],
+                  scale: [1, 1.03, 0.92],
+                }}
+                exit={{ opacity: 0, scale: 0.88 }}
+                transition={{ duration: FREE_CREDIT_TRANSFER_DURATION_S, ease: [0.22, 1, 0.36, 1] }}
+              >
+                +{formatCad(creditFlight.amount)}
               </motion.div>
             )}
           </AnimatePresence>
@@ -338,7 +560,7 @@ export default function BillingPage() {
                   <p className="font-medium">{t("dash.billing.burn_rate")}</p>
                 </div>
                 {(() => {
-                  const balance = wallet?.balance_cad ?? 0;
+                  const balance = currentWalletBalance;
                   const spent = usage?.total_cost_cad ?? 0;
                   const hours = usage?.total_gpu_hours ?? 0;
                   const burnPerHour = hours > 0 ? spent / hours : 0;
@@ -378,7 +600,7 @@ export default function BillingPage() {
                 <div>
                   <p className="font-medium">{t("dash.billing.wallet_credits")}</p>
                   <p className="text-2xl font-bold font-mono text-emerald">
-                    ${(wallet?.balance_cad ?? 0).toFixed(2)} <span className="text-sm font-normal text-text-muted">CAD</span>
+                    {formatCad(currentWalletBalance)} <span className="text-sm font-normal text-text-muted">CAD</span>
                   </p>
                 </div>
                 <Button variant="success" onClick={() => setShowDeposit(true)}>
@@ -409,24 +631,34 @@ export default function BillingPage() {
           </div>
 
           {/* Bitcoin Deposit */}
-          {btcEnabled && (
+          {btcStatus.enabled && (
             <Card className="border-amber-500/20 bg-amber-500/5">
               <CardContent className="flex items-center justify-between p-5">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Bitcoin className="h-4 w-4 text-amber-500" />
                     <p className="font-medium text-amber-500">Bitcoin Deposits</p>
+                    {!btcStatus.available && (
+                      <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                        Unavailable
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-text-secondary">
-                    Pay with BTC — zero processing fees, settled in CAD
+                    {btcStatus.available
+                      ? "Pay with BTC - zero processing fees, settled in CAD"
+                      : btcStatus.reason || "Bitcoin deposits are temporarily unavailable."}
                   </p>
                 </div>
                 <Button
                   size="sm"
                   className="bg-amber-500 hover:bg-amber-600 text-black"
                   onClick={() => setShowCryptoDeposit(true)}
+                  disabled={!btcStatus.available}
+                  title={!btcStatus.available ? btcStatus.reason : undefined}
                 >
-                  <Bitcoin className="h-3.5 w-3.5" /> Deposit BTC
+                  <Bitcoin className="h-3.5 w-3.5" />
+                  {btcStatus.available ? "Deposit BTC" : "Unavailable"}
                 </Button>
               </CardContent>
             </Card>
@@ -676,7 +908,7 @@ export default function BillingPage() {
       )}
 
       {/* Crypto Deposit Modal */}
-      {showCryptoDeposit && customerId && (
+      {showCryptoDeposit && customerId && btcStatus.available && (
         <CryptoDepositModal
           customerId={customerId}
           onClose={() => setShowCryptoDeposit(false)}

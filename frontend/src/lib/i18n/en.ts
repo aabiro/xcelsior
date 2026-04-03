@@ -503,7 +503,7 @@ const en: Record<string, string> = {
   "dash.billing": "Billing",
   "dash.marketplace": "Marketplace",
   "dash.spot_pricing": "Spot Pricing",
-  "dash.inference": "Inference",
+  "dash.inference": "Serverless",
   "dash.volumes": "Volumes",
   "dash.earnings": "Earnings",
   "dash.reputation": "Reputation",
@@ -681,9 +681,12 @@ const en: Record<string, string> = {
   "dash.billing.free_credits_desc": "New to Xcelsior? Start exploring sovereign GPU compute with $10 in free credits — no card required.",
   "dash.billing.claim_credits": "Claim $10 Credits",
   "dash.billing.claiming": "Claiming…",
+  "dash.billing.credits_transferring_title": "Moving your $10 into the wallet",
+  "dash.billing.credits_transferring_desc": "The welcome credit is on its way. No card required.",
   "dash.billing.credits_claimed_title": "$10 added to your wallet!",
   "dash.billing.credits_claimed_desc": "Your free credits are ready to use. Spin up your first instance now.",
   "dash.billing.credits_claimed_toast": "$10 free credits added to your wallet!",
+  "dash.billing.credits_added_badge": "Credits added",
   "dash.billing.credits_already_claimed": "You've already claimed your free credits.",
 
   /* ── Dashboard — Marketplace ────────────────────────────────────────── */
@@ -1003,6 +1006,27 @@ const en: Record<string, string> = {
   "ai.onboard_rent": "I want to rent GPUs",
   "ai.onboard_provide": "I want to provide GPUs",
   "ai.onboard_both": "Rent & provide",
+
+  /* ── Support Page ───────────────────────────────────────────────────── */
+  "support.badge": "We're here to help",
+  "support.title": "Support",
+  "support.subtitle": "Whether you need help getting started, troubleshooting a workload, or have a billing question — we've got you covered. Talk to our AI assistant instantly or reach a human on our team.",
+  "support.chat_title": "AI Chat Assistant",
+  "support.chat_desc": "Click the chat bubble in the bottom-right corner of any page to talk to Xcel AI. It can help with account questions, GPU selection, job troubleshooting, and more — instantly, 24/7.",
+  "support.chat_action": "Open Chat",
+  "support.email_title": "Email Support",
+  "support.email_desc": "Prefer to talk to a human? Reach our team directly at support@xcelsior.ca. We typically respond within a few hours during business days.",
+  "support.email_action": "support@xcelsior.ca",
+  "support.docs_title": "Documentation",
+  "support.docs_desc": "Browse our API reference, quickstart guides, and architecture docs. Everything you need to integrate Xcelsior into your workflow.",
+  "support.docs_action": "Browse Docs",
+  "support.hours_title": "Support Hours",
+  "support.hours_desc": "AI chat is available 24/7. Human support is available Monday to Friday, 9 AM — 6 PM ET. We aim to respond to all emails within one business day.",
+  "support.security_title": "Security Issues",
+  "support.security_desc": "For security vulnerabilities or urgent account issues, email security@xcelsior.ca. We take all security reports seriously and will respond promptly.",
+  "support.cta": "Not sure where to start? Check out our pricing and get $10 in free credits.",
+  "support.cta_button": "View Pricing",
+  "footer.support": "Support",
 };
 
 export default en;

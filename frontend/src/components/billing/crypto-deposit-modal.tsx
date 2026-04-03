@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { BitcoinWalletConnectAction } from "@/components/billing/bitcoin-wallet-connect-action";
 import {
   createCryptoDeposit,
   checkCryptoDeposit,
@@ -35,6 +36,44 @@ interface CryptoDepositModalProps {
 
 const PRESETS = [10, 25, 50, 100, 250, 500];
 const POLL_INTERVAL = 8_000; // 8 seconds
+
+function getFriendlyCryptoErrorMessage(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("not enabled")) {
+    return "Bitcoin deposits are not enabled on this deployment.";
+  }
+
+  if (
+    normalized.includes("no receiving keys")
+    || normalized.includes("receiving keys")
+    || normalized.includes("wallet is not ready")
+    || normalized.includes("wallet file not specified")
+  ) {
+    return "Bitcoin wallet is not ready for fresh receiving addresses. Check the configured wallet or keypool.";
+  }
+
+  if (
+    normalized.includes("offline or unavailable")
+    || normalized.includes("connection refused")
+    || normalized.includes("timed out")
+    || normalized.includes("timeout")
+    || normalized.includes("failed to establish a new connection")
+    || normalized.includes("urlopen error")
+  ) {
+    return "Bitcoin checkout is temporarily unavailable because the node is offline.";
+  }
+
+  if (
+    normalized.includes("pricing service")
+    || normalized.includes("unable to fetch btc/cad rate")
+    || normalized.includes("failed to fetch btc/cad rate")
+  ) {
+    return "Bitcoin pricing is temporarily unavailable. Try again in a moment.";
+  }
+
+  return message;
+}
 
 // ── Animated step wrapper ───────────────────────────────────────────
 const stepVariants = {
@@ -282,17 +321,9 @@ export function CryptoDepositModal({
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to create BTC deposit";
-      const isUnavailable =
-        msg.includes("503") ||
-        msg.includes("unavailable") ||
-        msg.includes("not enabled") ||
-        msg.includes("Bad Gateway");
-      setErrorMsg(
-        isUnavailable
-          ? "Bitcoin deposits are temporarily unavailable. The BTC node is offline — please use card deposit instead."
-          : msg,
-      );
-      toast.error(isUnavailable ? "Bitcoin node is offline" : msg);
+      const friendlyMsg = getFriendlyCryptoErrorMessage(msg);
+      setErrorMsg(friendlyMsg);
+      toast.error(friendlyMsg);
     } finally {
       setSubmitting(false);
     }
@@ -314,9 +345,8 @@ export function CryptoDepositModal({
       startPolling(deposit.deposit_id);
       toast.success("Rate refreshed — new quote locked for 30 min");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to refresh rate",
-      );
+      const msg = err instanceof Error ? err.message : "Failed to refresh rate";
+      toast.error(getFriendlyCryptoErrorMessage(msg));
     } finally {
       setRefreshing(false);
     }
@@ -676,6 +706,12 @@ export function CryptoDepositModal({
                     <CopyBtn text={deposit.btc_address} label="Address" />
                   </div>
                 </div>
+
+                <BitcoinWalletConnectAction
+                  amountBtc={deposit.amount_btc}
+                  recipient={deposit.btc_address}
+                  disabled={expired}
+                />
 
                 {/* Open in wallet (BIP21 deep link) */}
                 <a

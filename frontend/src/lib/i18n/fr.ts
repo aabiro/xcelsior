@@ -503,7 +503,7 @@ const fr: Record<string, string> = {
   "dash.billing": "Facturation",
   "dash.marketplace": "Marché",
   "dash.spot_pricing": "Prix spot",
-  "dash.inference": "Inférence",
+  "dash.inference": "Serverless",
   "dash.volumes": "Volumes",
   "dash.earnings": "Revenus",
   "dash.reputation": "Réputation",
@@ -681,9 +681,12 @@ const fr: Record<string, string> = {
   "dash.billing.free_credits_desc": "Nouveau sur Xcelsior ? Explorez le calcul GPU souverain avec 10 $ en crédits gratuits — aucune carte requise.",
   "dash.billing.claim_credits": "Réclamer 10 $ de crédits",
   "dash.billing.claiming": "Réclamation…",
+  "dash.billing.credits_transferring_title": "Transfert de vos 10 $ vers le portefeuille",
+  "dash.billing.credits_transferring_desc": "Le crédit de bienvenue est en route. Aucune carte requise.",
   "dash.billing.credits_claimed_title": "10 $ ajoutés à votre portefeuille !",
   "dash.billing.credits_claimed_desc": "Vos crédits gratuits sont prêts à l'emploi. Lancez votre première instance maintenant.",
   "dash.billing.credits_claimed_toast": "10 $ en crédits gratuits ajoutés à votre portefeuille !",
+  "dash.billing.credits_added_badge": "Crédits ajoutés",
   "dash.billing.credits_already_claimed": "Vous avez déjà réclamé vos crédits gratuits.",
 
   /* ── Tableau de bord — Marché ────────────────────────────────────────── */
@@ -1003,6 +1006,27 @@ const fr: Record<string, string> = {
   "ai.onboard_rent": "Je veux louer des GPU",
   "ai.onboard_provide": "Je veux fournir des GPU",
   "ai.onboard_both": "Louer et fournir",
+
+  /* ── Page de support ────────────────────────────────────────────────── */
+  "support.badge": "Nous sommes là pour vous aider",
+  "support.title": "Support",
+  "support.subtitle": "Que vous ayez besoin d'aide pour commencer, résoudre un problème de charge de travail ou poser une question de facturation — nous sommes là. Parlez instantanément à notre assistant IA ou contactez un membre de notre équipe.",
+  "support.chat_title": "Assistant IA",
+  "support.chat_desc": "Cliquez sur la bulle de chat en bas à droite de n'importe quelle page pour parler à Xcel IA. Il peut vous aider avec les questions de compte, la sélection de GPU, le dépannage et plus — instantanément, 24/7.",
+  "support.chat_action": "Ouvrir le chat",
+  "support.email_title": "Support par courriel",
+  "support.email_desc": "Vous préférez parler à un humain? Contactez notre équipe directement à support@xcelsior.ca. Nous répondons généralement en quelques heures les jours ouvrables.",
+  "support.email_action": "support@xcelsior.ca",
+  "support.docs_title": "Documentation",
+  "support.docs_desc": "Parcourez notre référence API, nos guides de démarrage rapide et nos documents d'architecture. Tout ce dont vous avez besoin pour intégrer Xcelsior dans votre flux de travail.",
+  "support.docs_action": "Parcourir la doc",
+  "support.hours_title": "Heures de support",
+  "support.hours_desc": "Le chat IA est disponible 24/7. Le support humain est disponible du lundi au vendredi, de 9 h à 18 h HE. Nous visons à répondre à tous les courriels dans un jour ouvrable.",
+  "support.security_title": "Problèmes de sécurité",
+  "support.security_desc": "Pour les vulnérabilités de sécurité ou les problèmes urgents de compte, envoyez un courriel à security@xcelsior.ca. Nous prenons tous les signalements au sérieux et répondrons rapidement.",
+  "support.cta": "Vous ne savez pas par où commencer? Consultez nos tarifs et obtenez 10 $ en crédits gratuits.",
+  "support.cta_button": "Voir les tarifs",
+  "footer.support": "Support",
 };
 
 export default fr;

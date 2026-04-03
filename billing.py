@@ -1099,18 +1099,196 @@ class BillingEngine:
 
                 billed += 1
 
-                # If charge failed with grace_expired → suspend
+                # If charge failed with grace_expired → suspend and STOP the job
                 if not charge_result.get("charged") and charge_result.get("action") == "account_suspended":
                     suspended += 1
+                    # Actually terminate the running container
+                    try:
+                        from scheduler import kill_job as scheduler_kill
+                        with pool.connection() as kconn:
+                            kconn.row_factory = dict_row
+                            jrow = kconn.execute(
+                                "SELECT j.*, h.ip FROM jobs j JOIN hosts h ON j.host_id = h.host_id WHERE j.job_id = %s",
+                                (job_id,),
+                            ).fetchone()
+                        if jrow:
+                            scheduler_kill(dict(jrow), dict(jrow))
+                            log.warning("BILLING: Killed job %s for suspended account %s", job_id, customer_id)
+                        else:
+                            log.warning("BILLING: Job %s not found for kill on suspension", job_id)
+                    except Exception as kill_err:
+                        log.error("BILLING: Failed to kill job %s on suspension: %s", job_id, kill_err)
 
             except Exception as e:
                 errors += 1
                 log.error("Auto-billing error for job %s: %s", job.get("job_id", "?"), e)
 
-        if billed or suspended or errors:
-            log.info("AUTO-BILLING: %d billed, %d suspended, %d errors", billed, suspended, errors)
+        # ── Bill active volumes (real-time storage charges) ──────────
+        volume_billed = 0
+        try:
+            from volumes import VolumeEngine
+            ve = VolumeEngine()
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                active_volumes = conn.execute(
+                    """SELECT volume_id, owner_id, name, size_gb, created_at
+                       FROM volumes WHERE status != 'deleted'""",
+                ).fetchall()
 
-        return {"billed": billed, "suspended": suspended, "errors": errors}
+            for vol in active_volumes:
+                try:
+                    vid = vol["volume_id"]
+                    vol_owner = vol["owner_id"]
+                    size_gb = vol.get("size_gb", 0)
+                    if size_gb <= 0:
+                        continue
+
+                    # Find last volume billing cycle
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        last_vc = conn.execute(
+                            """SELECT period_end FROM billing_cycles
+                               WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                            (vid,),
+                        ).fetchone()
+
+                    vperiod_start = last_vc["period_end"] if last_vc else float(vol["created_at"])
+                    vperiod_end = now
+
+                    if vperiod_end - vperiod_start < 60:
+                        continue
+
+                    vduration_sec = vperiod_end - vperiod_start
+                    # $0.07/GB/month → per-second rate
+                    rate_per_sec = (0.07 * size_gb) / (30 * 24 * 3600)
+                    vamount = round(rate_per_sec * vduration_sec, 4)
+
+                    if vamount <= 0:
+                        continue
+
+                    vcharge = self.charge(
+                        vol_owner, vamount, job_id=vid,
+                        description=f"Volume storage: {vol.get('name', vid)} ({size_gb} GB, {vduration_sec/60:.1f}min)",
+                    )
+
+                    vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
+                    vstatus = "charged" if vcharge.get("charged") else "failed"
+
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        conn.execute(
+                            """INSERT INTO billing_cycles
+                               (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                                amount_cad, status, created_at)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (vcycle_id, vid, vol_owner, "", vperiod_start, vperiod_end,
+                             vduration_sec, round(0.07 * size_gb / 730, 6), "storage", "volume", 1.0,
+                             vamount, vstatus, now),
+                        )
+                        conn.commit()
+
+                    volume_billed += 1
+                except Exception as e:
+                    errors += 1
+                    log.error("Volume billing error for %s: %s", vol.get("volume_id", "?"), e)
+        except Exception as e:
+            log.error("Volume billing scan error: %s", e)
+
+        # ── Bill active inference endpoints (real-time GPU compute) ──
+        inference_billed = 0
+        try:
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                active_eps = conn.execute(
+                    """SELECT endpoint_id, owner_id, gpu_type, region, min_workers,
+                              worker_job_id, created_at
+                       FROM inference_endpoints
+                       WHERE status = 'active' AND worker_job_id IS NOT NULL""",
+                ).fetchall()
+
+            for ep in active_eps:
+                try:
+                    ep_id = ep["endpoint_id"]
+                    ep_owner = ep["owner_id"]
+                    gpu_type = ep.get("gpu_type", "")
+                    if not gpu_type:
+                        continue
+
+                    # Find last inference billing cycle
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        last_ic = conn.execute(
+                            """SELECT period_end FROM billing_cycles
+                               WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                            (ep_id,),
+                        ).fetchone()
+
+                    iperiod_start = last_ic["period_end"] if last_ic else float(ep["created_at"])
+                    iperiod_end = now
+
+                    if iperiod_end - iperiod_start < 60:
+                        continue
+
+                    iduration_sec = iperiod_end - iperiod_start
+
+                    # Look up GPU cost per hour
+                    from inference import get_inference_engine
+                    ie = get_inference_engine()
+                    cost_per_hour = ie._get_gpu_cost_per_hour(gpu_type, ep.get("region", "ca-east"))
+                    if cost_per_hour <= 0:
+                        continue
+
+                    iamount = round((iduration_sec / 3600) * cost_per_hour, 4)
+                    if iamount <= 0:
+                        continue
+
+                    icharge = self.charge(
+                        ep_owner, iamount, job_id=ep_id,
+                        description=f"Inference compute: {gpu_type} ({iduration_sec/60:.1f}min)",
+                    )
+
+                    icycle_id = f"IC-{int(now)}-{os.urandom(3).hex()}"
+                    istatus = "charged" if icharge.get("charged") else "failed"
+
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        conn.execute(
+                            """INSERT INTO billing_cycles
+                               (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                                amount_cad, status, created_at)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (icycle_id, ep_id, ep_owner, "", iperiod_start, iperiod_end,
+                             iduration_sec, cost_per_hour, gpu_type, "inference", 1.0,
+                             iamount, istatus, now),
+                        )
+                        conn.commit()
+
+                    # Update total_cost_cad on the endpoint
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        conn.execute(
+                            """UPDATE inference_endpoints
+                               SET total_cost_cad = COALESCE(total_cost_cad, 0) + %s, updated_at = %s
+                               WHERE endpoint_id = %s""",
+                            (iamount, now, ep_id),
+                        )
+                        conn.commit()
+
+                    inference_billed += 1
+                except Exception as e:
+                    errors += 1
+                    log.error("Inference billing error for %s: %s", ep.get("endpoint_id", "?"), e)
+        except Exception as e:
+            log.error("Inference billing scan error: %s", e)
+
+        if billed or suspended or errors or volume_billed or inference_billed:
+            log.info("AUTO-BILLING: %d jobs, %d volumes, %d inference, %d suspended, %d errors",
+                     billed, volume_billed, inference_billed, suspended, errors)
+
+        return {"billed": billed, "volume_billed": volume_billed,
+                "inference_billed": inference_billed, "suspended": suspended, "errors": errors}
 
     def check_low_balance_and_topup(self) -> dict:
         """Check all wallets for low balance and trigger auto-top-up if configured.

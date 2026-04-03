@@ -56,6 +56,7 @@ def sample_user():
         "password_hash": "hashed_pw",
         "salt": "salt123",
         "role": "submitter",
+        "is_admin": 0,
         "customer_id": "cust-test01",
         "country": "CA",
         "province": "ON",
@@ -72,6 +73,7 @@ def sample_user_2():
         "password_hash": "hashed_pw2",
         "salt": "salt456",
         "role": "provider",
+        "is_admin": 0,
         "customer_id": "cust-prov01",
         "country": "CA",
         "province": "BC",
@@ -92,6 +94,7 @@ class TestUserStoreCRUD:
         assert user["email"] == sample_user["email"]
         assert user["name"] == "Test User"
         assert user["role"] == "submitter"
+        assert user["is_admin"] == 0
         assert user["country"] == "CA"
 
     def test_get_user_by_id(self, sample_user):
@@ -107,10 +110,10 @@ class TestUserStoreCRUD:
 
     def test_update_user(self, sample_user):
         UserStore.create_user(sample_user)
-        UserStore.update_user(sample_user["email"], {"name": "Updated Name", "role": "admin"})
+        UserStore.update_user(sample_user["email"], {"name": "Updated Name", "is_admin": 1})
         user = UserStore.get_user(sample_user["email"])
         assert user["name"] == "Updated Name"
-        assert user["role"] == "admin"
+        assert user["is_admin"] == 1
 
     def test_update_user_ignores_disallowed_fields(self, sample_user):
         UserStore.create_user(sample_user)

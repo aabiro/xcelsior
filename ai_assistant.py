@@ -1054,6 +1054,7 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     context = _load_llms_txt()
 
     role = user.get("role", "user")
+    is_admin = bool(user.get("is_admin"))
 
     # ── Smart onboarding detection ────────────────────────────────────
     has_hosts = False
@@ -1073,7 +1074,7 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     role_context = ""
     onboarding_context = ""
 
-    if role in ("provider", "admin"):
+    if role == "provider" or is_admin:
         role_context = """
 The user is a GPU PROVIDER on Xcelsior. They may want help with:
 - Managing their registered hosts and uptime
@@ -1199,6 +1200,7 @@ PLATFORM DOCUMENTATION:
 def get_suggestions(user: dict) -> list[dict]:
     """Return context-aware suggestion chips for the AI chat, including onboarding prompts for new users."""
     role = user.get("role", "user")
+    is_admin = bool(user.get("is_admin"))
     suggestions = []
 
     # ── Smart onboarding detection ────────────────────────────────────
@@ -1230,7 +1232,7 @@ def get_suggestions(user: dict) -> list[dict]:
         {"label": "Explain SLA tiers", "prompt": "What are the different SLA tiers and their guarantees?"},
     ])
 
-    if role in ("provider", "admin") or has_hosts:
+    if role == "provider" or is_admin or has_hosts:
         suggestions.extend([
             {"label": "Check my host status", "prompt": "What's the status of my registered hosts?"},
             {"label": "How much can I earn?", "prompt": "How much can I earn with my current GPUs on the marketplace?"},
