@@ -152,9 +152,11 @@ export default function BillingPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Check if BTC deposits are enabled
+  // Check if BTC deposits are enabled (fail fast with 4s timeout)
   useEffect(() => {
-    api.checkCryptoEnabled()
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    api.checkCryptoEnabled({ signal: ctrl.signal })
       .then((r) => {
         setBtcStatus({
           enabled: r.enabled,
@@ -165,7 +167,9 @@ export default function BillingPage() {
       .catch((e) => {
         console.error("Failed to check crypto status", e);
         setBtcStatus({ enabled: false, available: false, reason: "" });
-      });
+      })
+      .finally(() => clearTimeout(timer));
+    return () => { clearTimeout(timer); ctrl.abort(); };
   }, []);
 
   // Check if free signup credits are available

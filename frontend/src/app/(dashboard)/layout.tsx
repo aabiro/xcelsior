@@ -359,6 +359,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Session expiry warning — above topbar */}
+        <SessionExpiryBanner />
+
         {/* Topbar */}
         <header className="flex h-14 items-center justify-between glass px-4 md:px-6 relative">
           <div className="brand-line absolute bottom-0 left-0 right-0" />
@@ -452,9 +455,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Session expiry warning */}
-        <SessionExpiryBanner />
-
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
@@ -492,13 +492,13 @@ function SessionExpiryBanner() {
         animate={{ height: "auto", opacity: 1 }}
         exit={{ height: 0, opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="flex items-center justify-center gap-3 bg-amber-500/15 border-b border-amber-500/30 px-4 py-2.5 text-sm text-amber-300"
+        className="flex items-center justify-center gap-3 bg-gradient-to-r from-accent-cyan/12 via-accent-violet/10 to-accent-cyan/12 border-b border-accent-cyan/20 px-4 py-2.5 text-sm text-accent-cyan"
       >
         <Clock className="h-4 w-4 shrink-0" />
         <span>Your session will expire soon due to inactivity</span>
         <button
           onClick={continueSession}
-          className="ml-1 rounded-md bg-amber-500/20 border border-amber-500/40 px-3 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/30 transition-colors"
+          className="ml-1 rounded-md bg-accent-cyan/15 border border-accent-cyan/30 px-3 py-1 text-xs font-medium text-accent-cyan hover:bg-accent-cyan/25 transition-colors"
         >
           Continue Session
         </button>

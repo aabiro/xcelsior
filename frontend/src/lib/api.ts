@@ -229,7 +229,7 @@ export async function createPaymentIntent(customerId: string, amountCad: number,
 
 // ── Bitcoin Deposits ─────────────────────────────────────────────────
 
-export async function checkCryptoEnabled() {
+export async function checkCryptoEnabled(opts?: RequestInit) {
   return apiFetch<{
     ok: boolean;
     enabled: boolean;
@@ -240,7 +240,7 @@ export async function checkCryptoEnabled() {
     wallet_ready?: boolean;
     network?: string;
     blocks?: number;
-  }>("/api/billing/crypto/enabled");
+  }>("/api/billing/crypto/enabled", opts);
 }
 
 export async function createCryptoDeposit(customerId: string, amountCad: number) {

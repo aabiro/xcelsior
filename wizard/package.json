@@ -1,0 +1,35 @@
+{
+  "name": "@xcelsior/wizard",
+  "version": "0.1.0",
+  "description": "Xcelsior interactive CLI wizard — Ink-based setup & onboarding",
+  "type": "module",
+  "bin": {
+    "xcelsior-wizard": "./dist/index.js"
+  },
+  "scripts": {
+    "generate-frames": "tsx scripts/generate-wizard-frames.ts",
+    "prebuild": "npm run generate-frames",
+    "build": "tsc",
+    "dev": "tsx src/index.tsx",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "ink": "^5.1.0",
+    "ink-select-input": "^6.0.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pngjs": "^6.0.0",
+    "@types/react": "^18.3.0",
+    "pngjs": "^7.0.0",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  }
+}

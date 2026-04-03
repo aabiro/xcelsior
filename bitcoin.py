@@ -7,6 +7,7 @@ import logging
 import os
 import sqlite3
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -25,17 +26,73 @@ BTC_AUTO_WALLET = os.environ.get("XCELSIOR_BTC_AUTO_WALLET", "xcelsior").strip()
 BTC_CONFIRMATIONS = int(os.environ.get("XCELSIOR_BTC_CONFIRMATIONS", "3"))
 BTC_DEPOSIT_EXPIRY = int(os.environ.get("XCELSIOR_BTC_DEPOSIT_EXPIRY", "1800"))  # 30 min
 BTC_ENABLED = os.environ.get("XCELSIOR_BTC_ENABLED", "false").lower() == "true"
+BTC_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_RPC_TIMEOUT", "3"))
+BTC_STATUS_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_STATUS_RPC_TIMEOUT", "1.5"))
+BTC_RPC_FALLBACK_HOSTS = tuple(
+    host.strip()
+    for host in os.environ.get("XCELSIOR_BTC_RPC_FALLBACK_HOSTS", "").split(",")
+    if host.strip()
+)
 
 _rate_cache: dict = {"rate": 0.0, "fetched_at": 0.0}
 _active_wallet_name: str | None = BTC_RPC_WALLET or None
+_resolved_rpc_host: str | None = None
 RATE_CACHE_TTL = 300  # 5 minutes
 
 
 # ── Bitcoin Core RPC ──────────────────────────────────────────────────
 
 
-def _rpc_call(method: str, params: list | None = None, wallet: str | None = None) -> dict:
-    """Call Bitcoin Core JSON-RPC."""
+def _running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def _candidate_rpc_hosts() -> list[str]:
+    candidates: list[str] = []
+
+    if _resolved_rpc_host:
+        candidates.append(_resolved_rpc_host)
+
+    configured_host = BTC_RPC_HOST.strip()
+    if configured_host:
+        candidates.append(configured_host)
+
+    candidates.extend(BTC_RPC_FALLBACK_HOSTS)
+
+    if configured_host not in {"", "127.0.0.1", "localhost"}:
+        if _running_in_docker():
+            candidates.extend(["host.docker.internal", "172.17.0.1"])
+        candidates.extend(["127.0.0.1", "localhost"])
+
+    unique_hosts: list[str] = []
+    seen: set[str] = set()
+    for host in candidates:
+        if host in seen:
+            continue
+        unique_hosts.append(host)
+        seen.add(host)
+    return unique_hosts
+
+
+def _is_transport_error(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, (TimeoutError, OSError)):
+            return True
+        return True
+    return isinstance(exc, OSError)
+
+
+def _rpc_call_host(
+    host: str,
+    method: str,
+    params: list | None = None,
+    wallet: str | None = None,
+    timeout: float | None = None,
+) -> dict:
+    """Call a specific Bitcoin Core JSON-RPC host."""
     payload = json.dumps({
         "jsonrpc": "2.0",
         "id": 1,
@@ -43,7 +100,7 @@ def _rpc_call(method: str, params: list | None = None, wallet: str | None = None
         "params": params or [],
     }).encode()
 
-    url = f"http://{BTC_RPC_HOST}:{BTC_RPC_PORT}"
+    url = f"http://{host}:{BTC_RPC_PORT}"
     if wallet:
         quoted = urllib.parse.quote(wallet, safe="")
         url = f"{url}/wallet/{quoted}"
@@ -58,11 +115,55 @@ def _rpc_call(method: str, params: list | None = None, wallet: str | None = None
             "Authorization": f"Basic {auth}",
         },
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=timeout or BTC_RPC_TIMEOUT) as resp:
         result = json.loads(resp.read())
         if result.get("error"):
             raise RuntimeError(f"Bitcoin RPC error: {result['error']}")
         return result["result"]
+
+
+def _rpc_call(
+    method: str,
+    params: list | None = None,
+    wallet: str | None = None,
+    timeout: float | None = None,
+    skip_fallback: bool = False,
+) -> dict:
+    """Call Bitcoin Core JSON-RPC, falling back across likely local endpoints."""
+    global _resolved_rpc_host
+
+    last_exc: Exception | None = None
+    first_host: str | None = None
+
+    if skip_fallback:
+        # Only try the resolved host or the configured host — no fallback cascade.
+        host = _resolved_rpc_host or BTC_RPC_HOST.strip()
+        if not host:
+            raise RuntimeError("Bitcoin RPC host is not configured")
+        return _rpc_call_host(host, method, params, wallet=wallet, timeout=timeout)
+
+    for host in _candidate_rpc_hosts():
+        if first_host is None:
+            first_host = host
+        try:
+            result = _rpc_call_host(host, method, params, wallet=wallet, timeout=timeout)
+            if host != first_host:
+                log.warning(
+                    "BTC RPC fallback engaged: %s via %s after %s was unreachable",
+                    method,
+                    host,
+                    first_host,
+                )
+            _resolved_rpc_host = host
+            return result
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transport_error(exc):
+                raise
+
+    if last_exc is None:
+        raise RuntimeError("Bitcoin RPC host is not configured")
+    raise last_exc
 
 
 def _wallet_has_receiving_keys(info: dict) -> bool:
@@ -74,30 +175,34 @@ def _wallet_has_receiving_keys(info: dict) -> bool:
     return int(info.get("keypoolsize", 0)) > 0 or int(info.get("keypoolsize_hd_internal", 0)) > 0
 
 
-def _ensure_wallet_ready(wallet_name: str) -> None:
+def _ensure_wallet_ready(
+    wallet_name: str,
+    timeout: float | None = None,
+    skip_fallback: bool = False,
+) -> None:
     """Load or create a dedicated receiving wallet, then verify it has keys."""
     try:
-        loaded = _rpc_call("listwallets")
+        loaded = _rpc_call("listwallets", timeout=timeout, skip_fallback=skip_fallback)
     except Exception:
         loaded = []
 
     if wallet_name not in loaded:
         try:
-            _rpc_call("loadwallet", [wallet_name])
+            _rpc_call("loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
         except Exception:
             # If the wallet does not exist yet, create a fresh descriptor wallet.
-            _rpc_call("createwallet", [wallet_name])
+            _rpc_call("createwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
 
-    info = _rpc_call("getwalletinfo", wallet=wallet_name)
+    info = _rpc_call("getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback)
     if _wallet_has_receiving_keys(info):
         return
 
     try:
-        _rpc_call("keypoolrefill", wallet=wallet_name)
+        _rpc_call("keypoolrefill", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback)
     except Exception:
         pass
 
-    info = _rpc_call("getwalletinfo", wallet=wallet_name)
+    info = _rpc_call("getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback)
     if not _wallet_has_receiving_keys(info):
         raise RuntimeError(
             f"Bitcoin wallet '{wallet_name}' has no receiving keys available",
@@ -114,19 +219,19 @@ def _should_provision_wallet(exc: Exception) -> bool:
     )
 
 
-def _wallet_rpc_call(method: str, params: list | None = None):
+def _wallet_rpc_call(method: str, params: list | None = None, timeout: float | None = None):
     """Call the active wallet, provisioning a dedicated wallet if the default one is unusable."""
     global _active_wallet_name
 
     wallet_name = _active_wallet_name if _active_wallet_name is not None else BTC_RPC_WALLET
     try:
-        return _rpc_call(method, params, wallet=wallet_name or None)
+        return _rpc_call(method, params, wallet=wallet_name or None, timeout=timeout)
     except Exception as exc:
         if not _should_provision_wallet(exc):
             raise
 
         fallback_wallet = BTC_RPC_WALLET or BTC_AUTO_WALLET
-        _ensure_wallet_ready(fallback_wallet)
+        _ensure_wallet_ready(fallback_wallet, timeout=timeout)
         _active_wallet_name = fallback_wallet
         log.warning(
             "BTC wallet fallback engaged: using '%s' after address generation failed on '%s' (%s)",
@@ -134,7 +239,7 @@ def _wallet_rpc_call(method: str, params: list | None = None):
             wallet_name or "<default>",
             exc,
         )
-        return _rpc_call(method, params, wallet=fallback_wallet)
+        return _rpc_call(method, params, wallet=fallback_wallet, timeout=timeout)
 
 
 def get_new_address(label: str = "xcelsior") -> str:
@@ -228,7 +333,11 @@ def get_service_status() -> dict:
         return status
 
     try:
-        chain_info = _rpc_call("getblockchaininfo")
+        chain_info = _rpc_call(
+            "getblockchaininfo",
+            timeout=BTC_STATUS_RPC_TIMEOUT,
+            skip_fallback=True,
+        )
         status["rpc_reachable"] = True
         status["network"] = chain_info.get("chain")
         status["blocks"] = chain_info.get("blocks")
@@ -237,7 +346,7 @@ def get_service_status() -> dict:
         return status
 
     try:
-        _ensure_wallet_ready(wallet_name)
+        _ensure_wallet_ready(wallet_name, timeout=BTC_STATUS_RPC_TIMEOUT, skip_fallback=True)
         status["wallet_ready"] = True
     except Exception as exc:
         status["reason"] = describe_service_error(exc)
