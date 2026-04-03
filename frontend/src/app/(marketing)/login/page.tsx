@@ -37,6 +37,13 @@ export default function LoginPage() {
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
 
+  // Track last-used OAuth provider (read from cookie set by API on OAuth login)
+  const [lastOAuth, setLastOAuth] = useState<string | null>(null);
+  useEffect(() => {
+    const match = document.cookie.match(/(?:^|;\s*)xcelsior_last_oauth=([^;]*)/);
+    setLastOAuth(match ? decodeURIComponent(match[1]) : null);
+  }, []);
+
   // If already authenticated, redirect to dashboard
   if (!authLoading && user) {
     router.replace("/dashboard");
@@ -163,13 +170,6 @@ export default function LoginPage() {
       setPasskeyAuthenticating(false);
     }
   }
-
-  // Track last-used OAuth provider (read from cookie set by API on OAuth login)
-  const [lastOAuth, setLastOAuth] = useState<string | null>(null);
-  useEffect(() => {
-    const match = document.cookie.match(/(?:^|;\s*)xcelsior_last_oauth=([^;]*)/);
-    setLastOAuth(match ? decodeURIComponent(match[1]) : null);
-  }, []);
 
   async function handleOAuth(provider: string) {
     try {
