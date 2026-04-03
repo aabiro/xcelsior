@@ -688,6 +688,14 @@ const fr: Record<string, string> = {
   "dash.billing.credits_claimed_toast": "10 $ en crédits gratuits ajoutés à votre portefeuille !",
   "dash.billing.credits_added_badge": "Crédits ajoutés",
   "dash.billing.credits_already_claimed": "Vous avez déjà réclamé vos crédits gratuits.",
+  "dash.billing.admin_reset_title": "Réinitialisation admin de test",
+  "dash.billing.admin_reset_desc": "Remet ce portefeuille à 0 $ et réactive les encarts promo d'inscription pour retester la facturation.",
+  "dash.billing.admin_reset_action": "Réinitialiser le portefeuille",
+  "dash.billing.admin_reset_confirm_title": "Réinitialiser l'état de test du portefeuille ?",
+  "dash.billing.admin_reset_confirm_desc": "Cela efface les transactions du portefeuille, remet le solde à 0 $ et rend de nouveau disponible la promo de crédit d'inscription pour ce compte.",
+  "dash.billing.admin_reset_confirm_action": "Réinitialiser",
+  "dash.billing.admin_reset_success": "Le portefeuille a été remis à 0 $ et l'état promo a été restauré.",
+  "dash.billing.admin_reset_failed": "Échec de la réinitialisation de l'état de test du portefeuille.",
 
   /* ── Tableau de bord — Marché ────────────────────────────────────────── */
   "dash.market.title": "Marché",

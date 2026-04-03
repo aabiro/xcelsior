@@ -154,6 +154,21 @@ class TestWallets:
         assert result["charged"] is False
         assert "grace" in result.get("action", "")
 
+    def test_reset_wallet_testing_state_clears_balance_and_history(self):
+        eng = _engine()
+        cid = _unique_cust("cust-reset")
+        eng.deposit(cid, 10.0, idempotency_key=f"free-credits-{cid}")
+        eng.deposit(cid, 5.0, description="Manual top-up")
+        reset = eng.reset_wallet_testing_state(cid)
+        wallet = eng.get_wallet(cid)
+
+        assert reset["promo_available"] is True
+        assert reset["cleared_transactions"] == 2
+        assert wallet["balance_cad"] == pytest.approx(0.0, abs=0.01)
+        assert wallet["total_deposited_cad"] == pytest.approx(0.0, abs=0.01)
+        assert wallet["status"] == "active"
+        assert eng.get_wallet_history(cid) == []
+
 
 # ── Metering ─────────────────────────────────────────────────────────
 

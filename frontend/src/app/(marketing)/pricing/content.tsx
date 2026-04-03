@@ -207,7 +207,7 @@ function PlanCard({
     <motion.div
       variants={fadeUp}
       custom={i}
-      className={`glow-card rounded-xl p-8 relative ${highlighted ? "ring-1 ring-accent-gold/40" : ""}`}
+      className={`glow-card rounded-xl p-8 relative ${highlighted ? "ring-1 ring-accent-gold/40 brand-top-accent" : ""}`}
       style={{
         "--glow-color": highlighted
           ? "rgba(245,158,11,0.15)"

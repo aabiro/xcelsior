@@ -888,6 +888,45 @@ class BillingEngine:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def reset_wallet_testing_state(self, customer_id: str) -> dict:
+        """Reset a wallet to a clean promo-testing state.
+
+        This intentionally clears wallet transactions so any one-time promo
+        idempotency markers, such as the signup credit, can be exercised again.
+        """
+        self._ensure_wallet_table()
+        self.get_wallet(customer_id)
+
+        with self._conn() as conn:
+            cleared = conn.execute(
+                "DELETE FROM wallet_transactions WHERE customer_id = %s",
+                (customer_id,),
+            ).rowcount or 0
+            conn.execute(
+                """UPDATE wallets
+                   SET balance_cad = 0,
+                       total_deposited_cad = 0,
+                       total_spent_cad = 0,
+                       total_refunded_cad = 0,
+                       grace_until = 0,
+                       status = 'active',
+                       updated_at = %s
+                   WHERE customer_id = %s""",
+                (time.time(), customer_id),
+            )
+
+        wallet = self.get_wallet(customer_id)
+        log.info(
+            "WALLET RESET %s cleared_transactions=%s",
+            customer_id,
+            cleared,
+        )
+        return {
+            "wallet": wallet,
+            "cleared_transactions": cleared,
+            "promo_available": True,
+        }
+
     # ── Instance Pause / Resume ───────────────────────────────────────
 
     def pause_instance(self, job_id: str, reason: str = "paused_low_balance") -> dict:

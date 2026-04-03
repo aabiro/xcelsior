@@ -136,7 +136,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const canAccessRole = (requiredRole: string) => (
-    requiredRole === "admin" ? !!user.is_admin : user.role === requiredRole
+    requiredRole === "admin" ? (!!user.is_admin || user.role === "admin") : user.role === requiredRole
   );
 
   const sidebarContent = (mobile: boolean) => (
@@ -360,7 +360,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Topbar */}
-        <header className="flex h-14 items-center justify-between border-b border-border/60 glass px-4 md:px-6">
+        <header className="flex h-14 items-center justify-between glass px-4 md:px-6 relative">
+          <div className="brand-line absolute bottom-0 left-0 right-0" />
           {/* Mobile menu button */}
           <button
             className="md:hidden flex items-center justify-center h-9 w-9 rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary"

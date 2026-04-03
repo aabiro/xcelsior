@@ -53,10 +53,10 @@ export default function TelemetryPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label={t("dash.telemetry.gpu_util")} value={`${latest?.gpu_util ?? 0}%`} icon={Cpu} />
-            <StatCard label={t("dash.telemetry.temperature")} value={`${latest?.temperature ?? 0}°C`} icon={Thermometer} />
-            <StatCard label={t("dash.telemetry.memory")} value={`${latest?.mem_used_mb ? (latest.mem_used_mb / 1024).toFixed(1) : 0}GB`} icon={MemoryStick} />
-            <StatCard label={t("dash.telemetry.power")} value={`${latest?.power_draw_w ?? 0}W`} icon={Zap} />
+            <StatCard label={t("dash.telemetry.gpu_util")} value={`${latest?.gpu_util ?? 0}%`} icon={Cpu} glow="cyan" />
+            <StatCard label={t("dash.telemetry.temperature")} value={`${latest?.temperature ?? 0}°C`} icon={Thermometer} glow="gold" />
+            <StatCard label={t("dash.telemetry.memory")} value={`${latest?.mem_used_mb ? (latest.mem_used_mb / 1024).toFixed(1) : 0}GB`} icon={MemoryStick} glow="violet" />
+            <StatCard label={t("dash.telemetry.power")} value={`${latest?.power_draw_w ?? 0}W`} icon={Zap} glow="emerald" />
           </div>
 
           {/* Charts */}

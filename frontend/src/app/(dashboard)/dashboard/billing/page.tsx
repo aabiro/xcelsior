@@ -6,12 +6,13 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DepositModal } from "@/components/billing/deposit-modal";
 import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
-  Bitcoin, Activity, Gift, Sparkles, CheckCircle2,
+  Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -50,6 +51,7 @@ export default function BillingPage() {
   const { user } = useAuth();
   const { t } = useLocale();
   const customerId = user?.customer_id || user?.user_id || "";
+  const isPlatformAdmin = !!user?.is_admin || user?.role === "admin";
 
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -72,6 +74,7 @@ export default function BillingPage() {
   }, [searchParams]);
 
   const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [btcStatus, setBtcStatus] = useState({
     enabled: false,
     available: false,
@@ -80,6 +83,7 @@ export default function BillingPage() {
   const [cafLoading, setCafLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [resettingWallet, setResettingWallet] = useState(false);
   const [freeCreditsAvailable, setFreeCreditsAvailable] = useState(false);
   const [claimingCredits, setClaimingCredits] = useState(false);
   const [freeCreditAnimationState, setFreeCreditAnimationState] = useState<FreeCreditAnimationState>("idle");
@@ -268,6 +272,30 @@ export default function BillingPage() {
     }
   };
 
+  const handleResetWalletTestingState = async () => {
+    if (!customerId || !isPlatformAdmin || resettingWallet) return;
+    setResettingWallet(true);
+    try {
+      const result = await api.resetWalletTestingState(customerId);
+      clearFreeCreditTimers();
+      stopWalletAnimation();
+      setClaimingCredits(false);
+      setCreditFlight(null);
+      setCreditTransfer(null);
+      setFreeCreditAnimationState("idle");
+      setWallet(result.wallet);
+      setTransactions([]);
+      setDisplayWalletBalance(result.wallet.balance_cad ?? 0);
+      setFreeCreditsAvailable(result.promo_available);
+      setShowResetConfirm(false);
+      toast.success(t("dash.billing.admin_reset_success"));
+    } catch {
+      toast.error(t("dash.billing.admin_reset_failed"));
+    } finally {
+      setResettingWallet(false);
+    }
+  };
+
   // CSV export from billing records
   const handleCsvExport = async () => {
     if (!customerId) return;
@@ -407,21 +435,25 @@ export default function BillingPage() {
                 </span>
               )}
               icon={DollarSign}
+              glow="cyan"
             />
             <StatCard
               label={t("dash.billing.total_spent")}
               value={`$${(usage?.total_cost_cad ?? 0).toFixed(2)}`}
               icon={CreditCard}
+              glow="violet"
             />
             <StatCard
               label={t("dash.billing.gpu_hours")}
               value={(usage?.total_gpu_hours ?? 0).toFixed(1)}
               icon={Clock}
+              glow="emerald"
             />
             <StatCard
               label={t("dash.billing.jobs_run")}
               value={usage?.job_count ?? 0}
               icon={Zap}
+              glow="gold"
             />
           </div>
 
@@ -596,16 +628,36 @@ export default function BillingPage() {
             </Card>
 
             <Card>
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <p className="font-medium">{t("dash.billing.wallet_credits")}</p>
-                  <p className="text-2xl font-bold font-mono text-emerald">
-                    {formatCad(currentWalletBalance)} <span className="text-sm font-normal text-text-muted">CAD</span>
-                  </p>
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium">{t("dash.billing.wallet_credits")}</p>
+                    <p className="text-2xl font-bold font-mono text-emerald">
+                      {formatCad(currentWalletBalance)} <span className="text-sm font-normal text-text-muted">CAD</span>
+                    </p>
+                  </div>
+                  <Button variant="success" onClick={() => setShowDeposit(true)}>
+                    <Plus className="h-4 w-4" /> {t("dash.billing.add_credits")}
+                  </Button>
                 </div>
-                <Button variant="success" onClick={() => setShowDeposit(true)}>
-                  <Plus className="h-4 w-4" /> {t("dash.billing.add_credits")}
-                </Button>
+                {isPlatformAdmin && (
+                  <div className="flex flex-col gap-3 rounded-lg border border-accent-red/20 bg-accent-red/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-accent-red">{t("dash.billing.admin_reset_title")}</p>
+                      <p className="text-xs text-text-secondary">{t("dash.billing.admin_reset_desc")}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-accent-red/30 text-accent-red hover:bg-accent-red/10"
+                      onClick={() => setShowResetConfirm(true)}
+                      disabled={resettingWallet || freeCreditFlowActive}
+                    >
+                      {resettingWallet ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      {t("dash.billing.admin_reset_action")}
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -919,6 +971,19 @@ export default function BillingPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        title={t("dash.billing.admin_reset_confirm_title")}
+        description={t("dash.billing.admin_reset_confirm_desc")}
+        confirmLabel={t("dash.billing.admin_reset_confirm_action")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onConfirm={() => { void handleResetWalletTestingState(); }}
+        onCancel={() => {
+          if (!resettingWallet) setShowResetConfirm(false);
+        }}
+      />
     </div>
   );
 }

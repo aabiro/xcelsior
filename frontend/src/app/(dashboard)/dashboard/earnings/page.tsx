@@ -150,21 +150,25 @@ export default function EarningsPage() {
               label={t("dash.earnings.total_earned")}
               value={`$${(earnings?.total_earned_cad ?? 0).toFixed(2)}`}
               icon={DollarSign}
+              glow="cyan"
             />
             <StatCard
               label={t("dash.earnings.net_earnings")}
               value={`$${netEarnings.toFixed(2)}`}
               icon={TrendingUp}
+              glow="emerald"
             />
             <StatCard
               label={t("dash.earnings.platform_fee")}
               value={`$${(earnings?.total_platform_cad ?? 0).toFixed(2)}`}
               icon={Percent}
+              glow="violet"
             />
             <StatCard
               label={t("dash.earnings.instances_completed")}
               value={earnings?.total_jobs ?? 0}
               icon={ArrowUpRight}
+              glow="gold"
             />
           </div>
 

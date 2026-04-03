@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Git: Add, Commit, Push",
+			"type": "shell",
+			"command": "cd /home/aaryn/storage/projects/xcelsior && git add -A && git commit -m 'feat(admin): multi-page admin dashboard with overview, revenue, infrastructure, users, activity pages; date range picker, computed KPIs, useEventStream, user role actions, period comparison, CSV export, table hover polish; wallet reset testing endpoint; brand-line motif; deploy script improvements' && git push",
+			"isBackground": false
+		}
+	]
+}

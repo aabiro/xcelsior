@@ -9,8 +9,13 @@ const apiMocks = vi.hoisted(() => ({
   fetchUsageSummary: vi.fn(),
   fetchReservedPlans: vi.fn(),
   checkCryptoEnabled: vi.fn(),
+  resetWalletTestingState: vi.fn(),
   checkFreeCreditsStatus: vi.fn(),
   claimFreeCredits: vi.fn(),
+}));
+
+const authMocks = vi.hoisted(() => ({
+  useAuth: vi.fn(),
 }));
 
 const toastMocks = vi.hoisted(() => ({
@@ -22,9 +27,11 @@ const toastMocks = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => apiMocks);
 
 vi.mock("@/lib/auth", () => ({
-  useAuth: () => ({
-    user: { user_id: "user-1", customer_id: "cust-1" },
-  }),
+  useAuth: authMocks.useAuth,
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/lib/locale", () => ({
@@ -78,6 +85,9 @@ import BillingPage from "@/app/(dashboard)/dashboard/billing/page";
 describe("BillingPage free credits flow", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    authMocks.useAuth.mockReturnValue({
+      user: { user_id: "user-1", customer_id: "cust-1", is_admin: false },
+    });
 
     apiMocks.fetchWallet.mockResolvedValue({
       ok: true,
@@ -96,6 +106,12 @@ describe("BillingPage free credits flow", () => {
     apiMocks.fetchReservedPlans.mockResolvedValue({});
     apiMocks.checkCryptoEnabled.mockResolvedValue({ ok: true, enabled: false });
     apiMocks.checkFreeCreditsStatus.mockResolvedValue({ ok: true, claimed: false });
+    apiMocks.resetWalletTestingState.mockResolvedValue({
+      ok: true,
+      wallet: { customer_id: "cust-1", balance_cad: 0, currency: "CAD" },
+      cleared_transactions: 2,
+      promo_available: true,
+    });
     apiMocks.claimFreeCredits.mockResolvedValue({
       ok: true,
       amount_cad: 10,
@@ -136,6 +152,42 @@ describe("BillingPage free credits flow", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("dash.billing.free_credits_title")).not.toBeInTheDocument();
+    });
+  });
+
+  it("hides the reset control for non-admin users", async () => {
+    render(<BillingPage />);
+
+    await screen.findByText("dash.billing.wallet_credits");
+    expect(screen.queryByRole("button", { name: /dash\.billing\.admin_reset_action/i })).not.toBeInTheDocument();
+  });
+
+  it("lets admins reset wallet testing state and restores the promo banner", async () => {
+    authMocks.useAuth.mockReturnValue({
+      user: { user_id: "user-1", customer_id: "cust-1", is_admin: true },
+    });
+    apiMocks.fetchWallet.mockResolvedValue({
+      ok: true,
+      wallet: { customer_id: "cust-1", balance_cad: 15, currency: "CAD" },
+    });
+    apiMocks.checkFreeCreditsStatus.mockResolvedValue({ ok: true, claimed: true });
+
+    render(<BillingPage />);
+
+    await screen.findByText("dash.billing.wallet_credits");
+    expect(screen.queryByText("dash.billing.free_credits_title")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /dash\.billing\.admin_reset_action/i }));
+    await screen.findByText("dash.billing.admin_reset_confirm_title");
+
+    fireEvent.click(screen.getByRole("button", { name: /dash\.billing\.admin_reset_confirm_action/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.resetWalletTestingState).toHaveBeenCalledWith("cust-1");
+    });
+    await screen.findByText("dash.billing.free_credits_title");
+    await waitFor(() => {
+      expect(screen.getAllByText("$0.00").length).toBeGreaterThan(0);
     });
   });
 

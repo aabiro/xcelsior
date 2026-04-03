@@ -688,6 +688,14 @@ const en: Record<string, string> = {
   "dash.billing.credits_claimed_toast": "$10 free credits added to your wallet!",
   "dash.billing.credits_added_badge": "Credits added",
   "dash.billing.credits_already_claimed": "You've already claimed your free credits.",
+  "dash.billing.admin_reset_title": "Admin testing reset",
+  "dash.billing.admin_reset_desc": "Zero this wallet and restore signup promo cards so billing flows can be tested again.",
+  "dash.billing.admin_reset_action": "Reset wallet",
+  "dash.billing.admin_reset_confirm_title": "Reset wallet testing state?",
+  "dash.billing.admin_reset_confirm_desc": "This clears wallet transactions, sets the balance to $0, and makes the signup credit promo available again for this account.",
+  "dash.billing.admin_reset_confirm_action": "Reset now",
+  "dash.billing.admin_reset_success": "Wallet reset to $0 and promo state restored.",
+  "dash.billing.admin_reset_failed": "Failed to reset wallet testing state.",
 
   /* ── Dashboard — Marketplace ────────────────────────────────────────── */
   "dash.market.title": "Marketplace",

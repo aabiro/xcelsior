@@ -299,6 +299,48 @@ html.light .glass {
   background: rgba(248, 250, 252, 0.7);
 }
 
+/* ── Brand Gradient Motif ─────────────────────────────────────────── */
+/* Ultra-subtle 1px line using the logo gradient: cyan → violet → red */
+.brand-line {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent-cyan) 20%,
+    var(--color-accent-violet) 50%,
+    var(--color-accent-red) 80%,
+    transparent 100%
+  );
+  opacity: 0.18;
+}
+html.light .brand-line { opacity: 0.22; }
+
+/* Top-edge accent for cards: a 2px gradient strip across the top */
+.brand-top-accent {
+  position: relative;
+  overflow: hidden;
+}
+.brand-top-accent::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  border-radius: 0 0 1px 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-accent-cyan) 25%,
+    var(--color-accent-violet) 50%,
+    var(--color-accent-red) 75%,
+    transparent
+  );
+  opacity: 0.25;
+  pointer-events: none;
+}
+html.light .brand-top-accent::after { opacity: 0.3; }
+
 /* ── Active nav indicator ──────────────────────────────────────────── */
 .nav-active {
   position: relative;

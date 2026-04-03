@@ -106,7 +106,8 @@ export default function HomePage() {
       </section>
 
       {/* ── Value Propositions ────────────────────────────────────────── */}
-      <section className="border-t border-border bg-navy py-28">
+      <div className="brand-line" />
+      <section className="bg-navy py-28">
         <div className="mx-auto max-w-7xl px-6">
           <motion.div
             className="text-center mb-16"
@@ -213,7 +214,8 @@ export default function HomePage() {
       </section>
 
       {/* ── CTA ──────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden border-t border-border py-32">
+      <div className="brand-line" />
+      <section className="relative overflow-hidden py-32">
         {/* Animated aurora sweep */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-0 top-0 h-full w-full aurora-gradient" />

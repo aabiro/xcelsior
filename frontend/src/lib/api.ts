@@ -189,6 +189,13 @@ export async function depositWallet(customerId: string, amount: number, descript
   );
 }
 
+export async function resetWalletTestingState(customerId: string) {
+  return apiFetch<{ ok: boolean; wallet: Wallet; cleared_transactions: number; promo_available: boolean }>(
+    `/api/billing/wallet/${encodeURIComponent(customerId)}/reset-testing`,
+    { method: "POST" },
+  );
+}
+
 export async function claimFreeCredits(customerId: string) {
   return apiFetch<{ ok: boolean; amount_cad: number; balance_cad: number; already_claimed: boolean }>(
     `/api/billing/free-credits/${encodeURIComponent(customerId)}`,
@@ -944,9 +951,67 @@ export async function fetchAdminStats() {
 }
 
 export async function fetchAdminUsers() {
-  return apiFetch<{ ok: boolean; users: { email: string; role: string; is_admin?: boolean; is_active: boolean; created_at: string }[] }>(
-    "/api/admin/users",
-  );
+  return apiFetch<{
+    ok: boolean;
+    users: {
+      email: string; role: string; is_admin?: boolean; is_active: boolean;
+      created_at: string; wallet_balance_cad: number; total_jobs: number;
+      province: string; country: string;
+    }[];
+  }>("/api/admin/users");
+}
+
+export async function fetchAdminOverview(days = 30) {
+  return apiFetch<{
+    ok: boolean;
+    days: number;
+    kpis: {
+      total_users: number; active_hosts: number; running_jobs: number;
+      total_jobs: number; revenue_mtd: number; revenue_total: number;
+      total_gpu_hours: number; gpu_utilization: number;
+      job_failure_rate: number; arpu: number;
+    };
+    trends?: {
+      users_pct: number; hosts_pct: number; jobs_pct: number; revenue_pct: number;
+    };
+    daily_revenue: { date: string; revenue: number }[];
+    daily_signups: { date: string; signups: number }[];
+    daily_jobs: { date: string; jobs: number }[];
+  }>(`/api/admin/overview?days=${days}`);
+}
+
+export async function fetchAdminRevenue(days = 90) {
+  return apiFetch<{
+    ok: boolean; days: number;
+    daily: { date: string; revenue: number; jobs: number; gpu_hours: number }[];
+    by_gpu: { gpu_model: string; revenue: number; jobs: number }[];
+    by_province: { province: string; revenue: number; jobs: number }[];
+    top_customers: { email: string; total_spend: number; jobs: number }[];
+    top_providers: { provider_id: string; earnings: number; jobs: number }[];
+  }>(`/api/admin/revenue?days=${days}`);
+}
+
+export async function fetchAdminInfrastructure() {
+  return apiFetch<{
+    ok: boolean; total_hosts: number;
+    by_state: { state: string; count: number }[];
+    by_gpu: { gpu_model: string; count: number }[];
+    by_province: { province: string; count: number }[];
+    verification: { state: string; count: number }[];
+    reputation_tiers: { tier: string; count: number }[];
+  }>("/api/admin/infrastructure");
+}
+
+export async function fetchAdminActivity(days = 7) {
+  return apiFetch<{
+    ok: boolean; days: number;
+    events: {
+      event_id: string; event_type: string; entity_type: string;
+      entity_id: string; timestamp: string; actor: string; data: Record<string, unknown>;
+    }[];
+    by_type: { event_type: string; count: number }[];
+    daily_jobs: { date: string; submitted: number; completed: number; failed: number }[];
+  }>(`/api/admin/activity?days=${days}`);
 }
 
 export async function verifyAuditChain() {
@@ -956,7 +1021,7 @@ export async function verifyAuditChain() {
 }
 
 export async function fetchAlertConfig() {
-  return apiFetch<{ ok: boolean; email_enabled: boolean; smtp_host: string }>(
+  return apiFetch<Record<string, unknown>>(
     "/api/alerts/config",
   );
 }
@@ -966,6 +1031,31 @@ export async function updateAlertConfig(config: Record<string, unknown>) {
     method: "PUT",
     body: JSON.stringify(config),
   });
+}
+
+export async function fetchAdminVerificationQueue() {
+  return apiFetch<{
+    ok: boolean;
+    queue: {
+      host_id: string; state: string; overall_score: number;
+      last_check_at: string | null; gpu_model: string;
+      province: string; cost_per_hour: number;
+    }[];
+  }>("/api/admin/verification-queue");
+}
+
+export async function adminSetUserRole(email: string, role: string) {
+  return apiFetch<{ ok: boolean; email: string; role: string }>(
+    `/api/admin/users/${encodeURIComponent(email)}/role?role=${encodeURIComponent(role)}`,
+    { method: "POST" },
+  );
+}
+
+export async function adminToggleAdmin(email: string) {
+  return apiFetch<{ ok: boolean; email: string; is_admin: number }>(
+    `/api/admin/users/${encodeURIComponent(email)}/toggle-admin`,
+    { method: "POST" },
+  );
 }
 
 // ── HPC / Slurm ──────────────────────────────────────────────────────
