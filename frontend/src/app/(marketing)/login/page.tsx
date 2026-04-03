@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -164,8 +164,15 @@ export default function LoginPage() {
     }
   }
 
+  // Track last-used OAuth provider
+  const [lastOAuth, setLastOAuth] = useState<string | null>(null);
+  useEffect(() => {
+    setLastOAuth(localStorage.getItem("xcelsior_last_oauth"));
+  }, []);
+
   async function handleOAuth(provider: string) {
     try {
+      localStorage.setItem("xcelsior_last_oauth", provider);
       const res = await oauthInitiate(provider);
       window.location.href = res.auth_url;
     } catch (err) {
@@ -339,30 +346,26 @@ export default function LoginPage() {
 
         {/* OAuth Buttons */}
         <div className="space-y-3 mb-6">
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleOAuth("github")}
-          >
-            <GitHubIcon />
-            {t("auth.github")}
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleOAuth("google")}
-          >
-            <GoogleIcon />
-            {t("auth.google")}
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleOAuth("huggingface")}
-          >
-            <HuggingFaceIcon />
-            {t("auth.huggingface")}
-          </Button>
+          {(["github", "google", "huggingface"] as const).map((provider) => {
+            const icons = { github: <GitHubIcon />, google: <GoogleIcon />, huggingface: <HuggingFaceIcon /> };
+            const labels = { github: t("auth.github"), google: t("auth.google"), huggingface: t("auth.huggingface") };
+            return (
+              <Button
+                key={provider}
+                variant="outline"
+                className="w-full relative"
+                onClick={() => handleOAuth(provider)}
+              >
+                {icons[provider]}
+                {labels[provider]}
+                {lastOAuth === provider && (
+                  <span className="absolute right-3 rounded-full bg-accent-cyan/10 border border-accent-cyan/30 px-2 py-0.5 text-[10px] font-medium text-accent-cyan">
+                    Last used
+                  </span>
+                )}
+              </Button>
+            );
+          })}
         </div>
 
         <div className="relative mb-6">

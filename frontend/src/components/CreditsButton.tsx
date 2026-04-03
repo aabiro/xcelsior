@@ -116,7 +116,7 @@ export function CreditsButton() {
                 className="flex items-center justify-center gap-1.5 w-full rounded-lg bg-emerald/10 hover:bg-emerald/20 text-emerald text-sm font-medium py-2 transition-colors"
               >
                 <ArrowUpRight className="h-4 w-4" />
-                Top Up (min $5.00)
+                Top Up Credits
               </Link>
             </div>
           </motion.div>
