@@ -504,3 +504,353 @@ paths:
                 cpu_cores: 32
                 memory_total_mb: 262144
                 memory_used_mb: 131072
+  /api/auth/resend-verification:
+    post:
+      x-fern-examples:
+        - request:
+            email: user@example.com
+  /api/teams/team_id/members/email:
+    patch:
+      x-fern-examples:
+        - path-parameters:
+            team_id: team_id
+            email: email
+          request:
+            role: admin
+  /api/v2/privacy/consent:
+    post:
+      x-fern-examples:
+        - request:
+            purpose: Marketing communications
+  /api/chat:
+    post:
+      x-fern-examples:
+        - request:
+            message: Can you provide an overview of Xcelsior's GPU orchestration capabilities and its compliance with Canadian data sovereignty laws?
+  /api/auth/mfa/totp/verify:
+    post:
+      x-fern-examples:
+        - request:
+            code: '482915'
+            method_id: 12
+  /api/auth/mfa/sms/setup:
+    post:
+      x-fern-examples:
+        - request:
+            phone_number: +1-416-555-0198
+  /spot/instance:
+    post:
+      x-fern-examples:
+        - request:
+            name: AI Model Training Job
+            vram_needed_gb: 16
+            max_bid: 3.75
+            priority: 5
+            tier: premium
+  /api/auth/mfa/verify:
+    post:
+      x-fern-examples:
+        - request:
+            challenge_id: a1b2c3d4-e5f6-7890-ab12-cd34ef567890
+            method: totp
+            code: '482915'
+  /api/auth/mfa/sms/verify:
+    post:
+      x-fern-examples:
+        - request:
+            code: '482915'
+  /instance/job_id:
+    patch:
+      x-fern-examples:
+        - path-parameters:
+            job_id: job_id
+          request:
+            status: running
+            host_id: host-9f8b7c6d
+            container_id: container-123abc456def
+            container_name: gpu-worker-01
+  /api/billing/crypto/deposit:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cst_9f8b7a6d4e3c2b1a
+            amount_cad: 1500.75
+          response:
+            body:
+              address: 3FZbgi29cpjq2GjdwV8eyHuJJnkLtktZc5
+              amount_btc: 0.0345
+              qr_data: bitcoin:3FZbgi29cpjq2GjdwV8eyHuJJnkLtktZc5?amount=0.0345
+  /api/v2/billing/auto-topup:
+    post:
+      x-fern-examples:
+        - request:
+            enabled: true
+            amount_cad: 50
+            threshold_cad: 10
+            stripe_payment_method_id: pm_1JH2Y2Lz0qyl6XeW8a7b9XcD
+  /api/auth/mfa/passkey/delete:
+    post:
+      x-fern-examples:
+        - request:
+            method_id: 42
+  /api/auth/mfa/passkey/authenticate-options:
+    post:
+      x-fern-examples:
+        - request:
+            challenge_id: 3f8a9b2e-7c4d-4f1a-9d2e-5b6c7a8d9e0f
+  /api/chat/feedback:
+    post:
+      x-fern-examples:
+        - request:
+            message_id: a3f47b9e-2d4c-4f1a-9b7e-8c9d2f1a5b6c
+            vote: thumbs-up
+  /v1/inference/async:
+    post:
+      x-fern-examples:
+        - request:
+            model: gpt-4-xcelsior
+            inputs:
+              - Summarize the latest advancements in renewable energy technologies.
+          response:
+            body:
+              job_id: a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
+  /api/v2/inference/endpoints:
+    post:
+      x-fern-examples:
+        - request:
+            model_name: gpt-4-xcelsior
+            gpu_type: NVIDIA A100
+            region: ca-on
+            docker_image: xcelsior/vllm:1.2.0
+            min_workers: 2
+            max_workers: 5
+            max_batch_size: 16
+            max_concurrent: 8
+            scaledown_window_sec: 600
+            mode: async
+            health_endpoint: /healthz
+            api_format: openai
+  /api/inference/job_id/result:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            job_id: job_id
+          request:
+            model: xcelsior-gpu-v2
+            latency_ms: 123.45
+            outputs:
+              - label: cat
+                confidence: 0.9876
+                bounding_box:
+                  - 34
+                  - 45
+                  - 200
+                  - 220
+              - label: dog
+                confidence: 0.8765
+                bounding_box:
+                  - 210
+                  - 50
+                  - 400
+                  - 300
+  /api/auth/verify-email:
+    post:
+      x-fern-examples:
+        - request:
+            token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImphbmVkb2VAZXhhbXBsZS5jb20iLCJpYXQiOjE2ODk0MjQ4MDB9.XyZ7v9Q1a2b3cD4eF5gH6iJ7kLmN8OpQrStUvWxYz
+  /api/auth/mfa/sms/send:
+    post:
+      x-fern-examples:
+        - request:
+            challenge_id: a3f1c9e2-7b4d-4f8a-9d2e-5c6b7a8f9d01
+  /api/auth/mfa/passkey/register-complete:
+    post:
+      x-fern-examples:
+        - request:
+            state_id: a3f47b9e-8c2d-4f1a-9b6e-2d5f7c9a1e4b
+            credential:
+              id: AbCdEfGhIjKlMnOpQrStUvWxYz1234567890
+              rawId: QmFzZTY0RW5jb2RlZFN0cmluZw==
+              response:
+                attestationObject: o2NmbXQua2V5c3RhdGVtZW50b2JqZWN0
+                clientDataJSON: eyJjaGFsbGVuZ2UiOiJleGFtcGxlQ2hhbGxlbmdlIn0=
+              type: public-key
+              clientExtensionResults: {}
+  /api/v2/volumes:
+    post:
+      x-fern-examples:
+        - request:
+            name: ml-training-data
+            size_gb: 100
+            region: ca-on
+            encrypted: true
+  /instance:
+    post:
+      x-fern-examples:
+        - request:
+            name: Image Classification Training
+            vram_needed_gb: 16
+            priority: 5
+            tier: standard
+            num_gpus: 4
+            host_id: null
+            gpu_model: NVIDIA A100
+            nfs_server: 10.0.0.5
+            nfs_path: /mnt/data/datasets
+            nfs_mount_point: /data
+            image: xcelsior/ml-training:2.3.0
+            interactive: true
+            command: python train.py --epochs 50
+            ssh_port: 2222
+  /api/v2/marketplace/offers:
+    post:
+      x-fern-examples:
+        - request:
+            host_id: host-9f8b7c6d5e4a3b2c
+            gpu_model: NVIDIA RTX 4090
+            gpu_count_total: 4
+            vram_gb: 24
+            ask_cents_per_hour: 3500
+            region: ca-on
+            spot_enabled: true
+            spot_min_cents: 1500
+  /api/v2/marketplace/search:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA RTX 4090
+            min_vram_gb: 24
+            max_price_cents: 15000
+            region: 'ON'
+            canada_only: true
+            sort_by: price
+            limit: 20
+  /api/v2/marketplace/reservations:
+    post:
+      x-fern-examples:
+        - request:
+            gpu_model: NVIDIA A100
+            gpu_count: 4
+            period_months: 12
+  /api/ai/chat:
+    post:
+      x-fern-examples:
+        - request:
+            message: Can you provide an overview of Xcelsior's GPU orchestration capabilities?
+            conversation_id: a3f47b2e-9c4d-4f1a-8b2e-3d5f7c9a1e2b
+            page_context: User is exploring AI assistant features for managing distributed GPU workloads in Canada.
+  /api/v2/volumes/volume_id/attach:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            volume_id: volume_id
+          request:
+            instance_id: a1b2c3d4-e5f6-7890-ab12-cdef34567890
+            mount_path: /mnt/data
+            mode: rw
+  /api/v2/marketplace/allocate:
+    post:
+      x-fern-examples:
+        - request:
+            offer_id: offer_9f8b7c6d5e4a3b2c1d0e
+            job_id: job_1234567890abcdef
+  /v1/chat/completions:
+    post:
+      x-fern-examples:
+        - request:
+            model: gpt-4-xcelsior
+            messages:
+              - role: system
+                content: You are a helpful assistant specialized in Canadian data privacy laws.
+              - role: user
+                content: Can you explain the key points of PIPEDA?
+            max_tokens: 1024
+            temperature: 0.7
+            stream: false
+          response:
+            body:
+              id: chatcmpl-7aXcelsior1234567890abcdef
+              object: chat.completion
+              created: 1712345678
+              model: gpt-4-xcelsior
+              choices:
+                - index: 0
+                  message:
+                    role: assistant
+                    content: PIPEDA, the Personal Information Protection and Electronic Documents Act, is Canada's federal privacy law for private-sector organizations. It governs how businesses collect, use, and disclose personal information in the course of commercial activities. Key points include obtaining consent, limiting collection to necessary information, ensuring accuracy, providing access to individuals, and safeguarding data.
+                  finish_reason: stop
+              usage:
+                prompt_tokens: 45
+                completion_tokens: 120
+                total_tokens: 165
+  /api/ai/confirm:
+    post:
+      x-fern-examples:
+        - request:
+            confirmation_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f3c6a1e4b
+            approved: true
+  /api/auth/mfa/passkey/register-options:
+    post:
+      x-fern-examples:
+        - request:
+            device_name: Work Laptop Security Key
+          response:
+            body:
+              challenge: f83d2e4a-9c3b-4d7a-8f1e-2a7b9c6d5e4f
+              rp:
+                name: Xcelsior
+                id: xcelsior.ca
+              user:
+                id: d4c3b2a1-5678-90ab-cdef-1234567890ab
+                name: jane.doe@xcelsior.ca
+                displayName: Jane Doe
+              pubKeyCredParams:
+                - type: public-key
+                  alg: -7
+                - type: public-key
+                  alg: -257
+              timeout: 60000
+              attestation: direct
+              authenticatorSelection:
+                authenticatorAttachment: platform
+                requireResidentKey: false
+                userVerification: preferred
+  /v1/inference:
+    post:
+      x-fern-examples:
+        - request:
+            model: gpt-4-xcelsior
+            inputs:
+              - Explain the benefits of distributed GPU orchestration for AI workloads.
+            max_tokens: 256
+            temperature: 0.7
+            stream: false
+          response:
+            body:
+              id: 123e4567-e89b-12d3-a456-426614174000
+              object: text_completion
+              created: 1712345678
+              model: gpt-4-xcelsior
+              choices:
+                - text: Distributed GPU orchestration enables efficient resource allocation, scalability, and fault tolerance for AI workloads. It allows multiple GPUs across different nodes to work together seamlessly, reducing training time and improving model performance while ensuring data sovereignty and compliance with regional regulations.
+                  index: 0
+                  logprobs: null
+                  finish_reason: stop
+              usage:
+                prompt_tokens: 15
+                completion_tokens: 60
+                total_tokens: 75
+  /api/auth/mfa/passkey/authenticate-complete:
+    post:
+      x-fern-examples:
+        - request:
+            state_id: 3f47a9d2-8b1e-4c6a-9f2e-1a2b3c4d5e6f
+            credential:
+              id: user-passkey-12345
+              rawId: SGVsbG8gV29ybGQ=
+              type: public-key
+              response:
+                clientDataJSON: eyJjaGFsbGVuZ2UiOiJleGFtcGxlIn0=
+                authenticatorData: YXV0aERhdGE=
+                signature: c2lnbmF0dXJl
+                userHandle: dXNlcklkMTIz
