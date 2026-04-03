@@ -28,13 +28,6 @@ colors:
 
 favicon: ./assets/favicon.svg
 
-playground:
-  environments:
-    - url: https://xcelsior.ca
-      name: Production
-    - url: http://localhost:9500
-      name: Local Dev
-
 css: ./assets/custom.css
 
 navbar-links:
@@ -118,5 +111,3 @@ navigation:
 footer-links:
   github: https://github.com/aabiro/xcelsior
   website: https://xcelsior.ca
-  blog: https://xcelsior.ca/blog
-  pricing: https://xcelsior.ca/pricing

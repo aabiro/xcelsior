@@ -17,11 +17,13 @@
   "servers": [
     {
       "url": "https://xcelsior.ca",
-      "description": "Production"
+      "description": "Production",
+      "x-fern-server-name": "Production"
     },
     {
       "url": "http://localhost:9500",
-      "description": "Development"
+      "description": "Development",
+      "x-fern-server-name": "Local Dev"
     }
   ],
   "paths": {
@@ -1163,8 +1165,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/auth/login": {
@@ -1204,8 +1205,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/auth/oauth/{provider}": {
@@ -1383,8 +1383,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/auth/logout": {
@@ -2205,8 +2204,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/auth/sessions": {
@@ -4057,8 +4055,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/readyz": {
@@ -4077,8 +4074,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/metrics": {
@@ -7299,8 +7295,7 @@
               }
             }
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/auth/me/data-export": {
@@ -11963,14 +11958,6 @@
         ],
         "title": "ConsentRequest"
       }
-    },
-    "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "Bearer token from /api/auth/login or /api/auth/register"
-      }
     }
   },
   "tags": [
@@ -12065,11 +12052,6 @@
     {
       "name": "Inference v2",
       "description": "Production serverless inference with OpenAI-compatible API."
-    }
-  ],
-  "security": [
-    {
-      "BearerAuth": []
     }
   ]
 }
