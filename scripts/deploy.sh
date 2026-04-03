@@ -615,8 +615,8 @@ main() {
                 log "Nginx configs unchanged — skipping"
             fi
 
-            # Only rebuild Docker images if Dockerfile, requirements, or frontend changed
-            if git -C "$PROJECT_DIR" diff --name-only "$remote_hash" "$local_hash" -- Dockerfile requirements.txt frontend/ pyproject.toml 2>/dev/null | grep -q .; then
+            # Only rebuild Docker images if Dockerfile, requirements, or source code changed
+            if git -C "$PROJECT_DIR" diff --name-only "$remote_hash" "$local_hash" -- Dockerfile requirements.txt frontend/ pyproject.toml '*.py' templates/ 2>/dev/null | grep -q .; then
                 deploy_docker
             else
                 # Still run migrations + restart even without rebuild
