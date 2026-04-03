@@ -156,7 +156,7 @@ const PAD_ROWS = 0;
 
 const LOG_FILE = "/tmp/wizard-debug.log";
 function dbg(msg: string): void {
-    try { appendFileSync(LOG_FILE, `${Date.now()} ${msg}\n`); } catch(_) {}
+    try { appendFileSync(LOG_FILE, `${Date.now()} ${msg}\n`); } catch (_) { }
 }
 
 /**
@@ -166,13 +166,19 @@ function dbg(msg: string): void {
  */
 export function setupWizardRegion(): void {
     const inkStart = WIZARD_ROW + SPRITE_ROWS + PAD_ROWS;
+    dbg(`setup: inkStart=${inkStart} WIZARD_ROW=${WIZARD_ROW} SPRITE_ROWS=${SPRITE_ROWS}`);
+
     // Clear screen and move cursor home
     writeSync(1, "\x1b[2J\x1b[H");
+
     // Enable Sixel Display Mode (DECSDM) — prevents ghost/duplicate from sixel scrolling
     writeSync(1, "\x1b[?80h");
-    dbg(`setupWizardRegion: WIZARD_ROW=${WIZARD_ROW} SPRITE_ROWS=${SPRITE_ROWS} PAD_ROWS=${PAD_ROWS} inkStart=${inkStart}`);
-    writeSync(1, `\x1b[${inkStart};999r`);        // DECSTBM: scroll region from inkStart to bottom
-    writeSync(1, `\x1b[${inkStart};1H`);          // move cursor into scroll region
+
+    // Set scroll region: wizard sprite above, Ink content below
+    writeSync(1, `\x1b[${inkStart};999r`);
+
+    // Move cursor into scroll region
+    writeSync(1, `\x1b[${inkStart};1H`);
 }
 
 /** Reset scroll region to full terminal (call on exit). */
@@ -233,9 +239,6 @@ export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
                 // Save cursor, draw frame at WIZARD_ROW, restore cursor
                 const cup = `\x1b[${WIZARD_ROW};1H`;
                 writeSync(1, "\x1b7" + cup + frame + "\x1b8");
-                if (next.frameIdx === 0) {
-                    dbg(`draw: phase=${next.phase} act=${next.actIdx} frame=${next.frameIdx} frameLen=${frame.length} CUP=row${WIZARD_ROW}`);
-                }
             }
         };
 
