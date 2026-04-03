@@ -133,8 +133,14 @@ export default function DashboardOverview() {
                       gold: "bg-accent-gold/15 text-accent-gold border-accent-gold/30",
                       silver: "bg-text-secondary/15 text-text-secondary border-text-secondary/30",
                       bronze: "bg-accent-red/15 text-accent-red border-accent-red/30",
+                      new_user: "bg-surface-hover text-text-muted border-border",
                     };
-                    const tierClass = tierStyles[(entry.tier || "").toLowerCase()] || "bg-surface-hover text-text-muted border-border";
+                    const tierLabels: Record<string, string> = {
+                      diamond: "Diamond", platinum: "Platinum", gold: "Gold",
+                      silver: "Silver", bronze: "Bronze", new_user: "New",
+                    };
+                    const tierKey = (entry.tier || "new_user").toLowerCase();
+                    const tierClass = tierStyles[tierKey] || "bg-surface-hover text-text-muted border-border";
                     const gpuShort = entry.gpu_model
                       ? entry.gpu_model.replace(/NVIDIA\s*/i, "").replace(/GeForce\s*/i, "")
                       : null;
@@ -158,7 +164,7 @@ export default function DashboardOverview() {
                             </span>
                           )}
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tierClass}`}>
-                            {entry.tier || "new"}
+                            {tierLabels[tierKey] || tierKey}
                           </span>
                         </div>
                       </div>

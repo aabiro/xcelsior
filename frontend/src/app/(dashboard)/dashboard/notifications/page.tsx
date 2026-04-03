@@ -258,7 +258,7 @@ export default function NotificationsPage() {
           <Card className="lg:col-span-1 self-start sticky top-6">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">Notification Detail</CardTitle>
+                <CardTitle className="text-sm font-semibold truncate">{selected.title}</CardTitle>
                 <button
                   onClick={() => setSelectedId(null)}
                   className="p-1 rounded hover:bg-surface-hover text-text-muted hover:text-text-primary"
