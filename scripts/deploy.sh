@@ -259,40 +259,50 @@ EOF
 validate_build_env() {
     # Frontend build bakes NEXT_PUBLIC_* vars at compile time — if they're
     # blank the build succeeds silently but features (analytics, Google
-    # verification, Stripe) will be missing at runtime.  Warn early so
-    # the operator can fix .env before a wasted build cycle.
+    # verification, Stripe, WalletConnect) will be missing at runtime.
+    # Auto-discovers ALL NEXT_PUBLIC_* vars from .env so new ones are
+    # never silently skipped.
     log "Validating frontend build-time env vars..."
 
     local missing=()
-    # Required: the site won't render correctly without an API URL
-    local required_vars=(NEXT_PUBLIC_API_URL)
-    # Recommended: not fatal, but worth a heads-up
-    local recommended_vars=(
-        NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
-        NEXT_PUBLIC_GA_MEASUREMENT_ID
-        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    )
+    local found=0
 
-    for var in "${required_vars[@]}"; do
-        val=$(grep "^${var}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+    # Discover every NEXT_PUBLIC_* var defined in .env
+    while IFS='=' read -r var val; do
+        found=$((found + 1))
         if [[ -z "$val" ]]; then
-            missing+=("$var (REQUIRED)")
+            if [[ "$var" == "NEXT_PUBLIC_API_URL" || "$var" == "NEXT_PUBLIC_APP_URL" ]]; then
+                missing+=("$var (REQUIRED)")
+            else
+                warn "$var is empty — feature will be disabled in this build"
+            fi
+        else
+            success "  $var = ${val:0:20}..."
         fi
-    done
+    done < <(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null)
 
-    for var in "${recommended_vars[@]}"; do
-        val=$(grep "^${var}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
-        if [[ -z "$val" ]]; then
-            warn "Optional var $var is not set — feature will be disabled in this build"
-        fi
-    done
+    if [[ $found -eq 0 ]]; then
+        error "No NEXT_PUBLIC_* vars found in $ENV_FILE"
+    fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         for m in "${missing[@]}"; do
             error "Missing env var: $m"
         done
     fi
+    log "Found $found NEXT_PUBLIC_* vars in .env"
     success "Build-time env vars validated"
+}
+
+# Collect --build-arg flags for every NEXT_PUBLIC_* var in .env
+# so they are explicitly passed to `docker compose build` and
+# guaranteed to be baked into the Next.js static output.
+collect_frontend_build_args() {
+    local args=()
+    while IFS='=' read -r var val; do
+        args+=("--build-arg" "${var}=${val}")
+    done < <(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null)
+    echo "${args[@]}"
 }
 
 deploy_docker() {
@@ -305,9 +315,35 @@ deploy_docker() {
     validate_build_env
 
     # Build images (separate SSH call so a timeout here doesn't leave containers down)
-    log "Building Docker images..."
-    ssh_cmd "cd /opt/xcelsior && docker compose build" || error "Docker build failed"
-    success "Docker images built"
+    # API image — normal cached build
+    log "Building API image..."
+    ssh_cmd "cd /opt/xcelsior && docker compose build api" || error "API build failed"
+    success "API image built"
+
+    # Frontend image — explicitly pass every NEXT_PUBLIC_* as --build-arg.
+    # Use --no-cache ONLY when env vars changed (hash comparison).
+    log "Building frontend image (explicit build args)..."
+    local build_args
+    build_args=$(collect_frontend_build_args)
+
+    # Hash current NEXT_PUBLIC_* values to detect changes
+    local env_hash
+    env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+    local prev_hash
+    prev_hash=$(ssh_cmd "cat /opt/xcelsior/.frontend_env_hash 2>/dev/null" || echo "")
+
+    local cache_flag=""
+    if [[ "$env_hash" != "$prev_hash" ]]; then
+        warn "NEXT_PUBLIC_* env vars changed — rebuilding frontend with --no-cache"
+        cache_flag="--no-cache"
+    else
+        log "NEXT_PUBLIC_* env vars unchanged — using cache"
+    fi
+
+    ssh_cmd "cd /opt/xcelsior && docker compose build $cache_flag $build_args frontend" || error "Frontend build failed"
+    # Save hash so next deploy can compare
+    ssh_cmd "echo '$env_hash' > /opt/xcelsior/.frontend_env_hash"
+    success "Frontend image built (env vars baked in)"
 
     # Run Alembic migrations
     log "Running database migrations..."

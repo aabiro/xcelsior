@@ -149,9 +149,9 @@ export default function InferencePage() {
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Active Endpoints" value={activeCount} icon={Zap} />
-        <StatCard label="Total Requests" value={totalRequests.toLocaleString()} icon={BarChart3} />
-        <StatCard label="Total Cost" value={`$${totalCost.toFixed(2)} CAD`} icon={DollarSign} />
+        <StatCard label="Active Endpoints" value={activeCount} icon={Zap} glow="emerald" />
+        <StatCard label="Total Requests" value={totalRequests.toLocaleString()} icon={BarChart3} glow="violet" />
+        <StatCard label="Total Cost" value={`$${totalCost.toFixed(2)} CAD`} icon={DollarSign} glow="cyan" />
       </div>
 
       {/* Create Endpoint Form */}

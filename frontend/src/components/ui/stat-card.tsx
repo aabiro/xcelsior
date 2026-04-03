@@ -48,6 +48,7 @@ export function StatCard({
     <div
       className={cn(
         "glow-card rounded-xl border border-border bg-surface p-5",
+        glow && "brand-top-accent",
         glowClass,
         className,
       )}

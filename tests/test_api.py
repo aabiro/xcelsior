@@ -662,6 +662,77 @@ class TestBillingEndpoints:
         )
         assert r.status_code == 200
 
+    def test_billing_wallet_reset_requires_admin(self, monkeypatch):
+        """POST wallet reset is restricted to platform admins."""
+        import api as api_mod
+
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "walletreset-user@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+        customer_id = reg["user"]["customer_id"]
+
+        r = client.post(
+            f"/api/billing/wallet/{customer_id}/reset-testing",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 403
+
+    def test_billing_wallet_reset_clears_balance_and_restores_promo(self, monkeypatch):
+        """POST wallet reset zeroes the wallet and re-enables the signup promo."""
+        import api as api_mod
+
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        email = "walletreset-admin@xcelsior.ca"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+        customer_id = reg["user"]["customer_id"]
+
+        with api_mod._user_lock:
+            api_mod._users_db[email]["is_admin"] = 1
+
+        claim = client.post(
+            f"/api/billing/free-credits/{customer_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert claim.status_code == 200
+
+        deposit = client.post(
+            f"/api/billing/wallet/{customer_id}/deposit",
+            json={"amount_cad": 25.0, "description": "Reset test deposit"},
+        )
+        assert deposit.status_code == 200
+
+        reset = client.post(
+            f"/api/billing/wallet/{customer_id}/reset-testing",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert reset.status_code == 200
+        payload = reset.json()
+        assert payload["ok"] is True
+        assert payload["wallet"]["balance_cad"] == 0
+        assert payload["wallet"]["total_deposited_cad"] == 0
+        assert payload["wallet"]["total_spent_cad"] == 0
+        assert payload["wallet"]["status"] == "active"
+        assert payload["promo_available"] is True
+        assert payload["cleared_transactions"] >= 2
+
+        status = client.get(
+            f"/api/billing/free-credits/{customer_id}/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status.status_code == 200
+        assert status.json()["claimed"] is False
+
+        history = client.get(f"/api/billing/wallet/{customer_id}/history")
+        assert history.status_code == 200
+        assert history.json()["transactions"] == []
+
     def test_billing_refund(self):
         """POST /api/billing/refund processes a refund."""
         r = client.post(
