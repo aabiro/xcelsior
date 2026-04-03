@@ -32,7 +32,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api Register Host",
+        "summary": "Register Host",
         "description": "Register or update a host with strict admission gating.\n\nPer REPORT_FEATURE_FINAL.md \u00a762 and REPORT_FEATURE_2.md \u00a737:\n- Hosts must pass node admission (version gating) before accepting work\n- Country/province recorded for jurisdiction-aware scheduling\n- Hosts register as 'pending' until agent completes benchmark + admission\n- If versions are provided inline, admission is checked immediately",
         "operationId": "api_register_host_host_put",
         "requestBody": {
@@ -72,7 +72,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api Get Host",
+        "summary": "Get Host",
         "description": "Get a single host by ID.",
         "operationId": "api_get_host_host__host_id__get",
         "parameters": [
@@ -111,7 +111,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api Remove Host",
+        "summary": "Remove Host",
         "description": "Remove a host.",
         "operationId": "api_remove_host_host__host_id__delete",
         "parameters": [
@@ -152,7 +152,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api List Hosts",
+        "summary": "List Hosts",
         "description": "List all hosts.",
         "operationId": "api_list_hosts_hosts_get",
         "parameters": [
@@ -194,7 +194,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api Check Hosts",
+        "summary": "Check Hosts",
         "description": "Ping all hosts and update status.",
         "operationId": "api_check_hosts_hosts_check_post",
         "responses": {
@@ -214,7 +214,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api Submit Instance",
+        "summary": "Submit Instance",
         "description": "Submit a job to the queue or directly assign to a host.\n\nIf host_id is provided (marketplace launch), the job is assigned directly\nto that host and container start is attempted immediately. Otherwise,\nthe job is queued and process_queue runs to find a host.",
         "operationId": "api_submit_instance_instance_post",
         "requestBody": {
@@ -254,7 +254,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api List Instances",
+        "summary": "List Instances",
         "description": "List jobs. Optional filter by status.",
         "operationId": "api_list_instances_instances_get",
         "parameters": [
@@ -302,7 +302,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api Get Instance",
+        "summary": "Get Instance",
         "description": "Get a specific instance by ID, enriched with connection info.",
         "operationId": "api_get_instance_instance__job_id__get",
         "parameters": [
@@ -341,7 +341,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api Update Instance",
+        "summary": "Update Instance",
         "description": "Update a job's status.",
         "operationId": "api_update_instance_instance__job_id__patch",
         "parameters": [
@@ -387,52 +387,12 @@
         }
       }
     },
-    "/queue/process": {
-      "post": {
-        "tags": [
-          "Instances"
-        ],
-        "summary": "Api Process Queue",
-        "description": "Process the job queue \u2014 assign jobs to hosts.",
-        "operationId": "api_process_queue_queue_process_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/failover": {
-      "post": {
-        "tags": [
-          "Instances"
-        ],
-        "summary": "Api Failover",
-        "description": "Run a full failover cycle: check hosts, requeue orphaned jobs, reassign.",
-        "operationId": "api_failover_failover_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/instances/{job_id}/cancel": {
       "post": {
         "tags": [
           "Instances"
         ],
-        "summary": "Api Cancel Instance",
+        "summary": "Cancel Instance",
         "description": "Cancel a running or queued instance. For interactive instances, stops the container.",
         "operationId": "api_cancel_instance_instances__job_id__cancel_post",
         "parameters": [
@@ -473,7 +433,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api Requeue Instance",
+        "summary": "Requeue Instance",
         "description": "Manually requeue a failed or stuck job.",
         "operationId": "api_requeue_instance_instance__job_id__requeue_post",
         "parameters": [
@@ -514,7 +474,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api Instance Log Stream",
+        "summary": "Instance Log Stream",
         "description": "Stream real-time logs for a specific job via Server-Sent Events.\n\nConnect with `EventSource('/jobs/{job_id}/logs/stream')` in the browser\nor `curl -N` from the CLI. Replays buffered log lines on connect, then\nlive-tails new log entries until the client disconnects or the job completes.\n\nEvents emitted:\n- `job_log` \u2014 individual log line (data: {job_id, timestamp, line, level})\n- `job_status` \u2014 status change (data: {job_id, status})\n- `connected` \u2014 initial handshake (data: {job_id, status: \"streaming\"})",
         "operationId": "api_instance_log_stream_instances__job_id__logs_stream_get",
         "parameters": [
@@ -555,7 +515,7 @@
         "tags": [
           "Instances"
         ],
-        "summary": "Api Instance Logs",
+        "summary": "Instance Logs",
         "description": "Get buffered log lines for a job (non-streaming).\n\nReturns the last `limit` log lines from the in-memory buffer.\nFor real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).",
         "operationId": "api_instance_logs_instances__job_id__logs_get",
         "parameters": [
@@ -601,320 +561,12 @@
         }
       }
     },
-    "/billing/bill/{job_id}": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Bill Instance",
-        "description": "Bill a specific completed job.",
-        "operationId": "api_bill_instance_billing_bill__job_id__post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/billing/bill-all": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Bill All",
-        "description": "Bill all unbilled completed jobs.",
-        "operationId": "api_bill_all_billing_bill_all_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/billing": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Billing",
-        "description": "Get all billing records and total revenue.",
-        "operationId": "api_billing_billing_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboard": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Dashboard",
-        "description": "The dashboard. HTML + JS. No React. No npm. No build step.",
-        "operationId": "dashboard_dashboard_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/legacy/{path}": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Legacy Dashboard",
-        "description": "Legacy dashboard preserved at /legacy while Next.js serves /.",
-        "operationId": "legacy_dashboard_legacy__path__get",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/legacy": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Legacy Dashboard",
-        "description": "Legacy dashboard preserved at /legacy while Next.js serves /.",
-        "operationId": "legacy_dashboard_legacy_get",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/alerts/config": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Alert Config",
-        "description": "Get current alert config (passwords redacted).",
-        "operationId": "api_get_alert_config_alerts_config_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Set Alert Config",
-        "description": "Update alert config at runtime.",
-        "operationId": "api_set_alert_config_alerts_config_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AlertConfig"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/ssh/keygen": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Generate Ssh Key",
-        "description": "Generate an Ed25519 SSH keypair for host access.",
-        "operationId": "api_generate_ssh_key_ssh_keygen_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ssh/pubkey": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Pubkey",
-        "description": "Get the public key to add to hosts' authorized_keys.",
-        "operationId": "api_get_pubkey_api_ssh_pubkey_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/ssh/pubkey": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Pubkey",
-        "description": "Get the public key to add to hosts' authorized_keys.",
-        "operationId": "api_get_pubkey_ssh_pubkey_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/ssh/keys": {
       "get": {
         "tags": [
           "SSH Keys"
         ],
-        "summary": "Api List Ssh Keys",
+        "summary": "List Ssh Keys",
         "description": "List the authenticated user's SSH public keys.",
         "operationId": "api_list_ssh_keys_api_ssh_keys_get",
         "responses": {
@@ -932,7 +584,7 @@
         "tags": [
           "SSH Keys"
         ],
-        "summary": "Api Add Ssh Key",
+        "summary": "Add Ssh Key",
         "description": "Upload a user SSH public key. Like GitHub/AWS key management.",
         "operationId": "api_add_ssh_key_api_ssh_keys_post",
         "responses": {
@@ -952,7 +604,7 @@
         "tags": [
           "SSH Keys"
         ],
-        "summary": "Api Delete Ssh Key",
+        "summary": "Delete Ssh Key",
         "description": "Delete a user SSH public key by ID.",
         "operationId": "api_delete_ssh_key_api_ssh_keys__key_id__delete",
         "parameters": [
@@ -988,152 +640,12 @@
         }
       }
     },
-    "/token/generate": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Generate Token",
-        "description": "Generate a secure random API token. User must set it in .env themselves.",
-        "operationId": "api_generate_token_token_generate_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/device": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Device Code",
-        "description": "Initiate OAuth2 device authorization flow (RFC 8628).\n\nReturns a device_code (for polling) and a user_code (for the user to enter\nin the browser at the verification_uri).",
-        "operationId": "api_auth_device_code_api_auth_device_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/token": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Device Token",
-        "description": "Poll for device authorization result (RFC 8628 \u00a73.4).\n\nReturns:\n- 200 + access_token when authorized\n- 428 \"authorization_pending\" while waiting\n- 410 \"expired_token\" if timed out",
-        "operationId": "api_auth_device_token_api_auth_token_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/verify": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Verify Page",
-        "description": "Browser-facing page where users enter their device code.",
-        "operationId": "api_auth_verify_page_api_auth_verify_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Verify Device",
-        "description": "Verify a device code by entering the user_code shown in the CLI.\n\nCalled from the web dashboard after the user logs in and enters their code.\nGenerates a bearer token and marks the device flow as authorized.",
-        "operationId": "api_auth_verify_device_api_auth_verify_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceVerifyRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/auth/register": {
       "post": {
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Register",
+        "summary": "Auth Register",
         "description": "Register a new user with email and password.\n\nCreates an account and sends a verification email. The user must verify\ntheir email before they can log in.",
         "operationId": "api_auth_register_api_auth_register_post",
         "requestBody": {
@@ -1173,7 +685,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Login",
+        "summary": "Auth Login",
         "description": "Authenticate with email and password.\n\nReturns a Bearer token valid for 30 days.\nIf MFA is enabled, returns mfa_required=True with a challenge_id instead.",
         "operationId": "api_auth_login_api_auth_login_post",
         "requestBody": {
@@ -1213,50 +725,9 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Oauth Initiate",
+        "summary": "Auth Oauth Initiate",
         "description": "Initiate OAuth flow \u2014 returns the provider's authorization URL.\n\nThe frontend should redirect the user to the returned URL.",
         "operationId": "api_auth_oauth_initiate_api_auth_oauth__provider__post",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Provider"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/oauth/{provider}/callback": {
-      "get": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Oauth Callback",
-        "description": "OAuth callback \u2014 exchanges authorization code for user profile, creates session,\nand redirects to dashboard.",
-        "operationId": "api_auth_oauth_callback_api_auth_oauth__provider__callback_get",
         "parameters": [
           {
             "name": "provider",
@@ -1295,27 +766,9 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Me",
+        "summary": "Auth Me",
         "description": "Get the currently authenticated user's profile.\n\nRequires Authorization: Bearer <token> header.",
         "operationId": "api_auth_me_api_auth_me_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Delete Account",
-        "description": "Delete the current user's account.",
-        "operationId": "api_auth_delete_account_api_auth_me_delete",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1331,7 +784,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Update Profile",
+        "summary": "Auth Update Profile",
         "description": "Update the current user's profile fields.",
         "operationId": "api_auth_update_profile_api_auth_me_patch",
         "requestBody": {
@@ -1371,7 +824,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Refresh",
+        "summary": "Auth Refresh",
         "description": "Refresh an existing session token.\n\nReturns a new token with a fresh 30-day expiry.",
         "operationId": "api_auth_refresh_api_auth_refresh_post",
         "responses": {
@@ -1391,7 +844,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Logout",
+        "summary": "Auth Logout",
         "description": "Logout \u2014 invalidate session and clear cookie.",
         "operationId": "api_auth_logout_api_auth_logout_post",
         "responses": {
@@ -1411,7 +864,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Generate Api Key",
+        "summary": "Generate Api Key",
         "description": "Generate a named API key for the authenticated user.\n\nAPI keys can be used as Bearer tokens for programmatic access.\nScope: 'full-access' (default) or 'read-only' (GET requests only).",
         "operationId": "api_generate_api_key_api_keys_generate_post",
         "responses": {
@@ -1431,7 +884,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api List Keys",
+        "summary": "List Keys",
         "description": "List all API keys for the authenticated user (keys are redacted).",
         "operationId": "api_list_keys_api_keys_get",
         "responses": {
@@ -1451,7 +904,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Revoke Key",
+        "summary": "Revoke Key",
         "description": "Revoke an API key by its preview string.",
         "operationId": "api_revoke_key_api_keys__key_preview__delete",
         "parameters": [
@@ -1487,132 +940,12 @@
         }
       }
     },
-    "/api/auth/password-reset": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Password Reset",
-        "description": "Initiate a password reset. Sends email with reset link.",
-        "operationId": "api_auth_password_reset_api_auth_password_reset_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasswordResetRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/password-reset/confirm": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Password Reset Confirm",
-        "description": "Confirm password reset with token and set new password.",
-        "operationId": "api_auth_password_reset_confirm_api_auth_password_reset_confirm_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasswordResetConfirm"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/change-password": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Change Password",
-        "description": "Change password for the authenticated user.",
-        "operationId": "api_auth_change_password_api_auth_change_password_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChangePasswordRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/auth/mfa/methods": {
       "get": {
         "tags": [
           "Auth \u2013 MFA"
         ],
-        "summary": "Api Mfa List Methods",
+        "summary": "Mfa List Methods",
         "description": "List the user's configured MFA methods.",
         "operationId": "api_mfa_list_methods_api_auth_mfa_methods_get",
         "responses": {
@@ -1632,7 +965,7 @@
         "tags": [
           "Auth \u2013 MFA"
         ],
-        "summary": "Api Mfa Totp Setup",
+        "summary": "Mfa Totp Setup",
         "description": "Generate a TOTP secret and QR code URI for setup.",
         "operationId": "api_mfa_totp_setup_api_auth_mfa_totp_setup_post",
         "responses": {
@@ -1652,7 +985,7 @@
         "tags": [
           "Auth \u2013 MFA"
         ],
-        "summary": "Api Mfa Totp Verify",
+        "summary": "Mfa Totp Verify",
         "description": "Verify a TOTP code to complete setup and enable TOTP.",
         "operationId": "api_mfa_totp_verify_api_auth_mfa_totp_verify_post",
         "requestBody": {
@@ -1687,32 +1020,12 @@
         }
       }
     },
-    "/api/auth/mfa/totp": {
-      "delete": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Totp Disable",
-        "description": "Disable and remove TOTP.",
-        "operationId": "api_mfa_totp_disable_api_auth_mfa_totp_delete",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/auth/mfa/sms/setup": {
       "post": {
         "tags": [
           "Auth \u2013 MFA"
         ],
-        "summary": "Api Mfa Sms Setup",
+        "summary": "Mfa Sms Setup",
         "description": "Register a phone number for SMS MFA. Sends a verification code.",
         "operationId": "api_mfa_sms_setup_api_auth_mfa_sms_setup_post",
         "requestBody": {
@@ -1752,7 +1065,7 @@
         "tags": [
           "Auth \u2013 MFA"
         ],
-        "summary": "Api Mfa Sms Verify",
+        "summary": "Mfa Sms Verify",
         "description": "Verify the SMS code to complete SMS MFA setup.",
         "operationId": "api_mfa_sms_verify_api_auth_mfa_sms_verify_post",
         "requestBody": {
@@ -1787,232 +1100,12 @@
         }
       }
     },
-    "/api/auth/mfa/sms": {
-      "delete": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Sms Disable",
-        "description": "Disable and remove SMS MFA.",
-        "operationId": "api_mfa_sms_disable_api_auth_mfa_sms_delete",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/passkey/register-options": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Passkey Register Options",
-        "description": "Generate WebAuthn registration options for adding a new passkey.",
-        "operationId": "api_mfa_passkey_register_options_api_auth_mfa_passkey_register_options_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyRegisterRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/passkey/register-complete": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Passkey Register Complete",
-        "description": "Complete passkey registration with the browser's attestation response.",
-        "operationId": "api_mfa_passkey_register_complete_api_auth_mfa_passkey_register_complete_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyRegisterCompleteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/passkey/delete": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Passkey Delete",
-        "description": "Remove a registered passkey.",
-        "operationId": "api_mfa_passkey_delete_api_auth_mfa_passkey_delete_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyDeleteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/passkey/authenticate-options": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Passkey Authenticate Options",
-        "description": "Generate WebAuthn authentication options during login MFA challenge.",
-        "operationId": "api_mfa_passkey_authenticate_options_api_auth_mfa_passkey_authenticate_options_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyAuthenticateOptionsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/passkey/authenticate-complete": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Passkey Authenticate Complete",
-        "description": "Verify passkey authentication to complete MFA login.",
-        "operationId": "api_mfa_passkey_authenticate_complete_api_auth_mfa_passkey_authenticate_complete_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyAuthenticateCompleteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/auth/mfa/verify": {
       "post": {
         "tags": [
           "Auth \u2013 MFA"
         ],
-        "summary": "Api Mfa Verify Login",
+        "summary": "Mfa Verify Login",
         "description": "Verify MFA code during login to complete authentication.",
         "operationId": "api_mfa_verify_login_api_auth_mfa_verify_post",
         "requestBody": {
@@ -2047,172 +1140,12 @@
         }
       }
     },
-    "/api/auth/mfa/sms/send": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Sms Send Login",
-        "description": "Send an SMS verification code during MFA login challenge.",
-        "operationId": "api_mfa_sms_send_login_api_auth_mfa_sms_send_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MfaSendSmsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/backup-codes/regenerate": {
-      "post": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Regenerate Backup Codes",
-        "description": "Regenerate backup recovery codes. Invalidates all previous codes.",
-        "operationId": "api_mfa_regenerate_backup_codes_api_auth_mfa_backup_codes_regenerate_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/mfa/all": {
-      "delete": {
-        "tags": [
-          "Auth \u2013 MFA"
-        ],
-        "summary": "Api Mfa Disable All",
-        "description": "Disable all MFA methods for the user.",
-        "operationId": "api_mfa_disable_all_api_auth_mfa_all_delete",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/verify-email": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Verify Email",
-        "description": "Verify a user's email address with the token sent during registration.",
-        "operationId": "api_auth_verify_email_api_auth_verify_email_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyEmailRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/resend-verification": {
-      "post": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Resend Verification",
-        "description": "Resend the email verification link.",
-        "operationId": "api_auth_resend_verification_api_auth_resend_verification_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResendVerificationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/auth/sessions": {
       "get": {
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth List Sessions",
+        "summary": "Auth List Sessions",
         "description": "List active sessions for the current user.",
         "operationId": "api_auth_list_sessions_api_auth_sessions_get",
         "responses": {
@@ -2232,7 +1165,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Auth Revoke Session",
+        "summary": "Auth Revoke Session",
         "description": "Revoke a specific session by its token prefix.",
         "operationId": "api_auth_revoke_session_api_auth_sessions__token_prefix__delete",
         "parameters": [
@@ -2273,7 +1206,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api Create Team",
+        "summary": "Create Team",
         "description": "Create a new team/organization. Creator becomes team admin.",
         "operationId": "api_create_team_api_teams_post",
         "requestBody": {
@@ -2313,7 +1246,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api My Teams",
+        "summary": "My Teams",
         "description": "Get teams the current user belongs to.",
         "operationId": "api_my_teams_api_teams_me_get",
         "responses": {
@@ -2333,7 +1266,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api Get Team",
+        "summary": "Get Team",
         "description": "Get team details including members.",
         "operationId": "api_get_team_api_teams__team_id__get",
         "parameters": [
@@ -2372,7 +1305,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api Delete Team",
+        "summary": "Delete Team",
         "description": "Delete a team. Only the team owner can delete it.",
         "operationId": "api_delete_team_api_teams__team_id__delete",
         "parameters": [
@@ -2413,7 +1346,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api Add Team Member",
+        "summary": "Add Team Member",
         "description": "Add a member to a team. Only team admins can add members.",
         "operationId": "api_add_team_member_api_teams__team_id__members_post",
         "parameters": [
@@ -2464,7 +1397,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api Remove Team Member",
+        "summary": "Remove Team Member",
         "description": "Remove a member from a team. Admins can remove anyone; members can leave.",
         "operationId": "api_remove_team_member_api_teams__team_id__members__email__delete",
         "parameters": [
@@ -2512,7 +1445,7 @@
         "tags": [
           "Teams"
         ],
-        "summary": "Api Update Team Member Role",
+        "summary": "Update Team Member Role",
         "description": "Update a team member's role. Only admins can change roles.",
         "operationId": "api_update_team_member_role_api_teams__team_id__members__email__patch",
         "parameters": [
@@ -2567,322 +1500,12 @@
         }
       }
     },
-    "/marketplace/search": {
-      "get": {
-        "tags": [
-          "Marketplace"
-        ],
-        "summary": "Api Marketplace Search",
-        "description": "Search marketplace listings with filters and sorting.",
-        "operationId": "api_marketplace_search_marketplace_search_get",
-        "parameters": [
-          {
-            "name": "gpu_model",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Gpu Model"
-            }
-          },
-          {
-            "name": "min_vram",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Min Vram"
-            }
-          },
-          {
-            "name": "max_price",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Max Price"
-            }
-          },
-          {
-            "name": "province",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Province"
-            }
-          },
-          {
-            "name": "country",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Country"
-            }
-          },
-          {
-            "name": "min_reputation",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Min Reputation"
-            }
-          },
-          {
-            "name": "sort_by",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "price",
-              "title": "Sort By"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 50,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/submit": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Submit",
-        "description": "Submit an Xcelsior job to a Slurm cluster (HPC bridge).\n\nTranslates the job to an sbatch script and submits. Set dry_run=true\nto see the generated script without submitting.",
-        "operationId": "api_slurm_submit_api_slurm_submit_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SlurmSubmitIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/status/{slurm_job_id}": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Status",
-        "description": "Check the status of a Slurm job.",
-        "operationId": "api_slurm_status_api_slurm_status__slurm_job_id__get",
-        "parameters": [
-          {
-            "name": "slurm_job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Slurm Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/{slurm_job_id}": {
-      "delete": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Cancel",
-        "description": "Cancel a Slurm job.",
-        "operationId": "api_slurm_cancel_api_slurm__slurm_job_id__delete",
-        "parameters": [
-          {
-            "name": "slurm_job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Slurm Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/profiles": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Profiles",
-        "description": "List available Slurm cluster profiles (Nibi, Graham, Narval, generic).",
-        "operationId": "api_slurm_profiles_api_slurm_profiles_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/nfs/config": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Nfs Config",
-        "description": "Get current NFS configuration from environment.",
-        "operationId": "api_nfs_config_api_nfs_config_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/tiers": {
       "get": {
         "tags": [
           "Instances"
         ],
-        "summary": "Api List Tiers",
+        "summary": "List Tiers",
         "description": "List all priority tiers with their multipliers.",
         "operationId": "api_list_tiers_tiers_get",
         "responses": {
@@ -2897,220 +1520,12 @@
         }
       }
     },
-    "/build": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Build Image",
-        "description": "Build a Docker image for a model. Optionally quantize and push.",
-        "operationId": "api_build_image_build_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BuildIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/builds": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api List Builds",
-        "description": "List all local build directories.",
-        "operationId": "api_list_builds_builds_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/build/{model}/dockerfile": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Generate Dockerfile",
-        "description": "Preview the generated Dockerfile without building.",
-        "operationId": "api_generate_dockerfile_build__model__dockerfile_post",
-        "parameters": [
-          {
-            "name": "model",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Model"
-            }
-          },
-          {
-            "name": "base_image",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "python:3.11-slim",
-              "title": "Base Image"
-            }
-          },
-          {
-            "name": "quantize",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Quantize"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/marketplace/list": {
-      "post": {
-        "tags": [
-          "Marketplace"
-        ],
-        "summary": "Api List Rig",
-        "description": "List a rig on the marketplace.",
-        "operationId": "api_list_rig_marketplace_list_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RigListing"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/marketplace/{host_id}": {
-      "delete": {
-        "tags": [
-          "Marketplace"
-        ],
-        "summary": "Api Unlist Rig",
-        "description": "Remove a rig from the marketplace.",
-        "operationId": "api_unlist_rig_marketplace__host_id__delete",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/marketplace": {
       "get": {
         "tags": [
           "Marketplace"
         ],
-        "summary": "Api Get Marketplace",
+        "summary": "Get Marketplace",
         "description": "Browse marketplace listings.",
         "operationId": "api_get_marketplace_marketplace_get",
         "parameters": [
@@ -3147,53 +1562,12 @@
         }
       }
     },
-    "/marketplace/bill/{job_id}": {
-      "post": {
-        "tags": [
-          "Marketplace"
-        ],
-        "summary": "Api Marketplace Bill",
-        "description": "Bill a marketplace job \u2014 split between host and platform.",
-        "operationId": "api_marketplace_bill_marketplace_bill__job_id__post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/marketplace/stats": {
       "get": {
         "tags": [
           "Marketplace"
         ],
-        "summary": "Api Marketplace Stats",
+        "summary": "Marketplace Stats",
         "description": "Marketplace aggregate stats.",
         "operationId": "api_marketplace_stats_marketplace_stats_get",
         "responses": {
@@ -3208,763 +1582,14 @@
         }
       }
     },
-    "/canada": {
-      "get": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Canada Status",
-        "description": "Check if Canada-only mode is active.",
-        "operationId": "api_canada_status_canada_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Set Canada",
-        "description": "Toggle Canada-only mode.",
-        "operationId": "api_set_canada_canada_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CanadaToggle"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/hosts/ca": {
       "get": {
         "tags": [
           "Jurisdiction"
         ],
-        "summary": "Api List Canadian Hosts",
+        "summary": "List Canadian Hosts",
         "description": "List only Canadian hosts.",
         "operationId": "api_list_canadian_hosts_hosts_ca_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/queue/process/ca": {
-      "post": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Process Queue Ca",
-        "description": "Process queue with Canada-only hosts.",
-        "operationId": "api_process_queue_ca_queue_process_ca_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/pool": {
-      "get": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Get Pool",
-        "description": "List the autoscale pool.",
-        "operationId": "api_get_pool_autoscale_pool_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Add To Pool",
-        "description": "Add a host to the autoscale pool.",
-        "operationId": "api_add_to_pool_autoscale_pool_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PoolHost"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/pool/{host_id}": {
-      "delete": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Remove From Pool",
-        "description": "Remove a host from the autoscale pool.",
-        "operationId": "api_remove_from_pool_autoscale_pool__host_id__delete",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/cycle": {
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Autoscale Cycle",
-        "description": "Run a full autoscale cycle: scale up, process queue, scale down.",
-        "operationId": "api_autoscale_cycle_autoscale_cycle_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/up": {
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Autoscale Up",
-        "description": "Scale up: provision hosts for queued jobs.",
-        "operationId": "api_autoscale_up_autoscale_up_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/down": {
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Autoscale Down",
-        "description": "Scale down: deprovision idle autoscaled hosts.",
-        "operationId": "api_autoscale_down_autoscale_down_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/stream": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Sse Stream",
-        "description": "Server-Sent Events stream for real-time dashboard updates.",
-        "operationId": "sse_stream_api_stream_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/work/{host_id}": {
-      "get": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Work",
-        "description": "Pull pending work for an agent. Returns assigned jobs.",
-        "operationId": "api_agent_work_agent_work__host_id__get",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/preempt/{host_id}": {
-      "get": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Preempt",
-        "description": "Check if any jobs on this host should be preempted.",
-        "operationId": "api_agent_preempt_agent_preempt__host_id__get",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/preempt/{host_id}/{job_id}": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Schedule Preemption",
-        "description": "Schedule a job for preemption on a host.",
-        "operationId": "api_schedule_preemption_agent_preempt__host_id___job_id__post",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/versions": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Versions",
-        "description": "Receive and validate node component versions for admission control.\n\nWhen a host passes admission, updates the host record to admitted=True\nand status='active'. This is the gate that allows hosts to receive work.\nPer REPORT_FEATURE_FINAL.md \u00a762 and REPORT_FEATURE_1.md:\n- CUDA >= 12.0, runc patched, NVIDIA Container Toolkit patched\n- Hosts that fail stay in 'pending' status",
-        "operationId": "api_agent_versions_agent_versions_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VersionReport"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/mining-alert": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Mining Alert",
-        "description": "Receive mining detection alert from an agent.",
-        "operationId": "api_mining_alert_agent_mining_alert_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MiningAlert"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/benchmark": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Benchmark",
-        "description": "Receive compute benchmark results from an agent.",
-        "operationId": "api_agent_benchmark_agent_benchmark_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BenchmarkReport"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/lease/claim": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Lease Claim",
-        "description": "Agent claims a lease for an assigned job.\n\nThis transitions the job from ASSIGNED \u2192 LEASED and starts\nthe lease clock. The agent must renew before expiry.",
-        "operationId": "api_agent_lease_claim_agent_lease_claim_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeaseClaimRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/lease/renew": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Lease Renew",
-        "description": "Agent renews its lease on a job. Must be called before expiry.",
-        "operationId": "api_agent_lease_renew_agent_lease_renew_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeaseRenewRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/lease/release": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Lease Release",
-        "description": "Agent releases its lease (job completed/failed/preempted).",
-        "operationId": "api_agent_lease_release_agent_lease_release_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeaseReleaseRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/popular-images": {
-      "get": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Popular Images",
-        "description": "Return popular container images for agent pre-pulling.\n\nAgents call this during idle time to pre-cache frequently-used images,\nreducing cold-start latency for future jobs.",
-        "operationId": "api_agent_popular_images_agent_popular_images_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/spot-prices": {
-      "get": {
-        "tags": [
-          "Spot Pricing"
-        ],
-        "summary": "Api Spot Prices",
-        "description": "Get current spot prices for all GPU models.",
-        "operationId": "api_spot_prices_spot_prices_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/spot-prices/update": {
-      "post": {
-        "tags": [
-          "Spot Pricing"
-        ],
-        "summary": "Api Update Spot Prices",
-        "description": "Trigger spot price recalculation.",
-        "operationId": "api_update_spot_prices_spot_prices_update_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/spot/instance": {
-      "post": {
-        "tags": [
-          "Spot Pricing"
-        ],
-        "summary": "Api Submit Spot Instance",
-        "description": "Submit a spot job with a maximum bid price.",
-        "operationId": "api_submit_spot_instance_spot_instance_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SpotJobIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/spot/preemption-cycle": {
-      "post": {
-        "tags": [
-          "Spot Pricing"
-        ],
-        "summary": "Api Preemption Cycle",
-        "description": "Run a preemption cycle \u2014 reclaim resources from underbidding spot jobs.",
-        "operationId": "api_preemption_cycle_spot_preemption_cycle_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3982,7 +1607,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api Get Compute Score",
+        "summary": "Get Compute Score",
         "description": "Get the compute score (XCU) for a host.",
         "operationId": "api_get_compute_score_compute_score__host_id__get",
         "parameters": [
@@ -4023,7 +1648,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Api List Compute Scores",
+        "summary": "List Compute Scores",
         "description": "List compute scores for all hosts.",
         "operationId": "api_list_compute_scores_compute_scores_get",
         "responses": {
@@ -4058,70 +1683,12 @@
         }
       }
     },
-    "/readyz": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Readyz",
-        "operationId": "readyz_readyz_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/metrics": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Metrics",
-        "operationId": "metrics_metrics_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/metrics/prometheus": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Metrics Prometheus",
-        "description": "Prometheus-compatible /metrics endpoint.\n\nExports xcelsior_* gauges, counters, and histograms in Prometheus\ntext exposition format for scraping by Prometheus/Grafana.",
-        "operationId": "metrics_prometheus_metrics_prometheus_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/events/{entity_type}/{entity_id}": {
       "get": {
         "tags": [
           "Events"
         ],
-        "summary": "Api Get Events",
+        "summary": "Get Events",
         "description": "Get event history for a job or host.",
         "operationId": "api_get_events_api_events__entity_type___entity_id__get",
         "parameters": [
@@ -4176,53 +1743,12 @@
         }
       }
     },
-    "/api/events/leases/{job_id}": {
-      "get": {
-        "tags": [
-          "Events"
-        ],
-        "summary": "Api Get Lease",
-        "description": "Get active lease for a job.",
-        "operationId": "api_get_lease_api_events_leases__job_id__get",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/verify/{host_id}": {
       "post": {
         "tags": [
           "Verification"
         ],
-        "summary": "Api Verify Host",
+        "summary": "Verify Host",
         "description": "Run verification checks on a host.",
         "operationId": "api_verify_host_api_verify__host_id__post",
         "parameters": [
@@ -4273,7 +1799,7 @@
         "tags": [
           "Verification"
         ],
-        "summary": "Api Verification Status",
+        "summary": "Verification Status",
         "description": "Get current verification status for a host.",
         "operationId": "api_verification_status_api_verify__host_id__status_get",
         "parameters": [
@@ -4314,7 +1840,7 @@
         "tags": [
           "Verification"
         ],
-        "summary": "Api Verified Hosts",
+        "summary": "Verified Hosts",
         "description": "List all verified hosts with full verification details.\n\nReturns host_id, state, gpu_model, country, last_check, overall_score\nfor every host that has any verification record (not just 'verified').",
         "operationId": "api_verified_hosts_api_verified_hosts_get",
         "responses": {
@@ -4329,114 +1855,12 @@
         }
       }
     },
-    "/api/verify/{host_id}/approve": {
-      "post": {
-        "tags": [
-          "Verification"
-        ],
-        "summary": "Api Admin Approve Host",
-        "description": "Admin manually approves a host, overriding automated checks.\n\nSets host verification state to 'verified' regardless of check results.\nUseful when an admin has physically inspected hardware or reviewed logs.",
-        "operationId": "api_admin_approve_host_api_verify__host_id__approve_post",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          },
-          {
-            "name": "notes",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Notes"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/verify/{host_id}/reject": {
-      "post": {
-        "tags": [
-          "Verification"
-        ],
-        "summary": "Api Admin Reject Host",
-        "description": "Admin manually rejects/deverifies a host.\n\nSets host verification state to 'deverified' so it cannot receive jobs.",
-        "operationId": "api_admin_reject_host_api_verify__host_id__reject_post",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          },
-          {
-            "name": "reason",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "Admin rejection",
-              "title": "Reason"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/jurisdiction/hosts": {
       "post": {
         "tags": [
           "Jurisdiction"
         ],
-        "summary": "Api Jurisdiction Hosts",
+        "summary": "Jurisdiction Hosts",
         "description": "Filter hosts by jurisdiction constraints.",
         "operationId": "api_jurisdiction_hosts_api_jurisdiction_hosts_post",
         "requestBody": {
@@ -4476,7 +1900,7 @@
         "tags": [
           "Jurisdiction"
         ],
-        "summary": "Api Residency Trace",
+        "summary": "Residency Trace",
         "description": "Generate a residency trace for a job (compliance artifact).",
         "operationId": "api_residency_trace_api_jurisdiction_residency_trace__job_id__get",
         "parameters": [
@@ -4517,7 +1941,7 @@
         "tags": [
           "Jurisdiction"
         ],
-        "summary": "Api Trust Tiers",
+        "summary": "Trust Tiers",
         "description": "List available trust tiers and their requirements.",
         "operationId": "api_trust_tiers_api_trust_tiers_get",
         "responses": {
@@ -4537,7 +1961,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Get Wallet",
+        "summary": "Get Wallet",
         "description": "Get credit wallet balance and status.",
         "operationId": "api_get_wallet_api_billing_wallet__customer_id__get",
         "parameters": [
@@ -4578,7 +2002,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Create Payment Intent",
+        "summary": "Create Payment Intent",
         "description": "Create a Stripe PaymentIntent for depositing compute credits.\n\nReturns client_secret for front-end Stripe Elements confirmation.\nOn payment_intent.succeeded webhook the wallet is credited automatically.",
         "operationId": "api_create_payment_intent_api_billing_payment_intent_post",
         "requestBody": {
@@ -4618,7 +2042,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Deposit",
+        "summary": "Deposit",
         "description": "Deposit credits into a customer wallet.",
         "operationId": "api_deposit_api_billing_wallet__customer_id__deposit_post",
         "parameters": [
@@ -4664,94 +2088,12 @@
         }
       }
     },
-    "/api/billing/free-credits/{customer_id}": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Claim Free Credits",
-        "description": "Claim one-time $10 CAD signup bonus.\n\nUses an idempotency key derived from the customer_id so the bonus\ncan only be claimed once per customer.",
-        "operationId": "api_claim_free_credits_api_billing_free_credits__customer_id__post",
-        "parameters": [
-          {
-            "name": "customer_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Customer Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/free-credits/{customer_id}/status": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Free Credits Status",
-        "description": "Check whether the customer has already claimed the free signup bonus.",
-        "operationId": "api_free_credits_status_api_billing_free_credits__customer_id__status_get",
-        "parameters": [
-          {
-            "name": "customer_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Customer Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/billing/wallet/{customer_id}/history": {
       "get": {
         "tags": [
           "Billing"
         ],
-        "summary": "Api Wallet History",
+        "summary": "Wallet History",
         "description": "Get transaction history for a wallet.",
         "operationId": "api_wallet_history_api_billing_wallet__customer_id__history_get",
         "parameters": [
@@ -4797,53 +2139,12 @@
         }
       }
     },
-    "/api/billing/wallet/{customer_id}/depletion": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Wallet Depletion",
-        "description": "Get real-time balance depletion projection.\n\nReturns burn rate, seconds-to-zero, per-instance cost breakdown,\nand alert thresholds (T-30min, T-5min, T-0).",
-        "operationId": "api_wallet_depletion_api_billing_wallet__customer_id__depletion_get",
-        "parameters": [
-          {
-            "name": "customer_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Customer Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/billing/usage/{customer_id}": {
       "get": {
         "tags": [
           "Billing"
         ],
-        "summary": "Api Usage Summary",
+        "summary": "Usage Summary",
         "description": "Get usage summary for a customer.",
         "operationId": "api_usage_summary_api_billing_usage__customer_id__get",
         "parameters": [
@@ -4904,7 +2205,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Generate Invoice",
+        "summary": "Generate Invoice",
         "description": "Generate an AI Compute Access Fund\u2013aligned invoice.",
         "operationId": "api_generate_invoice_api_billing_invoice__customer_id__get",
         "parameters": [
@@ -4980,83 +2281,12 @@
         }
       }
     },
-    "/api/billing/export/caf/{customer_id}": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Export Caf",
-        "description": "Export AI Compute Access Fund rebate documentation.\n\nFrom REPORT_FEATURE_2.md: /billing/export?format=caf\nSupports json and csv formats.",
-        "operationId": "api_export_caf_api_billing_export_caf__customer_id__get",
-        "parameters": [
-          {
-            "name": "customer_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Customer Id"
-            }
-          },
-          {
-            "name": "period_start",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "default": 0,
-              "title": "Period Start"
-            }
-          },
-          {
-            "name": "period_end",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "default": 0,
-              "title": "Period End"
-            }
-          },
-          {
-            "name": "format",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "json",
-              "title": "Format"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/billing/invoices/{customer_id}": {
       "get": {
         "tags": [
           "Billing"
         ],
-        "summary": "Api List Invoices",
+        "summary": "List Invoices",
         "description": "List past invoices for a customer (monthly summaries).\n\nGenerates monthly invoice stubs for the last N months showing\ntotal spend, tax, job count, and top GPUs used.",
         "operationId": "api_list_invoices_api_billing_invoices__customer_id__get",
         "parameters": [
@@ -5107,7 +2337,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Download Invoice",
+        "summary": "Download Invoice",
         "description": "Download an invoice as CSV or plain-text PDF-style document.\n\nFormats: csv (spreadsheet-ready), txt (printable receipt).",
         "operationId": "api_download_invoice_api_billing_invoice__customer_id__download_get",
         "parameters": [
@@ -5193,32 +2423,12 @@
         }
       }
     },
-    "/api/billing/attestation": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Provider Attestation",
-        "description": "Get Xcelsior supplier attestation bundle for Fund claims.",
-        "operationId": "api_provider_attestation_api_billing_attestation_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/billing/refund": {
       "post": {
         "tags": [
           "Billing"
         ],
-        "summary": "Api Process Refund",
+        "summary": "Process Refund",
         "description": "Process a refund for a failed job.\n\nFrom REPORT_FEATURE_1.md:\n- Hardware error \u2192 full refund\n- User OOM (exit 137) \u2192 zero refund",
         "operationId": "api_process_refund_api_billing_refund_post",
         "requestBody": {
@@ -5253,174 +2463,12 @@
         }
       }
     },
-    "/api/billing/crypto/deposit": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Crypto Deposit",
-        "description": "Create a BTC deposit request. Returns address, amount, and QR data.",
-        "operationId": "api_crypto_deposit_api_billing_crypto_deposit_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CryptoDepositRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/crypto/deposit/{deposit_id}": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Crypto Deposit Status",
-        "description": "Poll deposit confirmation status.",
-        "operationId": "api_crypto_deposit_status_api_billing_crypto_deposit__deposit_id__get",
-        "parameters": [
-          {
-            "name": "deposit_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Deposit Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/crypto/rate": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Crypto Rate",
-        "description": "Get current BTC/CAD exchange rate.",
-        "operationId": "api_crypto_rate_api_billing_crypto_rate_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/crypto/refresh/{deposit_id}": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Crypto Refresh",
-        "description": "Refresh an expired deposit with a new BTC/CAD rate.",
-        "operationId": "api_crypto_refresh_api_billing_crypto_refresh__deposit_id__post",
-        "parameters": [
-          {
-            "name": "deposit_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Deposit Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/crypto/enabled": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Crypto Enabled",
-        "description": "Check if Bitcoin deposits are enabled.",
-        "operationId": "api_crypto_enabled_api_billing_crypto_enabled_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/reputation/leaderboard": {
       "get": {
         "tags": [
           "Reputation"
         ],
-        "summary": "Api Reputation Leaderboard",
+        "summary": "Reputation Leaderboard",
         "description": "Top hosts/users by reputation score.",
         "operationId": "api_reputation_leaderboard_api_reputation_leaderboard_get",
         "parameters": [
@@ -5472,7 +2520,7 @@
         "tags": [
           "Reputation"
         ],
-        "summary": "Api Reputation Me",
+        "summary": "Reputation Me",
         "description": "Get reputation for the currently authenticated user.",
         "operationId": "api_reputation_me_api_reputation_me_get",
         "responses": {
@@ -5492,7 +2540,7 @@
         "tags": [
           "Reputation"
         ],
-        "summary": "Api Get Reputation",
+        "summary": "Get Reputation",
         "description": "Get reputation score and tier for a host or user.",
         "operationId": "api_get_reputation_api_reputation__entity_id__get",
         "parameters": [
@@ -5533,7 +2581,7 @@
         "tags": [
           "Reputation"
         ],
-        "summary": "Api Reputation History",
+        "summary": "Reputation History",
         "description": "Get reputation event history.",
         "operationId": "api_reputation_history_api_reputation__entity_id__history_get",
         "parameters": [
@@ -5579,52 +2627,12 @@
         }
       }
     },
-    "/api/reputation/verify": {
-      "post": {
-        "tags": [
-          "Reputation"
-        ],
-        "summary": "Api Grant Verification",
-        "description": "Grant a verification badge to a host/user.",
-        "operationId": "api_grant_verification_api_reputation_verify_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerificationGrant"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/pricing/estimate": {
       "post": {
         "tags": [
           "Billing"
         ],
-        "summary": "Api Estimate Cost",
+        "summary": "Estimate Cost",
         "description": "Estimate job cost with AI Compute Access Fund rebate preview.\n\nFrom REPORT_FEATURE_2.md: --estimate-rebate / simulate=true",
         "operationId": "api_estimate_cost_api_pricing_estimate_post",
         "requestBody": {
@@ -5664,7 +2672,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Reference Pricing",
+        "summary": "Reference Pricing",
         "description": "Get reference GPU pricing table in CAD.",
         "operationId": "api_reference_pricing_api_pricing_reference_get",
         "responses": {
@@ -5679,133 +2687,12 @@
         }
       }
     },
-    "/api/pricing/reserved-plans": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Reserved Plans",
-        "description": "List available reserved pricing tiers with discount percentages.\n\nThree commitment levels:\n- **1_month**: 20% discount, minimum 4 hrs/day usage\n- **3_month**: 30% discount, minimum 4 hrs/day usage\n- **1_year**: 45% discount, no minimum daily usage\n\nCompare with on-demand (`POST /job`) and spot/interruptible (`POST /spot/job`).",
-        "operationId": "api_reserved_plans_api_pricing_reserved_plans_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/pricing/reserve": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Reserve Commitment",
-        "description": "Create a reserved pricing commitment for a customer.\n\nReserved instances are 20-45% cheaper than on-demand, depending on\ncommitment length. The customer pre-commits to a term and receives\na guaranteed discount on all GPU hours consumed during that period.",
-        "operationId": "api_reserve_commitment_api_pricing_reserve_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReservedCommitmentRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/gst-threshold": {
-      "get": {
-        "tags": [
-          "Compliance"
-        ],
-        "summary": "Api Gst Threshold Status",
-        "description": "Check platform-wide GST/HST small-supplier threshold status.\n\nUnder the Excise Tax Act, a distribution platform operator **must**\nregister for GST/HST once total taxable revenue exceeds $30,000 CAD\nover any four consecutive calendar quarters.\n\nReturns:\n- `exceeded`: whether the $30k threshold is passed\n- `total_revenue_cad`: estimated revenue from all billing\n- `threshold_cad`: the $30,000 statutory limit\n- `quarters_assessed`: number of quarters with data",
-        "operationId": "api_gst_threshold_status_api_billing_gst_threshold_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/gst-threshold/{provider_id}": {
-      "get": {
-        "tags": [
-          "Compliance"
-        ],
-        "summary": "Api Provider Gst Threshold",
-        "description": "Check whether a specific provider has exceeded the $30,000 GST/HST\nsmall-supplier threshold based on their historical payouts.\n\nUsed by providers to determine if they need to independently register\nfor GST/HST. The simplified regime is recommended for non-resident\nproviders serving Canadians.",
-        "operationId": "api_provider_gst_threshold_api_billing_gst_threshold__provider_id__get",
-        "parameters": [
-          {
-            "name": "provider_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Provider Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/analytics/usage": {
       "get": {
         "tags": [
           "Billing"
         ],
-        "summary": "Api Usage Analytics",
+        "summary": "Usage Analytics",
         "description": "Usage analytics for both providers and submitters.\n\nProvides cost breakdowns, GPU utilization trends, and hardware health\naggregates over time. Supports grouping by day, week, GPU model,\nor province for detailed reporting.\n\nQuery params:\n- `customer_id` \u2014 filter to one customer (submitter view)\n- `provider_id` \u2014 filter to one provider (earnings view)\n- `days` \u2014 lookback window (default 30)\n- `group_by` \u2014 aggregation: `day`, `week`, `gpu_model`, `province`",
         "operationId": "api_usage_analytics_api_analytics_usage_get",
         "parameters": [
@@ -5877,7 +2764,7 @@
         "tags": [
           "Artifacts"
         ],
-        "summary": "Api Request Upload",
+        "summary": "Request Upload",
         "description": "Get a presigned upload URL for an artifact.",
         "operationId": "api_request_upload_api_artifacts_upload_post",
         "requestBody": {
@@ -5917,7 +2804,7 @@
         "tags": [
           "Artifacts"
         ],
-        "summary": "Api Request Download",
+        "summary": "Request Download",
         "description": "Get a presigned download URL for an artifact.",
         "operationId": "api_request_download_api_artifacts_download_post",
         "requestBody": {
@@ -5957,7 +2844,7 @@
         "tags": [
           "Artifacts"
         ],
-        "summary": "Api List Artifacts",
+        "summary": "List Artifacts",
         "description": "List all artifacts for a job.",
         "operationId": "api_list_artifacts_api_artifacts__job_id__get",
         "parameters": [
@@ -5993,52 +2880,12 @@
         }
       }
     },
-    "/api/queue/process-sovereign": {
-      "post": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Process Queue Sovereign",
-        "description": "Process queue with jurisdiction + verification + reputation awareness.",
-        "operationId": "api_process_queue_sovereign_api_queue_process_sovereign_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SovereignQueueRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/compliance/status": {
       "get": {
         "tags": [
           "Compliance"
         ],
-        "summary": "Api Compliance Status",
+        "summary": "Compliance Status",
         "description": "Return high-level compliance check summary with live verification.\n\nChecks reflect actual user/platform configuration state \u2014 items require\nspecific action before they show as passing. Each non-passing check\nincludes an ``action`` with a CTA label and dashboard link.",
         "operationId": "api_compliance_status_api_compliance_status_get",
         "responses": {
@@ -6058,7 +2905,7 @@
         "tags": [
           "Compliance"
         ],
-        "summary": "Api Compliance Provinces",
+        "summary": "Compliance Provinces",
         "description": "Province-specific compliance matrix for scheduling guidance.",
         "operationId": "api_compliance_provinces_api_compliance_provinces_get",
         "responses": {
@@ -6078,7 +2925,7 @@
         "tags": [
           "Compliance"
         ],
-        "summary": "Api Tax Rates",
+        "summary": "Tax Rates",
         "description": "Canadian GST/HST/PST rates by province for billing.",
         "operationId": "api_tax_rates_api_compliance_tax_rates_get",
         "responses": {
@@ -6093,455 +2940,12 @@
         }
       }
     },
-    "/api/compliance/trust-tier-requirements": {
-      "get": {
-        "tags": [
-          "Compliance"
-        ],
-        "summary": "Api Trust Tier Requirements",
-        "description": "Full trust tier requirements matrix.",
-        "operationId": "api_trust_tier_requirements_api_compliance_trust_tier_requirements_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/compliance/quebec-pia-check": {
-      "post": {
-        "tags": [
-          "Compliance"
-        ],
-        "summary": "Api Quebec Pia Check",
-        "description": "Check if Qu\u00e9bec Law 25 PIA is required for cross-border transfer.",
-        "operationId": "api_quebec_pia_check_api_compliance_quebec_pia_check_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PIACheckRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/retention-policies": {
-      "get": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Retention Policies",
-        "description": "Data retention policies per PIPEDA fair information principles.",
-        "operationId": "api_retention_policies_api_privacy_retention_policies_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/retention-summary": {
-      "get": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Retention Summary",
-        "description": "Current retention status across all data categories.",
-        "operationId": "api_retention_summary_api_privacy_retention_summary_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/purge-expired": {
-      "post": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Purge Expired",
-        "description": "Purge all expired retention records (daily maintenance).",
-        "operationId": "api_purge_expired_api_privacy_purge_expired_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/config": {
-      "post": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Save Privacy Config",
-        "description": "Save privacy configuration for an organization.",
-        "operationId": "api_save_privacy_config_api_privacy_config_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PrivacyConfigRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/config/{org_id}": {
-      "get": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Get Privacy Config",
-        "description": "Get privacy configuration for an organization (defaults to STRICT).",
-        "operationId": "api_get_privacy_config_api_privacy_config__org_id__get",
-        "parameters": [
-          {
-            "name": "org_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Org Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/consent": {
-      "post": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Record Consent",
-        "description": "Record explicit consent (PIPEDA principle: Consent).",
-        "operationId": "api_record_consent_api_privacy_consent_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/api__ConsentRequest__1"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/consent/{entity_id}/{consent_type}": {
-      "delete": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Revoke Consent",
-        "description": "Revoke consent (PIPEDA: individuals can withdraw consent).",
-        "operationId": "api_revoke_consent_api_privacy_consent__entity_id___consent_type__delete",
-        "parameters": [
-          {
-            "name": "entity_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Entity Id"
-            }
-          },
-          {
-            "name": "consent_type",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Consent Type"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/privacy/consent/{entity_id}": {
-      "get": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Get Consents",
-        "description": "Get all consent records for an entity (PIPEDA: Individual Access).",
-        "operationId": "api_get_consents_api_privacy_consent__entity_id__get",
-        "parameters": [
-          {
-            "name": "entity_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Entity Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transparency/legal-request": {
-      "post": {
-        "tags": [
-          "Transparency"
-        ],
-        "summary": "Api Record Legal Request",
-        "description": "Record a legal request (subpoena, warrant, MLAT, etc.).",
-        "operationId": "api_record_legal_request_api_transparency_legal_request_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LegalRequestRecord"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transparency/legal-request/{request_id}/respond": {
-      "post": {
-        "tags": [
-          "Transparency"
-        ],
-        "summary": "Api Respond Legal Request",
-        "description": "Record response to a legal request.",
-        "operationId": "api_respond_legal_request_api_transparency_legal_request__request_id__respond_post",
-        "parameters": [
-          {
-            "name": "request_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Request Id"
-            }
-          },
-          {
-            "name": "complied",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Complied"
-            }
-          },
-          {
-            "name": "challenged",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Challenged"
-            }
-          },
-          {
-            "name": "notes",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Notes"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/transparency/report": {
       "get": {
         "tags": [
           "Transparency"
         ],
-        "summary": "Api Transparency Report",
+        "summary": "Transparency Report",
         "description": "Generate transparency report \u2014 CLOUD Act diligence artifact.\n\nReturns summary of all legal requests and data disclosures.\nMonthly JSON per REPORT_FEATURE_2.md Phase B \u00a73.",
         "operationId": "api_transparency_report_api_transparency_report_get",
         "parameters": [
@@ -6578,32 +2982,12 @@
         }
       }
     },
-    "/api/audit/verify-chain": {
-      "get": {
-        "tags": [
-          "Events"
-        ],
-        "summary": "Api Verify Event Chain",
-        "description": "Verify the tamper-evident hash chain on all events.\n\nReturns chain integrity status. If any event was modified after\nbeing written, the chain will report the break point.",
-        "operationId": "api_verify_event_chain_api_audit_verify_chain_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/audit/instance/{job_id}": {
       "get": {
         "tags": [
           "Events"
         ],
-        "summary": "Api Instance Audit Trail",
+        "summary": "Instance Audit Trail",
         "description": "Full auditable trail for a job \u2014 every event with hash chain.\n\nThis is the dispute-resolution artifact: every state change,\nlease renewal, billing event, ordered by time with tamper-evident hashes.",
         "operationId": "api_instance_audit_trail_api_audit_instance__job_id__get",
         "parameters": [
@@ -6639,52 +3023,12 @@
         }
       }
     },
-    "/agent/telemetry": {
-      "post": {
-        "tags": [
-          "Telemetry"
-        ],
-        "summary": "Api Agent Telemetry",
-        "description": "Receive periodic GPU telemetry from agent (every 5s).",
-        "operationId": "api_agent_telemetry_agent_telemetry_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TelemetryPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/agent/telemetry/{host_id}": {
       "get": {
         "tags": [
           "Telemetry"
         ],
-        "summary": "Api Get Telemetry",
+        "summary": "Get Telemetry",
         "description": "Get latest telemetry for a host (dashboard live gauges).",
         "operationId": "api_get_telemetry_agent_telemetry__host_id__get",
         "parameters": [
@@ -6725,7 +3069,7 @@
         "tags": [
           "Telemetry"
         ],
-        "summary": "Api All Telemetry",
+        "summary": "All Telemetry",
         "description": "Get latest telemetry for all hosts (dashboard overview).",
         "operationId": "api_all_telemetry_api_telemetry_all_get",
         "responses": {
@@ -6740,92 +3084,12 @@
         }
       }
     },
-    "/agent/verify": {
-      "post": {
-        "tags": [
-          "Verification"
-        ],
-        "summary": "Api Agent Verify",
-        "description": "Receive comprehensive benchmark report and run verification checks.",
-        "operationId": "api_agent_verify_agent_verify_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerificationReportPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sla/enforce": {
-      "post": {
-        "tags": [
-          "SLA"
-        ],
-        "summary": "Api Sla Enforce",
-        "description": "Run monthly SLA enforcement for a host.\n\nCalculates uptime percentage, downtime incidents, and credits owed\nbased on the SLA tier. Credits follow the Google Cloud / Azure model:\n- 95\u201399% uptime \u2192 10% credit\n- 90\u201395% uptime \u2192 25% credit\n- <90% uptime   \u2192 100% credit",
-        "operationId": "api_sla_enforce_api_sla_enforce_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SLAEnforceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/sla/hosts-summary": {
       "get": {
         "tags": [
           "SLA"
         ],
-        "summary": "Api Sla Hosts Summary",
+        "summary": "Sla Hosts Summary",
         "description": "Get SLA status summary for all known hosts.\n\nReturns per-host cards with uptime %, violation count, and SLA tier.\nUsed by dashboard UI-8.1 SLA Dashboard.",
         "operationId": "api_sla_hosts_summary_api_sla_hosts_summary_get",
         "responses": {
@@ -6845,7 +3109,7 @@
         "tags": [
           "SLA"
         ],
-        "summary": "Api Sla Status",
+        "summary": "Sla Status",
         "description": "Get SLA record and rolling uptime for a host.",
         "operationId": "api_sla_status_api_sla__host_id__get",
         "parameters": [
@@ -6896,7 +3160,7 @@
         "tags": [
           "SLA"
         ],
-        "summary": "Api Sla Violations",
+        "summary": "Sla Violations",
         "description": "Get SLA violation history for a host.",
         "operationId": "api_sla_violations_api_sla_violations__host_id__get",
         "parameters": [
@@ -6942,52 +3206,12 @@
         }
       }
     },
-    "/api/sla/downtimes": {
-      "get": {
-        "tags": [
-          "SLA"
-        ],
-        "summary": "Api Sla Active Downtimes",
-        "description": "Get all currently-open downtime periods across all hosts.",
-        "operationId": "api_sla_active_downtimes_api_sla_downtimes_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sla/targets": {
-      "get": {
-        "tags": [
-          "SLA"
-        ],
-        "summary": "Api Sla Targets",
-        "description": "Get SLA target definitions for all tiers.",
-        "operationId": "api_sla_targets_api_sla_targets_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/providers/register": {
       "post": {
         "tags": [
           "Providers"
         ],
-        "summary": "Api Register Provider",
+        "summary": "Register Provider",
         "description": "Register a GPU provider with Stripe Connect onboarding.\n\nFor Canadian companies, include corporation_name, business_number,\nand gst_hst_number. Returns a Stripe onboarding URL for KYC completion.\n\nPer Report #1.B \"Five Pillars of Compliance\":\n1. Identity Verification (Stripe Identity)\n2. Financial Enrollment (bank details via Stripe Express)\n3. Credentialing (GPU/bandwidth checked at admission)\n4. Tax Compliance (GST/HST auto-collected per province)",
         "operationId": "api_register_provider_api_providers_register_post",
         "requestBody": {
@@ -7027,7 +3251,7 @@
         "tags": [
           "Providers"
         ],
-        "summary": "Api Get Provider",
+        "summary": "Get Provider",
         "description": "Get provider account details including company info and payout status.",
         "operationId": "api_get_provider_api_providers__provider_id__get",
         "parameters": [
@@ -7068,7 +3292,7 @@
         "tags": [
           "Providers"
         ],
-        "summary": "Api List Providers",
+        "summary": "List Providers",
         "description": "List all provider accounts, optionally filtered by status.",
         "operationId": "api_list_providers_api_providers_get",
         "parameters": [
@@ -7105,63 +3329,12 @@
         }
       }
     },
-    "/api/providers/{provider_id}/incorporation": {
-      "post": {
-        "tags": [
-          "Providers"
-        ],
-        "summary": "Api Upload Incorporation",
-        "description": "Link an uploaded incorporation document to a provider account.\n\nThe file itself should first be uploaded via POST /api/artifacts/upload\nwith artifact_type='incorporation_doc'. Then pass the resulting file_id here.",
-        "operationId": "api_upload_incorporation_api_providers__provider_id__incorporation_post",
-        "parameters": [
-          {
-            "name": "provider_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Provider Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IncorporationUploadRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/providers/{provider_id}/earnings": {
       "get": {
         "tags": [
           "Providers"
         ],
-        "summary": "Api Provider Earnings",
+        "summary": "Provider Earnings",
         "description": "Get aggregate earnings and payout history for a provider.",
         "operationId": "api_provider_earnings_api_providers__provider_id__earnings_get",
         "parameters": [
@@ -7202,7 +3375,7 @@
         "tags": [
           "Providers"
         ],
-        "summary": "Api Provider Payout",
+        "summary": "Provider Payout",
         "description": "Split a job payment between provider (85%) and platform (15%).\n\nApplies province-specific GST/HST. If Stripe is configured,\ncreates a real Transfer to the provider's connected account.",
         "operationId": "api_provider_payout_api_providers__provider_id__payout_post",
         "parameters": [
@@ -7258,72 +3431,12 @@
         }
       }
     },
-    "/api/providers/webhook": {
-      "post": {
-        "tags": [
-          "Providers"
-        ],
-        "summary": "Api Stripe Webhook",
-        "description": "Handle Stripe Connect webhooks (account.updated, payment_intent.succeeded, etc.).",
-        "operationId": "api_stripe_webhook_api_providers_webhook_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/llms.txt": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Llms Txt",
-        "description": "Serve LLM-optimized documentation for AI agents.\n\nPer Report #1.B: \"Standard llms.txt for AI agents\".\nSee https://llmstxt.org for specification.",
-        "operationId": "api_llms_txt_llms_txt_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/me/data-export": {
-      "get": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Data Export",
-        "description": "Export all personal data for the current user (PIPEDA right).\n\nReturns a JSON bundle of all user data: profile, jobs, billing,\nreputation, artifacts, and consent records.",
-        "operationId": "api_data_export_api_auth_me_data_export_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/artifacts/{job_id}/expiry": {
       "get": {
         "tags": [
           "Artifacts"
         ],
-        "summary": "Api Artifact Expiry",
+        "summary": "Artifact Expiry",
         "description": "Get expiry/cleanup dates for artifacts of a given job.\n\nReturns each artifact with its created_at and estimated expiry date\nbased on the configured retention policy.",
         "operationId": "api_artifact_expiry_api_artifacts__job_id__expiry_get",
         "parameters": [
@@ -7364,7 +3477,7 @@
         "tags": [
           "Reputation"
         ],
-        "summary": "Api Reputation Breakdown",
+        "summary": "Reputation Breakdown",
         "description": "Get a detailed breakdown of how a reputation score is calculated.\n\nReturns component scores: jobs completed, uptime bonus, penalties, decay.",
         "operationId": "api_reputation_breakdown_api_reputation__entity_id__breakdown_get",
         "parameters": [
@@ -7400,164 +3513,12 @@
         }
       }
     },
-    "/api/inference": {
-      "post": {
-        "tags": [
-          "Inference"
-        ],
-        "summary": "Api Inference Submit",
-        "description": "Submit a serverless inference request.\n\nSchedules a short-lived GPU job that runs the specified model on the\nprovided inputs. Returns a job_id to poll for results.",
-        "operationId": "api_inference_submit_api_inference_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InferenceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/inference/{job_id}": {
-      "get": {
-        "tags": [
-          "Inference"
-        ],
-        "summary": "Api Inference Result",
-        "description": "Get inference results for a submitted request.",
-        "operationId": "api_inference_result_api_inference__job_id__get",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/inference/models/available": {
-      "get": {
-        "tags": [
-          "Inference"
-        ],
-        "summary": "Api Inference Models",
-        "description": "List available inference models and their resource requirements.",
-        "operationId": "api_inference_models_api_inference_models_available_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/inference/{job_id}/result": {
-      "post": {
-        "tags": [
-          "Inference"
-        ],
-        "summary": "Api Inference Post Result",
-        "description": "Worker callback: post inference results. Internal use.",
-        "operationId": "api_inference_post_result_api_inference__job_id__result_post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InferenceResultCallback"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/inference": {
       "post": {
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api V1 Inference Sync",
+        "summary": "V1 Inference Sync",
         "description": "Synchronous inference endpoint (OpenAI-compatible path).\n\nSubmits an inference request and polls for results up to 30 seconds.\nIf stream=true, returns SSE text/event-stream with token deltas.",
         "operationId": "api_v1_inference_sync_v1_inference_post",
         "requestBody": {
@@ -7597,7 +3558,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api V1 Inference Async",
+        "summary": "V1 Inference Async",
         "description": "Asynchronous inference \u2014 returns job_id immediately for polling.",
         "operationId": "api_v1_inference_async_v1_inference_async_post",
         "requestBody": {
@@ -7637,7 +3598,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api V1 Inference Poll",
+        "summary": "V1 Inference Poll",
         "description": "Poll for inference results by job_id.",
         "operationId": "api_v1_inference_poll_v1_inference__job_id__get",
         "parameters": [
@@ -7673,92 +3634,14 @@
         }
       }
     },
-    "/api/alerts/config": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Alert Config Alias",
-        "description": "Alias for /alerts/config with /api/ prefix.",
-        "operationId": "api_get_alert_config_alias_api_alerts_config_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Set Alert Config Alias",
-        "description": "Alias for PUT /alerts/config with /api/ prefix.",
-        "operationId": "api_set_alert_config_alias_api_alerts_config_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AlertConfig"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/artifacts": {
       "get": {
         "tags": [
           "Artifacts"
         ],
-        "summary": "Api List All Artifacts",
+        "summary": "List All Artifacts",
         "description": "List all artifacts (no job filter).",
         "operationId": "api_list_all_artifacts_api_artifacts_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/instances": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm List Instances",
-        "description": "List all tracked Slurm jobs.",
-        "operationId": "api_slurm_list_instances_api_slurm_instances_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -7776,7 +3659,7 @@
         "tags": [
           "Events"
         ],
-        "summary": "Api Get All Events",
+        "summary": "Get All Events",
         "description": "Get recent events across all entities.",
         "operationId": "api_get_all_events_api_events_get",
         "parameters": [
@@ -7818,7 +3701,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Get User Preferences",
+        "summary": "Get User Preferences",
         "description": "Get user preferences.",
         "operationId": "api_get_user_preferences_api_users_me_preferences_get",
         "responses": {
@@ -7836,7 +3719,7 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Api Set User Preferences",
+        "summary": "Set User Preferences",
         "description": "Update user preferences.",
         "operationId": "api_set_user_preferences_api_users_me_preferences_put",
         "requestBody": {
@@ -7878,7 +3761,7 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Api List Notifications",
+        "summary": "List Notifications",
         "description": "List notifications for the current user.",
         "operationId": "api_list_notifications_api_notifications_get",
         "parameters": [
@@ -7930,7 +3813,7 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Api Notification Unread Count",
+        "summary": "Notification Unread Count",
         "description": "Get the unread notification count for the current user.",
         "operationId": "api_notification_unread_count_api_notifications_unread_count_get",
         "responses": {
@@ -7950,7 +3833,7 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Api Mark Notification Read",
+        "summary": "Mark Notification Read",
         "description": "Mark a single notification as read.",
         "operationId": "api_mark_notification_read_api_notifications__notification_id__read_post",
         "parameters": [
@@ -7991,7 +3874,7 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Api Mark All Read",
+        "summary": "Mark All Read",
         "description": "Mark all notifications as read for the current user.",
         "operationId": "api_mark_all_read_api_notifications_read_all_post",
         "responses": {
@@ -8011,7 +3894,7 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Api Delete Notification",
+        "summary": "Delete Notification",
         "description": "Delete a single notification.",
         "operationId": "api_delete_notification_api_notifications__notification_id__delete",
         "parameters": [
@@ -8047,233 +3930,12 @@
         }
       }
     },
-    "/api/admin/stats": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Stats",
-        "description": "Get admin dashboard statistics.",
-        "operationId": "api_admin_stats_api_admin_stats_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/users": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Users",
-        "description": "List all users for admin panel.",
-        "operationId": "api_admin_users_api_admin_users_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/verification-queue": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Verification Queue",
-        "description": "Get verification queue for admin panel.",
-        "operationId": "api_admin_verification_queue_api_admin_verification_queue_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/chat": {
-      "post": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Api Chat",
-        "description": "Stream an AI chat response about Xcelsior via SSE.",
-        "operationId": "api_chat_api_chat_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/chat/suggestions": {
-      "get": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Api Chat Suggestions",
-        "description": "Return suggested starter questions for the chat widget.",
-        "operationId": "api_chat_suggestions_api_chat_suggestions_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/chat/history/{conversation_id}": {
-      "get": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Api Chat History",
-        "description": "Return message history for an existing conversation.",
-        "operationId": "api_chat_history_api_chat_history__conversation_id__get",
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/chat/conversations": {
-      "get": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Api Chat Conversations",
-        "description": "List recent conversations for the authenticated user.",
-        "operationId": "api_chat_conversations_api_chat_conversations_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/chat/feedback": {
-      "post": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Api Chat Feedback",
-        "description": "Record thumbs-up / thumbs-down feedback on a chat message.",
-        "operationId": "api_chat_feedback_api_chat_feedback_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatFeedbackRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v2/marketplace/offers": {
       "post": {
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Create Offer",
+        "summary": "Marketplace Create Offer",
         "description": "Create or update a GPU offer on the marketplace.",
         "operationId": "api_marketplace_create_offer_api_v2_marketplace_offers_post",
         "requestBody": {
@@ -8313,7 +3975,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Search",
+        "summary": "Marketplace Search",
         "description": "Search available GPU offers with filters.",
         "operationId": "api_marketplace_search_api_v2_marketplace_search_post",
         "requestBody": {
@@ -8353,7 +4015,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Spot Prices",
+        "summary": "Marketplace Spot Prices",
         "description": "Get current spot prices for all GPU models.",
         "operationId": "api_marketplace_spot_prices_api_v2_marketplace_spot_prices_get",
         "responses": {
@@ -8373,7 +4035,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Spot History",
+        "summary": "Marketplace Spot History",
         "description": "Get spot price history for a GPU model.",
         "operationId": "api_marketplace_spot_history_api_v2_marketplace_spot_prices__gpu_model__history_get",
         "parameters": [
@@ -8424,7 +4086,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Stats V2",
+        "summary": "Marketplace Stats V2",
         "description": "Get marketplace aggregate statistics.",
         "operationId": "api_marketplace_stats_v2_api_v2_marketplace_stats_get",
         "responses": {
@@ -8444,7 +4106,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Create Reservation",
+        "summary": "Marketplace Create Reservation",
         "description": "Create a reserved instance commitment.",
         "operationId": "api_marketplace_create_reservation_api_v2_marketplace_reservations_post",
         "requestBody": {
@@ -8484,7 +4146,7 @@
         "tags": [
           "Marketplace v2"
         ],
-        "summary": "Api Marketplace Cancel Reservation",
+        "summary": "Marketplace Cancel Reservation",
         "description": "Cancel a reserved instance commitment early.\n\nComputes early termination fee: remaining_months * monthly_rate * 50%.",
         "operationId": "api_marketplace_cancel_reservation_api_v2_marketplace_reservations__reservation_id__delete",
         "parameters": [
@@ -8520,93 +4182,12 @@
         }
       }
     },
-    "/api/v2/marketplace/allocate": {
-      "post": {
-        "tags": [
-          "Marketplace v2"
-        ],
-        "summary": "Api Marketplace Allocate",
-        "description": "Allocate GPUs from an offer for a job. Atomic \u2014 prevents double-sell.",
-        "operationId": "api_marketplace_allocate_api_v2_marketplace_allocate_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AllocateGPURequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v2/marketplace/release/{allocation_id}": {
-      "post": {
-        "tags": [
-          "Marketplace v2"
-        ],
-        "summary": "Api Marketplace Release",
-        "description": "Release a GPU allocation (job completed/failed).",
-        "operationId": "api_marketplace_release_api_v2_marketplace_release__allocation_id__post",
-        "parameters": [
-          {
-            "name": "allocation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Allocation Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v2/gpu/available": {
       "get": {
         "tags": [
           "GPU"
         ],
-        "summary": "Api Gpu Available",
+        "summary": "Gpu Available",
         "description": "List available GPU types with regions, VRAM, pricing, and counts.\n\nUsed by both Serverless and Volumes to populate GPU/region pickers.\nQueries gpu_offers first, then hosts table. If neither has data,\nreturns an empty list \u2014 no fake inventory.",
         "operationId": "api_gpu_available_api_v2_gpu_available_get",
         "responses": {
@@ -8626,7 +4207,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Inference List Endpoints",
+        "summary": "Inference List Endpoints",
         "description": "List inference endpoints for the current user.",
         "operationId": "api_inference_list_endpoints_api_v2_inference_endpoints_get",
         "responses": {
@@ -8644,7 +4225,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Inference Create Endpoint",
+        "summary": "Inference Create Endpoint",
         "description": "Create a serverless inference endpoint.\n\nIf min_workers >= 1, a worker container is provisioned immediately.\nBilling is real-time from credits (per-second compute + per-token inference).",
         "operationId": "api_inference_create_endpoint_api_v2_inference_endpoints_post",
         "requestBody": {
@@ -8684,7 +4265,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Inference Get Endpoint",
+        "summary": "Inference Get Endpoint",
         "description": "Get inference endpoint details.",
         "operationId": "api_inference_get_endpoint_api_v2_inference_endpoints__endpoint_id__get",
         "parameters": [
@@ -8723,7 +4304,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Inference Delete Endpoint",
+        "summary": "Inference Delete Endpoint",
         "description": "Delete an inference endpoint.",
         "operationId": "api_inference_delete_endpoint_api_v2_inference_endpoints__endpoint_id__delete",
         "parameters": [
@@ -8764,7 +4345,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Inference Endpoint Health",
+        "summary": "Inference Endpoint Health",
         "description": "Get health status for an inference endpoint and its workers.",
         "operationId": "api_inference_endpoint_health_api_v2_inference_endpoints__endpoint_id__health_get",
         "parameters": [
@@ -8805,7 +4386,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Inference Endpoint Usage",
+        "summary": "Inference Endpoint Usage",
         "description": "Get usage stats for an inference endpoint.",
         "operationId": "api_inference_endpoint_usage_api_v2_inference_endpoints__endpoint_id__usage_get",
         "parameters": [
@@ -8846,7 +4427,7 @@
         "tags": [
           "Inference v2"
         ],
-        "summary": "Api Openai Chat Completions",
+        "summary": "Openai Chat Completions",
         "description": "OpenAI-compatible chat completions endpoint.\n\nRoutes to a serverless inference endpoint running the requested model.",
         "operationId": "api_openai_chat_completions_v1_chat_completions_post",
         "requestBody": {
@@ -8881,53 +4462,12 @@
         }
       }
     },
-    "/api/v2/inference/complete/{request_id}": {
-      "post": {
-        "tags": [
-          "Inference v2"
-        ],
-        "summary": "Api Inference Complete",
-        "description": "Worker callback: mark inference request as completed with results.",
-        "operationId": "api_inference_complete_api_v2_inference_complete__request_id__post",
-        "parameters": [
-          {
-            "name": "request_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Request Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v2/volumes": {
       "get": {
         "tags": [
           "Volumes"
         ],
-        "summary": "Api Volume List",
+        "summary": "Volume List",
         "description": "List volumes owned by the current user.",
         "operationId": "api_volume_list_api_v2_volumes_get",
         "responses": {
@@ -8945,7 +4485,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Api Volume Create",
+        "summary": "Volume Create",
         "description": "Create a new persistent volume. Billed in real-time from credits.",
         "operationId": "api_volume_create_api_v2_volumes_post",
         "requestBody": {
@@ -8985,7 +4525,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Api Volume Get",
+        "summary": "Volume Get",
         "description": "Get volume details.",
         "operationId": "api_volume_get_api_v2_volumes__volume_id__get",
         "parameters": [
@@ -9024,7 +4564,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Api Volume Delete",
+        "summary": "Volume Delete",
         "description": "Delete a volume. Must not have active attachments.",
         "operationId": "api_volume_delete_api_v2_volumes__volume_id__delete",
         "parameters": [
@@ -9065,7 +4605,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Api Volume Attach",
+        "summary": "Volume Attach",
         "description": "Attach a volume to a running instance.",
         "operationId": "api_volume_attach_api_v2_volumes__volume_id__attach_post",
         "parameters": [
@@ -9116,7 +4656,7 @@
         "tags": [
           "Volumes"
         ],
-        "summary": "Api Volume Detach",
+        "summary": "Volume Detach",
         "description": "Detach a volume from its current instance.",
         "operationId": "api_volume_detach_api_v2_volumes__volume_id__detach_post",
         "parameters": [
@@ -9157,7 +4697,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Billing Get Topup",
+        "summary": "Billing Get Topup",
         "description": "Get current auto-top-up configuration.",
         "operationId": "api_billing_get_topup_api_v2_billing_auto_topup_get",
         "responses": {
@@ -9175,7 +4715,7 @@
         "tags": [
           "Billing"
         ],
-        "summary": "Api Billing Configure Topup",
+        "summary": "Billing Configure Topup",
         "description": "Configure wallet auto-top-up via Stripe.",
         "operationId": "api_billing_configure_topup_api_v2_billing_auto_topup_post",
         "requestBody": {
@@ -9210,32 +4750,12 @@
         }
       }
     },
-    "/api/v2/burst/status": {
-      "get": {
-        "tags": [
-          "Cloud Burst"
-        ],
-        "summary": "Api Burst Status",
-        "description": "Get cloud burst auto-scaling status.",
-        "operationId": "api_burst_status_api_v2_burst_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v2/privacy/consent": {
       "post": {
         "tags": [
           "Privacy"
         ],
-        "summary": "Api Privacy Record Consent",
+        "summary": "Privacy Record Consent",
         "description": "Record CASL consent for a purpose.",
         "operationId": "api_privacy_record_consent_api_v2_privacy_consent_post",
         "requestBody": {
@@ -9275,7 +4795,7 @@
         "tags": [
           "Privacy"
         ],
-        "summary": "Api Privacy Withdraw Consent",
+        "summary": "Privacy Withdraw Consent",
         "description": "Withdraw CASL consent for a purpose (unsubscribe).",
         "operationId": "api_privacy_withdraw_consent_api_v2_privacy_consent__purpose__delete",
         "parameters": [
@@ -9316,7 +4836,7 @@
         "tags": [
           "Privacy"
         ],
-        "summary": "Api Privacy List Consents",
+        "summary": "Privacy List Consents",
         "description": "List all consent records for the current user.",
         "operationId": "api_privacy_list_consents_api_v2_privacy_consents_get",
         "responses": {
@@ -9336,7 +4856,7 @@
         "tags": [
           "Privacy"
         ],
-        "summary": "Api Privacy Right To Erasure",
+        "summary": "Privacy Right To Erasure",
         "description": "Execute right-to-erasure (PIPEDA/Law 25). Irreversible.",
         "operationId": "api_privacy_right_to_erasure_api_v2_privacy_erase_post",
         "responses": {
@@ -9351,64 +4871,12 @@
         }
       }
     },
-    "/api/v2/scheduler/process-binpack": {
-      "post": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "Api Process Queue Binpack",
-        "description": "Process job queue using best-fit-decreasing bin packing.",
-        "operationId": "api_process_queue_binpack_api_v2_scheduler_process_binpack_post",
-        "parameters": [
-          {
-            "name": "canada_only",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Canada Only"
-            }
-          },
-          {
-            "name": "province",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Province"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/ai/chat": {
       "post": {
         "tags": [
           "AI Assistant"
         ],
-        "summary": "Api Ai Chat",
+        "summary": "Ai Chat",
         "description": "Stream an AI assistant response with tool-calling support via SSE.",
         "operationId": "api_ai_chat_api_ai_chat_post",
         "requestBody": {
@@ -9448,7 +4916,7 @@
         "tags": [
           "AI Assistant"
         ],
-        "summary": "Api Ai List Conversations",
+        "summary": "Ai List Conversations",
         "description": "List the current user's AI assistant conversations.",
         "operationId": "api_ai_list_conversations_api_ai_conversations_get",
         "parameters": [
@@ -9490,7 +4958,7 @@
         "tags": [
           "AI Assistant"
         ],
-        "summary": "Api Ai Get Conversation",
+        "summary": "Ai Get Conversation",
         "description": "Get messages for an AI assistant conversation.",
         "operationId": "api_ai_get_conversation_api_ai_conversations__conversation_id__get",
         "parameters": [
@@ -9520,105 +4988,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "AI Assistant"
-        ],
-        "summary": "Api Ai Delete Conversation",
-        "description": "Delete an AI assistant conversation.",
-        "operationId": "api_ai_delete_conversation_api_ai_conversations__conversation_id__delete",
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ai/confirm": {
-      "post": {
-        "tags": [
-          "AI Assistant"
-        ],
-        "summary": "Api Ai Confirm",
-        "description": "Approve or reject a pending AI tool action.",
-        "operationId": "api_ai_confirm_api_ai_confirm_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AiConfirmRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ai/suggestions": {
-      "get": {
-        "tags": [
-          "AI Assistant"
-        ],
-        "summary": "Api Ai Suggestions",
-        "description": "Get context-aware suggestion chips for the AI assistant.",
-        "operationId": "api_ai_suggestions_api_ai_suggestions_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           }
