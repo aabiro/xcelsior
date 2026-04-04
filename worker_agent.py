@@ -259,7 +259,7 @@ try:
 
     # ── GPU Identity ──
     report["gpu_model"] = props.name
-    report["total_vram_gb"] = round(props.total_mem / (1024**3), 2)
+    report["total_vram_gb"] = round(props.total_memory / (1024**3), 2)
     report["compute_capability"] = f"{props.major}.{props.minor}"
 
     # ── CUDA / Driver Versions ──

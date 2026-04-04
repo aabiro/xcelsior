@@ -1450,19 +1450,8 @@ class TestStreamSecurity:
             assert any(e.get("type") == "error" and "not found" in e.get("message", "").lower() for e in events)
 
     async def test_missing_api_key(self):
-        """stream_ai_response should error if ANTHROPIC_API_KEY is empty."""
-        with patch("ai_assistant.ANTHROPIC_API_KEY", ""):
-            events = await self._collect_sse(
-                stream_ai_response("hello", "conv-1", _user())
-            )
-            assert any(e.get("type") == "error" and "not configured" in e.get("message", "").lower() for e in events)
-
-    async def test_valid_request_passes_security(self):
-        """stream_ai_response should emit meta event when security checks pass."""
+        """stream_ai_response should error when live mode is enabled but no provider keys exist."""
         conv = {"conversation_id": "conv-1", "user_id": "u-123", "title": "test"}
-        mock_client = AsyncMock()
-        # Make the Anthropic call raise to stop early (we just want to verify meta is emitted)
-        mock_client.messages.create.side_effect = Exception("test stop")
 
         import contextlib
         mock_conn = MagicMock()
@@ -1476,16 +1465,91 @@ class TestStreamSecurity:
         with patch("ai_assistant.check_ai_rate_limit", return_value=True), \
              patch("ai_assistant.get_conversation", return_value=conv), \
              patch("ai_assistant._ai_db", fake_ai_db), \
-             patch("ai_assistant.ANTHROPIC_API_KEY", "test-key"), \
-             patch("anthropic.AsyncAnthropic", return_value=mock_client), \
+             patch("ai_assistant.AI_ENABLE_LIVE_CALLS", True), \
+             patch("ai_assistant.AI_PROVIDER", "anthropic"), \
+             patch("ai_assistant.AI_FALLBACK_PROVIDERS", "openai"), \
+             patch("ai_assistant.ANTHROPIC_API_KEY", ""), \
+             patch("ai_assistant.TEXT_PROVIDERS", {
+                 "xai": {"base_url": "https://api.x.ai/v1", "default_model": "grok-4", "api_key": "", "model": ""},
+                 "openai": {"base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini", "api_key": "", "model": ""},
+             }), \
              patch("privacy.redact_pii", side_effect=lambda x: x):
             events = await self._collect_sse(
                 stream_ai_response("hello", "conv-1", _user())
             )
-            # Should at least emit meta before the error
+            assert any(e.get("type") == "error" and "not configured" in e.get("message", "").lower() for e in events)
+
+    async def test_valid_request_passes_security(self):
+        """stream_ai_response should emit meta event when security checks pass."""
+        conv = {"conversation_id": "conv-1", "user_id": "u-123", "title": "test"}
+
+        import contextlib
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_conn.row_factory = None
+
+        @contextlib.contextmanager
+        def fake_ai_db():
+            yield mock_conn
+
+        with patch("ai_assistant.check_ai_rate_limit", return_value=True), \
+             patch("ai_assistant.get_conversation", return_value=conv), \
+             patch("ai_assistant._ai_db", fake_ai_db), \
+             patch("ai_assistant.AI_ENABLE_LIVE_CALLS", False), \
+             patch("privacy.redact_pii", side_effect=lambda x: x):
+            events = await self._collect_sse(
+                stream_ai_response("hello", "conv-1", _user())
+            )
+            # Should emit meta and mock tokens without touching a live provider.
             meta_events = [e for e in events if e.get("type") == "meta"]
+            token_events = [e for e in events if e.get("type") == "token"]
             assert len(meta_events) >= 1
             assert meta_events[0]["conversation_id"] == "conv-1"
+            assert token_events
+            assert any("disabled" in e.get("content", "").lower() for e in token_events)
+
+    async def test_openai_fallback_used_for_xcel_ai(self):
+        """Xcel AI should skip missing xAI creds and use OpenAI before failing."""
+        conv = {"conversation_id": "conv-1", "user_id": "u-123", "title": "test"}
+
+        import contextlib
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = []
+        mock_conn.row_factory = None
+
+        @contextlib.contextmanager
+        def fake_ai_db():
+            yield mock_conn
+
+        async def fake_text_stream(*args, **kwargs):
+            yield "fallback "
+            yield "worked"
+
+        async def fake_openai_stream(*args, **kwargs):
+            yield f'data: {json.dumps({"type": "token", "content": "fallback "})}\n\n'
+            yield f'data: {json.dumps({"type": "token", "content": "worked"})}\n\n'
+            yield f'data: {json.dumps({"type": "done"})}\n\n'
+
+        with patch("ai_assistant.check_ai_rate_limit", return_value=True), \
+             patch("ai_assistant.get_conversation", return_value=conv), \
+             patch("ai_assistant._ai_db", fake_ai_db), \
+             patch("ai_assistant.AI_ENABLE_LIVE_CALLS", True), \
+             patch("ai_assistant.AI_PROVIDER", "xai"), \
+             patch("ai_assistant.AI_FALLBACK_PROVIDERS", "anthropic,openai"), \
+             patch("ai_assistant.ANTHROPIC_API_KEY", ""), \
+             patch("ai_assistant.TEXT_PROVIDERS", {
+                 "xai": {"base_url": "https://api.x.ai/v1", "default_model": "grok-4", "api_key": "", "model": ""},
+                 "openai": {"base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini", "api_key": "openai-key", "model": "gpt-4o-mini"},
+             }), \
+             patch("ai_assistant._stream_text_completion", side_effect=fake_text_stream), \
+             patch("ai_assistant._stream_with_openai_tool_provider", side_effect=fake_openai_stream), \
+             patch("privacy.redact_pii", side_effect=lambda x: x):
+            events = await self._collect_sse(
+                stream_ai_response("hello", "conv-1", _user())
+            )
+            token_events = [e for e in events if e.get("type") == "token"]
+            assert any("fallback" in e.get("content", "") for e in token_events)
+            assert any(e.get("type") == "done" for e in events)
 
 
 class TestExecuteConfirmedActionErrorCheck:

@@ -62,7 +62,6 @@ export const WORKLOAD_IMAGE_MAP: Record<string, string> = {
     training: "nvcr.io/nvidia/pytorch:24.01-py3",
     inference: "vllm/vllm-openai:latest",
     research: "quay.io/jupyter/pytorch-notebook:cuda12-latest",
-    "fine-tuning": "nvcr.io/nvidia/pytorch:24.01-py3",
     other: "nvidia/cuda:12.4.1-devel-ubuntu22.04",
 };
 

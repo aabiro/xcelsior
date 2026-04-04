@@ -72,7 +72,8 @@ port_is_open() {
     ss -tlnp 2>/dev/null | grep -q ":${port} " && return 0
     return 1
 }
-would this be why i dont see the canada map animations version as well?wait_for_port() {
+
+wait_for_port() {
     local port="$1" name="$2" timeout="${3:-30}"
     local elapsed=0
     while ! port_is_open "$port"; do

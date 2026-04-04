@@ -25,6 +25,7 @@ import {
   GpuBrowseStep,
   PaymentGateStep,
   ProviderSummaryStep,
+  BrandSpinner,
 } from "./steps.js";
 
 function App() {
@@ -47,6 +48,7 @@ function App() {
     deviceAuth,
     switchToManualAuth,
     retryDeviceAuth,
+    openBrowserNow,
     submitManualToken,
     gpuListings,
     gpuOptions,
@@ -59,14 +61,25 @@ function App() {
     skipPayment,
     browseError,
     checkCanRetry,
+    checkAwaitContinue,
     retryCheck,
     skipCheck,
+    continueFromCheck,
+    continueFromAuth,
+    tokenSaveError,
+    deviceAuthEnvPath,
     aiAvailable,
     showAiPrompt,
     toggleAiPrompt,
     chatHistory,
     currentAiQuestion,
     providerSummary,
+    pendingConfirmation,
+    confirmAi,
+    aiToolCalls,
+    transitioning,
+    hasAiDetails,
+    revealAi,
   } = useWizardFlow();
 
   const handleExit = useCallback(() => setExiting(true), []);
@@ -77,15 +90,36 @@ function App() {
 
   // Global "?" keybind — opens AI prompt on any step that supports it
   useInput((input, key) => {
-    if (input === "?" && aiAvailable && aiResponse === null && !showAiPrompt) {
+    // Quit from anywhere — q exits (except text input & done step which handle q natively)
+    if (input === "q" && step.type !== "text" && step.type !== "done" && !showAiPrompt) {
+      handleExit();
+      return;
+    }
+    // Ctrl+C also triggers exit animation
+    if (key.ctrl && input === "c") {
+      handleExit();
+      return;
+    }
+    // AI confirmation handling
+    if (pendingConfirmation) {
+      if (input === "y" || input === "Y") confirmAi(true);
+      if (input === "n" || input === "N") confirmAi(false);
+      return;
+    }
+    if (input === "?" && aiAvailable && aiResponse === null && !showAiPrompt && !aiStreaming) {
       // Only on steps where text input isn't active (text steps handle ? natively)
       if (step.type !== "text" && step.type !== "device-auth" && step.type !== "done") {
         toggleAiPrompt();
       }
     }
+    // Reveal buffered AI details
+    if ((input === "d" || input === "D") && hasAiDetails && !aiStreaming) {
+      revealAi();
+      return;
+    }
     // Device auth controls — only when still pending/error, not after authorized
     if (step.type === "device-auth" && deviceAuth.status !== "authorized") {
-      if ((input === "m" || input === "M") && deviceAuth.status === "waiting") switchToManualAuth();
+      if ((input === "m" || input === "M") && (deviceAuth.status === "waiting" || deviceAuth.status === "error")) switchToManualAuth();
       if (input === "\r" && deviceAuth.status === "error") retryDeviceAuth();
     }
     // Auto-fetch retry
@@ -94,9 +128,16 @@ function App() {
     }
   });
 
-  const totalSteps = WIZARD_STEPS.filter(
-    (s) => !s.condition || s.condition(answers),
-  ).length;
+  // Compute total steps based only on mode to prevent progress bar jumps
+  const totalSteps = useMemo(() => {
+    const mode = answers.mode as string | undefined;
+    if (!mode) return WIZARD_STEPS.length;
+    // Use a stable snapshot with only mode set for condition evaluation
+    const stableAnswers: Record<string, string> = { mode };
+    return WIZARD_STEPS.filter(
+      (s) => !s.condition || s.condition(stableAnswers),
+    ).length;
+  }, [answers.mode]);
   const currentNum = WIZARD_STEPS.slice(0, stepIndex + 1).filter(
     (s) => !s.condition || s.condition(answers),
   ).length;
@@ -125,25 +166,27 @@ function App() {
         branch={wizardBranch}
       />
 
-      {/* Progress bar */}
-      {!isComplete && <ProgressBar current={currentNum} total={totalSteps} />}
+      {/* Progress bar — hidden until mode is chosen (step count unknown before then) */}
+      {!isComplete && answers.mode && <ProgressBar current={currentNum} total={totalSteps} />}
 
       {/* AI escape hatch response */}
       {aiResponse !== null && (
-        <Box marginTop={1}>
+        <Box marginTop={1} width={64}>
           <AiResponse
             response={aiResponse}
             streaming={aiStreaming}
             onDismiss={dismissAi}
             chatHistory={chatHistory}
             currentQuestion={currentAiQuestion ?? undefined}
+            toolCalls={aiToolCalls}
+            pendingConfirmation={pendingConfirmation ?? undefined}
           />
         </Box>
       )}
 
       {/* Inline AI prompt (for non-text steps) */}
       {showAiPrompt && aiResponse === null && (
-        <Box marginTop={1}>
+        <Box marginTop={1} width={64}>
           <AiPrompt
             onSubmit={askAi}
             onCancel={toggleAiPrompt}
@@ -151,9 +194,16 @@ function App() {
         </Box>
       )}
 
-      {/* Step content (hidden while AI response is showing) */}
-      {aiResponse === null && !showAiPrompt && (
-        <Box flexDirection="column" marginTop={1}>
+      {/* Spinner during choreography transition */}
+      {transitioning && (
+        <Box marginTop={1}>
+          <BrandSpinner />
+        </Box>
+      )}
+
+      {/* Step content (hidden while AI response is showing or during transition) */}
+      {aiResponse === null && !showAiPrompt && !transitioning && (
+        <Box flexDirection="column" marginTop={1} width={64}>
           {step.type === "select" && step.options && (
             <SelectStep
               options={step.id === "gpu-pick" ? gpuOptions : step.id === "image-pick" ? imageOptions : step.options}
@@ -174,9 +224,24 @@ function App() {
             <AutoCheckStep
               results={checkResults[step.id]}
               canRetry={checkCanRetry}
+              awaitContinue={checkAwaitContinue}
               required={step.checkRequired}
+              successTitle={{
+                docker: "Docker environment ready!",
+                api: "Connection verified!",
+                gpu: "GPUs detected!",
+                versions: "Version checks passed!",
+                benchmark: "Benchmarks complete!",
+                network: "Network tests passed!",
+                verify: "Hardware verified!",
+                "host-register": "Host registered on the marketplace!",
+                admission: "Admission checks passed!",
+                launch: "Instance launched!",
+                wallet: "Wallet check passed!",
+              }[step.checkId ?? ""] ?? "All checks passed!"}
               onRetry={retryCheck}
               onSkip={skipCheck}
+              onContinue={continueFromCheck}
             />
           )}
 
@@ -205,6 +270,10 @@ function App() {
               token={deviceAuth.token ?? undefined}
               email={deviceAuth.email ?? undefined}
               errorMessage={deviceAuth.errorMessage ?? undefined}
+              onContinue={continueFromAuth}
+              onOpenBrowser={openBrowserNow}
+              envPath={deviceAuthEnvPath}
+              tokenSaveError={tokenSaveError}
             />
           )}
 
@@ -247,7 +316,7 @@ function App() {
 
       {/* Hint: AI escape hatch (visible after auth) */}
       {!isComplete && aiAvailable && step.type !== "device-auth" && aiResponse === null && !showAiPrompt && (
-        <Box marginTop={1} marginLeft={4}>
+        <Box marginTop={1} width={64}>
           <Text dimColor>
             {step.type === "text"
               ? <>Type <Text bold>?</Text> followed by a question to ask Hexara for help</>
@@ -259,7 +328,7 @@ function App() {
 
       {/* Persistent chat history from this step (visible even after dismiss) */}
       {chatHistory.length > 0 && aiResponse === null && !showAiPrompt && (
-        <Box marginTop={1} marginLeft={4} flexDirection="column" borderStyle="single" borderColor="#374151" paddingX={1}>
+        <Box marginTop={1} width={64} flexDirection="column" borderStyle="single" borderColor="#374151" paddingX={1}>
           {chatHistory.map((msg, i) => (
             <Box key={i} flexDirection="column">
               <Text color="#00d4ff" dimColor>You: {msg.question}</Text>

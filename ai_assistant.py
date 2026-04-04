@@ -1,5 +1,5 @@
-# Xcelsior AI Assistant — Tool-calling LLM agent with Anthropic Claude
-# Streams responses via SSE, executes read-only tools automatically,
+# Xcelsior AI Assistant — Multi-provider AI assistant with Anthropic tool-calling
+# Streams responses via SSE, executes read-only tools automatically when supported,
 # and requires user confirmation for write actions.
 
 import asyncio
@@ -21,11 +21,33 @@ log = logging.getLogger("xcelsior.ai_assistant")
 # ── Configuration ─────────────────────────────────────────────────────
 
 FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in ("true", "1", "yes")
+AI_PROVIDER = os.environ.get("AI_ASSISTANT_PROVIDER", "xai").strip().lower() or "xai"
+AI_FALLBACK_PROVIDERS = os.environ.get("AI_ASSISTANT_FALLBACK_PROVIDERS", "anthropic,openai")
+AI_ENABLE_LIVE_CALLS = os.environ.get("AI_ASSISTANT_ENABLE_LIVE_CALLS", "false").lower() in ("true", "1", "yes")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-20250414")
 AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS", "4096"))
 AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))  # per minute per user
 CONFIRMATION_TTL_SEC = 300  # 5 minutes to approve/reject
+
+TEXT_PROVIDERS = {
+    "xai": {
+        "base_url": "https://api.x.ai/v1",
+        "default_model": "grok-4",
+        "api_key": os.environ.get("AI_ASSISTANT_XAI_API_KEY", ""),
+        "model": os.environ.get("AI_ASSISTANT_XAI_MODEL", ""),
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+        "api_key": os.environ.get("AI_ASSISTANT_OPENAI_API_KEY", ""),
+        "model": os.environ.get("AI_ASSISTANT_OPENAI_MODEL", ""),
+    },
+}
+SUPPORTED_AI_PROVIDERS = {"anthropic", *TEXT_PROVIDERS.keys()}
+
+# Providers with tool/function-calling support (OpenAI-compatible or native)
+TOOL_CAPABLE_PROVIDERS = {"anthropic", "openai"}
 
 # Write actions that always require user confirmation
 WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key", "revoke_api_key"}
@@ -46,6 +68,119 @@ def check_ai_rate_limit(user_id: str) -> bool:
         return False
     bucket.append(now)
     return True
+
+
+def _parse_provider_list(raw: str) -> list[str]:
+    seen: set[str] = set()
+    providers: list[str] = []
+    for item in (raw or "").split(","):
+        name = item.strip().lower()
+        if not name or name in seen or name not in SUPPORTED_AI_PROVIDERS:
+            continue
+        providers.append(name)
+        seen.add(name)
+    return providers
+
+
+def _get_provider_order() -> list[str]:
+    primary = AI_PROVIDER if AI_PROVIDER in SUPPORTED_AI_PROVIDERS else "anthropic"
+    order = [primary]
+    order.extend(p for p in _parse_provider_list(AI_FALLBACK_PROVIDERS) if p != primary)
+    return order
+
+
+def _get_text_provider_config(provider: str) -> dict:
+    return TEXT_PROVIDERS.get(provider, TEXT_PROVIDERS["openai"])
+
+
+def _get_provider_api_key(provider: str) -> str:
+    if provider == "anthropic":
+        return ANTHROPIC_API_KEY
+    return _get_text_provider_config(provider).get("api_key", "")
+
+
+def _get_provider_model(provider: str) -> str:
+    if provider == "anthropic":
+        return AI_MODEL
+    cfg = _get_text_provider_config(provider)
+    return cfg.get("model") or cfg["default_model"]
+
+
+def _has_any_live_provider() -> bool:
+    return any(_get_provider_api_key(provider) for provider in _get_provider_order())
+
+
+def _iter_text_chunks(text: str):
+    for word in text.split():
+        yield f"{word} "
+
+
+def _build_mock_response(user_message: str) -> str:
+    provider_order = _get_provider_order()
+    provider_chain = " -> ".join(provider_order)
+    primary = provider_order[0] if provider_order else AI_PROVIDER
+    preview = user_message.strip().replace("\n", " ")
+    if len(preview) > 140:
+        preview = preview[:137] + "..."
+    return (
+        f"[mock:{primary}] Live provider calls are disabled for Xcel AI, so no external API call was made. "
+        f"You can test the assistant safely in development. Provider order: {provider_chain}. "
+        f"Latest user message: {preview or '(empty)'}"
+    )
+
+
+def _build_text_messages(history_rows: list[dict], system: str, current_message: str) -> list[dict]:
+    messages = [{"role": "system", "content": system}]
+    for row in history_rows[-30:]:
+        role = row.get("role")
+        content = row.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": current_message})
+    return messages
+
+
+async def _stream_text_completion(
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    max_tokens: int,
+) -> AsyncGenerator[str, None]:
+    cfg = _get_text_provider_config(provider)
+    url = f"{cfg['base_url']}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model or cfg["default_model"],
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:200]}")
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    return
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = choice.get("delta") or {}
+                content = delta.get("content")
+                if content:
+                    yield content
 
 
 # ── Database Helpers ──────────────────────────────────────────────────
@@ -1046,6 +1181,1426 @@ _TOOL_HANDLERS = {
 }
 
 
+# ── Tool Result Cache (30s TTL) ───────────────────────────────────────
+
+_tool_cache: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL = 30  # seconds
+
+
+def _cache_key(name: str, args: dict) -> str:
+    """Build a deterministic cache key from tool name + sorted args."""
+    return f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+
+
+def _get_cached(name: str, args: dict) -> dict | None:
+    key = _cache_key(name, args)
+    entry = _tool_cache.get(key)
+    if entry:
+        ts, result = entry
+        if time.time() - ts < _CACHE_TTL:
+            return result
+        del _tool_cache[key]
+    return None
+
+
+def _set_cached(name: str, args: dict, result: dict):
+    _tool_cache[_cache_key(name, args)] = (time.time(), result)
+
+
+async def _exec_tool_cached(name: str, args: dict, user: dict) -> dict:
+    """Execute a tool with 30-second TTL caching (read-only tools only)."""
+    if name not in WRITE_TOOLS:
+        cached = _get_cached(name, args)
+        if cached is not None:
+            log.debug("Cache hit for tool %s", name)
+            return cached
+    result = await _exec_tool(name, args, user)
+    if name not in WRITE_TOOLS and "error" not in result:
+        _set_cached(name, args, result)
+    return result
+
+
+# ── Pre-fetch Data for Text-Only Providers ────────────────────────────
+
+_WIZARD_PREFETCH: dict[str, list[tuple[str, dict]]] = {
+    "workload":       [("get_gpu_availability", {}), ("recommend_gpu", {"workload": "training"})],
+    "gpu-preference": [("get_gpu_availability", {}), ("search_marketplace", {})],
+    "browse-gpus":    [("search_marketplace", {})],
+    "gpu-pick":       [("get_gpu_availability", {}), ("get_pricing", {}), ("search_marketplace", {})],
+    "image-pick":     [("get_gpu_availability", {})],
+    "wallet-check":   [("get_billing_summary", {})],
+    "payment-gate":   [("get_billing_summary", {})],
+    "pricing":        [("get_pricing", {}), ("search_marketplace", {})],
+    "custom-rate":    [("get_pricing", {}), ("search_marketplace", {})],
+    "benchmark":      [("get_pricing", {})],
+    "host-register":  [("get_pricing", {}), ("search_marketplace", {})],
+    "confirm-launch": [("get_billing_summary", {})],
+    "provider-summary": [("get_pricing", {})],
+}
+
+
+async def _prefetch_wizard_data(step_id: str, user: dict, kv: dict[str, str] | None = None) -> str:
+    """Pre-fetch tool data for text-only providers. Returns formatted context string."""
+    prefetch_list = _WIZARD_PREFETCH.get(step_id, [])
+    if not prefetch_list:
+        return ""
+
+    kv = kv or {}
+    sections: list[str] = []
+    for tool_name, default_args in prefetch_list:
+        # Enrich args with actual wizard context where possible
+        args = dict(default_args)
+        if tool_name == "recommend_gpu" and kv.get("workload"):
+            args["workload"] = kv["workload"]
+        if tool_name == "search_marketplace" and kv.get("gpu"):
+            args["gpu_model"] = kv["gpu"]
+        try:
+            result = await _exec_tool_cached(tool_name, args, user)
+            if "error" not in result:
+                sections.append(f"[{tool_name}]:\n{json.dumps(result, indent=2, default=str)}")
+        except Exception as e:
+            log.warning("Prefetch %s failed: %s", tool_name, e)
+
+    if not sections:
+        return ""
+    return (
+        "\n\nPRE-FETCHED PLATFORM DATA (you cannot call tools — use this data directly instead):\n"
+        "Do NOT output tool-call syntax or suggest calling functions. The data below IS the result.\n\n"
+        + "\n\n".join(sections)
+    )
+
+
+# ── OpenAI-Compatible Tool Format ─────────────────────────────────────
+
+def _build_openai_tools() -> list[dict]:
+    """Convert Anthropic tool definitions to OpenAI function-calling format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in _build_tools()
+    ]
+
+
+# ── Wizard Step-Specific AI Steering ─────────────────────────────────
+
+def _parse_wizard_context(page_context: str) -> tuple[str, dict[str, str]]:
+    """Parse 'cli-wizard:STEP_ID | key=value | ...' into (step_id, kv_dict)."""
+    from urllib.parse import unquote
+    import re
+    step_id = ""
+    kv: dict[str, str] = {}
+    parts = [p.strip() for p in page_context.split("|")]
+    if parts:
+        m = re.match(r"cli-wizard:(.+)", parts[0])
+        if m:
+            step_id = m.group(1).strip()
+    _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+    _KEY_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+    for part in parts[1:]:
+        if "=" in part:
+            k, _, v = part.partition("=")
+            k = k.strip()
+            if not _KEY_RE.match(k):
+                continue
+            v = unquote(v.strip())
+            v = _CTRL_RE.sub("", v)[:500]
+            kv[k] = v
+    return step_id, kv
+
+
+def _prompt_docker_check(kv: dict) -> str:
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: Docker Environment Check
+The wizard just ran an automated Docker environment check on this machine.
+{"Failed checks: " + failed if failed else "All checks passed or check is running."}
+
+This check validates: Docker daemon running, user in docker group, nvidia-container-toolkit installed and configured, runc available and correct version, docker can access GPUs.
+
+WHEN CHECKS FAILED — diagnose the exact failure string and respond with the precise fix:
+
+**"Docker: not installed"**
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+# Verify: docker run hello-world
+```
+
+**"Docker: not running" / "Cannot connect to Docker daemon"**
+```bash
+sudo systemctl enable docker && sudo systemctl start docker
+# If still failing: sudo systemctl status docker (read the error)
+```
+
+**"Docker: permission denied"**
+```bash
+sudo usermod -aG docker $USER
+# Must log out and log back in (newgrp docker for current session only)
+# Verify: groups | grep docker
+```
+
+**"nvidia-container-toolkit: not found" or "nvidia-container-toolkit: not configured"**
+```bash
+# Add NVIDIA container toolkit repo and install:
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+# Verify: docker run --gpus all nvidia/cuda:12.2-base-ubuntu22.04 nvidia-smi
+```
+
+**"runc: not found"**
+```bash
+# Do NOT use apt runc — it's too old. Install via Docker's containerd:
+sudo apt-get install -y containerd.io
+# runc is bundled with containerd.io from Docker's repo
+```
+
+**"runc: version X.Y.Z < 1.1.12"**
+```bash
+# First add Docker's apt repo if not already added:
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update && sudo apt-get install -y containerd.io
+```
+
+WHEN ALL CHECKS PASSED:
+- Confirm Docker is properly set up with NVIDIA GPU passthrough.
+- Tell them the wizard will proceed automatically. No action needed.
+
+ALWAYS end with: "Press **r** to retry the check after making changes." """
+
+
+def _prompt_gpu_detect(kv: dict) -> str:
+    gpu = kv.get("gpu", "")
+    vram = kv.get("vram", "")
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: GPU Detection
+The wizard scanned for NVIDIA GPUs on this machine.
+{"Detected: " + gpu + (" / " + vram + " VRAM" if vram else "") if gpu else "Detection result unknown or failed."}
+{"Failed: " + failed if failed else ""}
+
+WHEN GPU WAS DETECTED SUCCESSFULLY:
+- Confirm to the user what was found: model, VRAM, and driver version.
+- Tell them the wizard will continue automatically. No action needed.
+- If they have multiple GPUs, explain all will be registered (or ask if they want to exclude any).
+
+WHEN GPU DETECTION FAILED — work through these in order:
+1. Run `nvidia-smi` — if it errors, the driver is the problem.
+2. Run `sudo lspci | grep -i nvidia` — if GPU shows here but nvidia-smi fails, driver is not loaded.
+3. Run `sudo lspci | grep -i vga` — if GPU doesn't even show here, it's a hardware/PCIe issue.
+
+**Driver not installed:**
+```bash
+sudo ubuntu-drivers autoinstall  # Ubuntu 20.04+ automatic detection
+# OR manual: sudo apt install nvidia-driver-550
+sudo reboot  # driver requires reboot
+```
+
+**Driver installed but not loading (check dmesg):**
+```bash
+sudo dmesg | grep -i nvidia | tail -20
+# "NVRM: GPU-0000:XX:XX.X: RmInitAdapter failed" → GPU hardware issue or PCIe power
+# "Failed to initialize NVML" → driver version mismatch
+```
+
+**Secure boot blocking driver:**
+```bash
+sudo mokutil --sb-state  # if "SecureBoot enabled", that's the issue
+# Fix: disable Secure Boot in BIOS/UEFI, OR enroll the NVIDIA driver MOK certificate
+```
+
+**GPU not showing in lspci (hardware issue):**
+- Check GPU is seated fully in PCIe x16 slot
+- Check all PCIe power connectors are plugged in (6-pin, 8-pin, or 16-pin as required)
+- Try a different PCIe slot
+- Check PSU wattage is sufficient for the GPU
+
+**Multiple GPUs / wrong GPU selected:**
+```bash
+nvidia-smi -L  # list all detected GPUs with their indices
+```
+
+After driver install always ask user to press **r** to retry detection."""
+
+
+def _prompt_version_check(kv: dict) -> str:
+    failed = kv.get("failed_checks", "none")
+    return f"""## WIZARD STEP: Software Version Check
+The wizard checked software versions required to run as a GPU provider.
+Failed requirements: {failed if failed else "all passed"}
+
+Xcelsior MINIMUM requirements:
+| Component | Minimum | Why |
+|-----------|---------|-----|
+| runc | 1.1.12 | Container isolation security — older versions have CVEs |
+| Docker | 24.0.0 | GPU passthrough API support |
+| NVIDIA driver | 550.0 | CUDA 12.4+ support, required for benchmark |
+| NVIDIA Container Toolkit | 1.17.8 | CDI device injection for container GPU access |
+
+WHEN CHECKS FAILED — give exact fix per failed component:
+
+**runc too old (current: X.Y.Z, need >=1.1.12)**
+```bash
+# The distro runc package is always outdated. Install from Docker's containerd:
+sudo apt-get remove -y runc containerd 2>/dev/null || true
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update && sudo apt-get install -y containerd.io
+runc --version  # verify
+```
+
+**Docker too old (current: X.Y.Z, need >=24.0.0)**
+```bash
+# Remove old Docker
+sudo apt-get remove -y docker docker-engine docker.io containerd runc
+# Install Docker CE from official repo (instructions above already add the repo)
+sudo apt-get install -y docker-ce docker-ce-cli
+docker --version  # verify
+```
+
+**NVIDIA driver too old (current: X.Y.Z, need >=550.0)**
+```bash
+sudo apt-get install --only-upgrade nvidia-driver-550
+# If 550 not available in repos, add graphics-drivers PPA:
+sudo add-apt-repository ppa:graphics-drivers/ppa
+sudo apt-get update
+sudo apt-get install nvidia-driver-550
+sudo reboot  # always reboot after driver upgrade
+```
+
+**NVIDIA Container Toolkit too old (need >=1.17.8)**
+```bash
+sudo apt-get remove -y nvidia-container-toolkit nvidia-container-runtime
+# Re-add repo (in case it's stale) and reinstall:
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+nvidia-ctk --version  # verify
+```
+
+After fixing any component tell user to press **r** to retry the check."""
+
+
+def _prompt_benchmark(kv: dict) -> str:
+    gpu = kv.get("gpu", "unknown")
+    vram = kv.get("vram", "unknown")
+    tflops = kv.get("tflops", "unknown")
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: GPU Compute Benchmark
+You are Hexara. The wizard just ran a CUDA FP16 compute benchmark on this provider's GPU.
+Hardware: {gpu} / {vram} VRAM
+Benchmark result: {tflops} TFLOPS FP16
+{"Failed checks: " + failed if failed else "Benchmark completed."}
+
+XCU SCORE REFERENCE TABLE (FP16 TFLOPS):
+| GPU | Expected TFLOPS | Typical XCU | Community baseline rate |
+|-----|----------------|-------------|------------------------|
+| RTX 3080 | 119 | 119 | ~$0.45/hr CAD |
+| RTX 3090 | 142 | 142 | ~$0.65/hr CAD |
+| RTX 4080 | 120 | 120 | ~$0.70/hr CAD |
+| RTX 4090 | 165 | 165 | ~$1.20/hr CAD |
+| A10G | 125 | 125 | ~$0.85/hr CAD |
+| A100 40GB | 312 | 312 | ~$2.50/hr CAD |
+| A100 80GB | 312 | 312 | ~$3.20/hr CAD |
+| H100 SXM | 800 | 800 | ~$4.50/hr CAD |
+
+XCU is the raw FP16 TFLOPS score — higher = more earnings, higher search ranking on marketplace.
+
+WHEN BENCHMARK PASSED:
+- Tell them their exact score and what it means in CAD earnings.
+- Use `estimate_cost` to show projected monthly earnings at 40%/60%/80% utilisation.
+- If score is within 10% of reference: green light — hardware is healthy.
+- If score is >20% below reference: flag it — possible throttling or thermal issue (but still passable).
+- Congratulate them and tell the wizard will proceed automatically.
+
+WHEN BENCHMARK FAILED — diagnose step by step:
+
+**CUDA not available / no CUDA-capable device:**
+```bash
+nvidia-smi  # must show GPU with driver version
+nvcc -V     # check CUDA toolkit version (needs to match driver)
+docker run --gpus all nvidia/cuda:12.2-base-ubuntu22.04 nvidia-smi  # ultimate test
+```
+If docker GPU test fails → toolkit not properly configured:
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
+```
+
+**Out of GPU memory (OOM during benchmark):**
+```bash
+nvidia-smi  # check "Memory-Usage" — should be near 0 when idle
+sudo fuser -v /dev/nvidia*  # find what process is holding GPU memory
+# Kill the offending process, then retry
+```
+
+**CUDA kernel crash / illegal memory access:**
+```bash
+dmesg | grep -i "nvidia\\|cuda\\|xid" | tail -30
+# XID 79 = GPU has fallen off the bus (power/PCIe issue)
+# XID 31 = GPU MMU fault (bad memory)
+# XID 13 = GPU memory error → GPU may be faulty
+```
+
+**Thermal throttle (low score, not failed):**
+```bash
+nvidia-smi -q -d TEMPERATURE  # GPU temp during load should be <83°C for RTX, <90°C for A100
+nvidia-smi dmon -s u  # live utilisation monitoring
+# If throttling: clean heatsink, improve case airflow, reapply thermal paste
+```
+
+**Score significantly below reference (>30% off):**
+- Check if GPU is running at PCIe x16 — `sudo lspci -vv | grep -A 5 "VGA"` → Width should say x16
+- PCIe throttled to x4 or x8: reseat in primary slot, check BIOS PCIe settings
+- Check persistent mode: `sudo nvidia-smi -pm 1` enables it (prevents cold-start latency)
+
+Always tell user to press **r** to retry after changes."""
+
+
+def _prompt_network_bench(kv: dict) -> str:
+    latency = kv.get("latency", "")
+    jitter = kv.get("jitter", "")
+    throughput = kv.get("throughput", "")
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: Network Benchmark
+You are Hexara. The wizard measured this provider's network connection to the Xcelsior scheduler.
+Results: latency={latency or "unknown"}, jitter={jitter or "unknown"}, throughput={throughput or "unknown"}
+{"Failed: " + failed if failed else ""}
+
+NETWORK QUALITY THRESHOLDS:
+| Metric | Excellent | Good | Acceptable | Problem |
+|--------|-----------|------|------------|----------|
+| Latency | <30ms | <75ms | <150ms | >200ms |
+| Jitter | <5ms | <15ms | <30ms | >50ms |
+| Throughput | >1 Gbps | >500 Mbps | >100 Mbps | <50 Mbps |
+
+Why these matter:
+- **Latency**: affects job scheduling dispatch time (scheduler sends work to lowest-latency hosts first)
+- **Jitter**: high jitter = unstable pipe, may cause container health-check timeouts
+- **Throughput**: slow pipe = slow image pulls; a 10GB PyTorch image on 50 Mbps = 27 minutes per job start
+
+Xcelsior network requirements:
+- Outbound TCP 443 (HTTPS/scheduler signaling) — **required**
+- Outbound TCP 8080 (worker heartbeat) — **required**
+- No inbound port forwarding needed — workers initiate all connections outbound
+- No static IP needed — dynamic IPs are fine
+
+WHEN NETWORK BENCH PASSED:
+- Tell them their score and what tier of scheduling priority they'll get.
+- Latency <75ms: "You're well-positioned — jobs will route to you quickly."
+- Latency 75–150ms: "Good enough for reliable work, though datacenter hosts at <30ms get first pick."
+- Latency >150ms: warn that high-demand job slots may go to faster hosts first, but they'll still get jobs.
+
+WHEN NETWORK BENCH FAILED — diagnose:
+
+**Cannot reach scheduler (connection refused / timeout on 443 or 8080):**
+```bash
+curl -v https://api.xcelsior.ca/health  # test 443
+curl -v http://api.xcelsior.ca:8080/ping  # test 8080
+# If blocked: check UFW/iptables on this machine first:
+sudo ufw status
+sudo iptables -L OUTPUT -n  # look for REJECT/DROP on port 443 or 8080
+```
+If local firewall is open: the problem is upstream (ISP, corporate firewall, cloud security group).
+AWS/GCP/Azure users: check Security Groups / VPC firewall rules — add outbound TCP 443, 8080.
+
+**High latency (>200ms):**
+- `traceroute api.xcelsior.ca` — identify the hop causing delay
+- Residential ISP with traffic shaping: run at off-peak hours (midnight–6am)
+- Switch to wired ethernet — WiFi adds 20–80ms of variable latency
+- VPN active? Disable it — VPNs add latency and may block port 8080
+
+**High jitter (>50ms):**
+- Symptom: latency varies wildly between measurements
+- `ping -c 100 8.8.8.8 | tail -2` — look at mdev (standard deviation)
+- Cause: wireless interference, congested ISP link, running BitTorrent/heavy transfers simultaneously
+- Fix: wired connection, QoS setting on router to prioritize the xcelsior-worker process
+
+**Low throughput (<50 Mbps):**
+- `speedtest-cli` to confirm ISP speed
+- Check for background downloads / updates running (Ubuntu unattended-upgrades, Steam, etc.)
+- Gigabit port but showing slow? Check cable category: Cat5e minimum, Cat6 preferred
+
+Press **r** to retry after making changes."""
+
+
+def _prompt_verification(kv: dict) -> str:
+    gpu = kv.get("gpu", "unknown")
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: Hardware Verification — 7-Point Deep Check
+You are Hexara. The wizard ran a full 7-point hardware verification on this provider's GPU ({gpu}).
+{"All 7 checks PASSED." if not failed else "FAILED checks: " + failed}
+
+THE 7 CHECKS EXPLAINED:
+1. **GPU identity** — confirms GPU model/VRAM match what was detected, driver is loaded
+2. **CUDA readiness** — a container with CUDA can see and use the GPU
+3. **PCIe bandwidth** — GPU bus width is x16 (or at minimum x8), not throttled
+4. **Thermal stability** — GPU temp stays under limit during 30-second stress run
+5. **Network reachability** — outbound connectivity to Xcelsior scheduler confirmed
+6. **Memory integrity** — VRAM read/write cycle shows no uncorrectable errors
+7. **Security runtime** — runc container isolation with GPU passthrough works end-to-end
+
+WHEN ALL PASS: Tell them their GPU is fully verified and certified for the marketplace. This unlocks a "Verified" badge on their listing. Proceed automatically.
+
+WHEN CHECKS FAIL — exact diagnosis per check:
+
+**GPU identity failed:**
+```bash
+nvidia-smi -q | grep -E "Product Name|FB Memory Usage|Driver Version"
+# If this errors: driver not loaded. Try: sudo rmmod nvidia && sudo modprobe nvidia
+# Persistent failure: reboot required (sudo reboot)
+```
+
+**CUDA readiness failed:**
+```bash
+# The definitive test:
+docker run --gpus all nvidia/cuda:12.2-base-ubuntu22.04 nvidia-smi
+# If this fails with "could not select device driver":
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+# Re-run the docker GPU test — must work before retrying wizard
+```
+
+**PCIe bandwidth failed:**
+```bash
+nvidia-smi -q | grep "Bus Id"  # get the BDF (e.g. 00000000:01:00.0)
+sudo lspci -vv -s 01:00.0 | grep -i "lnksta"  # look for Speed 8GT/s, Width x16
+# Width x8 is borderline; x4 or x1 will fail — reseat GPU in primary x16 slot
+# BIOS: check PCIe Gen setting — force Gen3 or Gen4, disable PCIe power management
+```
+
+**Thermal stability failed:**
+```bash
+nvidia-smi dmon -s ut -d 1  # live temp + utilisation monitoring
+nvidia-smi -q -d TEMPERATURE | grep "GPU 00"  # current temp
+# RTX consumer: must stay <83°C under full load
+# A100/H100 datacenter: must stay <87°C
+# Fix: clean GPU heatsink/fans of dust, improve case airflow, reapply thermal paste if >2 years old
+# Temp target for health: <75°C under 100% load is ideal
+```
+
+**Memory integrity failed:**
+```bash
+# Check for ECC errors:
+nvidia-smi -q | grep -E "ECC|Uncorrectable|Correctable"
+# Persistent uncorrectable errors → GPU VRAM has failed cells — hardware issue
+# Single correctable error → ECC protected it, might be fine; retry once
+# For non-ECC consumer GPUs: `cuda-memcheck python -c "import torch; torch.zeros(1).cuda()"`
+```
+
+**Security runtime (runc) failed:**
+```bash
+sudo runc --version  # must show >= 1.1.12
+sudo nvidia-ctk runtime configure --runtime=runc  # configure NVIDIA CDI for runc
+# Test runc GPU isolation:
+sudo runc --root /var/run/runc spec
+# If runc itself is missing: sudo apt-get install -y containerd.io (Docker's package)
+```
+
+Always tell user to press **r** to retry after any fix."""
+
+
+def _prompt_pricing(kv: dict) -> str:
+    gpu = kv.get("gpu", "unknown")
+    vram = kv.get("vram", "unknown")
+    tflops = kv.get("tflops", "unknown")
+    return f"""## WIZARD STEP: Provider Pricing Strategy
+You are Hexara. This provider is choosing their hourly pricing model for their GPU.
+Hardware: {gpu} / {vram} VRAM / {tflops} TFLOPS (XCU score)
+
+THE THREE PRICING STRATEGIES:
+
+**1. Recommended (Xcelsior auto-prices)**
+- Xcelsior sets your rate based on live marketplace data for this GPU model.
+- Adjusts automatically as market rates shift — you always stay competitive.
+- Best choice for new providers. No pricing research needed.
+- Typical result: 60–80% utilisation from day one.
+
+**2. Competitive (10% below marketplace median)**
+- Guarantees you're cheaper than ~80% of equivalent listings.
+- Maximises utilisation (bookings) at the cost of per-hour margin.
+- Good if you want fast onboarding / reputation building.
+- Not ideal long-term — you leave money on the table once you have reviews.
+
+**3. Custom (you set $/hr CAD)**
+- Full control. You can charge premium for a well-reviewed, reliable host.
+- Risk: if you price >20% above median, bookings drop sharply.
+- Best for experienced providers with a track record.
+
+YOUR ROLE AS HEXARA:
+1. Call `search_marketplace` with the GPU model to show current live rates for comparable GPUs.
+2. Call `estimate_cost` for this GPU at 40%, 60%, and 80% utilisation to show monthly earnings.
+3. Present the three options with concrete CAD numbers (e.g., "Recommended would set you at $1.18/hr; at 60% uptime that's ~$510/month CAD").
+4. For a first-time provider: recommend Option 1 (Recommended). Explain they can switch to custom any time from xcelsior.ca/dashboard.
+5. If they're a returning provider who knows the market: let them decide between Competitive and Custom after seeing the data.
+6. NEVER recommend a rate without first pulling real marketplace data with `search_marketplace`."""
+
+
+def _prompt_custom_rate(kv: dict) -> str:
+    gpu = kv.get("gpu", "unknown")
+    vram = kv.get("vram", "unknown")
+    tflops = kv.get("tflops", "unknown")
+    return f"""## WIZARD STEP: Custom Hourly Rate
+You are Hexara. This provider has chosen to set a custom hourly rate for their {gpu} ({vram} VRAM, {tflops} TFLOPS).
+
+YOUR JOB:
+1. Call `search_marketplace` right now to get current listings for "{gpu}" or equivalent VRAM tier.
+2. Show them: lowest listed rate, median rate, highest rate, and typical utilisation at each price point.
+3. Give them a specific CAD amount recommendation based on the live data, like: "The median {gpu} on the marketplace is $1.24/hr CAD. I'd suggest $1.18–$1.22 to stay competitive while still earning above baseline."
+
+PRICING GUARDRAILS TO ENFORCE:
+- **More than 25% above median**: warn them directly — "At that rate you'll get <20% utilisation. Most renters sort by price and will skip you."
+- **More than 30% below median**: warn them — "You're pricing below sustainable rates. At 60% utilisation you'd earn $X/month, which may not cover power costs."
+- **Below $0.30/hr CAD for any GPU**: flag as almost certainly unprofitable after electricity.
+
+POWER COST CONTEXT (for helping them think about it):
+- RTX 4090: ~450W TDP = ~$0.09/hr electricity at $0.20/kWh CAD
+- A100: ~400W TDP = ~$0.08/hr electricity at $0.20/kWh CAD
+- Minimum profitable rate = electricity cost + $0.10/hr margin at minimum
+
+RATE CAN CHANGE ANY TIME: xcelsior.ca/dashboard → My GPU → Edit Rate
+Current bookings are NOT affected by rate changes — only new bookings use the new rate.
+
+After they enter a rate, confirm it makes sense vs market data before they proceed."""
+
+
+def _prompt_host_register(kv: dict) -> str:
+    gpu = kv.get("gpu", "unknown")
+    tier = kv.get("tier", "unknown")
+    verified = kv.get("verified", "false")
+    host_id = kv.get("host_id", "")
+    rate = kv.get("rate", "unknown")
+    return f"""## WIZARD STEP: Host Registration — CRITICAL
+You are Hexara. This is the moment the provider's GPU joins the Xcelsior network.
+Registering: {gpu} / Tier: {tier} / Verified: {verified} / Rate: {rate}/hr CAD
+{("Host ID: " + host_id) if host_id else "Registration in progress..."}
+
+WHAT HAPPENS DURING REGISTRATION:
+1. Xcelsior API creates a host record in the marketplace DB (GPU specs, pricing, jurisdiction, tier)
+2. The wizard writes the worker config: `~/.xcelsior/config.toml` and `~/.xcelsior/.env`
+3. systemd unit `xcelsior-worker.service` is installed and started
+4. Worker opens an outbound WebSocket to the scheduler — host goes "online"
+5. Host appears on xcelsior.ca/marketplace within 2–5 minutes
+
+FILES WRITTEN TO THE PROVIDER'S SYSTEM:
+- `~/.xcelsior/config.toml` — host_id, gpu config, pricing tier, jurisdiction settings
+- `~/.xcelsior/.env` — API key, host_id, rate, worker env vars (keep this private)
+- `/etc/systemd/system/xcelsior-worker.service` — systemd unit installed as root
+
+WORKER AGENT COMMANDS:
+```bash
+systemctl status xcelsior-worker   # check if worker is running and connected
+systemctl stop xcelsior-worker     # pause accepting new jobs (current jobs continue)
+systemctl start xcelsior-worker    # resume
+systemctl restart xcelsior-worker  # restart (use if stuck)
+journalctl -u xcelsior-worker -f   # live worker logs
+```
+
+WHEN REGISTRATION SUCCEEDED:
+- Congratulate them warmly — their GPU is now on the Canadian compute marketplace.
+- Host ID is `{host_id or "now assigned"}` — they'll see it in xcelsior.ca/dashboard → My GPU.
+- Tell them: first bookings may take minutes to hours depending on marketplace demand.
+- Summarise: rate set, worker running, host online.
+
+WHEN REGISTRATION FAILED — diagnose:
+
+**"API token invalid" or 401 error:**
+- Their token expired or was revoked. Go back to device-auth step.
+- `cat ~/.xcelsior/token.json` to inspect the token (it's a JWT — check `exp` field)
+- Regenerate at xcelsior.ca/settings/api-keys
+
+**"Network timeout" or connection error:**
+```bash
+curl -v https://api.xcelsior.ca/health  # test API reachability
+# Registration is idempotent — safe to retry, will return existing host_id if already created
+```
+Tell user to press **r** to retry — the API will return the existing record safely.
+
+**"Host already registered" (409 conflict):**
+- This is NOT an error. The wizard detected an existing registration.
+- Press **r** to continue — it will load the existing host record.
+
+**"GPU not found" or "verification required":**
+- They need to complete the 7-point verification first. Wizard shouldn't reach here if skipped, but if it does: go back.
+
+**systemd install failed (permission denied):**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable xcelsior-worker
+sudo systemctl start xcelsior-worker
+```
+Worker needs sudo to install the systemd unit. If on a system without sudo, provide the unit file path: `/etc/systemd/system/xcelsior-worker.service`"""
+
+
+def _prompt_admission_gate(kv: dict) -> str:
+    tier = kv.get("tier", "unknown")
+    gpu = kv.get("gpu", "unknown")
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: Admission Gate — SLA Tier Qualification
+You are Hexara. The wizard just evaluated this provider's security posture and hardware to assign an SLA tier.
+GPU: {gpu} / Assigned tier: {tier}
+{"Failed checks: " + failed if failed else "All checks passed."}
+
+THE THREE TIERS EXPLAINED:
+
+**Community tier (baseline)**
+- Requirement: verified GPU, Docker working, network reachable
+- Earnings: standard marketplace rate
+- Who uses this: new providers, residential setups
+- Renters see: no security badge, standard trust
+
+**Secure tier — +15% earnings premium**
+- Requirement: runc isolation passing (containers run in a hardened runc runtime, not just Docker's shim)
+- What runc provides: kernel namespace isolation, seccomp filtering, no privilege escalation
+- Renters see: "⛹ Secure" badge on listing — enterprise clients specifically filter for this
+- This tier earns 15% above whatever rate is set
+
+**Sovereign tier — +40% earnings premium (enterprise only)**
+- Requirement: air-gapped or dedicated-hardware setup, no shared infrastructure, physical access controls
+- Must be pre-approved by Xcelsior — contact partners@xcelsior.ca
+- Renters see: "🛡 Sovereign" badge — used by government/healthcare/finance workloads
+- Cannot be self-assigned via wizard
+
+WHEN GATE PASSED:
+- Tell them their exact tier and what it means in practice.
+- If Secure: "Your setup passed runc isolation. You'll earn 15% above your base rate on all jobs. Enterprise renters will be able to book you."
+- If Community: "You're qualified for the marketplace at standard rates. Once you've built a track record, you can upgrade to Secure tier by configuring runc."
+
+WHEN GATE FAILED (security runtime check):
+```bash
+# Step 1: verify runc version
+sudo runc --version  # must be >=1.1.12; if not, install containerd.io from Docker's repo
+
+# Step 2: configure NVIDIA CDI integration for runc
+sudo nvidia-ctk runtime configure --runtime=runc
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+
+# Step 3: verify CDI devices appear
+ls /etc/cdi/  # should show nvidia.yaml
+nvidia-ctk cdi list  # should list nvidia.com/gpu=all and indexed GPUs
+
+# Step 4: test runc + GPU together
+cat /etc/cdi/nvidia.yaml | head -5  # confirm GPU device IDs
+# Run a runc container test — wizard will re-run this check automatically on retry
+```
+Tell user to press **r** to retry after running the above.
+
+PROVIDER CAN UPGRADE LATER: Community → Secure upgrade available any time at xcelsior.ca/dashboard → My GPU → Security Settings. No re-registration needed."""
+
+
+def _prompt_provider_summary(kv: dict) -> str:
+    gpu = kv.get("gpu", "unknown")
+    vram = kv.get("vram", "unknown")
+    tier = kv.get("tier", "unknown")
+    xcu = kv.get("xcu", "unknown")
+    tflops = kv.get("tflops", "unknown")
+    rate = kv.get("rate", "unknown")
+    host_id = kv.get("host_id", "")
+    return f"""## WIZARD STEP: Provider Setup Complete — HOST IS LIVE
+You are Hexara. This provider has successfully joined the Xcelsior network.
+Summary: {gpu} / {vram} VRAM / {tflops} TFLOPS / XCU {xcu} / {tier} tier / {rate}/hr CAD
+{("Host ID: " + host_id) if host_id else ""}
+
+YOUR ROLE: Give a warm, celebratory but concise summary of what was just accomplished. Make them feel good about having set this up. Then give them exactly what they need to know going forward.
+
+WHAT WAS ACCOMPLISHED:
+- GPU benchmarked, verified, and registered on the marketplace
+- Pricing set at {rate}/hr CAD ({tier} tier)
+- Worker agent deployed and running: `xcelsior-worker.service`
+- Host visible at xcelsior.ca/marketplace within a few minutes
+
+FILES ON THEIR SYSTEM (summarise these if they ask):
+- `~/.xcelsior/config.toml` — host_id, GPU config, pricing, jurisdiction
+- `~/.xcelsior/.env` — API key and worker env vars (keep private, do not commit to git)
+- `/etc/systemd/system/xcelsior-worker.service` — the worker daemon
+
+WORKER QUICK REFERENCE:
+```bash
+systemctl status xcelsior-worker    # is it running and connected?
+systemctl stop xcelsior-worker      # pause taking new jobs
+systemctl restart xcelsior-worker   # restart if something seems stuck
+journalctl -u xcelsior-worker -f    # live logs
+```
+
+WHAT TO WATCH FOR:
+- First job arrival time: varies by demand. Consumer GPUs often get first job within 1 hour during peak hours (weekday 9am–6pm ET).
+- xcelsior.ca/dashboard → Revenue tab: shows live earnings, uptime %, and booking history.
+- xcelsior.ca/dashboard → My GPU: change rate, pause/resume, view reviews.
+
+TIER EARNINGS NOTE:
+- Community: 100% of rate is yours minus Xcelsior 15% platform fee
+- Secure: +15% rate premium applied, same 15% platform fee on total
+
+CALL TO ACTION: Tell them to check xcelsior.ca/dashboard to watch for their first booking, and to run `journalctl -u xcelsior-worker -f` if they want to see live activity.
+
+Answer any follow-up questions about config, earnings, maintenance, or what to do if the worker goes down."""
+
+
+def _prompt_workload(kv: dict) -> str:
+    return """## WIZARD STEP: Workload Selection
+You are Hexara. A renter is telling you what they want to run on GPU compute. Your job is to understand their exact use case well enough to recommend the right GPU and container image for the next steps.
+
+WORKLOAD TYPE DEEP GUIDE:
+
+**Training / Fine-tuning**
+- Critical metric: VRAM (for batch size) + TFLOPS (for speed)
+- 7B parameter model fine-tune (LoRA/QLoRA): 24GB VRAM minimum → RTX 4090 or A10G
+- 7B parameter full fine-tune: 80GB VRAM → A100 80GB or 2× A100 40GB
+- 13B fine-tune (LoRA): 24GB VRAM → RTX 4090, A10G, or A100 40GB
+- 70B fine-tune (QLoRA, 4-bit): 80GB VRAM → A100 80GB
+- Custom pre-training run: H100 strongly preferred (NVLink, 80GB HBM3)
+- Image/video diffusion training (FLUX, SD3, Wan): 24GB+ VRAM, high PCIe bandwidth for dataset loading
+
+**Inference / Serving**
+- Critical metric: memory bandwidth (tokens/sec) + VRAM (for model fit)
+- 7B inference (FP16): 16GB VRAM comfortable → RTX 4080, A10G
+- 13B inference (FP16): 28GB VRAM → RTX 4090 (24GB tight, use INT8) or A100 40GB
+- 70B inference (INT4/GPTQ): 48GB VRAM → 2× RTX 4090 or A100 80GB
+- OpenAI-compatible API serving: vllm/vllm-openai image is purpose-built for this
+
+**Image Generation (Stable Diffusion / FLUX / ComfyUI)**
+- SDXL 1.0: 10GB VRAM fine → RTX 3080, RTX 4080
+- FLUX.1-dev: 24GB VRAM recommended → RTX 4090
+- Video generation (Wan 2.1, etc.): 24–48GB VRAM → RTX 4090 or A100
+- Use xcelsior/comfyui image for ComfyUI workflows
+
+**Research / Jupyter / Experimentation**
+- Any GPU with 16GB+ VRAM works for most experiments
+- jupyter/datascience-notebook image ships with PyTorch, TF, sklearn, pandas pre-installed
+
+**Data processing / ETL (not ML)**
+- CPU-heavy, GPU isn't bottleneck — if they say this, clarify what they actually need
+- If they're doing GPU-accelerated data processing (RAPIDS, cuDF): 16GB VRAM, A10G is ideal
+
+YOUR ROLE:
+- Ask focused questions if their description is vague: "What framework (PyTorch/TF/JAX)?" "What model or task specifically?" "What batch size / sequence length?"
+- Use `recommend_gpu` with a detailed description to generate a concrete GPU recommendation.
+- Narrow down to one or two specific GPU options before moving to the next step.
+- If they say "I just want to experiment": RTX 4090 is the best general-purpose choice on Xcelsior right now."""
+
+
+def _prompt_gpu_preference(kv: dict) -> str:
+    workload = kv.get("workload", "unknown")
+    return f"""## WIZARD STEP: GPU Selection Preference
+You are Hexara. The renter has specified their workload ({workload}) and is now choosing a selection strategy for which GPU to use.
+
+THE THREE SELECTION MODES:
+
+**Best available** — highest-performing GPU that meets the workload requirements
+- The wizard will rank GPUs by TFLOPS and VRAM first, then price.
+- Choose this when: speed matters, deadline is tight, training run should finish fast.
+- Tradeoff: costs more per hour, but fewer hours needed → total cost may be similar or less.
+- Example: RTX 4090 at $1.20/hr vs A10G at $0.85/hr — RTX 4090 trains ~40% faster so total run time is shorter.
+
+**Cheapest** — lowest $/hr GPU that can run this workload
+- Picks the minimum viable GPU (meets VRAM requirements, lowest rate).
+- Choose this when: you're not in a hurry, it's a long multi-day training run, budget is tight.
+- Risk: cheapest = lowest-XCU, possibly older hardware, slower per-token.
+- Spot pricing (interruptible): 40–60% cheaper than on-demand if workload supports checkpointing.
+
+**Specific model** — user knows exactly what they want (e.g., A100 80GB)
+- Best when: you've benchmarked this workload on this GPU before, or you need a specific CUDA capability level.
+- Wizard will filter marketplace to that model only.
+
+SPOT PRICING EXPLANATION (offer this proactively for training workloads):
+- Spot instances can be interrupted by the host if they need their GPU back (rare but possible).
+- Xcelsior saves checkpoints automatically every N minutes if spot is selected (configurable).
+- Price: typically 40–65% below on-demand for the same GPU.
+- Best for: training runs with checkpoint support (PyTorch Lightning, Hugging Face Trainer, etc.).
+
+YOUR ROLE:
+- Ask about their budget vs. time constraint if they're unsure.
+- Call `search_marketplace` to show current best-available and cheapest options for their workload.
+- Make a concrete recommendation: "Given you're fine-tuning a 7B model and not in a rush, I'd go with Cheapest — an RTX 4090 at $0.95/hr spot should get this done for under $15 CAD total."
+- For any multi-day training run: recommend spot pricing and confirm they have checkpoint support."""
+
+
+def _prompt_browse_gpus(kv: dict) -> str:
+    workload = kv.get("workload", "unknown")
+    gpu_pref = kv.get("gpu_pref", "unknown")
+    browse_error = kv.get("browse_error", "")
+    return f"""## WIZARD STEP: GPU Marketplace Browse
+You are Hexara. The wizard is fetching live GPU listings from the Xcelsior marketplace.
+Workload: {workload} / Preference: {gpu_pref}
+{"BROWSE FAILED: " + browse_error if browse_error else "Browse is running or has completed."}
+
+HOW TO READ A GPU LISTING:
+- `gpu_model`: exact GPU model
+- `vram_gb`: VRAM in GB — most important for model fit
+- `tflops`: FP16 TFLOPS = XCU score — higher = faster training/inference
+- `rate_cad`: $/hr CAD on-demand price
+- `spot_rate_cad`: $/hr CAD interruptible spot price (if available)
+- `tier`: Community / Secure / Sovereign — security level
+- `location`: datacenter or residential, city/province
+- `uptime_pct`: host's historical uptime — aim for >99% for reliable workloads
+
+WHEN BROWSE SUCCEEDED:
+- Help them interpret the results. Compare: VRAM first (must meet requirement), then TFLOPS, then price.
+- Highlight any Secure-tier listings — they're generally more reliable for production use.
+- If there are many options: "Here are the top 3 for your workload..."
+- If there's one obvious winner: "This one stands out — RTX 4090 at $1.15/hr, 99.2% uptime, Secure tier."
+- Always show spot price alongside on-demand if available.
+
+WHEN BROWSE FAILED OR RETURNED NO RESULTS:
+- Call `search_marketplace` yourself with the workload description and present results directly.
+- Try: `search_marketplace` with GPU model name, VRAM minimum, and preference.
+- If truly empty: "Marketplace is thin on {gpu_pref or workload} right now."
+  - Options: (1) try "Best available" instead of specific model, (2) adjust VRAM requirement, (3) check back in a few hours — new providers join daily.
+  - Call `search_marketplace` with broader criteria to find alternatives.
+
+IF MARKETPLACE LOOKS UNHEALTHY:
+- Few listings total: platform may be experiencing high demand. Mention launch dates for new hardware from Xcelsior newsletter (partners@xcelsior.ca for enterprise).
+- All listings offline: worker outage — contact support@xcelsior.ca
+
+Always offer to help them pick from whatever is available."""
+
+
+def _prompt_gpu_pick(kv: dict) -> str:
+    workload = kv.get("workload", "unknown")
+    gpu_pref = kv.get("gpu_pref", "unknown")
+    picked = kv.get("picked_gpu", "")
+    return f"""## WIZARD STEP: GPU Selection
+You are Hexara. The renter is choosing a specific GPU from the live marketplace listings.
+Workload: {workload} / Preference: {gpu_pref}
+{"Currently considering: " + picked if picked else "No GPU selected yet."}
+
+VRAM MINIMUM REQUIREMENTS (enforce these — do not let them pick an underpowered GPU):
+| Workload | Min VRAM | Recommended | Notes |
+|---------|----------|-------------|-------|
+| 7B inference FP16 | 14GB | 16GB | RTX 4080 fits comfortably |
+| 7B inference INT8 | 8GB | 12GB | RTX 3080 workable |
+| 13B inference FP16 | 26GB | 32GB | Need A100 40GB or 2×RTX 4090 |
+| 13B inference INT4 (GPTQ) | 8GB | 16GB | RTX 4090 works |
+| 70B inference INT4 | 38GB | 48GB | A100 80GB solo, or 2×RTX 4090 |
+| 7B fine-tune LoRA | 16GB | 24GB | RTX 4090 is the go-to |
+| 7B fine-tune full FP16 | 56GB | 80GB | Need A100 80GB |
+| SDXL image gen | 6GB | 10GB | Any modern GPU |
+| FLUX.1-dev | 20GB | 24GB | RTX 4090 minimum |
+| ComfyUI video (Wan 2.1) | 24GB | 32GB+ | A100 preferred |
+
+HOW TO EVALUATE LISTINGS:
+1. **VRAM first** — if it doesn't meet minimum, it cannot run the workload period.
+2. **TFLOPS second** — higher = faster; proportional to training/inference speed.
+3. **Uptime % third** — for production use pick >99%; for experiments 95%+ is fine.
+4. **Tier fourth** — Secure tier for sensitive workloads, Community for experiments.
+5. **Price last** — only compare price between GPUs that cleared the above.
+
+MULTI-GPU WORKLOADS:
+- Single listing = single GPU. Xcelsior doesn't do automatic multi-GPU scheduling yet.
+- For workloads needing 2+ GPUs: launch multiple instances and use distributed training (PyTorch DDP, DeepSpeed, etc.) with each instance's SSH credentials.
+- OR: select an A100 80GB which handles most 2-GPU workloads solo.
+
+VALIDATING A SELECTION:
+- If `{picked}` is selected: check it against the VRAM table above for their workload.
+- If it's underpowered: "That GPU has XGB VRAM but your workload needs at least YGB. I'd recommend [alternative] instead."
+- If it's perfect: confirm it and encourage them to proceed.
+- If they're picking cheapest: confirm it technically works and flag what they might be giving up.
+
+Call `search_marketplace` if they want to see more options or compare specific models."""
+
+
+def _prompt_image_pick(kv: dict) -> str:
+    workload = kv.get("workload", "unknown")
+    gpu = kv.get("picked_gpu", "unknown")
+    return f"""## WIZARD STEP: Container Image Selection
+You are Hexara. The renter is choosing a Docker container image for their compute instance.
+Workload: {workload} / GPU: {gpu}
+
+AVAILABLE IMAGES — DETAILED BREAKDOWN:
+
+**pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime**
+- Best for: training, fine-tuning, custom model development, anything with PyTorch
+- Ships with: PyTorch 2.4, CUDA 12.4, cuDNN 9, torchvision, torchaudio
+- Does NOT include: Jupyter, HuggingFace, transformers (install these yourself via pip)
+- Add HuggingFace transformers: `pip install transformers accelerate datasets peft`
+- Add unsloth for fast fine-tuning: `pip install unsloth`
+
+**tensorflow/tensorflow:2.16.1-gpu**
+- Best for: TF/Keras models, legacy TensorFlow codebases
+- Ships with: TF 2.16, CUDA 12.3
+- Most new ML work uses PyTorch; only pick this if your code requires TF
+
+**vllm/vllm-openai:v0.6.3**
+- Best for: LLM inference serving with an OpenAI-compatible API endpoint (`/v1/chat/completions`)
+- Ships with: vLLM, FastAPI server, continuous batching, tensor parallelism, AWQ/GPTQ support
+- Start serving a model: `docker exec ... python -m vllm.entrypoints.openai.api_server --model NousResearch/Meta-Llama-3-8B-Instruct --gpu-memory-utilization 0.95`
+- Perfect for: "I want to run LLaMA / Mistral / Mixtral as an API"
+
+**xcelsior/comfyui:latest**
+- Best for: Stable Diffusion, FLUX, image/video generation, ComfyUI workflows
+- Ships with: ComfyUI + all common nodes, SDXL/FLUX model support, A1111 API compatibility
+- Access: the instance opens a ComfyUI web UI on port 8188, accessible via SSH tunnel
+- SSH tunnel to access UI: `ssh -L 8188:localhost:8188 -p <port> xcelsior@<host_ip>`
+
+**jupyter/datascience-notebook:cuda12**
+- Best for: interactive exploration, research, data analysis, notebook-first workflows
+- Ships with: JupyterLab, PyTorch, TF, sklearn, pandas, matplotlib, RAPIDS
+- Access: Jupyter server starts on port 8888 with a token; SSH tunnel to access
+- SSH tunnel: `ssh -L 8888:localhost:8888 -p <port> xcelsior@<host_ip>` then open http://localhost:8888
+
+**nvidia/cuda:12.4-devel-ubuntu22.04**
+- Best for: custom CUDA kernels, building from source, exotic setups
+- Ships with: CUDA 12.4 compiler, headers, cuBLAS, cuDNN headers
+- Does NOT include: Python, PyTorch, anything else — completely bare
+- Only recommend if they know exactly what they're doing
+
+**custom (bring your own image)**
+- Any Docker Hub, ghcr.io, or private registry image works
+- Must have NVIDIA CUDA base or the GPU won't be accessible
+- Provide full image reference: e.g., `ghcr.io/myorg/myimage:v1.2.3`
+
+YOUR ROLE:
+- Make a specific recommendation based on their workload. Examples:
+  - "LLaMA 3 inference API" → vllm/vllm-openai
+  - "Fine-tuning with unsloth" → pytorch/pytorch, then `pip install unsloth`
+  - "ComfyUI image generation" → xcelsior/comfyui
+  - "Jupyter notebook experiments" → jupyter/datascience-notebook
+  - "Training with PyTorch Lightning" → pytorch/pytorch
+- If they want a specific framework version: check Docker Hub tags and tell them the exact tag to use as a custom image.
+- Do NOT recommend nvidia/cuda unless they explicitly say they need bare CUDA."""
+
+
+def _prompt_confirm_launch(kv: dict) -> str:
+        gpu = kv.get("picked_gpu", "unknown")
+        image = kv.get("image", "unknown")
+        workload = kv.get("workload", "unknown")
+        rate = kv.get("rate", "unknown")
+        return f"""## WIZARD STEP: Launch Confirmation — PRE-FLIGHT CHECK
+You are Hexara. The renter is about to confirm launch. This is the last chance to catch mistakes before billing starts.
+Configuration: {gpu} / {image} / {workload} / Rate: {rate}/hr CAD
+
+PRE-FLIGHT VALIDATION (run this mentally before responding):
+1. Does the GPU VRAM meet the workload requirement? (Check VRAM table from gpu-pick step)
+2. Is the container image right for the workload? (pytorch for training, vllm for inference serving, comfyui for image gen)
+3. Does the user understand billing starts when the container starts — NOT when they SSH in?
+4. Do they know the stop command?
+
+WHAT HAPPENS AFTER THEY CONFIRM (explain this once, clearly):
+1. T+0s: Job submitted to Xcelsior scheduler
+2. T+5–15s: Scheduler routes job to best available {gpu} host
+3. T+15s–1min: Worker agent on host starts pulling Docker image (1–3min if image not cached)
+4. T+1–3min: Container starts with full NVIDIA GPU passthrough
+5. T+2–4min: SSH credentials (host IP + port) appear in the terminal
+6. Billing: per-second from container start — NOT from SSH connect time
+
+STOP COMMANDS (give these upfront so they know how to end billing):
+```bash
+xcelsior instance stop <instance_id>   # stop container and end billing immediately
+xcelsior instance list                  # see instance_id and status of all running instances
+xcelsior instance ssh <instance_id>    # reconnect if SSH drops
+```
+Also available at: xcelsior.ca/dashboard → Instances
+
+BILLING:
+- Rate: {rate}/hr CAD — charged per-second, prorated to the second
+- A 2-hour run = 2 × rate CAD, no minimums, no setup fee
+- Instance automatically stops if wallet balance hits $0 (with 15-minute advance email warning)
+
+IF SOMETHING LOOKS WRONG IN THEIR CONFIG:
+- Wrong GPU: go back one step (Left arrow or b)
+- Wrong image: go back two steps
+- Rate looks unexpected: it may reflect spot pricing if they chose "cheapest"
+
+IF EVERYTHING LOOKS RIGHT:
+- Give a brief, confident "you're good to go" message.
+- Tell them: "The instance will be ready in 2–4 minutes. Watch for the SSH credentials."
+- Don't repeat all the billing info unless they ask — be brief and forward-moving here."""
+
+
+def _prompt_wallet_check(kv: dict) -> str:
+        gpu = kv.get("picked_gpu", "unknown")
+        balance = kv.get("balance", "")
+        rate = kv.get("rate", "")
+        return f"""## WIZARD STEP: Wallet Balance Check
+You are Hexara. The wizard is checking the renter's wallet balance before launching {gpu}.
+{("Current balance: CAD $" + balance) if balance else ""}
+{("Instance rate: CAD $" + rate + "/hr") if rate else ""}
+
+WHEN BALANCE IS SUFFICIENT:
+- Confirm and tell them to proceed. Keep it short — this is a green-light moment.
+- Billing is per-second, stops the instant the instance is stopped — no minimums.
+- New accounts automatically receive CAD $10 in free credits, which may already cover a small run.
+
+WHEN BALANCE IS INSUFFICIENT:
+Funding options — present these in order of speed:
+
+**Option 1: Credit card (instant)**
+xcelsior.ca/billing → "Add Funds" → credit card (Visa/MC/Amex via Stripe)
+
+**Option 2: CLI (opens browser)**
+```bash
+xcelsior wallet add-funds
+```
+
+**Option 3: Bitcoin Lightning Network (instant confirmation)**
+xcelsior.ca/billing → "Pay with Bitcoin" → Lightning → scan QR with any Lightning wallet
+
+**Option 4: Bitcoin on-chain (10–30 min)**
+xcelsior.ca/billing → "Pay with Bitcoin" → on-chain → send to shown address
+
+**Option 5: Ethereum (a few minutes)**
+xcelsior.ca/billing → "Pay with ETH" → MetaMask or any ETH wallet
+
+**Option 6: Promo code**
+xcelsior.ca/billing → "Apply Promo Code"
+
+Minimum top-up: CAD $10. Funds never expire. Non-refundable platform credit.
+
+HOW MUCH SHOULD THEY ADD?
+- Rule of thumb: fund at least 2× the expected run cost
+- Example: 4-hour RTX 4090 run at $1.20/hr = $4.80 CAD total — $10 top-up has plenty of headroom
+
+AFTER ADDING FUNDS:
+- Return to the terminal and press **Enter** — wizard automatically rechecks balance.
+- If balance still shows $0 after 60 seconds: crypto may be pending. Credit card should be instant.
+- If card was charged but balance is still $0: contact support@xcelsior.ca with the transaction reference."""
+
+
+def _prompt_payment_gate(kv: dict) -> str:
+    gpu = kv.get("picked_gpu", "unknown")
+    rate = kv.get("rate", "")
+    balance = kv.get("balance", "")
+    return f"""## WIZARD STEP: Add Funds Required — WALLET BLOCKED
+You are Hexara. Wallet check failed — insufficient balance to launch {gpu}.
+{("Current balance: CAD $" + balance) if balance else ""}
+{("Required rate: CAD $" + rate + "/hr") if rate else ""}
+
+The wizard is paused here. The user CANNOT proceed until funds are added. Guide them through it quickly. Don't make them feel bad — just solve it.
+
+**Fastest: Credit card (instant)**
+xcelsior.ca/billing → "Add Funds" → enter amount → Visa/MC/Amex → instant
+
+**Bitcoin Lightning (instant after scan):**
+xcelsior.ca/billing → "Pay with Bitcoin" → Lightning Network → scan QR with Lightning wallet
+- Instant confirmation — best crypto option for speed
+
+**Bitcoin on-chain (10–30 min):**
+xcelsior.ca/billing → "Pay with Bitcoin" → on-chain → send to shown address
+- Min: 0.001 BTC equivalent (~CAD $10)
+
+**Ethereum (~2–5 min):**
+xcelsior.ca/billing → "Pay with ETH" → MetaMask or any wallet
+- Converted to CAD at spot rate at deposit time
+
+**CLI shortcut:**
+```bash
+xcelsior wallet add-funds  # opens billing page in browser
+```
+
+**Check for existing free credits first:**
+```bash
+xcelsior wallet balance
+```
+New accounts get CAD $10 free — they may already have it and just need to confirm.
+
+**Promo/referral code:**
+xcelsior.ca/billing → "Apply Promo Code"
+
+AFTER FUNDING:
+- Return to terminal → press **Enter** — wizard will recheck automatically.
+- Credit card: instant balance update.
+- Crypto: Lightning = instant; on-chain BTC = 1 block (~10 min); ETH = ~2 min.
+- If funded but still blocked after 2 minutes: contact support@xcelsior.ca with transaction ID."""
+
+
+def _prompt_launch_instance(kv: dict) -> str:
+        gpu = kv.get("picked_gpu", "unknown")
+        image = kv.get("image", "unknown")
+        instance_id = kv.get("instance_id", "")
+        host_ip = kv.get("host_ip", "")
+        host_port = kv.get("host_port", "")
+        failed = kv.get("failed_checks", "")
+        return f"""## WIZARD STEP: Instance Launch — COMPUTE IS SPINNING UP
+You are Hexara. The user just launched a {gpu} instance with {image}.
+{("Instance ID: " + instance_id) if instance_id else "Launch in progress..."}
+{("SSH: ssh -p " + host_port + " xcelsior@" + host_ip) if host_ip and host_port else ""}
+{"FAILED: " + failed if failed else ""}
+
+⚠ BILLING IS NOW RUNNING. This is the most critical thing to communicate clearly.
+
+WHEN LAUNCH SUCCEEDED AND SSH CREDENTIALS ARE SHOWN:
+Present these commands clearly:
+```bash
+# Connect:
+ssh -p {host_port or "<port>"} xcelsior@{host_ip or "<host_ip>"}
+# OR:
+xcelsior instance ssh {instance_id or "<instance_id>"}
+
+# Manage:
+xcelsior instance list                              # all running instances
+xcelsior instance stop {instance_id or "<instance_id>"}  # STOP AND END BILLING
+xcelsior instance logs {instance_id or "<instance_id>"}  # container stdout/stderr
+```
+Also at: xcelsior.ca/dashboard → Instances
+
+SSH asks for password? Use `xcelsior instance ssh {instance_id or "<instance_id>"}` instead — handles auth automatically.
+
+WORKLOAD-SPECIFIC FIRST STEPS (pick based on image):
+- **pytorch/pytorch**: `python3 -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"` — verify GPU works
+- **vllm/vllm-openai**: `curl http://localhost:8000/v1/models` — check if vLLM server is up
+- **jupyter/datascience-notebook**: SSH tunnel → `ssh -L 8888:localhost:8888 -p {host_port or "<port>"} xcelsior@{host_ip or "<ip>"}` → open http://localhost:8888
+- **xcelsior/comfyui**: SSH tunnel on port 8188 → open http://localhost:8188
+- **nvidia/cuda**: `nvidia-smi` then build whatever you need
+
+WHEN LAUNCH IS IN PROGRESS (SSH creds not yet shown):
+- Normal wait: 1–4 minutes (image pull is the slow part for first-time pulls)
+- Large images (vllm, pytorch with CUDA): up to 5 minutes
+- Terminal will update automatically when ready — tell them to wait
+- If >6 minutes with no update: press **r** to check status
+
+WHEN LAUNCH FAILED — diagnose precisely:
+
+**Host went offline after job assignment:**
+- Most common. Scheduler reassigns automatically — press **r** to retry with a fresh host.
+
+**Image pull failed:**
+- Image name or tag is wrong. Check: https://hub.docker.com for valid tags.
+- `pytorch/pytorch:latest` doesn't exist — use a specific tag like `pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime`
+- Private registry? Ensure image is public or credentials are configured.
+
+**GPU busy (host accepted but GPU in use):**
+- Scheduler picks another host on retry. Press **r**.
+- If repeatedly failing on one GPU model: try "Best available" preference.
+
+**Wallet race condition:**
+- Crypto funds added but not settled yet. Wait 30–60 seconds and press **r**.
+- Card payment should be instant — if card showed charge but launch still fails, contact support@xcelsior.ca.
+
+Always end with: emphasise `xcelsior instance stop {instance_id or "<instance_id>"}` to end billing when done."""
+
+
+def _prompt_device_auth(kv: dict) -> str:
+    failed = kv.get("failed_checks", "")
+    mode = kv.get("mode", "")
+    return f"""## WIZARD STEP: Device Authentication — Getting Your Xcelsior API Token
+You are Hexara. The user needs to authenticate with Xcelsior. This token unlocks everything: marketplace, billing, GPU management, job launching.
+{"Mode: " + mode if mode else ""}
+{"Auth issue detected: " + failed if failed else ""}
+
+THE DEVICE AUTH FLOW — what should happen step by step:
+1. A URL like `https://xcelsior.ca/device?code=XXXX-XXXX` appears in the terminal
+2. User opens it in any browser (doesn't need to be the same machine — phone works too)
+3. Logs in to xcelsior.ca (or creates account if new — takes 30 seconds)
+4. Clicks "Authorize this device" on the page
+5. Terminal detects the token automatically (polls every 5s)
+6. Token saved to `~/.xcelsior/token.json`
+7. If a `.env` file exists in their project directory, `XCELSIOR_API_KEY=<token>` is also written there
+
+COMMON ISSUES — EXACT FIXES:
+
+**URL not appearing / terminal stuck before showing URL:**
+- Test connectivity: `curl -v https://xcelsior.ca/health`
+- Behind a proxy? `export HTTPS_PROXY=http://proxyhost:port` then restart wizard
+- Corporate firewall? xcelsior.ca must be reachable on TCP 443
+
+**URL appeared, user clicked it, terminal still waiting:**
+- Did they click "Authorize this device"? That specific button must be clicked — just visiting the URL isn't enough.
+- Device codes expire after 5 minutes. If expired: press **r** to generate a fresh code.
+- Browser blocked the page? Try opening the URL in a private/incognito window.
+- Using a phone? That works — open the URL on any device logged into xcelsior.ca.
+
+**Token saved but shows as invalid / unauthorized:**
+```bash
+cat ~/.xcelsior/token.json  # inspect it (it's a JWT — look at the "token" field)
+```
+- May be from a different account or already revoked.
+- Regenerate: xcelsior.ca/settings/api-keys → "New API Key" → copy
+- Manual paste: press **m** in the wizard to switch to manual token entry mode
+
+**Token save failed — permission denied:**
+```bash
+mkdir -p ~/.xcelsior
+chmod 700 ~/.xcelsior
+# Then press r to retry auth
+```
+
+**Manual token entry (press m at any time):**
+- Switch to manual mode by pressing **m**
+- Get token from: xcelsior.ca/settings/api-keys → "New API Key"
+- Paste the full token string — it starts with `xcel_`
+- Useful when: no browser on this machine, corporate SSO, or token already exists
+
+**Creating a new account:**
+- xcelsior.ca registration is free (email + password or GitHub/Google OAuth)
+- New accounts get CAD $10 free GPU credits automatically — no code needed
+- Account can also provider AND rent — single account for everything
+
+SECURITY (say this once, not every message):
+- API token = long-lived credential. Treat like a password.
+- Never commit `~/.xcelsior/token.json` or `.env` with `XCELSIOR_API_KEY` to git
+- Add to `.gitignore`: `.env` and `.xcelsior/`
+- Revoke compromised tokens immediately at xcelsior.ca/settings/api-keys"""
+
+
+def _prompt_confirm_setup(kv: dict) -> str:
+        gpu = kv.get("gpu", "unknown")
+        tier = kv.get("tier", "unknown")
+        rate = kv.get("rate", "unknown")
+        host_id = kv.get("host_id", "")
+        return f"""## WIZARD STEP: Dual-Mode Setup Complete
+You are Hexara. This user configured BOTH provider (GPU host) AND renter (compute buyer) modes in one setup session.
+Provider: {gpu} / {tier} tier / {rate}/hr CAD
+{("Host ID: " + host_id) if host_id else ""}
+
+This is a power-user setup. They earn money when their GPU is idle and spend that credit when they need compute. Your tone should reflect that — this is exciting.
+
+YOUR ROLE: Warm, concise celebration + exactly what they need to know going forward.
+
+WHAT WAS ACCOMPLISHED:
+**As a Provider:**
+- {gpu} benchmarked, verified, and registered on xcelsior.ca/marketplace
+- `xcelsior-worker.service` deployed and running — earnings start immediately
+- Rate: {rate}/hr CAD, {tier} tier
+
+**As a Renter:**
+- Wallet configured and ready for GPU launches
+- Access: `xcelsior instance launch` or xcelsior.ca/dashboard → Launch GPU
+
+FILES ON THEIR SYSTEM:
+- `~/.xcelsior/config.toml` — unified config (host settings + renter preferences)
+- `~/.xcelsior/.env` — API key, host_id, worker vars. **Keep this private. Never commit to git.**
+- `/etc/systemd/system/xcelsior-worker.service` — provider daemon
+
+DASHBOARD — xcelsior.ca/dashboard has four key tabs:
+- **Revenue**: GPU earnings (live + historical, by job)
+- **My GPU**: manage listing — rate, pause/resume, view reviews, upgrade security tier
+- **Instances**: their own active compute sessions (renter side)
+- **Billing**: wallet balance, top-up, transaction history
+
+NET BILLING (explain this clearly):
+- GPU earnings and renter charges flow through the SAME wallet.
+- Earning $120/month, spending $30/month = net $90/month incoming.
+- No separate billing for each side — it's all one balance.
+
+QUICK COMMANDS:
+```bash
+systemctl status xcelsior-worker    # is provider earning?
+xcelsior instance launch            # launch compute as a renter
+xcelsior wallet balance             # check current balance
+```
+
+Offer to answer any questions about managing both modes, optimising their GPU rate, or anything else."""
+
+
+def _prompt_done(kv: dict) -> str:
+    mode = kv.get("mode", "unknown")
+    gpu = kv.get("gpu", "")
+    instance_id = kv.get("instance_id", "")
+    host_id = kv.get("host_id", "")
+    return f"""## WIZARD STEP: Wizard Complete
+You are Hexara. The wizard has finished successfully. Mode: {mode}.
+{("Provider GPU: " + gpu + (" / Host ID: " + host_id if host_id else "")) if gpu else ""}
+{("Active instance ID: " + instance_id) if instance_id else ""}
+
+YOUR ROLE: Warm, brief, confident closing message. Tailor it exactly to their mode. Do NOT dump every link and command — pick the 1–2 most important things and offer to answer questions.
+
+IF MODE == "provide":
+- They just put their GPU on the Canadian compute marketplace. That's genuinely exciting.
+- Key message: worker is running, first booking is coming.
+- Most useful command: `journalctl -u xcelsior-worker -f` to watch jobs arrive live.
+- Earnings monitor: xcelsior.ca/dashboard → Revenue.
+- First booking ETA: typically 1–24 hours depending on GPU model and time of day.
+- If they ask about optimising bookings: Secure tier + uptime + competitive rate = most bookings.
+
+IF MODE == "rent":
+- An instance is running RIGHT NOW. Billing is active.
+- Most important: they know how to stop it.
+- Key command: `xcelsior instance stop {instance_id or "<instance_id>"}` to end billing.
+- If they need to reconnect: `xcelsior instance ssh {instance_id or "<instance_id>"}`
+- Remind them gently but clearly: stop the instance when done.
+
+IF MODE == "both":
+- They're on both sides of the marketplace — earning and spending.
+- Worker is earning; wallet is ready for their own compute.
+- Single dashboard: xcelsior.ca/dashboard
+- Net billing: their GPU earnings offset their compute costs.
+
+CLOSING:
+- "Press **?** to ask me anything — I'm still here. Or press **q** to exit."
+- If they ask follow-up questions about the dashboard, billing, config, or their setup: answer them fully.
+- Be warm. They just set up something real. Acknowledge it."""
+
+
+# ── Step prompt router ────────────────────────────────────────────────
+
+
+def _prompt_mode(kv: dict) -> str:
+    return """## WIZARD STEP: Mode Selection
+The user is choosing how they want to use Xcelsior:
+- **provide** — Share their GPU hardware to earn money
+- **rent** — Rent GPU compute for AI/ML workloads
+- **both** — Do both simultaneously
+
+GUIDANCE:
+- If they ask what to pick: ask about their hardware and goals.
+- Providers need a Linux box with an NVIDIA GPU. Minimum 8GB VRAM.
+- Renters just need a use case — training, inference, rendering, etc.
+- "both" means their machine earns when idle and they can rent other GPUs too.
+- Keep it simple: this is the first step. Don't overwhelm."""
+
+
+def _prompt_api_check(kv: dict) -> str:
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: API Connection Check
+The wizard is verifying connectivity to the Xcelsior API.
+
+CURRENT STATE:
+- Failed checks: {failed or "none (checking...)"}
+
+NOTE: If this check fails, the user likely has a network issue, firewall, or the API is down.
+Since the AI assistant itself requires API connectivity, you may not see this prompt during a failure.
+But if the user asks via freeform chat after a retry succeeds:
+- Explain what the API check verifies (auth token validity, network connectivity)
+- Suggest: check internet, check firewall rules, try again in a minute
+- The API endpoint is api.xcelsior.ca (HTTPS, port 443)"""
+
+
+_WIZARD_STEP_BUILDERS: dict[str, "Callable[[dict], str]"] = {
+    "mode":            _prompt_mode,
+    "docker-check":    _prompt_docker_check,
+    "device-auth":     _prompt_device_auth,
+    "api-check":       _prompt_api_check,
+    "gpu-detect":      _prompt_gpu_detect,
+    "version-check":   _prompt_version_check,
+    "benchmark":       _prompt_benchmark,
+    "network-bench":   _prompt_network_bench,
+    "verification":    _prompt_verification,
+    "pricing":         _prompt_pricing,
+    "custom-rate":     _prompt_custom_rate,
+    "host-register":   _prompt_host_register,
+    "admission-gate":  _prompt_admission_gate,
+    "confirm-setup":   _prompt_confirm_setup,
+    "provider-summary": _prompt_provider_summary,
+    "workload":        _prompt_workload,
+    "gpu-preference":  _prompt_gpu_preference,
+    "browse-gpus":     _prompt_browse_gpus,
+    "gpu-pick":        _prompt_gpu_pick,
+    "image-pick":      _prompt_image_pick,
+    "confirm-launch":  _prompt_confirm_launch,
+    "wallet-check":    _prompt_wallet_check,
+    "payment-gate":    _prompt_payment_gate,
+    "launch-instance": _prompt_launch_instance,
+    "done":            _prompt_done,
+}
+
+
+def _build_wizard_step_prompt(step_id: str, kv: dict[str, str]) -> str:
+    """Dispatch to the correct per-step builder function. Returns empty string for steps with no AI steering."""
+    from typing import Callable  # noqa: F401 — used in annotation above
+    builder = _WIZARD_STEP_BUILDERS.get(step_id)
+    return builder(kv) if builder else ""
+
+
 # ── System Prompt Builder ─────────────────────────────────────────────
 
 def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
@@ -1141,19 +2696,49 @@ When a user wants to rent GPU compute, guide them step-by-step:
 7. Mention the $10 free credits for new accounts to try the platform risk-free.
 """
 
-    # ── Page context ──────────────────────────────────────────────────
+    # ── Page context / wizard step steering ──────────────────────────
     page_context_section = ""
+    is_wizard = page_context.startswith("cli-wizard:")
+    wizard_identity = ""
     if page_context:
-        page_context_section = f"""
+        if is_wizard:
+            step_id, kv = _parse_wizard_context(page_context)
+            step_prompt = _build_wizard_step_prompt(step_id, kv)
+            wizard_identity = (
+                "\nYou are **Hexara** — the Xcelsior setup wizard AI. You live inside the terminal, not a web chat.\n\n"
+                "HEXARA IDENTITY:\n"
+                "- Warm, precise, and action-oriented. Never wishy-washy. Never corporate-speak.\n"
+                "- Speak directly to the person in front of you — their exact hardware, their exact error.\n"
+                "- Give copy-paste commands, not 'you might try'. Give specific dollars, not 'it depends'.\n"
+                "- When something fails: diagnose it thoroughly — full root-cause analysis, every relevant command.\n"
+                "- When something succeeds: celebrate briefly and move forward.\n"
+                "- Expert in Linux, NVIDIA drivers, Docker, GPU compute, and the Xcelsior platform.\n"
+                "- Never say 'I can't help with that' — find the path.\n"
+                "- Be thorough and complete. Give full diagnostic output — no length limits in wizard mode.\n"
+                "- You are Hexara. Never 'the AI', never 'I'm an AI assistant', never 'Xcel'.\n"
+                "- You are in a CLI terminal. Use code blocks and short paragraphs. No decorative markdown.\n"
+            )
+            page_context_section = f"""
+WIZARD CONTEXT: {page_context}
+{step_prompt}
+"""
+            # Step builders provide detailed context — skip generic wizard blocks
+            provider_wizard = ""
+            renter_wizard = ""
+        else:
+            page_context_section = f"""
 CURRENT PAGE CONTEXT:
 The user is currently viewing: {page_context}
 Tailor your responses to be relevant to what they're looking at.
 """
 
-    return f"""You are Xcel, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for xcelsior.ca, Canada's distributed GPU compute marketplace.
+    identity_name = "Hexara" if is_wizard else "Xcel"
+
+    return f"""You are {identity_name}, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for xcelsior.ca, Canada's distributed GPU compute marketplace.
+{wizard_identity}
 
 IDENTITY:
-- Your name is Xcel
+- Your name is {identity_name}
 - You represent Xcelsior, a Canadian company
 - You are helpful, concise, and action-oriented
 - You can perform actions on the platform using tools
@@ -1183,7 +2768,7 @@ CAPABILITIES:
 
 RULES:
 - For write actions (launching jobs, stopping jobs, creating API keys), ALWAYS use the appropriate tool — NEVER just describe how to do it
-- Be concise: keep responses under 200 words unless the user asks for detail
+- Be thorough: give complete, actionable answers. No artificial length limits
 - Use Canadian English spelling (colour, centre, honour)
 - Format with markdown when helpful (bold, lists, code blocks)
 - When showing prices, always specify CAD
@@ -1383,34 +2968,327 @@ def _flush_messages(conversation_id: str, ops: list[tuple], tokens_in: int = 0, 
 
 # ── Streaming Orchestrator ────────────────────────────────────────────
 
+async def _stream_mock_assistant_response(
+    conversation_id: str,
+    clean_message: str,
+) -> AsyncGenerator[str, None]:
+    response_text = _build_mock_response(clean_message)
+    with _ai_db() as conn:
+        _append_message(conn, conversation_id, "assistant", response_text)
+    for token in _iter_text_chunks(response_text):
+        yield _sse({"type": "token", "content": token})
+    yield _sse({"type": "done"})
+
+
+async def _stream_with_text_provider(
+    provider: str,
+    conversation_id: str,
+    history_rows: list[dict],
+    system: str,
+    clean_message: str,
+) -> AsyncGenerator[str, None]:
+    # Xcel AI uses OpenAI-compatible providers in text mode here.
+    # Tool calling and confirmation workflows still run through Anthropic.
+    response_text: list[str] = []
+    text_messages = _build_text_messages(history_rows, system, clean_message)
+    async for token in _stream_text_completion(
+        provider,
+        _get_provider_api_key(provider),
+        _get_provider_model(provider),
+        text_messages,
+        AI_MAX_TOKENS,
+    ):
+        response_text.append(token)
+        yield _sse({"type": "token", "content": token})
+
+    full_text = "".join(response_text).strip()
+    if not full_text:
+        raise RuntimeError(f"{provider} returned an empty response")
+
+    with _ai_db() as conn:
+        _append_message(conn, conversation_id, "assistant", full_text)
+    yield _sse({"type": "done"})
+
+
+async def _stream_with_openai_tool_provider(
+    provider: str,
+    conversation_id: str,
+    history_rows: list[dict],
+    system: str,
+    clean_message: str,
+    user: dict,
+) -> AsyncGenerator[str, None]:
+    """OpenAI-compatible streaming with function-calling/tool support."""
+    cfg = _get_text_provider_config(provider)
+    url = f"{cfg['base_url']}/chat/completions"
+    api_key = _get_provider_api_key(provider)
+    model = _get_provider_model(provider)
+    tools = _build_openai_tools()
+    user_id = user.get("user_id", user.get("email", ""))
+
+    messages = _build_text_messages(history_rows, system, clean_message)
+    db_ops: list[tuple] = []
+
+    max_tool_rounds = 5
+    for _round in range(max_tool_rounds + 1):
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": AI_MAX_TOKENS,
+            "temperature": 0.2,
+            "stream": True,
+        }
+        # Only include tools on rounds where tool calls are possible
+        if tools:
+            payload["tools"] = tools
+
+        round_text: list[str] = []
+        tool_calls_acc: dict[int, dict] = {}  # index -> {id, name, arguments}
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:200]}")
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    choice = (chunk.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
+
+                    # Text content
+                    content = delta.get("content")
+                    if content:
+                        round_text.append(content)
+                        yield _sse({"type": "token", "content": content})
+
+                    # Tool calls (streamed incrementally)
+                    for tc in delta.get("tool_calls") or []:
+                        idx = tc.get("index", 0)
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
+                        if tc.get("id"):
+                            tool_calls_acc[idx]["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            tool_calls_acc[idx]["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            tool_calls_acc[idx]["arguments"] += fn["arguments"]
+
+        round_text_str = "".join(round_text)
+
+        if not tool_calls_acc:
+            if round_text_str.strip():
+                db_ops.append(("assistant", round_text_str, "", None, None))
+            break
+
+        if round_text_str.strip():
+            db_ops.append(("assistant", round_text_str, "", None, None))
+
+        # Build assistant message with tool_calls for conversation history
+        assistant_tool_calls = []
+        for idx in sorted(tool_calls_acc.keys()):
+            tc = tool_calls_acc[idx]
+            assistant_tool_calls.append({
+                "id": tc["id"],
+                "type": "function",
+                "function": {"name": tc["name"], "arguments": tc["arguments"]},
+            })
+
+        assistant_msg: dict = {"role": "assistant"}
+        if round_text_str.strip():
+            assistant_msg["content"] = round_text_str
+        assistant_msg["tool_calls"] = assistant_tool_calls
+        messages.append(assistant_msg)
+
+        # Execute tools and collect results
+        write_tool_hit = False
+        for tc_data in assistant_tool_calls:
+            tool_name = tc_data["function"]["name"]
+            try:
+                tool_args = json.loads(tc_data["function"]["arguments"]) if tc_data["function"]["arguments"] else {}
+            except json.JSONDecodeError:
+                tool_args = {}
+
+            yield _sse({"type": "tool_call", "name": tool_name, "input": tool_args})
+            db_ops.append(("tool_call", "", tool_name, tool_args, None))
+
+            if tool_name in WRITE_TOOLS:
+                write_tool_hit = True
+                conf_id = create_confirmation(conversation_id, user_id, tool_name, tool_args)
+                yield _sse({
+                    "type": "confirmation_required",
+                    "confirmation_id": conf_id,
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                })
+                break
+
+            result = await _exec_tool_cached(tool_name, tool_args, user)
+            yield _sse({"type": "tool_result", "name": tool_name, "output": result})
+            db_ops.append(("tool_result", "", tool_name, None, result))
+
+            # Add tool result to messages for next round (OpenAI format)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc_data["id"],
+                "content": json.dumps(result),
+            })
+
+        if write_tool_hit:
+            _flush_messages(conversation_id, db_ops)
+            yield _sse({"type": "done"})
+            return
+
+    _flush_messages(conversation_id, db_ops)
+    yield _sse({"type": "done"})
+
+
+async def _stream_with_anthropic_provider(
+    messages: list[dict],
+    conversation_id: str,
+    user: dict,
+    system: str,
+) -> AsyncGenerator[str, None]:
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    tools = _build_tools()
+
+    max_tool_rounds = 5
+    db_ops: list[tuple] = []
+    total_in = 0
+    total_out = 0
+    user_id = user.get("user_id", user.get("email", ""))
+
+    for _round in range(max_tool_rounds + 1):
+        response = await client.messages.create(
+            model=AI_MODEL,
+            max_tokens=AI_MAX_TOKENS,
+            system=system,
+            messages=messages,
+            tools=tools,
+            stream=True,
+        )
+
+        round_text: list[str] = []
+        tool_uses: list[dict] = []
+        cur = {"name": "", "id": "", "json": ""}
+
+        async for event in response:
+            if event.type == "message_start":
+                usage = getattr(event.message, "usage", None)
+                if usage:
+                    total_in += getattr(usage, "input_tokens", 0)
+
+            elif event.type == "content_block_start":
+                block = event.content_block
+                if block.type == "tool_use":
+                    cur = {"name": block.name, "id": block.id, "json": ""}
+
+            elif event.type == "content_block_delta":
+                delta = event.delta
+                if delta.type == "text_delta":
+                    round_text.append(delta.text)
+                    yield _sse({"type": "token", "content": delta.text})
+                elif delta.type == "input_json_delta":
+                    cur["json"] += delta.partial_json
+
+            elif event.type == "content_block_stop":
+                if cur["name"]:
+                    try:
+                        tool_args = json.loads(cur["json"]) if cur["json"] else {}
+                    except json.JSONDecodeError:
+                        tool_args = {}
+                    tool_uses.append({"id": cur["id"], "name": cur["name"], "input": tool_args})
+                    cur = {"name": "", "id": "", "json": ""}
+
+            elif event.type == "message_delta":
+                usage = getattr(event, "usage", None)
+                if usage:
+                    total_out += getattr(usage, "output_tokens", 0)
+
+        round_text_str = "".join(round_text)
+
+        if not tool_uses:
+            if round_text_str.strip():
+                db_ops.append(("assistant", round_text_str, "", None, None))
+            break
+
+        if round_text_str.strip():
+            db_ops.append(("assistant", round_text_str, "", None, None))
+
+        assistant_content: list[dict] = []
+        if round_text_str.strip():
+            assistant_content.append({"type": "text", "text": round_text_str})
+
+        tool_result_blocks: list[dict] = []
+        write_tool_hit = False
+
+        for tool in tool_uses:
+            assistant_content.append({
+                "type": "tool_use",
+                "id": tool["id"],
+                "name": tool["name"],
+                "input": tool["input"],
+            })
+
+            yield _sse({"type": "tool_call", "name": tool["name"], "input": tool["input"]})
+            db_ops.append(("tool_call", "", tool["name"], tool["input"], None))
+
+            if tool["name"] in WRITE_TOOLS:
+                write_tool_hit = True
+                conf_id = create_confirmation(conversation_id, user_id, tool["name"], tool["input"])
+                yield _sse({
+                    "type": "confirmation_required",
+                    "confirmation_id": conf_id,
+                    "tool_name": tool["name"],
+                    "tool_args": tool["input"],
+                })
+                break
+
+            result = await _exec_tool_cached(tool["name"], tool["input"], user)
+            yield _sse({"type": "tool_result", "name": tool["name"], "output": result})
+            db_ops.append(("tool_result", "", tool["name"], None, result))
+            tool_result_blocks.append({
+                "type": "tool_result",
+                "tool_use_id": tool["id"],
+                "content": json.dumps(result),
+            })
+
+        if write_tool_hit:
+            _flush_messages(conversation_id, db_ops, total_in, total_out)
+            yield _sse({"type": "done"})
+            return
+
+        messages.append({"role": "assistant", "content": assistant_content})
+        messages.append({"role": "user", "content": tool_result_blocks})
+
+    _flush_messages(conversation_id, db_ops, total_in, total_out)
+    yield _sse({"type": "done"})
+
+
 async def stream_ai_response(
     message: str,
     conversation_id: str,
     user: dict,
     page_context: str = "",
 ) -> AsyncGenerator[str, None]:
-    """Stream AI assistant response with tool-calling support.
-
-    Yields SSE-formatted events:
-    - {type: "meta", conversation_id}
-    - {type: "token", content}
-    - {type: "tool_call", name, input}
-    - {type: "tool_result", name, output}
-    - {type: "confirmation_required", confirmation_id, tool_name, tool_args}
-    - {type: "done"}
-    - {type: "error", message}
-    """
-    if not ANTHROPIC_API_KEY:
-        yield _sse({"type": "error", "message": "AI assistant is not configured. Set ANTHROPIC_API_KEY."})
-        return
-
-    # ── Security: rate limiting ───────────────────────────────────────
+    """Stream AI assistant response with provider fallbacks and safe dev mode."""
     user_id = user.get("user_id", user.get("email", ""))
     if not check_ai_rate_limit(user_id):
         yield _sse({"type": "error", "message": "Rate limit exceeded. Please wait a moment before sending another message."})
         return
 
-    # ── Security: conversation ownership ──────────────────────────────
     conv = get_conversation(conversation_id, user_id)
     if not conv:
         yield _sse({"type": "error", "message": "Conversation not found."})
@@ -1418,7 +3296,6 @@ async def stream_ai_response(
 
     yield _sse({"type": "meta", "conversation_id": conversation_id})
 
-    # ── Load and reconstruct conversation history ─────────────────────
     with _ai_db() as conn:
         rows = conn.execute(
             "SELECT message_id, role, content, tool_name, tool_input, tool_output "
@@ -1426,173 +3303,148 @@ async def stream_ai_response(
             (conversation_id,),
         ).fetchall()
 
-    # Reconstruct Anthropic-compatible history with tool_use/tool_result blocks
     history = [dict(r) for r in rows]
-    messages = _reconstruct_history(history[-30:])  # Last 30 DB rows for context
+    anthropic_messages = _reconstruct_history(history[-30:])
 
-    # ── Add current user message ──────────────────────────────────────
     from privacy import redact_pii
-    clean_message = redact_pii(message)
-    messages.append({"role": "user", "content": clean_message})
 
-    # Store user message and auto-title on first message
+    clean_message = redact_pii(message)
+    anthropic_messages.append({"role": "user", "content": clean_message})
+
     with _ai_db() as conn:
         _append_message(conn, conversation_id, "user", clean_message)
         if not history:
-            title = clean_message[:80]
             conn.execute(
                 "UPDATE ai_conversations SET title = %s WHERE conversation_id = %s",
-                (title, conversation_id),
+                (clean_message[:80], conversation_id),
             )
 
-    # ── Build system prompt ───────────────────────────────────────────
     system = build_ai_system_prompt(user, page_context=page_context)
 
-    # ── Multi-turn streaming with tool execution loop ─────────────────
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    tools = _build_tools()
-
-    MAX_TOOL_ROUNDS = 5  # Safety limit — prevents infinite tool loops
-    db_ops: list[tuple] = []  # Accumulated (role, content, tool_name, tool_input, tool_output)
-    total_in = 0
-    total_out = 0
-
-    try:
-        for _round in range(MAX_TOOL_ROUNDS + 1):
-            response = await client.messages.create(
-                model=AI_MODEL,
-                max_tokens=AI_MAX_TOKENS,
-                system=system,
-                messages=messages,
-                tools=tools,
-                stream=True,
-            )
-
-            round_text: list[str] = []
-            tool_uses: list[dict] = []
-            cur = {"name": "", "id": "", "json": ""}  # Current tool being parsed
-
-            async for event in response:
-                if event.type == "message_start":
-                    usage = getattr(event.message, "usage", None)
-                    if usage:
-                        total_in += getattr(usage, "input_tokens", 0)
-
-                elif event.type == "content_block_start":
-                    block = event.content_block
-                    if block.type == "tool_use":
-                        cur = {"name": block.name, "id": block.id, "json": ""}
-
-                elif event.type == "content_block_delta":
-                    delta = event.delta
-                    if delta.type == "text_delta":
-                        round_text.append(delta.text)
-                        yield _sse({"type": "token", "content": delta.text})
-                    elif delta.type == "input_json_delta":
-                        cur["json"] += delta.partial_json
-
-                elif event.type == "content_block_stop":
-                    if cur["name"]:
-                        try:
-                            tool_args = json.loads(cur["json"]) if cur["json"] else {}
-                        except json.JSONDecodeError:
-                            tool_args = {}
-                        tool_uses.append({"id": cur["id"], "name": cur["name"], "input": tool_args})
-                        cur = {"name": "", "id": "", "json": ""}
-
-                elif event.type == "message_delta":
-                    usage = getattr(event, "usage", None)
-                    if usage:
-                        total_out += getattr(usage, "output_tokens", 0)
-
-            round_text_str = "".join(round_text)
-
-            # ── No tool calls → final text response ──────────────────
-            if not tool_uses:
-                if round_text_str.strip():
-                    db_ops.append(("assistant", round_text_str, "", None, None))
-                break
-
-            # ── Process tool calls ────────────────────────────────────
-            if round_text_str.strip():
-                db_ops.append(("assistant", round_text_str, "", None, None))
-
-            # Build assistant content blocks for API continuation
-            assistant_content: list[dict] = []
-            if round_text_str.strip():
-                assistant_content.append({"type": "text", "text": round_text_str})
-
-            tool_result_blocks: list[dict] = []
-            write_tool_hit = False
-
-            for tool in tool_uses:
-                assistant_content.append({
-                    "type": "tool_use",
-                    "id": tool["id"],
-                    "name": tool["name"],
-                    "input": tool["input"],
-                })
-
-                yield _sse({"type": "tool_call", "name": tool["name"], "input": tool["input"]})
-                db_ops.append(("tool_call", "", tool["name"], tool["input"], None))
-
-                # Write tools require user confirmation — stop and wait
-                if tool["name"] in WRITE_TOOLS:
-                    write_tool_hit = True
-                    conf_id = create_confirmation(conversation_id, user_id, tool["name"], tool["input"])
-                    yield _sse({
-                        "type": "confirmation_required",
-                        "confirmation_id": conf_id,
-                        "tool_name": tool["name"],
-                        "tool_args": tool["input"],
-                    })
-                    break
-                else:
-                    # Execute read-only tool automatically
-                    result = await _exec_tool(tool["name"], tool["input"], user)
-                    yield _sse({"type": "tool_result", "name": tool["name"], "output": result})
-                    db_ops.append(("tool_result", "", tool["name"], None, result))
-                    tool_result_blocks.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool["id"],
-                        "content": json.dumps(result),
-                    })
-
-            if write_tool_hit:
-                # Flush accumulated messages and stop — user must confirm
-                _flush_messages(conversation_id, db_ops, total_in, total_out)
-                yield _sse({"type": "done"})
-                return
-
-            # Continue conversation with tool results → next round
-            messages.append({"role": "assistant", "content": assistant_content})
-            messages.append({"role": "user", "content": tool_result_blocks})
-
-        # ── Flush all accumulated messages to DB ──────────────────────
-        _flush_messages(conversation_id, db_ops, total_in, total_out)
-        yield _sse({"type": "done"})
-
-    except anthropic.APIError as e:
-        log.error("Anthropic API error: %s", e)
-        yield _sse({"type": "error", "message": "AI assistant temporarily unavailable. Falling back to basic chat."})
+    # Pre-fetch data once for text-only providers (cached, reused across fallbacks)
+    prefetch_data = ""
+    if page_context.startswith("cli-wizard:"):
+        step_id, kv = _parse_wizard_context(page_context)
         try:
-            from chat import stream_chat_response, build_system_prompt
-            fallback_msgs = [{"role": "system", "content": build_system_prompt()}]
-            fallback_msgs.extend(m for m in messages if isinstance(m.get("content"), str))
-            fallback_text = []
-            async for token in stream_chat_response(fallback_msgs):
-                fallback_text.append(token)
-                yield _sse({"type": "token", "content": token})
-            with _ai_db() as conn:
-                _append_message(conn, conversation_id, "assistant", "".join(fallback_text))
-            yield _sse({"type": "done"})
-        except Exception as e2:
-            log.error("Fallback chat also failed: %s", e2)
-            yield _sse({"type": "error", "message": "I'm having trouble connecting. Please try again or contact support@xcelsior.ca."})
+            prefetch_data = await _prefetch_wizard_data(step_id, user, kv)
+        except Exception as e:
+            log.warning("Prefetch failed for step %s: %s", step_id, e)
 
-    except Exception as e:
-        log.error("AI stream error: %s", e)
-        yield _sse({"type": "error", "message": "An error occurred. Please try again."})
+    if not AI_ENABLE_LIVE_CALLS:
+        async for event in _stream_mock_assistant_response(conversation_id, clean_message):
+            yield event
+        return
+
+    if not _has_any_live_provider():
+        providers = ", ".join(_get_provider_order())
+        yield _sse({
+            "type": "error",
+            "message": f"AI assistant is not configured. Live calls are enabled, but no API key is set for: {providers}.",
+        })
+        return
+
+    last_error: Exception | None = None
+    for provider in _get_provider_order():
+        if not _get_provider_api_key(provider):
+            continue
+        try:
+            if provider == "anthropic":
+                async for event in _stream_with_anthropic_provider(
+                    anthropic_messages,
+                    conversation_id,
+                    user,
+                    system,
+                ):
+                    yield event
+            elif provider in TOOL_CAPABLE_PROVIDERS:
+                # OpenAI (and future providers) with function-calling support
+                async for event in _stream_with_openai_tool_provider(
+                    provider,
+                    conversation_id,
+                    history,
+                    system,
+                    clean_message,
+                    user,
+                ):
+                    yield event
+            else:
+                # Text-only provider (xAI, etc.) — inject pre-fetched data
+                text_system = system + prefetch_data if prefetch_data else system
+                async for event in _stream_with_text_provider(
+                    provider,
+                    conversation_id,
+                    history,
+                    text_system,
+                    clean_message,
+                ):
+                    yield event
+            return
+        except Exception as e:
+            last_error = e
+            log.error("AI provider %s failed", provider, exc_info=True)
+
+    if last_error:
+        log.error("All AI assistant providers failed. Last error: %s", last_error)
+    yield _sse({"type": "error", "message": "I'm having trouble connecting. Please try again or contact support@xcelsior.ca."})
+
+
+async def _stream_summary_with_anthropic(prompt: str) -> AsyncGenerator[str, None]:
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    summary_response = await client.messages.create(
+        model=AI_MODEL,
+        max_tokens=512,
+        system="You are Xcel, the Xcelsior AI assistant. Write a brief, friendly confirmation of the action result. Use Canadian English.",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+    async for event in summary_response:
+        if event.type == "content_block_delta" and event.delta.type == "text_delta":
+            yield event.delta.text
+
+
+async def _stream_summary_with_text_provider(provider: str, prompt: str) -> AsyncGenerator[str, None]:
+    messages = [
+        {
+            "role": "system",
+            "content": "You are Xcel, the Xcelsior AI assistant. Write a brief, friendly confirmation of the action result. Use Canadian English.",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    async for token in _stream_text_completion(
+        provider,
+        _get_provider_api_key(provider),
+        _get_provider_model(provider),
+        messages,
+        512,
+    ):
+        yield token
+
+
+async def _stream_action_summary(tool_name: str, tool_args: dict, result: dict) -> AsyncGenerator[str, None]:
+    prompt = (
+        f"The user confirmed the action '{tool_name}' with args {json.dumps(tool_args)}. "
+        f"The result was: {json.dumps(result)}. Write a brief, friendly confirmation message to the user about what happened."
+    )
+
+    if not AI_ENABLE_LIVE_CALLS:
+        yield f"{tool_name.replace('_', ' ').title()} completed successfully."
+        return
+
+    for provider in _get_provider_order():
+        if not _get_provider_api_key(provider):
+            continue
+        try:
+            if provider == "anthropic":
+                async for token in _stream_summary_with_anthropic(prompt):
+                    yield token
+            else:
+                async for token in _stream_summary_with_text_provider(provider, prompt):
+                    yield token
+            return
+        except Exception:
+            log.error("AI summary provider %s failed", provider, exc_info=True)
+
+    yield f"{tool_name.replace('_', ' ').title()} completed successfully."
 
 
 async def execute_confirmed_action(
@@ -1639,34 +3491,14 @@ async def execute_confirmed_action(
         yield _sse({"type": "done"})
         return
 
-    # Generate a natural language summary of the result
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    summary_messages = [
-        {"role": "user", "content": f"The user confirmed the action '{tool_name}' with args {json.dumps(tool_args)}. "
-         f"The result was: {json.dumps(result)}. Write a brief, friendly confirmation message to the user about what happened."},
-    ]
-    try:
-        summary_response = await client.messages.create(
-            model=AI_MODEL,
-            max_tokens=512,
-            system="You are Xcel, the Xcelsior AI assistant. Write a brief, friendly confirmation of the action result. Use Canadian English.",
-            messages=summary_messages,
-            stream=True,
-        )
-        summary_text = []
-        async for event in summary_response:
-            if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                summary_text.append(event.delta.text)
-                yield _sse({"type": "token", "content": event.delta.text})
+    summary_text: list[str] = []
+    async for token in _stream_action_summary(tool_name, tool_args, result):
+        summary_text.append(token)
+        yield _sse({"type": "token", "content": token})
 
-        with _ai_db() as conn:
-            _append_message(conn, conversation_id, "assistant", "".join(summary_text))
-    except Exception:
-        # If summary fails, just confirm with a generic message
-        msg = f"✅ {tool_name.replace('_', ' ').title()} completed successfully."
-        yield _sse({"type": "token", "content": msg})
-        with _ai_db() as conn:
-            _append_message(conn, conversation_id, "assistant", msg)
+    final_summary = "".join(summary_text).strip() or f"{tool_name.replace('_', ' ').title()} completed successfully."
+    with _ai_db() as conn:
+        _append_message(conn, conversation_id, "assistant", final_summary)
 
     yield _sse({"type": "done"})
 
