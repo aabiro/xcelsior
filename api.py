@@ -323,7 +323,17 @@ def _start_background_tasks():
             log.error("Privacy purge error: %s", e)
     tasks.append(("privacy_purge", _privacy_purge, 21600))
 
-    # 9. FINTRAC compliance check (every hour)
+    # 9. Session cleanup — purge expired sessions (every hour)
+    def _session_cleanup():
+        try:
+            count = UserStore.cleanup_expired_sessions()
+            if count:
+                log.info("Session cleanup: purged %d expired sessions", count)
+        except Exception as e:
+            log.error("Session cleanup error: %s", e)
+    tasks.append(("session_cleanup", _session_cleanup, 3600))
+
+    # 10. FINTRAC compliance check (every hour)
     def _fintrac_check():
         try:
             from billing import get_billing_engine
@@ -2207,6 +2217,7 @@ _user_lock = _threading.Lock()
 _USE_PERSISTENT_AUTH = os.environ.get("XCELSIOR_PERSISTENT_AUTH", "true").lower() != "false"
 
 SESSION_EXPIRY = 86400 * 30  # 30 days
+MAX_SESSION_LIFETIME = 86400 * 7  # 7 days — absolute cap regardless of refresh
 
 # ── httpOnly Cookie Auth ──────────────────────────────────────────────
 _AUTH_COOKIE_NAME = "xcelsior_session"
@@ -2367,6 +2378,12 @@ def _get_current_user(request: Request) -> dict | None:
     if _USE_PERSISTENT_AUTH:
         session = UserStore.get_session(token)
         if session:
+            # Enforce absolute session lifetime — no amount of refreshing
+            # extends a session beyond MAX_SESSION_LIFETIME from creation.
+            created = session.get("created_at") or 0
+            if time.time() - created > MAX_SESSION_LIFETIME:
+                UserStore.delete_session(token)
+                return None
             # Update last_active periodically (every 5 minutes to reduce DB writes)
             try:
                 last = session.get("last_active") or 0
@@ -3011,8 +3028,11 @@ def api_auth_refresh(request: Request):
         with _user_lock:
             full_user = _users_db.get(user["email"], user)
 
-    # Invalidate old token
-    old_token = request.headers.get("authorization", "")[7:]
+    # Invalidate old token (check header first, then cookie — same as logout)
+    auth = request.headers.get("authorization", "")
+    old_token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not old_token:
+        old_token = request.cookies.get(_AUTH_COOKIE_NAME, "")
     if _USE_PERSISTENT_AUTH:
         UserStore.delete_session(old_token)
     else:

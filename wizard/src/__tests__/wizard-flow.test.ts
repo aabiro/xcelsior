@@ -1,7 +1,7 @@
 // Tests for wizard-flow.ts — step definitions, conditions, navigation
 
 import { describe, it, expect } from "vitest";
-import { WIZARD_STEPS, getNextStep } from "../wizard-flow.js";
+import { WIZARD_STEPS, getNextStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "../wizard-flow.js";
 
 describe("wizard-flow", () => {
     it("first step is mode select", () => {
@@ -27,20 +27,44 @@ describe("wizard-flow", () => {
         }
     });
 
-    describe("getNextStep — renter flow", () => {
-        const renterAnswers = { mode: "rent" };
+    it("IMAGE_TEMPLATES has at least 5 entries", () => {
+        expect(IMAGE_TEMPLATES.length).toBeGreaterThanOrEqual(5);
+        for (const t of IMAGE_TEMPLATES) {
+            expect(t.label.length).toBeGreaterThan(0);
+            expect(t.value.length).toBeGreaterThan(0);
+        }
+    });
 
-        it("skips docker-check for renters", () => {
-            // From mode (index 0), next should skip docker-check
-            const next = getNextStep(0, renterAnswers);
-            expect(WIZARD_STEPS[next].id).toBe("api-url");
+    it("WORKLOAD_IMAGE_MAP covers common workloads", () => {
+        expect(WORKLOAD_IMAGE_MAP["training"]).toBeDefined();
+        expect(WORKLOAD_IMAGE_MAP["inference"]).toBeDefined();
+        expect(WORKLOAD_IMAGE_MAP["other"]).toBeDefined();
+    });
+
+    describe("getNextStep — renter flow", () => {
+        it("includes device-auth after mode for renters", () => {
+            const next = getNextStep(0, { mode: "rent" });
+            expect(WIZARD_STEPS[next].id).toBe("device-auth");
         });
 
         it("skips provider-only steps", () => {
             // Walk entire renter flow
             const visited: string[] = [];
             let idx = 0;
-            const answers: Record<string, string> = { mode: "rent" };
+            const answers: Record<string, string> = {
+                mode: "rent",
+                "device-auth": "authorized",
+                "api-key": "test-token",
+                workload: "training",
+                "gpu-preference": "cheapest",
+                "browse-gpus": "done",
+                "gpu-pick": "host-1",
+                "image-pick": "nvcr.io/nvidia/pytorch:24.01-py3",
+                "confirm-launch": "yes",
+                "wallet-check": "passed",
+                "_wallet_insufficient": "false",
+                "launch-instance": "passed",
+            };
 
             while (idx < WIZARD_STEPS.length && WIZARD_STEPS[idx].type !== "done") {
                 visited.push(WIZARD_STEPS[idx].id);
@@ -49,22 +73,19 @@ describe("wizard-flow", () => {
             }
 
             // Should NOT include provider-only steps
-            expect(visited).not.toContain("docker-check");
-            expect(visited).not.toContain("gpu-detect");
-            expect(visited).not.toContain("pricing");
-            expect(visited).not.toContain("custom-rate");
-
+            expect(visited).not.toContain("confirm-setup");
             // Should include renter steps
             expect(visited).toContain("workload");
             expect(visited).toContain("gpu-preference");
+            expect(visited).toContain("browse-gpus");
+            expect(visited).toContain("gpu-pick");
+            expect(visited).toContain("device-auth");
         });
     });
 
     describe("getNextStep — provider flow", () => {
-        const providerAnswers = { mode: "provide" };
-
         it("includes docker-check for providers", () => {
-            const next = getNextStep(0, providerAnswers);
+            const next = getNextStep(0, { mode: "provide" });
             expect(WIZARD_STEPS[next].id).toBe("docker-check");
         });
 
@@ -81,9 +102,12 @@ describe("wizard-flow", () => {
 
             expect(visited).not.toContain("workload");
             expect(visited).not.toContain("gpu-preference");
+            expect(visited).not.toContain("browse-gpus");
+            expect(visited).not.toContain("gpu-pick");
             expect(visited).toContain("docker-check");
             expect(visited).toContain("gpu-detect");
             expect(visited).toContain("pricing");
+            expect(visited).toContain("confirm-setup");
             // custom-rate skipped because pricing != "custom"
             expect(visited).not.toContain("custom-rate");
         });
@@ -93,7 +117,22 @@ describe("wizard-flow", () => {
         it("includes both provider and renter steps", () => {
             const visited: string[] = [];
             let idx = 0;
-            const answers: Record<string, string> = { mode: "both", pricing: "custom" };
+            const answers: Record<string, string> = {
+                mode: "both",
+                pricing: "custom",
+                "custom-rate": "0.50",
+                "device-auth": "authorized",
+                "api-key": "test-token",
+                workload: "training",
+                "gpu-preference": "cheapest",
+                "browse-gpus": "done",
+                "gpu-pick": "host-1",
+                "image-pick": "nvcr.io/nvidia/pytorch:24.01-py3",
+                "confirm-launch": "yes",
+                "wallet-check": "passed",
+                "_wallet_insufficient": "false",
+                "launch-instance": "passed",
+            };
 
             while (idx < WIZARD_STEPS.length && WIZARD_STEPS[idx].type !== "done") {
                 visited.push(WIZARD_STEPS[idx].id);
@@ -123,6 +162,30 @@ describe("wizard-flow", () => {
 
             const nextRec = getNextStep(pricingIdx, withRecommended);
             expect(WIZARD_STEPS[nextRec].id).not.toBe("custom-rate");
+        });
+    });
+
+    describe("validation", () => {
+        it("custom-rate step has validate function", () => {
+            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
+            expect(step?.validate).toBeDefined();
+            expect(step!.validate!("0.50")).toBeNull();
+            expect(step!.validate!("abc")).not.toBeNull();
+            expect(step!.validate!("")).not.toBeNull();
+            expect(step!.validate!("-1")).not.toBeNull();
+        });
+    });
+
+    describe("payment gate condition", () => {
+        it("payment-gate shows only when wallet is insufficient", () => {
+            const walletStep = WIZARD_STEPS.find((s) => s.id === "wallet-check");
+            expect(walletStep).toBeDefined();
+
+            const paymentStep = WIZARD_STEPS.find((s) => s.id === "payment-gate");
+            expect(paymentStep).toBeDefined();
+            expect(paymentStep!.condition).toBeDefined();
+            expect(paymentStep!.condition!({ mode: "rent", "_wallet_insufficient": "true" })).toBe(true);
+            expect(paymentStep!.condition!({ mode: "rent", "_wallet_insufficient": "false" })).toBe(false);
         });
     });
 });

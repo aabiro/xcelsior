@@ -26,7 +26,7 @@ import {
     type WizardState,
 } from "../wizard-sprite.js";
 
-const ALL_STATES: WizardState[] = ["idle", "thinking", "success", "error"];
+const ALL_STATES: WizardState[] = ["idle", "thinking", "success", "error", "waiting", "excited", "finishing"];
 const CORE_GROUPS: readonly Frame[][] = [
     INTRO_FRAMES, IDLE_FRAMES, PACE_FRAMES, THINK_FRAMES,
     WAVE_FRAMES, CAST_FRAMES, OUTRO_FRAMES,
@@ -103,7 +103,7 @@ describe("wizard-frames", () => {
 });
 
 describe("wizard-sprite", () => {
-    it("defines hex colors for all 4 states", () => {
+    it("defines hex colors for all 7 states", () => {
         for (const state of ALL_STATES) {
             expect(STATE_COLORS[state]).toMatch(/^#[0-9a-f]{6}$/i);
         }

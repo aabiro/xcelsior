@@ -101,10 +101,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     EVENTS.forEach((e) => window.addEventListener(e, handler, { passive: true }));
     return () => {
       EVENTS.forEach((e) => window.removeEventListener(e, handler));
-      if (!sessionExpiring) {
-        if (warnTimer.current) clearTimeout(warnTimer.current);
-        if (logoutTimer.current) clearTimeout(logoutTimer.current);
-      }
+      // Only clear the warn timer here — never clear logoutTimer during
+      // cleanup because the sessionExpiring state change triggers a re-render
+      // whose cleanup runs with the OLD closure (sessionExpiring=false),
+      // which would cancel the pending 30-min logout before it fires.
+      if (warnTimer.current) clearTimeout(warnTimer.current);
     };
   }, [user, sessionExpiring, resetIdleTimers]);
 
