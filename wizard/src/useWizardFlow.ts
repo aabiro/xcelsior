@@ -592,7 +592,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
             // Try to open dashboard
             const dashUrl = `${API_BASE_URL}/dashboard/instances/${instance.job_id}`;
-            openBrowser(dashUrl).catch(() => {}); // best-effort
+            openBrowser(dashUrl).catch(() => { }); // best-effort
 
             return [{
                 name: "Instance",
@@ -656,7 +656,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     if (fw) setDetectedFramework(fw.name);
 
                     // Save config
-                    saveConfig(currentAnswers).catch(() => {});
+                    saveConfig(currentAnswers).catch(() => { });
                 }
                 setIsComplete(true);
                 return;
@@ -685,7 +685,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setPaymentGate((prev) => ({ ...prev, polling: true }));
 
                 // Open billing page
-                openBrowser(paymentGate.billingUrl).catch(() => {});
+                openBrowser(paymentGate.billingUrl).catch(() => { });
 
                 walletPollRef.current = setInterval(async () => {
                     const customerId = currentAnswers["_customer_id"] as string;
@@ -813,7 +813,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setWizardState("success");
                             setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
                             setIsComplete(true);
-                            saveConfig(updated).catch(() => {});
+                            saveConfig(updated).catch(() => { });
                         }
                         return;
                     }

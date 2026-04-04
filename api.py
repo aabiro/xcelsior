@@ -2125,12 +2125,17 @@ class DeviceVerifyRequest(BaseModel):
 
 
 @app.post("/api/auth/verify", tags=["Infrastructure"])
-def api_auth_verify_device(body: DeviceVerifyRequest):
+def api_auth_verify_device(body: DeviceVerifyRequest, request: Request):
     """Verify a device code by entering the user_code shown in the CLI.
 
     Called from the web dashboard after the user logs in and enters their code.
-    Generates a bearer token and marks the device flow as authorized.
+    Requires a valid session (cookie or bearer token) so the CLI token can be
+    tied to the authenticated user.  Falls back to creating an anonymous session
+    when no user context is available (e.g. first-time sign-up via device flow).
     """
+    # Resolve the logged-in user from cookie/bearer
+    user = _get_current_user(request)
+
     with _device_lock:
         for dc, entry in _device_codes.items():
             if entry["user_code"] == body.user_code and entry["status"] == "pending":
@@ -2139,8 +2144,20 @@ def api_auth_verify_device(body: DeviceVerifyRequest):
                     entry["status"] = "expired"
                     raise HTTPException(status_code=410, detail="Code expired")
 
-                # Generate bearer token
-                token = secrets.token_urlsafe(32)
+                # Create a real session so the token works with TokenAuthMiddleware
+                if user:
+                    session = _create_session(user.get("email", "device-user"), user, request)
+                else:
+                    # Anonymous device auth — create a minimal session
+                    anon_user = {
+                        "user_id": f"device-{secrets.token_hex(8)}",
+                        "email": "device-auth@xcelsior.ca",
+                        "role": "submitter",
+                        "name": "Device User",
+                    }
+                    session = _create_session(anon_user["email"], anon_user, request)
+
+                token = session["token"]
                 entry["status"] = "authorized"
                 entry["token"] = token
                 return {"message": "Device authorized", "user_code": body.user_code}
@@ -2217,7 +2234,7 @@ document.getElementById('f').onsubmit=async e=>{
   const msg=document.getElementById('msg');
   btn.disabled=true;btn.textContent='Authorizing...';
   try{
-    const r=await fetch('/api/auth/verify',{method:'POST',
+    const r=await fetch('/api/auth/verify',{method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},body:JSON.stringify({user_code:code})});
     const d=await r.json();
     if(r.ok){

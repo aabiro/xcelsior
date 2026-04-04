@@ -81,9 +81,9 @@ function App() {
         toggleAiPrompt();
       }
     }
-    // Device auth controls
-    if (step.type === "device-auth") {
-      if (input === "m" || input === "M") switchToManualAuth();
+    // Device auth controls — only when still pending/error, not after authorized
+    if (step.type === "device-auth" && deviceAuth.status !== "authorized") {
+      if ((input === "m" || input === "M") && deviceAuth.status === "waiting") switchToManualAuth();
       if (input === "\r" && deviceAuth.status === "error") retryDeviceAuth();
     }
     // Auto-fetch retry

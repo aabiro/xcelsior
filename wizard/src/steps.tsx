@@ -237,9 +237,11 @@ export function DeviceAuthStep({
         <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
         {token && (
           <Box marginTop={1} flexDirection="column">
-            <Text>API key: <Text bold color="#ffcc00">{token.slice(0, 12)}...{token.slice(-4)}</Text></Text>
-            <Text dimColor>Saved to <Text bold>~/.xcelsior/token.json</Text></Text>
-            <Text dimColor>Hexara will use this key for all future API calls.</Text>
+            <Text>Your API key:</Text>
+            <Box marginTop={0}>
+              <Text bold color="#ffcc00">{token}</Text>
+            </Box>
+            <Text dimColor>Saved to <Text bold>~/.xcelsior/token.json</Text> and <Text bold>~/.xcelsior/config.toml</Text></Text>
           </Box>
         )}
         <Box marginTop={1}>
