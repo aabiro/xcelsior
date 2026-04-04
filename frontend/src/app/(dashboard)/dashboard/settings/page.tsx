@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { PasswordRequirements } from "@/components/auth/password-requirements";
 import {
   Settings as SettingsIcon, Save, Shield, Bell, Globe, Key, Terminal,
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
@@ -21,6 +22,12 @@ import { COUNTRY_CODES } from "@/lib/country-codes";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  getPasswordValidation,
+  passwordsMatch,
+} from "@/lib/password-validation";
 
 // ── Tab definition ──────────────────────────────────────────────────
 
@@ -483,8 +490,8 @@ export default function SettingsPage() {
   };
 
   const handleChangePassword = async () => {
-    if (newPw.length < 8) { toast.error("Password must be at least 8 characters"); return; }
-    if (newPw !== confirmPw) { toast.error("Passwords do not match"); return; }
+    if (!getPasswordValidation(newPw).isValid) { toast.error(t("auth.pw_policy_error")); return; }
+    if (!passwordsMatch(newPw, confirmPw)) { toast.error(t("dash.settings.pw_mismatch")); return; }
     setChangingPw(true);
     try {
       await api.changePassword(currentPw, newPw);
@@ -916,6 +923,16 @@ function SecurityTab({
   sessions: api.SessionInfo[]; sessionsLoading: boolean;
   revokingSession: string | null; onRevokeSession: (p: string) => void;
 }) {
+  const newPasswordValidation = getPasswordValidation(newPw);
+  const matchingPasswords = passwordsMatch(newPw, confirmPw);
+  const passwordRequirements = [
+    { key: "length", label: t("auth.pw_min"), satisfied: newPasswordValidation.hasValidLength },
+    { key: "letter", label: t("auth.pw_rule_letter"), satisfied: newPasswordValidation.hasLetter },
+    { key: "number", label: t("auth.pw_rule_number"), satisfied: newPasswordValidation.hasNumber },
+    { key: "symbol", label: t("auth.pw_rule_symbol"), satisfied: newPasswordValidation.hasSupportedSymbol },
+    { key: "match", label: t("auth.pw_match"), satisfied: matchingPasswords },
+  ];
+
   return (
     <StaggerList className="space-y-5">
       {/* Change Password */}
@@ -943,7 +960,19 @@ function SecurityTab({
             <div className="space-y-2">
               <Label>{t("dash.settings.new_pw")}</Label>
               <div className="relative">
-                <Input type={showNewPw ? "text" : "password"} value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("dash.settings.pw_min")} />
+                <Input
+                  type={showNewPw ? "text" : "password"}
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  placeholder={t("dash.settings.pw_min")}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  autoComplete="new-password"
+                  className="pr-16"
+                />
+                {newPasswordValidation.isValid && (
+                  <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
+                )}
                 <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
                   {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -952,16 +981,24 @@ function SecurityTab({
             <div className="space-y-2">
               <Label>{t("dash.settings.confirm_pw")}</Label>
               <div className="relative">
-                <Input type={showConfirmPw ? "text" : "password"} value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
+                <Input
+                  type={showConfirmPw ? "text" : "password"}
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  autoComplete="new-password"
+                  className="pr-16"
+                />
+                {matchingPasswords && (
+                  <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
+                )}
                 <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
                   {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {confirmPw && newPw !== confirmPw && (
-                <p className="text-xs text-accent-red">{t("dash.settings.pw_mismatch")}</p>
-              )}
             </div>
-            <Button onClick={onChangePassword} disabled={changingPw || !currentPw || newPw.length < 8 || newPw !== confirmPw}>
+            <PasswordRequirements items={passwordRequirements} />
+            <Button onClick={onChangePassword} disabled={changingPw || !currentPw || !newPasswordValidation.isValid || !matchingPasswords}>
               {changingPw ? <><Loader2 className="h-4 w-4 animate-spin" /> Changing...</> : t("dash.settings.change_pw")}
             </Button>
           </div>

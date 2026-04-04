@@ -7,10 +7,17 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { PasswordRequirements } from "@/components/auth/password-requirements";
 import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
 import { register as apiRegister, oauthInitiate, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  getPasswordValidation,
+  passwordsMatch,
+} from "@/lib/password-validation";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,15 +26,31 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
+  const passwordValidation = getPasswordValidation(password);
+  const matchingPasswords = passwordsMatch(password, confirmPassword);
+  const canSubmit = Boolean(email) && passwordValidation.isValid && matchingPasswords;
+  const passwordRequirements = [
+    { key: "length", label: t("auth.pw_min"), satisfied: passwordValidation.hasValidLength },
+    { key: "letter", label: t("auth.pw_rule_letter"), satisfied: passwordValidation.hasLetter },
+    { key: "number", label: t("auth.pw_rule_number"), satisfied: passwordValidation.hasNumber },
+    { key: "symbol", label: t("auth.pw_rule_symbol"), satisfied: passwordValidation.hasSupportedSymbol },
+    { key: "match", label: t("auth.pw_match"), satisfied: matchingPasswords },
+  ];
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
+    if (!passwordValidation.isValid || !matchingPasswords) {
+      setError(password !== confirmPassword ? t("auth.reset_mismatch") : t("auth.pw_policy_error"));
+      return;
+    }
     setError("");
     setLoading(true);
     try {
@@ -152,16 +175,44 @@ export default function RegisterPage() {
           )}
           <div className="space-y-2">
             <Label htmlFor="name">{t("auth.name")}</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("auth.name_placeholder")} />
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("auth.name_placeholder")}
+              autoComplete="name"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder={t("auth.email_placeholder")} />
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder={t("auth.email_placeholder")}
+              autoComplete="email"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">{t("auth.password")}</Label>
             <div className="relative">
-              <Input id="password" type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} placeholder={t("auth.pw_min")} />
+              <Input
+                id="password"
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
+                placeholder={t("auth.pw_min")}
+                autoComplete="new-password"
+                className="pr-16"
+              />
+              {passwordValidation.isValid && (
+                <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
+              )}
               <button
                 type="button"
                 onClick={() => setShowPw(!showPw)}
@@ -171,9 +222,35 @@ export default function RegisterPage() {
                 {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="text-xs text-text-muted">{t("auth.pw_min")}</p>
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">{t("auth.confirm_password")}</Label>
+            <div className="relative">
+              <Input
+                id="confirm-password"
+                type={showConfirmPw ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                maxLength={PASSWORD_MAX_LENGTH}
+                autoComplete="new-password"
+                className="pr-16"
+              />
+              {matchingPasswords && (
+                <CheckCircle className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald" />
+              )}
+              <button
+                type="button"
+                onClick={() => setShowConfirmPw(!showConfirmPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                tabIndex={-1}
+              >
+                {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <PasswordRequirements items={passwordRequirements} />
+          <Button type="submit" className="w-full" disabled={loading || !canSubmit}>
             {loading ? t("auth.register_loading") : t("auth.register_button")}
           </Button>
         </form>
