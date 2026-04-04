@@ -20,11 +20,11 @@ import {
     SPRITE_ROWS,
     SPRITE_PX,
     type Frame,
-} from "../wizard-frames.js";
+} from "../../sprites/wizard/wizard-frames.js";
 import {
     STATE_COLORS,
     type WizardState,
-} from "../wizard-sprite.js";
+} from "../../sprites/wizard/wizard-sprite.js";
 
 const ALL_STATES: WizardState[] = ["idle", "thinking", "success", "error", "waiting", "excited", "finishing"];
 const CORE_GROUPS: readonly Frame[][] = [

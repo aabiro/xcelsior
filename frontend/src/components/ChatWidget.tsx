@@ -610,7 +610,7 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
                       <button
                         type="submit"
                         disabled={!input.trim() || isStreaming}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex self-stretch aspect-square shrink-0 items-center justify-center rounded-xl bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         aria-label={t("chat.send")}
                       >
                         {isStreaming ? (

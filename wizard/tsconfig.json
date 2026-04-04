@@ -8,13 +8,13 @@
     "esModuleInterop": true,
     "verbatimModuleSyntax": false,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "declaration": true,
     "sourceMap": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["src"],
+  "include": ["src", "sprites"],
   "exclude": ["node_modules", "dist", "src/__tests__"]
 }

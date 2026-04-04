@@ -34,10 +34,17 @@ import {
     DANCE_FRAMES,
     BOW_FRAMES,
     SPRITE_ROWS,
+    SPRITE_COLS,
     type Frame,
-} from "./wizard-frames.js";
+} from "../sprites/wizard/wizard-frames.js";
 
 const FRAME_MS = 160;
+
+/** Compute 1-based column to center the sprite horizontally. */
+function spriteCol(): number {
+    const cols = process.stdout.columns || 80;
+    return Math.max(1, Math.floor((cols - SPRITE_COLS) / 2) + 1);
+}
 
 /** Branch animation identifiers that can be triggered externally */
 export type BranchId = "eureka" | "celebrate" | "error" | "sleep" | "levitate" | "dance" | "bow";
@@ -236,8 +243,8 @@ export function useWizardAnimation(exiting: boolean): WizardAnimationResult {
             const seq = getSeq(next);
             const frame = seq[next.actIdx]?.[next.frameIdx];
             if (frame) {
-                // Save cursor, draw frame at WIZARD_ROW, restore cursor
-                const cup = `\x1b[${WIZARD_ROW};1H`;
+                // Save cursor, draw frame centered at WIZARD_ROW, restore cursor
+                const cup = `\x1b[${WIZARD_ROW};${spriteCol()}H`;
                 writeSync(1, "\x1b7" + cup + frame + "\x1b8");
             }
         };

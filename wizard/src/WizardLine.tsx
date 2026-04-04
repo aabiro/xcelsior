@@ -43,7 +43,7 @@ export function WizardLine({ message, messageColor, exiting, onExitDone, branch 
 
   // Message text only — sprite is drawn above Ink's scroll region by useWizardAnimation
   return (
-    <Box marginLeft={8}>
+    <Box justifyContent="center">
       <Text color={messageColor}>{message}</Text>
     </Box>
   );

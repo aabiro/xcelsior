@@ -7,7 +7,7 @@ import { Text, Box, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
 import type { SelectOption } from "./wizard-flow.js";
-import type { AutoCheckResults } from "./useWizardFlow.js";
+import type { AutoCheckResults, ProviderSummaryData } from "./useWizardFlow.js";
 
 // ── Progress bar ─────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ export function ProgressBar({ current, total }: ProgressProps) {
   const filled = Math.round((current / total) * 20);
   const empty = 20 - filled;
   return (
-    <Box justifyContent="center" marginTop={1}>
+    <Box justifyContent="center" marginTop={1} marginBottom={1}>
       <Text dimColor>
         [{"█".repeat(filled)}{"░".repeat(empty)}] {current}/{total}
       </Text>
@@ -374,6 +374,46 @@ export function PaymentGateStep({ balance, required, polling, billingUrl, onSkip
       <Box marginTop={1}>
         <Text dimColor>Press <Text bold>s</Text> to skip (instance may stop if balance runs out)</Text>
       </Box>
+    </Box>
+  );
+}
+
+// ── Provider summary step ────────────────────────────────────────────
+
+interface ProviderSummaryStepProps {
+  summary: ProviderSummaryData;
+  onConfirm: (yes: boolean) => void;
+  error?: string | null;
+}
+
+export function ProviderSummaryStep({ summary, onConfirm, error }: ProviderSummaryStepProps) {
+  useInput((input) => {
+    if (input === "y" || input === "Y") onConfirm(true);
+    else if (input === "n" || input === "N") onConfirm(false);
+  });
+
+  return (
+    <Box marginLeft={4} flexDirection="column">
+      <Box flexDirection="column" borderStyle="round" borderColor="#22c55e" paddingX={2} paddingY={1}>
+        <Text bold color="#22c55e">Provider Setup Complete</Text>
+        <Text />
+        <Text>  GPU: <Text bold>{summary.gpuModel}</Text> · {summary.vramGb} GB VRAM</Text>
+        <Text>  XCU Score: <Text bold color="#ffcc00">{summary.xcuScore}</Text> ({summary.tflops} TFLOPS)</Text>
+        <Text>  Status: <Text bold color={summary.verified ? "#22c55e" : "#ef4444"}>{summary.verified ? "VERIFIED ✓" : summary.verificationState.toUpperCase()}</Text></Text>
+        <Text>  Host ID: <Text bold>{summary.hostId}</Text></Text>
+        <Text>  Pricing: <Text bold>{summary.pricing === "custom" && summary.customRate ? `$${summary.customRate}/hr` : summary.pricing}</Text></Text>
+        <Text>  Admission: <Text bold color={summary.admitted ? "#22c55e" : "#ef4444"}>{summary.admitted ? "Admitted ✓" : "Pending"}</Text></Text>
+        <Text>  Runtime: <Text bold>{summary.runtimeRecommendation}</Text></Text>
+        <Text>  Reputation: <Text bold color="#a78bfa">{summary.reputationPoints} pts — {summary.tier}</Text></Text>
+        <Text />
+        <Text dimColor>Your GPU is now listed on the marketplace!</Text>
+        <Text dimColor>Install the worker agent for ongoing telemetry and job polling:</Text>
+        <Text dimColor>  <Text bold>xcelsior worker install</Text> or see Dashboard → Hosts → Add Host</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>Press <Text bold>y</Text> to save config, <Text bold>n</Text> to cancel</Text>
+      </Box>
+      {error && <Text color="#ef4444">  ⚠ {error}</Text>}
     </Box>
   );
 }

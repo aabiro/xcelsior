@@ -441,3 +441,133 @@ export async function getInstance(
     }
     return data.instance;
 }
+
+// ── Provider Host Registration ───────────────────────────────────────
+
+export interface HostRegistration {
+    host_id: string;
+    ip: string;
+    gpu_model: string;
+    total_vram_gb: number;
+    free_vram_gb: number;
+    cost_per_hour: number;
+    country?: string;
+    province?: string;
+    versions?: Record<string, string>;
+}
+
+export interface HostInfo {
+    host_id: string;
+    gpu_model: string;
+    total_vram_gb: number;
+    cost_per_hour: number;
+    status: string;
+    ip: string;
+}
+
+/** Register or update a host. */
+export async function registerHost(
+    baseUrl: string,
+    token: string,
+    host: HostRegistration,
+): Promise<HostInfo> {
+    const { status, data } = await jsonRequest<{ ok: boolean; host: HostInfo }>(
+        "PUT", baseUrl, "/host", host as unknown as Record<string, unknown>, token,
+    );
+    if (status !== 200 || !data.host) {
+        throw new Error(`Host registration failed: HTTP ${status}`);
+    }
+    return data.host;
+}
+
+/** Get host status. */
+export async function getHostStatus(
+    baseUrl: string,
+    token: string,
+    hostId: string,
+): Promise<HostInfo> {
+    const { status, data } = await jsonRequest<{ ok: boolean; host: HostInfo }>(
+        "GET", baseUrl, `/host/${encodeURIComponent(hostId)}`,
+        undefined, token,
+    );
+    if (status !== 200 || !data.host) {
+        throw new Error(`Host status fetch failed: HTTP ${status}`);
+    }
+    return data.host;
+}
+
+// ── Provider Agent Reports ───────────────────────────────────────────
+
+export interface VersionReportResult {
+    ok: boolean;
+    admitted: boolean;
+    details: Record<string, unknown>;
+}
+
+/** Report component versions for admission check. */
+export async function reportVersions(
+    baseUrl: string,
+    token: string,
+    hostId: string,
+    versions: Record<string, string>,
+): Promise<VersionReportResult> {
+    const { status, data } = await jsonRequest<VersionReportResult>(
+        "POST", baseUrl, "/agent/versions",
+        { host_id: hostId, versions }, token,
+    );
+    if (status !== 200) {
+        throw new Error(`Version report failed: HTTP ${status}`);
+    }
+    return data;
+}
+
+export interface BenchmarkReportResult {
+    ok: boolean;
+    xcu: number;
+}
+
+/** Report benchmark scores. */
+export async function reportBenchmark(
+    baseUrl: string,
+    token: string,
+    hostId: string,
+    gpuModel: string,
+    score: number,
+    tflops: number,
+    details?: Record<string, unknown>,
+): Promise<BenchmarkReportResult> {
+    const { status, data } = await jsonRequest<BenchmarkReportResult>(
+        "POST", baseUrl, "/agent/benchmark",
+        { host_id: hostId, gpu_model: gpuModel, score, tflops, details }, token,
+    );
+    if (status !== 200) {
+        throw new Error(`Benchmark report failed: HTTP ${status}`);
+    }
+    return data;
+}
+
+export interface VerifyResult {
+    ok: boolean;
+    host_id: string;
+    state: string;
+    score: number;
+    checks: Record<string, unknown>;
+    gpu_fingerprint: string;
+}
+
+/** Submit verification report. */
+export async function reportVerification(
+    baseUrl: string,
+    token: string,
+    hostId: string,
+    report: Record<string, unknown>,
+): Promise<VerifyResult> {
+    const { status, data } = await jsonRequest<VerifyResult>(
+        "POST", baseUrl, "/agent/verify",
+        { host_id: hostId, report }, token,
+    );
+    if (status !== 200) {
+        throw new Error(`Verification report failed: HTTP ${status}`);
+    }
+    return data;
+}

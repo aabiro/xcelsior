@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
-import { Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal, Download } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host } from "@/lib/api";
@@ -26,6 +26,7 @@ export default function HostsPage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [showRegister, setShowRegister] = useState(false);
+  const [showInstall, setShowInstall] = useState(false);
   const api = useApi();
   const { t } = useLocale();
 
@@ -85,10 +86,15 @@ export default function HostsPage() {
           <Button size="sm" onClick={() => setShowRegister(!showRegister)}>
             <Plus className="h-3.5 w-3.5" /> {t("dash.hosts.register")}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowInstall(!showInstall)}>
+            <Terminal className="h-3.5 w-3.5" /> Install Worker
+          </Button>
         </div>
       </div>
 
       {showRegister && <RegisterHostForm api={api} onDone={() => { setShowRegister(false); load(); }} />}
+
+      {showInstall && <InstallWorkerSection />}
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -204,6 +210,94 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         </div>
         <Button type="submit" disabled={loading}>{loading ? t("dash.hosts.registering") : t("dash.hosts.register_btn")}</Button>
       </form>
+    </Card>
+  );
+}
+
+function InstallWorkerSection() {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copy(label: string, text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  const envTemplate = `XCELSIOR_HOST_ID=<your-host-id>
+XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
+XCELSIOR_API_TOKEN=<your-api-token>
+XCELSIOR_COST_PER_HOUR=0.50`;
+
+  const installCmd = `npx xcelsior setup --mode provide`;
+
+  const systemdUnit = `[Unit]
+Description=Xcelsior Worker Agent
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/root/.xcelsior/.env
+ExecStart=/usr/local/bin/xcelsior-worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target`;
+
+  return (
+    <Card className="p-6 space-y-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Download className="h-5 w-5 text-ice-blue" />
+        <h3 className="text-lg font-semibold">Install Worker Agent</h3>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm text-text-secondary mb-2">
+            Run the setup wizard on your GPU host to register it with Xcelsior:
+          </p>
+          <div className="relative">
+            <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{installCmd}</pre>
+            <button
+              onClick={() => copy("install", installCmd)}
+              className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
+            >
+              {copied === "install" ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-sm text-text-secondary mb-2">
+            The wizard will detect your GPU, run benchmarks, and register with the network.
+            Alternatively, create <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/.env</code> manually:
+          </p>
+          <div className="relative">
+            <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{envTemplate}</pre>
+            <button
+              onClick={() => copy("env", envTemplate)}
+              className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
+            >
+              {copied === "env" ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-sm text-text-secondary mb-2">
+            Enable the worker as a systemd service for automatic startup:
+          </p>
+          <div className="relative">
+            <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto text-xs">{systemdUnit}</pre>
+            <button
+              onClick={() => copy("systemd", systemdUnit)}
+              className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
+            >
+              {copied === "systemd" ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }
