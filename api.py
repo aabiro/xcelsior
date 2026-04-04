@@ -3171,7 +3171,7 @@ async def api_generate_api_key(request: Request):
             400, f"Invalid scope. Must be one of: {', '.join(sorted(VALID_KEY_SCOPES))}"
         )
 
-    key = f"xc-{secrets.token_urlsafe(32)}"
+    key = f"xcel_{secrets.token_urlsafe(32)}"
     key_data = {
         "key": key,
         "name": name,

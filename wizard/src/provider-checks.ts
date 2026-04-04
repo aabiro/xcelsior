@@ -93,13 +93,15 @@ export interface VerificationReport {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function parseVersion(raw: string): [number, number, number] {
+/** @internal exported for testing */
+export function parseVersion(raw: string): [number, number, number] {
     const m = raw.match(/(\d+)\.(\d+)\.(\d+)/);
     if (!m) return [0, 0, 0];
     return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
-function versionGte(actual: string, minimum: string): boolean {
+/** @internal exported for testing */
+export function versionGte(actual: string, minimum: string): boolean {
     const a = parseVersion(actual);
     const b = parseVersion(minimum);
     for (let i = 0; i < 3; i++) {
@@ -113,14 +115,10 @@ async function run(cmd: string, args: string[], timeout = 10_000): Promise<strin
     try {
         const { stdout } = await exec(cmd, args, { timeout });
         return stdout.trim();
-    } catch (err) {
-        lastRunError = err instanceof Error ? err.message : String(err);
+    } catch {
         return null;
     }
 }
-
-/** Last error from run() — for diagnostic context */
-let lastRunError: string | null = null;
 
 /** XCU score divisor — normalizes TFLOPS to marketplace compute units */
 const XCU_DIVISOR = 10;
@@ -227,7 +225,7 @@ try:
     props = torch.cuda.get_device_properties(device)
 
     report["gpu_model"] = props.name
-    report["total_vram_gb"] = round(props.total_mem / (1024**3), 2)
+    report["total_vram_gb"] = round(props.total_memory / (1024**3), 2)
     report["compute_capability"] = f"{props.major}.{props.minor}"
     report["cuda_version"] = torch.version.cuda or ""
 

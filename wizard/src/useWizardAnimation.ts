@@ -82,16 +82,17 @@ const BRANCH_NEXT: Record<BranchId, "loop" | "settle" | "exit"> = {
     bow: "exit",          // graceful exit
 };
 
-type Phase = "prelude" | "loop" | "exit" | "branch" | "settle-to-loop" | "done";
+export type Phase = "prelude" | "loop" | "exit" | "branch" | "settle-to-loop" | "done";
 
-interface AnimState {
+export interface AnimState {
     phase: Phase;
     actIdx: number;
     frameIdx: number;
     branchId?: BranchId;
 }
 
-function getSeq(state: AnimState): readonly Frame[][] {
+/** @internal exported for testing */
+export function getSeq(state: AnimState): readonly Frame[][] {
     switch (state.phase) {
         case "prelude": return PRELUDE;
         case "loop": return LOOP;
@@ -105,7 +106,8 @@ function getSeq(state: AnimState): readonly Frame[][] {
     }
 }
 
-function advance(prev: AnimState, wantExit: boolean, pendingBranch: BranchId | null): AnimState {
+/** @internal exported for testing */
+export function advance(prev: AnimState, wantExit: boolean, pendingBranch: BranchId | null): AnimState {
     if (prev.phase === "done") return prev;
 
     const seq = getSeq(prev);
@@ -159,7 +161,7 @@ function advance(prev: AnimState, wantExit: boolean, pendingBranch: BranchId | n
 /** Row where wizard sprite is drawn (CUP row, 1-based) */
 export const WIZARD_ROW = 2;
 /** Extra blank rows between sprite bottom and Ink content */
-const PAD_ROWS = 0;
+const PAD_ROWS = 1;
 
 const LOG_FILE = "/tmp/wizard-debug.log";
 function dbg(msg: string): void {

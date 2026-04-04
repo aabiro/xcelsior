@@ -28,15 +28,6 @@ const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
 
 type FreeCreditAnimationState = "idle" | "transferring" | "complete";
 
-interface CreditFlight {
-  amount: number;
-  startLeft: number;
-  startTop: number;
-  deltaX: number;
-  deltaY: number;
-  liftY: number;
-}
-
 interface CreditTransfer {
   amount: number;
   from: number;
@@ -88,11 +79,9 @@ export default function BillingPage() {
   const [claimingCredits, setClaimingCredits] = useState(false);
   const [freeCreditAnimationState, setFreeCreditAnimationState] = useState<FreeCreditAnimationState>("idle");
   const [displayWalletBalance, setDisplayWalletBalance] = useState(0);
-  const [creditFlight, setCreditFlight] = useState<CreditFlight | null>(null);
   const [creditTransfer, setCreditTransfer] = useState<CreditTransfer | null>(null);
 
   const walletValueRef = useRef<HTMLSpanElement | null>(null);
-  const promoAmountRef = useRef<HTMLDivElement | null>(null);
   const walletAnimationRef = useRef<AnimationPlaybackControls | null>(null);
   const freeCreditTimersRef = useRef<number[]>([]);
 
@@ -190,46 +179,20 @@ export default function BillingPage() {
 
     clearFreeCreditTimers();
 
-    let rafId = 0;
-    rafId = window.requestAnimationFrame(() => {
-      const startRect = promoAmountRef.current?.getBoundingClientRect();
-      const endRect = walletValueRef.current?.getBoundingClientRect();
+    animateWalletBalance(creditTransfer.from, creditTransfer.to);
 
-      animateWalletBalance(creditTransfer.from, creditTransfer.to);
+    freeCreditTimersRef.current.push(window.setTimeout(() => {
+      setFreeCreditAnimationState("complete");
+    }, FREE_CREDIT_TRANSFER_DURATION_MS));
 
-      if (startRect && endRect) {
-        const startCenterX = startRect.left + startRect.width / 2;
-        const startCenterY = startRect.top + startRect.height / 2;
-        const endCenterX = endRect.left + endRect.width / 2;
-        const endCenterY = endRect.top + endRect.height / 2;
-        const deltaY = endCenterY - startCenterY;
-
-        setCreditFlight({
-          amount: creditTransfer.amount,
-          startLeft: startRect.left,
-          startTop: startRect.top,
-          deltaX: endCenterX - startCenterX,
-          deltaY,
-          liftY: Math.max(-72, Math.min(-28, deltaY * 0.35)),
-        });
-      }
-
-      freeCreditTimersRef.current.push(window.setTimeout(() => {
-        setCreditFlight(null);
-        setFreeCreditAnimationState("complete");
-      }, FREE_CREDIT_TRANSFER_DURATION_MS));
-
-      freeCreditTimersRef.current.push(window.setTimeout(() => {
-        setFreeCreditsAvailable(false);
-        setFreeCreditAnimationState("idle");
-        setCreditTransfer(null);
-        void api.fetchWalletHistory(customerId)
-          .then((r) => setTransactions(r.transactions || []))
-          .catch(() => {});
-      }, FREE_CREDIT_TRANSFER_DURATION_MS + FREE_CREDIT_SUCCESS_HOLD_MS));
-    });
-
-    return () => window.cancelAnimationFrame(rafId);
+    freeCreditTimersRef.current.push(window.setTimeout(() => {
+      setFreeCreditsAvailable(false);
+      setFreeCreditAnimationState("idle");
+      setCreditTransfer(null);
+      void api.fetchWalletHistory(customerId)
+        .then((r) => setTransactions(r.transactions || []))
+        .catch(() => {});
+    }, FREE_CREDIT_TRANSFER_DURATION_MS + FREE_CREDIT_SUCCESS_HOLD_MS));
   }, [
     animateWalletBalance,
     clearFreeCreditTimers,
@@ -255,7 +218,6 @@ export default function BillingPage() {
         const nextBalance = result.balance_cad;
         const previousBalance = wallet?.balance_cad ?? displayWalletBalance;
         clearFreeCreditTimers();
-        setCreditFlight(null);
         setCreditTransfer({
           amount: result.amount_cad || FREE_CREDIT_AMOUNT,
           from: previousBalance,
@@ -284,7 +246,6 @@ export default function BillingPage() {
       clearFreeCreditTimers();
       stopWalletAnimation();
       setClaimingCredits(false);
-      setCreditFlight(null);
       setCreditTransfer(null);
       setFreeCreditAnimationState("idle");
       setWallet(result.wallet);
@@ -524,14 +485,14 @@ export default function BillingPage() {
                     </div>
                     <div className="flex min-h-10 items-center justify-end">
                       {freeCreditAnimationState === "transferring" ? (
-                        <div
-                          ref={promoAmountRef}
-                          className={`rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-sm font-semibold font-mono text-emerald shadow-lg shadow-emerald/15 transition-opacity duration-150 ${
-                            creditFlight ? "opacity-0" : "opacity-100"
-                          }`}
+                        <motion.div
+                          initial={{ opacity: 1, scale: 1 }}
+                          animate={{ opacity: 0, scale: 0.8 }}
+                          transition={{ duration: 0.3, ease: "easeOut" }}
+                          className="rounded-full border border-emerald/30 bg-emerald/10 px-3 py-1 text-sm font-semibold font-mono text-emerald shadow-lg shadow-emerald/15"
                         >
                           +{formatCad(creditTransfer?.amount ?? FREE_CREDIT_AMOUNT)}
-                        </div>
+                        </motion.div>
                       ) : freeCreditAnimationState === "complete" ? (
                         <motion.div
                           initial={{ opacity: 0, scale: 0.8, y: 8 }}
@@ -557,31 +518,6 @@ export default function BillingPage() {
                     </div>
                   </CardContent>
                 </Card>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {creditFlight && (
-              <motion.div
-                className="pointer-events-none fixed z-[80] rounded-full border border-emerald/30 bg-emerald/15 px-3 py-1 text-sm font-semibold font-mono text-emerald shadow-xl shadow-emerald/20 backdrop-blur-sm will-change-transform"
-                style={{ left: creditFlight.startLeft, top: creditFlight.startTop }}
-                initial={{
-                  x: 0,
-                  y: 0,
-                  opacity: 1,
-                  scale: 1,
-                }}
-                animate={{
-                  x: [0, creditFlight.deltaX * 0.45, creditFlight.deltaX],
-                  y: [0, creditFlight.liftY, creditFlight.deltaY],
-                  opacity: [1, 1, 0.18],
-                  scale: [1, 1.03, 0.92],
-                }}
-                exit={{ opacity: 0, scale: 0.88 }}
-                transition={{ duration: FREE_CREDIT_TRANSFER_DURATION_S, ease: [0.22, 1, 0.36, 1] }}
-              >
-                +{formatCad(creditFlight.amount)}
               </motion.div>
             )}
           </AnimatePresence>

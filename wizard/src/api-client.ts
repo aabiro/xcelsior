@@ -23,14 +23,6 @@ export interface ApiClientConfig {
     pageContext?: string;  // optional context hint
 }
 
-// ── Hexara system prompt ─────────────────────────────────────────────
-
-export const HEXARA_SYSTEM_PROMPT =
-    `You are Hexara, the wizard AI guide for the Xcelsior GPU cloud platform. ` +
-    `You help users navigate setup, GPU selection, and instance management. ` +
-    `You speak with clarity and occasional arcane flair — practical wisdom from the arcane arts of compute. ` +
-    `Keep answers concise and actionable. Never refer to yourself as "Xcel" or "the AI" — you are Hexara.`;
-
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function transport(url: URL) {
@@ -97,7 +89,6 @@ export async function* streamChat(
         message,
         conversation_id: conversationId ?? null,
         page_context: config.pageContext ?? "cli-wizard",
-        system_prompt: HEXARA_SYSTEM_PROMPT,
     });
 
     const url = new URL("/api/ai/chat", config.baseUrl);
@@ -115,10 +106,12 @@ export async function* streamChat(
                     "Authorization": `Bearer ${config.apiKey}`,
                     "Accept": "text/event-stream",
                 },
+                timeout: 120_000,
             },
             resolve,
         );
         req.on("error", reject);
+        req.on("timeout", () => req.destroy(new Error("Stream request timed out")));
         req.write(body);
         req.end();
     });
@@ -150,6 +143,13 @@ export async function* streamChat(
             }
         }
     }
+    // Process remaining buffer after stream ends
+    if (buffer.startsWith("data: ")) {
+        const jsonStr = buffer.slice(6).trim();
+        if (jsonStr && jsonStr !== "[DONE]") {
+            try { yield JSON.parse(jsonStr) as SSEEvent; } catch { /* skip */ }
+        }
+    }
 }
 
 /**
@@ -176,10 +176,12 @@ export async function* confirmAction(
                     "Authorization": `Bearer ${config.apiKey}`,
                     "Accept": "text/event-stream",
                 },
+                timeout: 120_000,
             },
             resolve,
         );
         req.on("error", reject);
+        req.on("timeout", () => req.destroy(new Error("Confirm request timed out")));
         req.write(body);
         req.end();
     });
@@ -208,6 +210,13 @@ export async function* confirmAction(
             } catch {
                 // skip
             }
+        }
+    }
+    // Process remaining buffer after stream ends
+    if (buffer.startsWith("data: ")) {
+        const jsonStr = buffer.slice(6).trim();
+        if (jsonStr && jsonStr !== "[DONE]") {
+            try { yield JSON.parse(jsonStr) as SSEEvent; } catch { /* skip */ }
         }
     }
 }
@@ -257,6 +266,23 @@ export async function pollDeviceToken(
 
     const detail = (data as { detail?: string }).detail ?? "unknown error";
     throw new Error(detail);
+}
+
+// ── API Key Generation ───────────────────────────────────────────────
+
+/** Generate a proper API key that appears in the user's dashboard Settings. */
+export async function generateApiKey(
+    baseUrl: string,
+    sessionToken: string,
+    name: string = "CLI Wizard",
+): Promise<{ key: string; name: string }> {
+    const { status, data } = await jsonRequest<{ ok: boolean; key: string; name: string }>(
+        "POST", baseUrl, "/api/keys/generate",
+        { name, scope: "full-access" },
+        sessionToken,
+    );
+    if (status !== 200 || !data.ok) throw new Error("Failed to generate API key");
+    return { key: data.key, name: data.name };
 }
 
 // ── User Profile ─────────────────────────────────────────────────────

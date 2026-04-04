@@ -6,9 +6,9 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { existsSync, readFileSync } from "node:fs";
 import { WIZARD_STEPS, getNextStep, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
 import {
-    streamChat, type ApiClientConfig,
+    streamChat, confirmAction, type ApiClientConfig,
     requestDeviceCode, pollDeviceToken, type DeviceCodeResult,
-    getMe, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
+    getMe, generateApiKey, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
     getWallet, claimFreeCredits,
     launchInstance, getInstance, type InstanceInfo,
     registerHost, reportVersions, reportBenchmark, reportVerification,
@@ -30,8 +30,10 @@ const CONFIG_HOME = process.env["HOME"] ?? "/tmp";
 const TOKEN_FILE = `${CONFIG_HOME}/.xcelsior/token.json`;
 const CONFIG_FILE = `${CONFIG_HOME}/.xcelsior/config.toml`;
 const DEVICE_POLL_MS = 5_000;
+const DEVICE_CODE_EXPIRY_MS = 15 * 60 * 1000;
 const WALLET_POLL_MS = 5_000;
-const CHOREOGRAPHY_DELAY_MS = 800;
+const CHOREOGRAPHY_DELAY_MS = 8_000;
+const ADVANCE_DEBOUNCE_MS = 300;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -68,6 +70,8 @@ export interface UseWizardFlowReturn {
     switchToManualAuth: () => void;
     /** Retry device auth */
     retryDeviceAuth: () => void;
+    /** Open browser now — skip the 15s countdown */
+    openBrowserNow: () => void;
     /** Manual token submission */
     submitManualToken: (token: string) => void;
     /** GPU marketplace listings for gpu-pick step */
@@ -92,24 +96,44 @@ export interface UseWizardFlowReturn {
     browseError: string | null;
     /** Whether auto-check can be retried */
     checkCanRetry: boolean;
+    /** Whether auto-check passed and awaiting Enter to continue */
+    checkAwaitContinue: boolean;
     /** Retry failed auto-check */
     retryCheck: () => void;
     /** Skip failed auto-check */
     skipCheck: () => void;
+    /** Continue after auto-check passed */
+    continueFromCheck: () => void;
+    /** Continue after device-auth authorized (Enter) */
+    continueFromAuth: () => void;
+    /** Error message if token save failed, null if saved OK */
+    tokenSaveError: string | null;
+    /** Whether there's a buffered AI response the user can reveal */
+    hasAiDetails: boolean;
+    /** Reveal the buffered AI response */
+    revealAi: () => void;
+    /** Detected project .env path (display hint only — not written by wizard) */
+    deviceAuthEnvPath: string | null;
     /** Whether Hexara AI is available (after auth) */
     aiAvailable: boolean;
     /** Whether inline AI prompt is showing (for non-text steps) */
     showAiPrompt: boolean;
     /** Toggle AI prompt */
     toggleAiPrompt: () => void;
-    /** Detected project framework */
-    detectedFramework: string | null;
     /** Chat history for current step (Q&A pairs) */
     chatHistory: { question: string; answer: string }[];
     /** Current question being answered by Hexara */
     currentAiQuestion: string | null;
     /** Provider summary data for provider-summary step */
     providerSummary: ProviderSummaryData | null;
+    /** Pending AI confirmation for write actions */
+    pendingConfirmation: PendingConfirmation | null;
+    /** Approve or reject a pending AI confirmation */
+    confirmAi: (approved: boolean) => Promise<void>;
+    /** Tool calls made during current AI response */
+    aiToolCalls: AiToolCall[];
+    /** True during the 8s choreography delay after submitAnswer — hides step content */
+    transitioning: boolean;
 }
 
 export interface ProviderSummaryData {
@@ -122,10 +146,23 @@ export interface ProviderSummaryData {
     hostId: string;
     pricing: string;
     customRate?: string;
+    costPerHour: number;
     admitted: boolean;
     runtimeRecommendation: string;
     reputationPoints: number;
     tier: string;
+}
+
+export interface PendingConfirmation {
+    confirmationId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+}
+
+export interface AiToolCall {
+    name: string;
+    input: Record<string, unknown>;
+    output?: Record<string, unknown>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -173,15 +210,52 @@ async function checkGpuBasic(): Promise<CheckResult[]> {
     }
 }
 
-/** Save token to ~/.xcelsior/token.json (0o600 perms) */
-async function saveToken(token: string): Promise<void> {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const dir = path.dirname(TOKEN_FILE);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(TOKEN_FILE, JSON.stringify({ access_token: token }, null, 2), {
-        mode: 0o600,
-    });
+/** Save token to ~/.xcelsior/token.json (0o600 perms).
+ *  Returns true on success, error message string on failure. */
+async function saveToken(token: string): Promise<true | string> {
+    try {
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const dir = path.dirname(TOKEN_FILE);
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        fs.writeFileSync(TOKEN_FILE, JSON.stringify({ access_token: token }, null, 2), {
+            mode: 0o600,
+        });
+        // Verify the write
+        const written = fs.readFileSync(TOKEN_FILE, "utf-8");
+        const parsed = JSON.parse(written);
+        if (parsed.access_token !== token) return "Token file verification failed — written content does not match";
+        return true;
+    } catch (err) {
+        return err instanceof Error ? err.message : "Failed to save token";
+    }
+}
+
+/** Write API key to the project's .env file (append if exists, create if not).
+ *  Returns true on success, error message string on failure. */
+async function writeProjectEnv(envPath: string, token: string): Promise<true | string> {
+    try {
+        const fs = await import("node:fs");
+        const envVar = "XCELSIOR_API_TOKEN";
+        const line = `${envVar}=${token}`;
+
+        if (fs.existsSync(envPath)) {
+            // Read existing content and replace or append
+            let content = fs.readFileSync(envPath, "utf-8");
+            const regex = new RegExp(`^${envVar}=.*$`, "m");
+            if (regex.test(content)) {
+                content = content.replace(regex, line);
+            } else {
+                content = content.trimEnd() + "\n" + line + "\n";
+            }
+            fs.writeFileSync(envPath, content);
+        } else {
+            fs.writeFileSync(envPath, `# Added by Xcelsior setup wizard\n${line}\n`);
+        }
+        return true;
+    } catch (err) {
+        return err instanceof Error ? err.message : `Failed to write ${envPath}`;
+    }
 }
 
 /** Save config to ~/.xcelsior/config.toml */
@@ -216,23 +290,40 @@ async function saveConfig(answers: Record<string, string | string[]>): Promise<v
     }
 }
 
-/** Detect project framework in cwd */
+/** Find the project root by walking up from cwd looking for .git, .env, or well-known markers */
+function findProjectRoot(): string {
+    const path = require("node:path");
+    let dir = process.cwd();
+    // Walk up until we find .git or hit filesystem root
+    for (let i = 0; i < 10; i++) {
+        if (existsSync(path.join(dir, ".git")) || existsSync(path.join(dir, ".env"))) return dir;
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
+    return process.cwd();
+}
+
+/** Detect project framework in the project root */
 function detectFramework(): { name: string; envPath: string } | null {
+    const path = require("node:path");
+    const root = findProjectRoot();
     try {
-        if (existsSync("package.json")) {
-            const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
+        const pkgPath = path.join(root, "package.json");
+        if (existsSync(pkgPath)) {
+            const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
             const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-            if (deps["next"]) return { name: "Next.js", envPath: ".env.local" };
-            if (deps["react"]) return { name: "React", envPath: ".env" };
-            if (deps["vue"]) return { name: "Vue", envPath: ".env" };
-            if (deps["svelte"] || deps["@sveltejs/kit"]) return { name: "SvelteKit", envPath: ".env" };
-            return { name: "Node.js", envPath: ".env" };
+            if (deps["next"]) return { name: "Next.js", envPath: path.join(root, ".env.local") };
+            if (deps["react"]) return { name: "React", envPath: path.join(root, ".env") };
+            if (deps["vue"]) return { name: "Vue", envPath: path.join(root, ".env") };
+            if (deps["svelte"] || deps["@sveltejs/kit"]) return { name: "SvelteKit", envPath: path.join(root, ".env") };
+            return { name: "Node.js", envPath: path.join(root, ".env") };
         }
-        if (existsSync("requirements.txt") || existsSync("pyproject.toml")) {
-            return { name: "Python", envPath: ".env" };
+        if (existsSync(path.join(root, "requirements.txt")) || existsSync(path.join(root, "pyproject.toml"))) {
+            return { name: "Python", envPath: path.join(root, ".env") };
         }
-        if (existsSync("Cargo.toml")) return { name: "Rust", envPath: ".env" };
-        if (existsSync("go.mod")) return { name: "Go", envPath: ".env" };
+        if (existsSync(path.join(root, "Cargo.toml"))) return { name: "Rust", envPath: path.join(root, ".env") };
+        if (existsSync(path.join(root, "go.mod"))) return { name: "Go", envPath: path.join(root, ".env") };
     } catch {
         // ignore
     }
@@ -263,8 +354,95 @@ async function openBrowser(url: string): Promise<boolean> {
     return false;
 }
 
-/** Generate a memorable instance name */
-function generateInstanceName(): string {
+/**
+ * Build a rich page_context string for the AI, including wizard state.
+ * This gives the server-side AI full situational awareness.
+ */
+export function buildWizardContext(
+    stepId: string,
+    answers: Record<string, string | string[]>,
+    checkResults: Record<string, AutoCheckResults>,
+    providerSummary: ProviderSummaryData | null,
+    gpuListings: MarketplaceListing[],
+    browseError: string | null,
+    earlyGpu?: GpuInfo | null,
+    earlyBench?: BenchmarkResult | null,
+    earlyNetwork?: NetworkBenchResult | null,
+): string {
+    const parts: string[] = [`cli-wizard:${stepId}`];
+
+    // Mode
+    if (answers.mode) parts.push(`mode=${answers.mode}`);
+
+    // Provider context
+    if (answers.mode === "provide" || answers.mode === "both") {
+        if (answers.pricing) parts.push(`pricing=${answers.pricing}`);
+        if (answers["custom-rate"]) parts.push(`custom_rate=$${answers["custom-rate"]}/hr`);
+        if (answers["_rate"]) parts.push(`rate=${answers["_rate"]}`);
+        if (answers["_host_id"]) parts.push(`host_id=${answers["_host_id"]}`);
+        if (answers["_host_ip"]) parts.push(`host_ip=${answers["_host_ip"]}`);
+        if (answers["_host_port"]) parts.push(`host_port=${answers["_host_port"]}`);
+
+        // Check results summary — URL-encode values to avoid nested = truncation
+        const failedChecks: string[] = [];
+        for (const [stepKey, result] of Object.entries(checkResults)) {
+            if (!result.allPassed) {
+                const failures = result.items.filter((i) => !i.ok).map((i) => `${i.name}: ${i.detail}`);
+                failedChecks.push(`${stepKey}=[${failures.join("; ")}]`);
+            }
+        }
+        if (failedChecks.length > 0) parts.push(`failed_checks=${encodeURIComponent(`{${failedChecks.join(", ")}}`)}`);
+
+        // GPU/benchmark data — use providerSummary if available, fall back to early refs
+        if (providerSummary) {
+            parts.push(`gpu=${providerSummary.gpuModel}`);
+            parts.push(`vram=${providerSummary.vramGb}GB`);
+            parts.push(`xcu=${providerSummary.xcuScore}`);
+            parts.push(`tflops=${providerSummary.tflops}`);
+            parts.push(`tier=${providerSummary.tier}`);
+            parts.push(`verified=${providerSummary.verified}`);
+        } else {
+            // Early fallback from detection/benchmark refs (available before step 13)
+            if (earlyGpu) {
+                parts.push(`gpu=${earlyGpu.gpu_model}`);
+                parts.push(`vram=${earlyGpu.total_vram_gb}GB`);
+            }
+            if (earlyBench) {
+                parts.push(`tflops=${earlyBench.tflops}`);
+                parts.push(`xcu=${earlyBench.xcu_score}`);
+            }
+        }
+
+        // Network benchmark data
+        if (earlyNetwork) {
+            parts.push(`latency=${earlyNetwork.latency_avg_ms}ms`);
+            parts.push(`jitter=${earlyNetwork.jitter_ms}ms`);
+            parts.push(`throughput=${earlyNetwork.throughput_mbps}Mbps`);
+        }
+    }
+
+    // Renter context
+    if (answers.mode === "rent" || answers.mode === "both") {
+        if (answers.workload) parts.push(`workload=${answers.workload}`);
+        if (answers["gpu-preference"]) parts.push(`gpu_pref=${answers["gpu-preference"]}`);
+        if (answers["gpu-pick"]) {
+            const listing = gpuListings.find((l) => l.host_id === (answers["gpu-pick"] as string));
+            if (listing) {
+                parts.push(`picked_gpu=${listing.gpu_model}/${listing.vram_gb}GB/$${listing.price_per_hour}/hr`);
+                parts.push(`rate=$${listing.price_per_hour}/hr`);
+            }
+        }
+        if (answers["image-pick"]) parts.push(`image=${answers["image-pick"]}`);
+        if (answers["_instance_id"]) parts.push(`instance_id=${answers["_instance_id"]}`);
+        if (answers["_balance"]) parts.push(`balance=$${answers["_balance"]}`);
+        if (browseError) parts.push(`browse_error=${browseError}`);
+    }
+
+    return parts.join(" | ");
+}
+
+/** Generate a memorable instance name — exported for testing */
+export function generateInstanceName(): string {
     const adj = ["swift", "bright", "cosmic", "nova", "stellar", "quantum", "astral", "blazing"];
     const noun = ["forge", "nexus", "pulse", "flux", "spark", "core", "beam", "arc"];
     const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
@@ -276,14 +454,16 @@ function generateInstanceName(): string {
 export function useWizardFlow(): UseWizardFlowReturn {
     const [stepIndex, setStepIndex] = useState(0);
     const stepIndexRef = useRef(0);
-    const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
-    const answersRef = useRef<Record<string, string | string[]>>({});
+    const [answers, setAnswers] = useState<Record<string, string | string[]>>({ "_api_base_url": API_BASE_URL });
+    const answersRef = useRef<Record<string, string | string[]>>({ "_api_base_url": API_BASE_URL });
     const [wizardState, setWizardState] = useState<WizardState>("idle");
     const [wizardMessage, setWizardMessage] = useState(WIZARD_STEPS[0].prompt);
     const [checkResults, setCheckResults] = useState<Record<string, AutoCheckResults>>({});
     const [aiResponse, setAiResponse] = useState<string | null>(null);
     const [aiStreaming, setAiStreaming] = useState(false);
+    const lastAiContentRef = useRef<string | null>(null);
     const [isComplete, setIsComplete] = useState(false);
+    const [transitioning, setTransitioning] = useState(false);
     const [validationError, setValidationError] = useState<string | null>(null);
     const [confirmError, setConfirmError] = useState<string | null>(null);
     const [showAiPrompt, setShowAiPrompt] = useState(false);
@@ -302,6 +482,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         errorMessage: null,
     });
     const devicePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const browserTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Marketplace
     const [gpuListings, setGpuListings] = useState<MarketplaceListing[]>([]);
@@ -320,10 +501,19 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
     // Auto-check retry
     const [checkCanRetry, setCheckCanRetry] = useState(false);
+    const [checkAwaitContinue, setCheckAwaitContinue] = useState(false);
     const activeCheckRef = useRef<{ checkId: string; stepId: string } | null>(null);
+    const lastAdvanceRef = useRef<number>(0);
 
-    // Project detection
-    const [detectedFramework, setDetectedFramework] = useState<string | null>(null);
+    // Device auth — detected .env path for display
+    const [deviceAuthEnvPath, setDeviceAuthEnvPath] = useState<string | null>(null);
+    // Token save error — null means saved OK
+    const [tokenSaveError, setTokenSaveError] = useState<string | null>(null);
+
+    // AI conversation tracking
+    const conversationIdRef = useRef<string | null>(null);
+    const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+    const [aiToolCalls, setAiToolCalls] = useState<AiToolCall[]>([]);
 
     // Provider flow state
     const gpuInfoRef = useRef<GpuInfo | null>(null);
@@ -356,11 +546,26 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // ── Device auth flow ─────────────────────────────────────────────
 
     const stopDevicePoll = useCallback(() => {
+        if (browserTimeoutRef.current) {
+            clearTimeout(browserTimeoutRef.current);
+            browserTimeoutRef.current = null;
+        }
         if (devicePollRef.current) {
             clearInterval(devicePollRef.current);
             devicePollRef.current = null;
         }
     }, []);
+
+    /** Open browser immediately — cancels the 15s countdown timer */
+    const openBrowserNow = useCallback(() => {
+        if (browserTimeoutRef.current) {
+            clearTimeout(browserTimeoutRef.current);
+            browserTimeoutRef.current = null;
+        }
+        if (deviceAuth.verificationUri) {
+            openBrowser(deviceAuth.verificationUri);
+        }
+    }, [deviceAuth.verificationUri]);
 
     const startDeviceAuth = useCallback(async () => {
         stopDevicePoll();
@@ -380,30 +585,48 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setWizardState("waiting");
             setWizardMessage("Enter the code shown below in your browser...");
 
-            // Delay browser open by 10 seconds so user can see the code
-            setTimeout(() => {
+            // Delay browser open by 15 seconds so user can see the code
+            browserTimeoutRef.current = setTimeout(() => {
                 openBrowser(result.verification_uri);
-            }, 10_000);
+            }, 15_000);
 
             // Start polling
             let devicePollInFlight = false;
+            const pollStartTime = Date.now();
             devicePollRef.current = setInterval(async () => {
                 if (devicePollInFlight) return; // prevent overlapping poll iterations
+                // Check expiry
+                if (Date.now() - pollStartTime > DEVICE_CODE_EXPIRY_MS) {
+                    stopDevicePoll();
+                    setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: "Device code expired — please retry" }));
+                    setWizardState("error");
+                    setWizardMessage("Device code expired — press Enter to retry");
+                    return;
+                }
                 devicePollInFlight = true;
                 try {
                     const tokenResult = await pollDeviceToken(API_BASE_URL, result.device_code);
                     if (tokenResult) {
                         stopDevicePoll();
-                        const token = tokenResult.access_token;
+                        const sessionToken = tokenResult.access_token;
 
-                        // Save token
-                        await saveToken(token);
+                        // Generate a proper API key so it appears in dashboard Settings
+                        let apiKey = sessionToken;
+                        try {
+                            const keyResult = await generateApiKey(API_BASE_URL, sessionToken, "CLI Wizard");
+                            apiKey = keyResult.key;
+                        } catch {
+                            // Fall back to session token if key generation fails
+                        }
+
+                        // Save API key
+                        const saveResult = await saveToken(apiKey);
 
                         // Get user profile
                         let email: string | null = null;
                         let customerId: string | null = null;
                         try {
-                            const profile = await getMe(API_BASE_URL, token);
+                            const profile = await getMe(API_BASE_URL, sessionToken);
                             email = profile.email;
                             customerId = profile.customer_id;
                         } catch {
@@ -414,7 +637,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             status: "authorized",
                             userCode: result.user_code,
                             verificationUri: result.verification_uri,
-                            token,
+                            token: apiKey,
                             email,
                             errorMessage: null,
                         });
@@ -422,7 +645,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         // Store in answers
                         const updated: Record<string, string | string[]> = {
                             ...answersRef.current,
-                            "api-key": token,
+                            "api-key": apiKey,
                             "device-auth": "authorized",
                         };
                         if (customerId) updated["_customer_id"] = customerId;
@@ -430,13 +653,32 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         answersRef.current = updated;
                         setAnswers(updated);
 
-                        setWizardState("success");
-                        setWizardMessage("Authenticated! Moving on...");
+                        if (saveResult === true) {
+                            setTokenSaveError(null);
+                            setWizardState("excited");
 
-                        // Auto-advance after showing success
-                        setTimeout(() => {
-                            advanceToNext(updated);
-                        }, CHOREOGRAPHY_DELAY_MS * 2);
+                            // Write to project .env if detected
+                            const fw = detectFramework();
+                            if (fw) {
+                                const envResult = await writeProjectEnv(fw.envPath, apiKey);
+                                const displayPath = fw.envPath.replace(CONFIG_HOME, "~");
+                                if (envResult === true) {
+                                    setDeviceAuthEnvPath(displayPath);
+                                    setWizardMessage(`Key saved to ~/.xcelsior/token.json and ${displayPath} — press Enter to continue`);
+                                } else {
+                                    setDeviceAuthEnvPath(null);
+                                    setWizardMessage(`Key saved to ~/.xcelsior/token.json (could not write ${displayPath}: ${envResult}) — press Enter to continue`);
+                                }
+                            } else {
+                                setDeviceAuthEnvPath(null);
+                                setWizardMessage("Key saved to ~/.xcelsior/token.json — press Enter to continue");
+                            }
+                        } else {
+                            setTokenSaveError(saveResult);
+                            setWizardState("error");
+                            setDeviceAuthEnvPath(null);
+                            setWizardMessage(`Token save failed: ${saveResult}`);
+                        }
                     }
                 } catch (err) {
                     // Don't stop polling on transient errors — only on fatal ones
@@ -472,25 +714,45 @@ export function useWizardFlow(): UseWizardFlowReturn {
         startDeviceAuth();
     }, [startDeviceAuth]);
 
-    const submitManualToken = useCallback((token: string) => {
+    const submitManualToken = useCallback(async (token: string) => {
         const updated = { ...answersRef.current, "api-key": token, "device-auth": "manual" };
         answersRef.current = updated;
         setAnswers(updated);
 
-        // Save token
-        saveToken(token);
+        // Save token and verify
+        const saveResult = await saveToken(token);
 
         setDeviceAuth((prev) => ({
             ...prev,
             status: "authorized",
             token,
         }));
-        setWizardState("success");
-        setWizardMessage("Token saved! Verifying connection...");
 
-        setTimeout(() => {
-            advanceToNext(updated);
-        }, CHOREOGRAPHY_DELAY_MS);
+        if (saveResult === true) {
+            setTokenSaveError(null);
+            setWizardState("success");
+
+            // Write to project .env if detected
+            const fw = detectFramework();
+            if (fw) {
+                const envResult = await writeProjectEnv(fw.envPath, token);
+                if (envResult === true) {
+                    setDeviceAuthEnvPath(fw.envPath);
+                    setWizardMessage(`Token saved to ~/.xcelsior/token.json and ${fw.envPath} — press Enter to continue`);
+                } else {
+                    setDeviceAuthEnvPath(null);
+                    setWizardMessage(`Token saved to ~/.xcelsior/token.json (could not write ${fw.envPath}: ${envResult}) — press Enter to continue`);
+                }
+            } else {
+                setDeviceAuthEnvPath(null);
+                setWizardMessage("Token saved to ~/.xcelsior/token.json — press Enter to continue");
+            }
+        } else {
+            setTokenSaveError(saveResult);
+            setWizardState("error");
+            setDeviceAuthEnvPath(null);
+            setWizardMessage(`Token save failed: ${saveResult}`);
+        }
     }, []);
 
     // ── Marketplace browsing ─────────────────────────────────────────
@@ -571,6 +833,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setAnswers(updated);
                 return checkWalletInner(token, profile.customer_id, currentAnswers);
             } catch (err) {
+                // Mark insufficient so payment-gate shows and user can retry after fixing auth
+                const updated = { ...currentAnswers, "_wallet_insufficient": "true" };
+                answersRef.current = updated;
+                setAnswers(updated);
                 return [{ name: "Wallet", ok: false, detail: "Could not fetch profile" }];
             }
         }
@@ -584,8 +850,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
         currentAnswers: Record<string, string | string[]>,
     ): Promise<CheckResult[]> => {
         try {
-            // Try claiming free credits first (idempotent)
-            const creditResult = await claimFreeCredits(API_BASE_URL, token, customerId);
+            // Try claiming free credits first (idempotent, best-effort)
+            let creditResult = { already_claimed: true, amount: 0 };
+            try {
+                creditResult = await claimFreeCredits(API_BASE_URL, token, customerId);
+            } catch {
+                // credit claim is best-effort — don't block wallet check
+            }
 
             const wallet = await getWallet(API_BASE_URL, token, customerId);
             const balance = wallet.balance_cad;
@@ -618,7 +889,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
             return [{ name: "Wallet Balance", ok: balance >= required, detail }];
         } catch (err) {
-            return [{ name: "Wallet", ok: false, detail: err instanceof Error ? err.message : "Failed" }];
+            // Wallet check failed — mark insufficient so payment-gate shows
+            const updated = { ...currentAnswers, "_wallet_insufficient": "true" };
+            answersRef.current = updated;
+            setAnswers(updated);
+            return [{ name: "Wallet", ok: false, detail: err instanceof Error ? err.message : "Failed to check wallet" }];
         }
     }, [gpuListings]);
 
@@ -681,7 +956,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         detail: `${gpuFull.gpu_model} · ${gpuFull.total_vram_gb} GB · Driver ${gpuFull.driver_version}`,
                     }];
                 }
-                // Fallback to basic detection
+                // Fallback to basic detection — flag so benchmark skips gracefully
+                const updated = { ...currentAnswers, "_gpu_basic_only": "true" };
+                answersRef.current = updated;
+                setAnswers(updated);
                 return checkGpuBasic();
             }
             case "versions": {
@@ -696,11 +974,15 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 }));
             }
             case "benchmark": {
+                // Skip benchmark if only basic GPU detection passed (no detailed nvidia-smi data)
+                if (currentAnswers["_gpu_basic_only"] === "true") {
+                    return [{ name: "Benchmark", ok: true, detail: "Skipped — detailed GPU data unavailable (nvidia-smi query failed)" }];
+                }
                 const bench = await runComputeBenchmark();
                 if (!bench || bench.error) {
                     const errorDetail = bench?.error === "no_torch" ? "PyTorch not installed"
                         : bench?.error === "no_cuda" ? "CUDA not available"
-                        : bench?.error || "Failed — is Python 3 with PyTorch + CUDA installed?";
+                            : bench?.error || "Failed — is Python 3 with PyTorch + CUDA installed?";
                     return [{ name: "Benchmark", ok: false, detail: errorDetail }];
                 }
                 benchResultRef.current = bench;
@@ -725,10 +1007,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 const gpu = gpuInfoRef.current;
                 const bench = benchResultRef.current;
                 const net = networkResultRef.current;
-                if (!gpu || !bench || !net) {
-                    return [{ name: "Verification", ok: false, detail: "Missing GPU, benchmark, or network data — please retry previous steps" }];
+                if (!gpu || !bench) {
+                    return [{ name: "Verification", ok: false, detail: "Missing GPU or benchmark data — please retry previous steps" }];
                 }
-                const report = buildVerificationReport(gpu, bench, net, versionChecksRef.current);
+                // Use zeroed network data if network bench was skipped
+                const netData = net || { latency_avg_ms: 0, latency_min_ms: 0, latency_max_ms: 0, jitter_ms: 0, packet_loss_pct: 0, throughput_mbps: 0 };
+                const report = buildVerificationReport(gpu, bench, netData, versionChecksRef.current);
                 // Submit to server
                 const token = currentAnswers["api-key"] as string;
                 const hostId = (currentAnswers["_host_id"] as string) || `host-${Date.now()}`;
@@ -756,9 +1040,28 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 const token = currentAnswers["api-key"] as string;
                 const pricing = currentAnswers.pricing as string;
                 const customRate = currentAnswers["custom-rate"] as string;
+
+                // Compute cost based on marketplace data when possible
                 let costPerHour = 0.20;
-                if (pricing === "competitive") costPerHour = 0.15;
-                else if (pricing === "custom" && customRate) costPerHour = parseFloat(customRate);
+                if (pricing === "custom" && customRate) {
+                    costPerHour = parseFloat(customRate);
+                } else {
+                    // Look up market rates for this GPU model
+                    try {
+                        const market = await searchMarketplace(API_BASE_URL, token, { gpu_model: gpu.gpu_model, limit: 20 });
+                        if (market.listings.length > 0) {
+                            const avgPrice = market.listings.reduce((sum, l) => sum + l.price_per_hour, 0) / market.listings.length;
+                            costPerHour = pricing === "competitive" ? avgPrice * 0.85 : avgPrice;
+                        } else {
+                            costPerHour = pricing === "competitive" ? 0.15 : 0.20;
+                        }
+                    } catch {
+                        // Fallback to defaults if marketplace unavailable
+                        costPerHour = pricing === "competitive" ? 0.15 : 0.20;
+                    }
+                    // Round to 2 decimal places
+                    costPerHour = Math.round(costPerHour * 100) / 100;
+                }
 
                 const hostId = `host-${Date.now()}`;
                 const versions: Record<string, string> = {};
@@ -777,8 +1080,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         versions,
                     });
 
-                    // Store host ID
-                    const updated = { ...currentAnswers, "_host_id": host.host_id || hostId };
+                    // Store host ID and cost
+                    const updated = { ...currentAnswers, "_host_id": host.host_id || hostId, "_host_cost_per_hour": String(costPerHour) };
                     answersRef.current = updated;
                     setAnswers(updated);
 
@@ -832,6 +1135,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         hostId,
                         pricing,
                         customRate: customRateVal,
+                        costPerHour: parseFloat(currentAnswers["_host_cost_per_hour"] as string || "0.20"),
                         admitted,
                         runtimeRecommendation: runtime,
                         reputationPoints: (result.details as Record<string, number>)?.reputation_points ?? 0,
@@ -858,10 +1162,17 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // ── Step advancement ─────────────────────────────────────────────
 
     const advanceToNext = useCallback(
-        (currentAnswers: Record<string, string | string[]>) => {
+        async (currentAnswers: Record<string, string | string[]>) => {
+            // Debounce rapid Enter presses — prevent double-advancing
+            const now = Date.now();
+            if (now - lastAdvanceRef.current < ADVANCE_DEBOUNCE_MS) return;
+            lastAdvanceRef.current = now;
+
+            setTransitioning(false);
             setValidationError(null);
             setConfirmError(null);
             setCheckCanRetry(false);
+            setCheckAwaitContinue(false);
             setShowAiPrompt(false);
             setChatHistory([]);
             setCurrentAiQuestion(null);
@@ -873,15 +1184,16 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 if (doneIdx >= 0) {
                     stepIndexRef.current = doneIdx;
                     setStepIndex(doneIdx);
-                    setWizardState("success");
+                    setWizardState("finishing");
                     setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
 
                     // Detect project framework
-                    const fw = detectFramework();
-                    if (fw) setDetectedFramework(fw.name);
+                    detectFramework();
 
                     // Save config
-                    saveConfig(currentAnswers).catch(() => { });
+                    saveConfig(currentAnswers).catch((err) => {
+                        setWizardMessage((prev) => `${prev}\n⚠ Could not save config: ${err instanceof Error ? err.message : "unknown error"}`);
+                    });
                 }
                 setIsComplete(true);
                 return;
@@ -890,7 +1202,18 @@ export function useWizardFlow(): UseWizardFlowReturn {
             const nextStep = WIZARD_STEPS[next];
             stepIndexRef.current = next;
             setStepIndex(next);
-            setWizardMessage(nextStep.prompt);
+
+            // Brief pause so the user can read the step prompt before init kicks in
+            const needsInit = nextStep.type === "device-auth"
+                || nextStep.type === "auto-check"
+                || nextStep.type === "auto-fetch"
+                || nextStep.type === "payment-gate";
+            if (needsInit) {
+                setWizardMessage(nextStep.prompt);
+                await new Promise((r) => setTimeout(r, CHOREOGRAPHY_DELAY_MS));
+            } else {
+                setWizardMessage(nextStep.prompt);
+            }
 
             // ── Handle step type-specific init ───────────────────────
             if (nextStep.type === "device-auth") {
@@ -927,7 +1250,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             const updated = { ...currentAnswers, "_wallet_insufficient": "false", "payment-gate": "funded" };
                             answersRef.current = updated;
                             setAnswers(updated);
-                            setWizardState("success");
+                            setWizardState("excited");
                             setWizardMessage("Wallet funded! Proceeding...");
                             setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
                         }
@@ -983,26 +1306,93 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     }));
 
                     if (allPassed) {
-                        setWizardState("success");
+                        // Use "excited" (dance) for big milestones, "success" (eureka) for routine
+                        const isMilestone = nextStep.checkId === "launch" || nextStep.checkId === "verify" || nextStep.checkId === "host-register" || nextStep.checkId === "docker";
+                        setWizardState(isMilestone ? "excited" : "success");
                         const successMsg = nextStep.checkId === "launch" ? "Instance launched!"
                             : nextStep.checkId === "benchmark" ? "Benchmarks complete!"
-                            : nextStep.checkId === "verify" ? "Hardware verified!"
-                            : nextStep.checkId === "host-register" ? "Host registered on the marketplace!"
-                            : "All checks passed!";
+                                : nextStep.checkId === "verify" ? "Hardware verified!"
+                                    : nextStep.checkId === "host-register" ? "Host registered on the marketplace!"
+                                        : nextStep.checkId === "docker" ? "Docker environment ready!"
+                                            : "All checks passed!";
                         setWizardMessage(successMsg);
 
-                        // Auto-advance after delay
-                        setTimeout(() => {
-                            const updated = { ...currentAnswers, [nextStep.id]: "passed" };
-                            answersRef.current = updated;
-                            setAnswers(updated);
-                            advanceToNext(updated);
-                        }, nextStep.checkId === "launch" ? CHOREOGRAPHY_DELAY_MS * 2 : CHOREOGRAPHY_DELAY_MS);
+                        // Wait for Enter to continue
+                        setCheckAwaitContinue(true);
                     } else {
+                        const failCount = results.filter((r) => !r.ok).length;
+                        const failDetails = results
+                            .filter((r) => !r.ok)
+                            .map((r) => `${r.name}: ${r.detail}`)
+                            .join("; ");
                         setWizardState("error");
-                        setWizardMessage(`${results.filter((r) => !r.ok).length} check(s) failed`);
+                        setWizardMessage(
+                            apiToken
+                                ? `${failCount} check(s) failed — Hexara is looking into it...`
+                                : `${failCount} check(s) failed — retry or skip`,
+                        );
                         setCheckCanRetry(true);
+
+                        // Auto-trigger AI analysis for check failures if authenticated
+                        // (skip api-check — can't reach AI if API is down)
+                        if (apiToken && nextStep.checkId && nextStep.checkId !== "api") {
+                            const pageCtx = buildWizardContext(
+                                nextStep.id, currentAnswers, {
+                                ...checkResults,
+                                [nextStep.id]: { items: results, allPassed: false },
+                            }, providerSummary, gpuListings, browseError,
+                                gpuInfoRef.current, benchResultRef.current, networkResultRef.current,
+                            );
+                            const config: ApiClientConfig = {
+                                baseUrl: API_BASE_URL,
+                                apiKey: apiToken,
+                                pageContext: pageCtx,
+                            };
+                            // Buffer tokens — show spinner, then reveal complete result
+                            setAiStreaming(true);
+                            setAiResponse(null);  // Keep panel hidden during analysis
+                            setCurrentAiQuestion(null);
+                            setWizardState("thinking");
+                            setWizardMessage(`Hexara is analyzing ${failCount} issue(s)...`);
+                            void (async () => {
+                                let explanation = "";
+                                try {
+                                    for await (const event of streamChat(config,
+                                        `The following checks failed during provider setup: ${failDetails}. ` +
+                                        `Diagnose each failure and give the exact commands to fix it.`,
+                                        conversationIdRef.current ?? undefined,
+                                    )) {
+                                        if (event.type === "meta" && event.conversation_id) {
+                                            conversationIdRef.current = event.conversation_id;
+                                        } else if (event.type === "token") {
+                                            explanation += event.content ?? "";
+                                        } else if (event.type === "tool_call" && event.name) {
+                                            setWizardMessage(`Using ${event.name}...`);
+                                        } else if (event.type === "tool_result") {
+                                            setWizardMessage(`Hexara is analyzing ${failCount} issue(s)...`);
+                                        }
+                                    }
+                                    // Stream complete — reveal full analysis
+                                    if (explanation) {
+                                        setAiResponse(explanation);
+                                        setWizardState("error");
+                                        setWizardMessage(`${failCount} issue(s) found — see analysis below`);
+                                    }
+                                } catch (err) {
+                                    const msg = err instanceof Error ? err.message : "unknown";
+                                    setAiResponse(explanation || `Analysis failed: ${msg}`);
+                                    setWizardState("error");
+                                    setWizardMessage(`${failCount} check(s) failed`);
+                                } finally {
+                                    setAiStreaming(false);
+                                }
+                            })();
+                        }
                     }
+                }).catch(() => {
+                    setWizardState("error");
+                    setWizardMessage("Check failed unexpectedly — retry");
+                    setCheckCanRetry(true);
                 });
                 return;
             }
@@ -1046,7 +1436,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         const updated = { ...answersRef.current, [currentStep.id]: "cancelled" };
                         answersRef.current = updated;
                         setAnswers(updated);
-                        // Jump to done
+                        // Jump to done without saving config (user cancelled)
                         const doneIdx = WIZARD_STEPS.findIndex((s) => s.type === "done");
                         if (doneIdx >= 0) {
                             stepIndexRef.current = doneIdx;
@@ -1054,7 +1444,6 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setWizardState("success");
                             setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
                             setIsComplete(true);
-                            saveConfig(updated).catch(() => { });
                         }
                         return;
                     }
@@ -1092,22 +1481,31 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setValidationError(null);
             }
 
-            // Choreography delay after mode select
-            const delay = currentStep.id === "mode" ? CHOREOGRAPHY_DELAY_MS : 0;
-            if (currentStep.id === "mode") {
+            // Choreography: show a transition message, pause, then advance
+            const stepMessages: Record<string, string> = {
+                "mode": "Great choice! Let's get you set up...",
+                "pricing": "Got it! Setting your rate...",
+                "custom-rate": "Rate locked in!",
+                "workload": "Great pick! Finding the best GPUs for you...",
+                "gpu-preference": "Noted! Searching available options...",
+                "gpu-pick": "Excellent choice!",
+                "image-pick": "Environment selected!",
+                "confirm-launch": "Launching your instance...",
+                "confirm-setup": "Saving your configuration...",
+                "provider-summary": "Onward!",
+            };
+            const transitionMsg = stepMessages[currentStep.id];
+            setTransitioning(true);
+            if (transitionMsg) {
                 setWizardState("excited");
-                setWizardMessage("Great choice! Let's get you set up...");
+                setWizardMessage(transitionMsg);
             }
 
             const updated = { ...answersRef.current, [currentStep.id]: value };
             answersRef.current = updated;
             setAnswers(updated);
 
-            if (delay > 0) {
-                setTimeout(() => advanceToNext(updated), delay);
-            } else {
-                advanceToNext(updated);
-            }
+            setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
         },
         [advanceToNext],
     );
@@ -1117,6 +1515,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const retryCheck = useCallback(() => {
         if (!activeCheckRef.current) return;
         setCheckCanRetry(false);
+        setCheckAwaitContinue(false);
         const { checkId, stepId } = activeCheckRef.current;
         setWizardState("thinking");
         setWizardMessage("Retrying...");
@@ -1131,19 +1530,80 @@ export function useWizardFlow(): UseWizardFlowReturn {
             if (allPassed) {
                 setWizardState("success");
                 setWizardMessage("All checks passed!");
-                setTimeout(() => {
-                    const updated = { ...answersRef.current, [stepId]: "passed" };
-                    answersRef.current = updated;
-                    setAnswers(updated);
-                    advanceToNext(updated);
-                }, CHOREOGRAPHY_DELAY_MS);
+                setCheckAwaitContinue(true);
             } else {
+                const failCount = results.filter((r) => !r.ok).length;
+                const failDetails = results
+                    .filter((r) => !r.ok)
+                    .map((r) => `${r.name}: ${r.detail}`)
+                    .join("; ");
                 setWizardState("error");
-                setWizardMessage(`${results.filter((r) => !r.ok).length} check(s) failed`);
+                setWizardMessage(
+                    apiToken
+                        ? `${failCount} check(s) still failing — Hexara is re-analyzing...`
+                        : `${failCount} check(s) failed`,
+                );
                 setCheckCanRetry(true);
+
+                // Auto-trigger AI re-analysis on retry failure
+                if (apiToken) {
+                    const pageCtx = buildWizardContext(
+                        stepId, answersRef.current, {
+                        ...checkResults,
+                        [stepId]: { items: results, allPassed: false },
+                    }, providerSummary, gpuListings, browseError,
+                        gpuInfoRef.current, benchResultRef.current, networkResultRef.current,
+                    );
+                    const config: ApiClientConfig = {
+                        baseUrl: API_BASE_URL,
+                        apiKey: apiToken,
+                        pageContext: pageCtx,
+                    };
+                    setAiStreaming(true);
+                    setAiResponse(null);
+                    setCurrentAiQuestion(null);
+                    setWizardState("thinking");
+                    setWizardMessage(`Hexara is re-analyzing ${failCount} issue(s)...`);
+                    void (async () => {
+                        let explanation = "";
+                        try {
+                            for await (const event of streamChat(config,
+                                `Retry attempt: these checks are still failing: ${failDetails}. ` +
+                                `The user already tried fixing them. Dig deeper — suggest alternative solutions.`,
+                                conversationIdRef.current ?? undefined,
+                            )) {
+                                if (event.type === "meta" && event.conversation_id) {
+                                    conversationIdRef.current = event.conversation_id;
+                                } else if (event.type === "token") {
+                                    explanation += event.content ?? "";
+                                } else if (event.type === "tool_call" && event.name) {
+                                    setWizardMessage(`Using ${event.name}...`);
+                                } else if (event.type === "tool_result") {
+                                    setWizardMessage(`Hexara is re-analyzing ${failCount} issue(s)...`);
+                                }
+                            }
+                            if (explanation) {
+                                setAiResponse(explanation);
+                                setWizardState("error");
+                                setWizardMessage(`${failCount} issue(s) persist — see analysis below`);
+                            }
+                        } catch (err) {
+                            const msg = err instanceof Error ? err.message : "unknown";
+                            setAiResponse(explanation || `Re-analysis failed: ${msg}`);
+                            setWizardState("error");
+                            setWizardMessage(`${failCount} check(s) failed`);
+                        } finally {
+                            setAiStreaming(false);
+                        }
+                    })();
+                }
             }
+        }).catch(() => {
+            setWizardState("error");
+            setWizardMessage("Check failed unexpectedly — retry");
+            setCheckCanRetry(true);
         });
-    }, [runCheck, advanceToNext]);
+    }, [runCheck, advanceToNext, apiToken, checkResults, providerSummary, gpuListings, browseError]);
 
     const skipCheck = useCallback(() => {
         if (!activeCheckRef.current) return;
@@ -1157,6 +1617,23 @@ export function useWizardFlow(): UseWizardFlowReturn {
         setAnswers(updated);
         advanceToNext(updated);
     }, [advanceToNext]);
+
+    const continueFromCheck = useCallback(() => {
+        if (!activeCheckRef.current || !checkAwaitContinue) return;
+        const { stepId } = activeCheckRef.current;
+        setCheckAwaitContinue(false);
+        const updated = { ...answersRef.current, [stepId]: "passed" };
+        answersRef.current = updated;
+        setAnswers(updated);
+        advanceToNext(updated);
+    }, [advanceToNext, checkAwaitContinue]);
+
+    // ── Device-auth continue (Enter after authorized) ────────────────
+
+    const continueFromAuth = useCallback(() => {
+        if (deviceAuth.status !== "authorized") return;
+        advanceToNext(answersRef.current);
+    }, [advanceToNext, deviceAuth.status]);
 
     // ── Payment skip ─────────────────────────────────────────────────
 
@@ -1178,43 +1655,144 @@ export function useWizardFlow(): UseWizardFlowReturn {
         async (question: string) => {
             if (!apiToken) return;
 
+            const pageContext = buildWizardContext(
+                step.id, answersRef.current, checkResults, providerSummary, gpuListings, browseError,
+                gpuInfoRef.current, benchResultRef.current, networkResultRef.current,
+            );
+
             const config: ApiClientConfig = {
                 baseUrl: API_BASE_URL,
                 apiKey: apiToken,
-                pageContext: `cli-wizard:${step.id}`,
+                pageContext,
             };
 
             setAiStreaming(true);
-            setAiResponse("");
+            setAiResponse(null);  // Keep panel hidden — reveal when complete
+            lastAiContentRef.current = null;
             setCurrentAiQuestion(question);
             setWizardState("thinking");
             setWizardMessage("Hexara is thinking...");
             setShowAiPrompt(false);
+            setPendingConfirmation(null);
+            setAiToolCalls([]);
 
             let content = "";
+            const toolCalls: AiToolCall[] = [];
+            let hadConfirmation = false;
+
             try {
-                for await (const event of streamChat(config, question)) {
-                    if (event.type === "token") {
-                        content += event.content ?? "";
-                        setAiResponse(content);
-                    } else if (event.type === "error") {
-                        content = `Error: ${event.message}`;
-                        setAiResponse(content);
+                for await (const event of streamChat(config, question, conversationIdRef.current ?? undefined)) {
+                    switch (event.type) {
+                        case "meta":
+                            if (event.conversation_id) {
+                                conversationIdRef.current = event.conversation_id;
+                            }
+                            break;
+
+                        case "token":
+                            content += event.content ?? "";
+                            // Tokens buffered — not revealed until stream completes
+                            break;
+
+                        case "tool_call":
+                            if (event.name) {
+                                const call: AiToolCall = { name: event.name, input: event.input ?? {} };
+                                toolCalls.push(call);
+                                setAiToolCalls([...toolCalls]);
+                                setWizardMessage(`Using ${event.name}...`);
+                            }
+                            break;
+
+                        case "tool_result":
+                            if (event.name) {
+                                const existing = toolCalls.find((tc) => tc.name === event.name && !tc.output);
+                                if (existing) existing.output = event.output ?? {};
+                                setAiToolCalls([...toolCalls]);
+                                setWizardMessage("Hexara is thinking...");
+                            }
+                            break;
+
+                        case "confirmation_required":
+                            if (event.confirmation_id && event.tool_name) {
+                                hadConfirmation = true;
+                                // Reveal buffered content so far for confirmation context
+                                if (content) setAiResponse(content);
+                                setPendingConfirmation({
+                                    confirmationId: event.confirmation_id,
+                                    toolName: event.tool_name,
+                                    toolArgs: event.tool_args ?? {},
+                                });
+                                setWizardState("idle");
+                                setWizardMessage(`Hexara wants to run: ${event.tool_name} — press y/n`);
+                            }
+                            break;
+
+                        case "error":
+                            content += content ? `\n\nError: ${event.message}` : `Error: ${event.message}`;
+                            break;
+
+                        case "done":
+                            break;
                     }
                 }
-                setWizardState("idle");
-                setWizardMessage(step.prompt);
+
+                // Stream complete — signal outcome, keep response hidden but buffered
+                if (!hadConfirmation) {
+                    lastAiContentRef.current = content || null;
+                    if (content) {
+                        setWizardState("success");
+                        setWizardMessage("Done — press d to see details");
+                    } else {
+                        setWizardState("idle");
+                        setWizardMessage(step.prompt);
+                    }
+                }
             } catch (err) {
-                content = `Connection error: ${err instanceof Error ? err.message : "unknown"}`;
-                setAiResponse(content);
+                lastAiContentRef.current = content || null;
                 setWizardState("error");
-                setWizardMessage("AI unavailable — continue with the wizard steps.");
+                setWizardMessage(content ? "AI error — press d to see details" : "AI unavailable — continue with the wizard steps.");
             } finally {
                 setAiStreaming(false);
             }
         },
-        [apiToken, step],
+        [apiToken, step, checkResults, providerSummary, gpuListings, browseError],
     );
+
+    const confirmAi = useCallback(async (approved: boolean) => {
+        if (!pendingConfirmation || !apiToken) return;
+
+        const config: ApiClientConfig = {
+            baseUrl: API_BASE_URL,
+            apiKey: apiToken,
+            pageContext: `cli-wizard:${step.id}`,
+        };
+
+        setWizardState("thinking");
+        setWizardMessage(approved ? "Executing..." : "Cancelled.");
+        setAiStreaming(true);
+
+        let content = aiResponse ?? "";
+        try {
+            for await (const event of confirmAction(config, pendingConfirmation.confirmationId, approved)) {
+                if (event.type === "token") {
+                    content += event.content ?? "";
+                    setAiResponse(content);
+                } else if (event.type === "error") {
+                    content += `\n\nError: ${event.message}`;
+                    setAiResponse(content);
+                }
+            }
+            setWizardState("idle");
+            setWizardMessage(step.prompt);
+        } catch (err) {
+            content += `\n\nConfirmation error: ${err instanceof Error ? err.message : "unknown"}`;
+            setAiResponse(content);
+            setWizardState("error");
+        } finally {
+            setPendingConfirmation(null);
+            setAiStreaming(false);
+        }
+    }, [pendingConfirmation, apiToken, step, aiResponse]);
 
     const dismissAi = useCallback(() => {
         // Save current Q&A to chat history before dismissing
@@ -1222,6 +1800,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setChatHistory((prev) => [...prev, { question: currentAiQuestion, answer: aiResponse }]);
         }
         setAiResponse(null);
+        lastAiContentRef.current = null;
         setCurrentAiQuestion(null);
         setWizardState("idle");
         setWizardMessage(step.prompt);
@@ -1235,6 +1814,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // Cleanup polls on unmount
     useEffect(() => {
         return () => {
+            if (browserTimeoutRef.current) clearTimeout(browserTimeoutRef.current);
             if (devicePollRef.current) clearInterval(devicePollRef.current);
             if (walletPollRef.current) clearInterval(walletPollRef.current);
         };
@@ -1256,6 +1836,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         deviceAuth,
         switchToManualAuth,
         retryDeviceAuth,
+        openBrowserNow,
         submitManualToken,
         gpuListings,
         gpuOptions,
@@ -1268,14 +1849,30 @@ export function useWizardFlow(): UseWizardFlowReturn {
         skipPayment,
         browseError,
         checkCanRetry,
+        checkAwaitContinue,
         retryCheck,
         skipCheck,
+        continueFromCheck,
+        continueFromAuth,
+        tokenSaveError,
+        deviceAuthEnvPath,
+        hasAiDetails: lastAiContentRef.current !== null && aiResponse === null,
+        revealAi: useCallback(() => {
+            if (lastAiContentRef.current) {
+                setAiResponse(lastAiContentRef.current);
+                setWizardState("idle");
+                setWizardMessage("Hexara's response");
+            }
+        }, []),
         aiAvailable,
         showAiPrompt,
         toggleAiPrompt,
-        detectedFramework,
         chatHistory,
         currentAiQuestion,
         providerSummary,
+        pendingConfirmation,
+        confirmAi,
+        aiToolCalls,
+        transitioning,
     };
 }

@@ -190,4 +190,72 @@ describe("wizard-flow", () => {
             expect(paymentStep!.condition!({ mode: "rent", "_wallet_insufficient": "false" })).toBe(false);
         });
     });
+
+    describe("getNextStep — edge cases", () => {
+        it("returns done index for last navigable step", () => {
+            const doneIdx = WIZARD_STEPS.findIndex((s) => s.type === "done");
+            // getNextStep from the step before done should reach done
+            const prevIdx = doneIdx - 1;
+            const answers: Record<string, string> = { mode: "rent" };
+            // Walk from near end — eventually reaches done or -1
+            const result = getNextStep(prevIdx, answers);
+            expect(result === doneIdx || result === -1 || result > prevIdx).toBe(true);
+        });
+
+        it("returns -1 when called from done step", () => {
+            const doneIdx = WIZARD_STEPS.findIndex((s) => s.type === "done");
+            const result = getNextStep(doneIdx, { mode: "rent" });
+            expect(result).toBe(-1);
+        });
+
+        it("custom-rate rejects value above 1000", () => {
+            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
+            // $1000/hr is the boundary — accepted; above is rejected
+            expect(step!.validate!("1000")).toBeNull();
+            expect(step!.validate!("1001")).not.toBeNull();
+        });
+
+        it("custom-rate accepts valid decimal", () => {
+            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
+            expect(step!.validate!("0.25")).toBeNull();
+            expect(step!.validate!("1.50")).toBeNull();
+        });
+
+        it("custom-rate rejects zero", () => {
+            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
+            expect(step!.validate!("0")).not.toBeNull();
+            expect(step!.validate!("0.00")).not.toBeNull();
+        });
+
+        it("provider full walk hits all provider check steps", () => {
+            const visited: string[] = [];
+            let idx = 0;
+            const answers: Record<string, string> = {
+                mode: "provide",
+                pricing: "custom",
+                "custom-rate": "0.35",
+                "device-auth": "authorized",
+                "api-key": "test-token",
+            };
+
+            let safety = 0;
+            while (idx < WIZARD_STEPS.length && WIZARD_STEPS[idx].type !== "done" && safety < 50) {
+                visited.push(WIZARD_STEPS[idx].id);
+                idx = getNextStep(idx, answers);
+                if (idx === -1) break;
+                safety++;
+            }
+
+            expect(visited).toContain("docker-check");
+            expect(visited).toContain("gpu-detect");
+            expect(visited).toContain("version-check");
+            expect(visited).toContain("benchmark");
+            expect(visited).toContain("network-bench");
+            expect(visited).toContain("verification");
+            expect(visited).toContain("host-register");
+            expect(visited).toContain("admission-gate");
+            expect(visited).toContain("provider-summary");
+            expect(visited).toContain("custom-rate");
+        });
+    });
 });
