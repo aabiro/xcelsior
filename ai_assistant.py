@@ -3,6 +3,8 @@
 # and requires user confirmation for write actions.
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -29,6 +31,54 @@ AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-20250414")
 AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS", "4096"))
 AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))  # per minute per user
 CONFIRMATION_TTL_SEC = 300  # 5 minutes to approve/reject
+RAG_CHUNK_SIZE = 400  # words per doc chunk
+RAG_CHUNK_OVERLAP = 50  # word overlap between chunks
+MAX_TOOL_ROUNDS = 5  # max tool calls per AI request
+AI_TEMPERATURE = 0.2  # LLM sampling temperature
+TEXT_PROVIDER_TIMEOUT = 60.0  # seconds — text-only streaming timeout
+TOOL_PROVIDER_TIMEOUT = 120.0  # seconds — tool-capable streaming timeout
+ERROR_BODY_PREVIEW_LEN = 200  # chars of HTTP error body to include in logs
+RATE_LIMIT_WINDOW_SEC = 60  # sliding window for per-user rate limiting
+MAX_HISTORY_ROWS = 30  # max history rows fed to LLM context
+DEFAULT_CONVERSATION_LIMIT = 30  # list_conversations() default limit
+DEFAULT_MESSAGE_LIMIT = 50  # get_conversation_messages() default limit
+DEFAULT_DOC_SEARCH_LIMIT = 5  # search_docs() default limit
+DEFAULT_JOB_LIST_LIMIT = 10  # list_jobs default limit
+MAX_MARKETPLACE_RESULTS = 10  # marketplace offer cap
+MAX_GPU_RECOMMENDATIONS = 5  # GPU recommendation cap
+MAX_GPU_COUNT = 64  # max GPUs per job
+MAX_JOB_HOURS = 8760  # 1 year
+MAX_DOCKER_IMAGE_LEN = 256  # docker image name max length
+MAX_WIZARD_KV_VALUE_LEN = 500  # wizard context value length cap
+MOCK_PREVIEW_MAX_LEN = 140  # mock response message preview truncation
+CONVERSATION_TITLE_MAX_LEN = 80  # auto-title from first message
+SUMMARY_MAX_TOKENS = 512  # action summary max output tokens
+RECENT_USAGE_LIMIT = 5  # billing usage meters to show
+DEFAULT_GPU_VRAM_GB = 24  # fallback VRAM for unknown GPUs
+DEFAULT_BASE_RATE_CAD = 0.45  # fallback hourly rate
+KEY_PREVIEW_PREFIX_LEN = 9  # masked key: first N chars
+KEY_PREVIEW_SUFFIX_LEN = 4  # masked key: last N chars
+
+# Secret for HMAC-signing confirmation IDs — prevents brute-force/replay
+_CONFIRMATION_SECRET = os.environ.get("AI_CONFIRMATION_SECRET", "").encode() or os.urandom(32)
+
+
+def _sign_confirmation_id(cid: str) -> str:
+    """Return HMAC-signed confirmation token: 'uuid:signature'."""
+    sig = hmac.new(_CONFIRMATION_SECRET, cid.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{cid}:{sig}"
+
+
+def _verify_confirmation_token(token: str) -> str | None:
+    """Verify a signed confirmation token. Returns the UUID if valid, None if tampered."""
+    parts = token.split(":", 1)
+    if len(parts) != 2:
+        return None
+    cid, sig = parts
+    expected = hmac.new(_CONFIRMATION_SECRET, cid.encode(), hashlib.sha256).hexdigest()[:16]
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return cid
 
 TEXT_PROVIDERS = {
     "xai": {
@@ -62,7 +112,7 @@ def check_ai_rate_limit(user_id: str) -> bool:
     """Return True if the request is within rate limits."""
     now = time.monotonic()
     bucket = _ai_rate_buckets[user_id]
-    while bucket and bucket[0] < now - 60:
+    while bucket and bucket[0] < now - RATE_LIMIT_WINDOW_SEC:
         bucket.popleft()
     if len(bucket) >= AI_RATE_LIMIT:
         return False
@@ -120,8 +170,8 @@ def _build_mock_response(user_message: str) -> str:
     provider_chain = " -> ".join(provider_order)
     primary = provider_order[0] if provider_order else AI_PROVIDER
     preview = user_message.strip().replace("\n", " ")
-    if len(preview) > 140:
-        preview = preview[:137] + "..."
+    if len(preview) > MOCK_PREVIEW_MAX_LEN:
+        preview = preview[:MOCK_PREVIEW_MAX_LEN - 3] + "..."
     return (
         f"[mock:{primary}] Live provider calls are disabled for Xcel AI, so no external API call was made. "
         f"You can test the assistant safely in development. Provider order: {provider_chain}. "
@@ -131,7 +181,7 @@ def _build_mock_response(user_message: str) -> str:
 
 def _build_text_messages(history_rows: list[dict], system: str, current_message: str) -> list[dict]:
     messages = [{"role": "system", "content": system}]
-    for row in history_rows[-30:]:
+    for row in history_rows[-MAX_HISTORY_ROWS:]:
         role = row.get("role")
         content = row.get("content")
         if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
@@ -157,15 +207,15 @@ async def _stream_text_completion(
         "model": model or cfg["default_model"],
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": 0.2,
+        "temperature": AI_TEMPERATURE,
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=TEXT_PROVIDER_TIMEOUT) as client:
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code != 200:
                 body = await resp.aread()
-                raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:200]}")
+                raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:ERROR_BODY_PREVIEW_LEN]}")
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -223,7 +273,7 @@ def get_conversation(conversation_id: str, user_id: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
-def list_conversations(user_id: str, limit: int = 30) -> list[dict]:
+def list_conversations(user_id: str, limit: int = DEFAULT_CONVERSATION_LIMIT) -> list[dict]:
     """List recent AI conversations for a user."""
     with _ai_db() as conn:
         rows = conn.execute(
@@ -244,7 +294,7 @@ def delete_conversation(conversation_id: str, user_id: str) -> bool:
         return result.rowcount > 0
 
 
-def get_conversation_messages(conversation_id: str, user_id: str, limit: int = 50) -> list[dict]:
+def get_conversation_messages(conversation_id: str, user_id: str, limit: int = DEFAULT_MESSAGE_LIMIT) -> list[dict]:
     """Get messages for a conversation (with ownership check)."""
     conv = get_conversation(conversation_id, user_id)
     if not conv:
@@ -290,7 +340,7 @@ def _append_message(
 
 
 def create_confirmation(conversation_id: str, user_id: str, tool_name: str, tool_args: dict) -> str:
-    """Create a pending confirmation for a write action."""
+    """Create a pending confirmation for a write action. Returns a signed token."""
     cid = str(uuid.uuid4())
     now = time.time()
     with _ai_db() as conn:
@@ -300,15 +350,18 @@ def create_confirmation(conversation_id: str, user_id: str, tool_name: str, tool
             "VALUES (%s, %s, %s, %s, %s, 'pending', %s)",
             (cid, conversation_id, user_id, tool_name, json.dumps(tool_args), now),
         )
-    return cid
+    return _sign_confirmation_id(cid)
 
 
 def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> Optional[dict]:
-    """Resolve a pending confirmation. Returns the confirmation data or None."""
+    """Resolve a pending confirmation. confirmation_id is a signed token. Returns the confirmation data or None."""
+    cid = _verify_confirmation_token(confirmation_id)
+    if cid is None:
+        return None  # Invalid/tampered token
     with _ai_db() as conn:
         row = conn.execute(
             "SELECT * FROM ai_confirmations WHERE confirmation_id = %s AND user_id = %s AND status = 'pending'",
-            (confirmation_id, user_id),
+            (cid, user_id),
         ).fetchone()
         if not row:
             return None
@@ -316,8 +369,12 @@ def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> 
         if time.time() - row["created_at"] > CONFIRMATION_TTL_SEC:
             conn.execute(
                 "UPDATE ai_confirmations SET status = 'expired', resolved_at = %s WHERE confirmation_id = %s",
-                (time.time(), confirmation_id),
+                (time.time(), cid),
             )
+            # Refund one rate-limit slot so the user isn't penalised for the expired action
+            bucket = _ai_rate_buckets.get(user_id)
+            if bucket:
+                bucket.popleft()
             return None
         status = "approved" if approved else "rejected"
         conn.execute(
@@ -347,8 +404,8 @@ def ingest_docs():
     chunks = []
     for source, text in sources:
         words = text.split()
-        chunk_size = 400  # words per chunk
-        overlap = 50
+        chunk_size = RAG_CHUNK_SIZE
+        overlap = RAG_CHUNK_OVERLAP
         i = 0
         while i < len(words):
             chunk_words = words[i:i + chunk_size]
@@ -365,7 +422,7 @@ def ingest_docs():
     log.info("Ingested %d documentation chunks from %d sources", len(chunks), len(sources))
 
 
-def search_docs(query: str, limit: int = 5) -> list[dict]:
+def search_docs(query: str, limit: int = DEFAULT_DOC_SEARCH_LIMIT) -> list[dict]:
     """BM25 full-text search over documentation chunks."""
     if not query.strip():
         return []
@@ -410,7 +467,7 @@ def _build_tools() -> list[dict]:
                         "description": "Filter by job status: queued, assigned, running, completed, failed, cancelled",
                         "enum": ["queued", "assigned", "running", "completed", "failed", "cancelled"],
                     },
-                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": DEFAULT_JOB_LIST_LIMIT},
                 },
                 "required": [],
             },
@@ -595,12 +652,12 @@ async def _exec_tool(name: str, args: dict, user: dict) -> dict:
     """Execute a tool and return the result dict. Runs in thread for sync DB calls."""
     handler = _TOOL_HANDLERS.get(name)
     if not handler:
-        return {"error": f"Unknown tool: {name}"}
+        return {"error": f"Unknown tool: {name}."}
     try:
         return await asyncio.to_thread(handler, args, user)
     except Exception as e:
         log.error("Tool %s failed: %s", name, e)
-        return {"error": f"Tool execution failed: {str(e)}"}
+        return {"error": f"Tool execution failed: {str(e)}."}
 
 
 def _tool_get_account_info(_args: dict, user: dict) -> dict:
@@ -633,8 +690,8 @@ def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
         with _ai_db() as conn:
             meters = conn.execute(
                 "SELECT gpu_model, duration_sec, total_cost_cad, started_at "
-                "FROM usage_meters WHERE owner = %s ORDER BY started_at DESC LIMIT 5",
-                (user_id,),
+                "FROM usage_meters WHERE owner = %s ORDER BY started_at DESC LIMIT %s",
+                (user_id, RECENT_USAGE_LIMIT),
             ).fetchall()
     except Exception as e:
         log.error("Failed to fetch usage meters: %s", e)
@@ -654,7 +711,7 @@ def _tool_list_jobs(args: dict, user: dict) -> dict:
     status_filter = args.get("status")
     if status_filter:
         user_jobs = [j for j in user_jobs if j.get("status") == status_filter]
-    limit = args.get("limit", 10)
+    limit = args.get("limit", DEFAULT_JOB_LIST_LIMIT)
     jobs = user_jobs[:limit]
     return {
         "jobs": [
@@ -678,7 +735,7 @@ def _tool_get_job_details(args: dict, user: dict) -> dict:
     all_jobs = list_jobs()
     job = next((j for j in all_jobs if j.get("job_id") == job_id or j.get("id") == job_id), None)
     if not job:
-        return {"error": f"Job {job_id} not found"}
+        return {"error": f"Job {job_id} not found."}
     return {
         "job_id": job.get("job_id", job.get("id", "")),
         "name": job.get("name", ""),
@@ -721,7 +778,7 @@ def _tool_search_marketplace(args: dict, _user: dict) -> dict:
                 "province": o.get("province", ""),
                 "reputation_tier": o.get("reputation_tier", ""),
             }
-            for o in offers[:10]
+            for o in offers[:MAX_MARKETPLACE_RESULTS]
         ],
         "total": len(offers),
     }
@@ -779,90 +836,70 @@ def _tool_search_docs(args: dict, _user: dict) -> dict:
     return {"results": results, "count": len(results)}
 
 
-def _tool_recommend_gpu(args: dict, _user: dict) -> dict:
-    """GPU recommendation based on workload description, real pricing, and live marketplace availability."""
-    from reputation import GPU_REFERENCE_PRICING_CAD
-    from marketplace import get_marketplace_engine
-    me = get_marketplace_engine()
-    workload = args.get("workload", "").lower()
-    budget = args.get("budget_per_hour_cad")
+_VRAM_REQUIREMENTS = {
+    "large_train": {"min_vram": 80, "gpus": 2, "reason": "70B+ models need ~140GB VRAM for full fine-tuning"},
+    "large_infer": {"min_vram": 40, "gpus": 1, "reason": "70B models fit in ~40GB with 4-bit quantisation"},
+    "medium_train": {"min_vram": 24, "gpus": 1, "reason": "7-13B models fit in 24GB VRAM with QLoRA"},
+    "medium_infer": {"min_vram": 16, "gpus": 1, "reason": "7-13B models run quantised in 16GB+"},
+    "diffusion": {"min_vram": 24, "gpus": 1, "reason": "SDXL/Flux training needs 24GB VRAM"},
+    "inference": {"min_vram": 16, "gpus": 1, "reason": "Inference serving with good price-performance"},
+    "default": {"min_vram": 24, "gpus": 1, "reason": "Versatile configuration for most AI/ML workloads"},
+}
 
-    # ── VRAM heuristics by workload ──────────────────────────────────
-    VRAM_REQUIREMENTS = {
-        # Large models (70B+): ~140 GB for FP16 fine-tune, ~40 GB quantised inference
-        "large_train": {"min_vram": 80, "gpus": 2, "reason": "70B+ models need ~140GB VRAM for full fine-tuning"},
-        "large_infer": {"min_vram": 40, "gpus": 1, "reason": "70B models fit in ~40GB with 4-bit quantisation"},
-        # Medium models (7-13B): ~28 GB FP16, ~8 GB quantised
-        "medium_train": {"min_vram": 24, "gpus": 1, "reason": "7-13B models fit in 24GB VRAM with QLoRA"},
-        "medium_infer": {"min_vram": 16, "gpus": 1, "reason": "7-13B models run quantised in 16GB+"},
-        # Diffusion models: ~12-24GB
-        "diffusion": {"min_vram": 24, "gpus": 1, "reason": "SDXL/Flux training needs 24GB VRAM"},
-        # Generic inference serving
-        "inference": {"min_vram": 16, "gpus": 1, "reason": "Inference serving with good price-performance"},
-        # Default
-        "default": {"min_vram": 24, "gpus": 1, "reason": "Versatile configuration for most AI/ML workloads"},
-    }
+_GPU_VRAM_MAP = {"RTX 3090": 24, "RTX 4090": 24, "RTX 4080": 16, "A100": 80, "H100": 80, "L40": 48}
 
+
+def _classify_workload(workload: str) -> dict:
+    """Map a workload description string to a VRAM/GPU profile."""
     is_training = any(w in workload for w in ["train", "fine-tune", "finetune", "lora", "qlora"])
     is_inference = any(w in workload for w in ["inference", "serving", "deploy", "endpoint"])
 
     if any(w in workload for w in ["70b", "65b", "llama 3 70", "llama-3-70", "mixtral", "falcon 180"]):
-        profile = VRAM_REQUIREMENTS["large_train" if is_training else "large_infer"]
-    elif any(w in workload for w in ["8b", "7b", "13b", "llama 3 8", "llama-3-8", "mistral 7"]):
-        profile = VRAM_REQUIREMENTS["medium_train" if is_training else "medium_infer"]
-    elif any(w in workload for w in ["sdxl", "stable diffusion", "diffusion", "image", "flux"]):
-        profile = VRAM_REQUIREMENTS["diffusion"]
-    elif is_inference:
-        profile = VRAM_REQUIREMENTS["inference"]
-    else:
-        profile = VRAM_REQUIREMENTS["default"]
+        return _VRAM_REQUIREMENTS["large_train" if is_training else "large_infer"]
+    if any(w in workload for w in ["8b", "7b", "13b", "llama 3 8", "llama-3-8", "mistral 7"]):
+        return _VRAM_REQUIREMENTS["medium_train" if is_training else "medium_infer"]
+    if any(w in workload for w in ["sdxl", "stable diffusion", "diffusion", "image", "flux"]):
+        return _VRAM_REQUIREMENTS["diffusion"]
+    if is_inference:
+        return _VRAM_REQUIREMENTS["inference"]
+    return _VRAM_REQUIREMENTS["default"]
 
-    # ── Query real marketplace availability ───────────────────────────
-    live_offers = me.search_offers(min_vram_gb=profile["min_vram"])
-    available_models = {}
+
+def _aggregate_offers(live_offers: list) -> dict:
+    """Aggregate marketplace offers by GPU model."""
+    agg: dict = {}
     for o in live_offers:
         model = o.get("gpu_model", "Unknown")
-        if model not in available_models:
-            available_models[model] = {
-                "min_price": o.get("ask_cents_per_hour", 0) / 100,
-                "max_vram": o.get("total_vram_gb", 0),
-                "count": 0,
-                "provinces": set(),
-            }
-        available_models[model]["count"] += 1
-        available_models[model]["min_price"] = min(
-            available_models[model]["min_price"], o.get("ask_cents_per_hour", 0) / 100
-        )
-        available_models[model]["max_vram"] = max(
-            available_models[model]["max_vram"], o.get("total_vram_gb", 0)
-        )
+        if model not in agg:
+            agg[model] = {"min_price": o.get("ask_cents_per_hour", 0) / 100, "max_vram": o.get("total_vram_gb", 0), "count": 0, "provinces": set()}
+        agg[model]["count"] += 1
+        agg[model]["min_price"] = min(agg[model]["min_price"], o.get("ask_cents_per_hour", 0) / 100)
+        agg[model]["max_vram"] = max(agg[model]["max_vram"], o.get("total_vram_gb", 0))
         prov = o.get("province", "")
         if prov:
-            available_models[model]["provinces"].add(prov)
+            agg[model]["provinces"].add(prov)
+    return agg
 
-    # ── Build recommendations from real data ──────────────────────────
-    recommendations = []
+
+def _build_gpu_recommendations(profile: dict, available_models: dict, budget: float | None) -> list[dict]:
+    """Score and rank GPU recommendations from reference pricing + live availability."""
+    from reputation import GPU_REFERENCE_PRICING_CAD
+
+    recs = []
     for gpu_name, info in GPU_REFERENCE_PRICING_CAD.items():
         if not isinstance(info, dict):
             continue
-        vram_map = {"RTX 3090": 24, "RTX 4090": 24, "RTX 4080": 16, "A100": 80, "H100": 80, "L40": 48}
-        vram = vram_map.get(gpu_name, 24)
+        vram = _GPU_VRAM_MAP.get(gpu_name, DEFAULT_GPU_VRAM_GB)
         if vram < profile["min_vram"] and profile["gpus"] == 1:
-            continue  # Too little VRAM for single-GPU
+            continue
 
-        base_rate = info.get("base_rate_cad", 0.45)
         gpus_needed = max(profile["gpus"], 1)
         if vram < profile["min_vram"] and gpus_needed == 1:
-            # Multi-GPU to meet VRAM requirement
-            gpus_needed = -(-profile["min_vram"] // vram)  # ceiling division
+            gpus_needed = -(-profile["min_vram"] // vram)
 
-        hourly = round(base_rate * gpus_needed, 2)
-
-        # Check live availability
+        hourly = round(info.get("base_rate_cad", DEFAULT_BASE_RATE_CAD) * gpus_needed, 2)
         avail = available_models.get(gpu_name, {})
-        avail_count = avail.get("count", 0)
         live_price = avail.get("min_price") if avail else None
-        provinces = sorted(avail.get("provinces", set())) if avail else []
 
         rec = {
             "gpu_model": gpu_name,
@@ -871,24 +908,35 @@ def _tool_recommend_gpu(args: dict, _user: dict) -> dict:
             "total_vram_gb": vram * gpus_needed,
             "reason": profile["reason"],
             "reference_cad_per_hour": hourly,
-            "available_now": avail_count,
-            "provinces": provinces,
+            "available_now": avail.get("count", 0),
+            "provinces": sorted(avail.get("provinces", set())) if avail else [],
         }
         if live_price and live_price > 0:
             rec["live_market_price_cad_per_hour"] = round(live_price * gpus_needed, 2)
+        recs.append(rec)
 
-        recommendations.append(rec)
-
-    # Sort by reference price (cheapest first)
-    recommendations.sort(key=lambda r: r["reference_cad_per_hour"])
-
-    # Budget filter
+    recs.sort(key=lambda r: r["reference_cad_per_hour"])
     if budget:
-        filtered = [r for r in recommendations if r["reference_cad_per_hour"] <= budget]
+        filtered = [r for r in recs if r["reference_cad_per_hour"] <= budget]
         if filtered:
-            recommendations = filtered
+            recs = filtered
+    return recs[:MAX_GPU_RECOMMENDATIONS]
 
-    return {"workload": args.get("workload", ""), "recommendations": recommendations[:5]}
+
+def _tool_recommend_gpu(args: dict, _user: dict) -> dict:
+    """GPU recommendation based on workload description, real pricing, and live marketplace availability."""
+    from marketplace import get_marketplace_engine
+
+    workload = args.get("workload", "").lower()
+    budget = args.get("budget_per_hour_cad")
+    if budget is not None:
+        if not isinstance(budget, (int, float)) or budget <= 0:
+            return {"error": "Budget per hour must be a positive number."}
+
+    profile = _classify_workload(workload)
+    me = get_marketplace_engine()
+    available = _aggregate_offers(me.search_offers(min_vram_gb=profile["min_vram"]))
+    return {"workload": args.get("workload", ""), "recommendations": _build_gpu_recommendations(profile, available, budget)}
 
 
 def _tool_estimate_cost(args: dict, _user: dict) -> dict:
@@ -897,6 +945,10 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
     gpu_model = args.get("gpu_model", "RTX 4090")
     gpu_count = args.get("gpu_count", 1)
     hours = args.get("hours", 1)
+    if not isinstance(gpu_count, (int, float)) or gpu_count < 1 or gpu_count > MAX_GPU_COUNT:
+        return {"error": "GPU count must be between 1 and 64."}
+    if not isinstance(hours, (int, float)) or hours <= 0 or hours > MAX_JOB_HOURS:
+        return {"error": "Hours must be between 0 and 8760 (1 year)."}
 
     # Find reference price from real pricing data
     ref_price = None
@@ -949,12 +1001,17 @@ def _tool_get_sla_terms(args: dict, _user: dict) -> dict:
 
 def _tool_launch_job(args: dict, user: dict) -> dict:
     """Actually execute the job launch after confirmation."""
+    import re as _re
     from scheduler import submit_job
-    if not args.get("docker_image"):
+    image = args.get("docker_image", "")
+    if not image:
         return {"error": "docker_image is required to launch a job."}
+    # Validate docker image format: [registry/]name[:tag]
+    if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?$', image) or len(image) > MAX_DOCKER_IMAGE_LEN:
+        return {"error": f"Invalid docker image format: {image!r}. Expected format: 'registry/image:tag'."}
     job = submit_job(
         name=args.get("name", "ai-assisted-job"),
-        vram_needed_gb=args.get("vram_needed_gb", 24),
+        vram_needed_gb=args.get("vram_needed_gb", DEFAULT_GPU_VRAM_GB),
         priority=1,
         tier=args.get("tier", "on-demand"),
         num_gpus=args.get("gpu_count", 1),
@@ -969,7 +1026,7 @@ def _tool_stop_job(args: dict, user: dict) -> dict:
     from scheduler import update_job_status, list_jobs
     job_id = args.get("job_id", "")
     if not job_id:
-        return {"error": "job_id is required"}
+        return {"error": "Job ID is required."}
     # Verify job exists and belongs to user
     all_jobs = list_jobs()
     user_id = user.get("user_id", user.get("email", ""))
@@ -999,7 +1056,9 @@ def _tool_create_api_key(args: dict, user: dict) -> dict:
         "created_at": time.time(),
     }
     UserStore.create_api_key(key_data)
-    return {"key": key_value, "name": key_data["name"], "scope": key_data["scope"], "message": "API key created."}
+    # Return masked preview only — the full key is shown once in the UI's key-creation dialog
+    preview = key_value[:KEY_PREVIEW_PREFIX_LEN] + "..." + key_value[-KEY_PREVIEW_SUFFIX_LEN:]
+    return {"key_preview": preview, "name": key_data["name"], "scope": key_data["scope"], "message": "API key created. The full key is shown in your dashboard — copy it now, it won't be shown again."}
 
 
 def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
@@ -1091,7 +1150,7 @@ def _tool_list_checkpoints(args: dict, user: dict) -> dict:
     import os as _os
     job_id = args.get("job_id", "")
     if not job_id:
-        return {"error": "job_id is required"}
+        return {"error": "Job ID is required."}
 
     # Checkpoints are stored in checkpoints/ckpt-{job_id}-{timestamp}/
     ckpt_dir = _os.path.join(_os.path.dirname(__file__), "checkpoints")
@@ -1133,7 +1192,7 @@ def _tool_list_api_keys(_args: dict, user: dict) -> dict:
         "api_keys": [
             {
                 "name": k.get("name", ""),
-                "preview": k.get("key", "")[:12] + "..." + k.get("key", "")[-4:] if k.get("key") else "",
+                "preview": k.get("key", "")[:KEY_PREVIEW_PREFIX_LEN] + "..." + k.get("key", "")[-KEY_PREVIEW_SUFFIX_LEN:] if k.get("key") else "",
                 "scope": k.get("scope", "full-access"),
                 "created_at": k.get("created_at", 0),
                 "last_used": k.get("last_used", 0),
@@ -1149,11 +1208,11 @@ def _tool_revoke_api_key(args: dict, user: dict) -> dict:
     from db import UserStore
     preview = args.get("key_preview", "")
     if not preview:
-        return {"error": "key_preview is required"}
+        return {"error": "Key preview is required."}
     deleted = UserStore.delete_api_key_by_preview(user["email"], preview)
     if deleted:
         return {"key_preview": preview, "status": "revoked", "message": "API key revoked successfully."}
-    return {"error": f"No matching API key found for preview: {preview}"}
+    return {"error": f"No matching API key found for preview: {preview}."}
 
 
 # Handler registry
@@ -1179,6 +1238,19 @@ _TOOL_HANDLERS = {
     "list_api_keys": _tool_list_api_keys,
     "revoke_api_key": _tool_revoke_api_key,
 }
+
+# ── G2: Validate tool schemas ↔ handlers stay in sync at import time ──
+_schema_names = {t["name"] for t in _build_tools()}
+_handler_names = set(_TOOL_HANDLERS.keys())
+if _schema_names != _handler_names:
+    _missing_handlers = _schema_names - _handler_names
+    _missing_schemas = _handler_names - _schema_names
+    raise RuntimeError(
+        f"Tool definition drift detected! "
+        f"Schema without handler: {_missing_handlers or 'none'}. "
+        f"Handler without schema: {_missing_schemas or 'none'}."
+    )
+del _schema_names, _handler_names  # clean up module namespace
 
 
 # ── Tool Result Cache (30s TTL) ───────────────────────────────────────
@@ -1309,7 +1381,7 @@ def _parse_wizard_context(page_context: str) -> tuple[str, dict[str, str]]:
             if not _KEY_RE.match(k):
                 continue
             v = unquote(v.strip())
-            v = _CTRL_RE.sub("", v)[:500]
+            v = _CTRL_RE.sub("", v)[:MAX_WIZARD_KV_VALUE_LEN]
             kv[k] = v
     return step_id, kv
 
@@ -2603,15 +2675,9 @@ def _build_wizard_step_prompt(step_id: str, kv: dict[str, str]) -> str:
 
 # ── System Prompt Builder ─────────────────────────────────────────────
 
-def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
-    """Build a context-rich system prompt including user details, platform docs, and onboarding detection."""
-    from chat import _load_llms_txt
-    context = _load_llms_txt()
 
-    role = user.get("role", "user")
-    is_admin = bool(user.get("is_admin"))
-
-    # ── Smart onboarding detection ────────────────────────────────────
+def _detect_onboarding(user: dict) -> tuple[bool, bool, bool]:
+    """Detect whether a user is new. Returns (is_new_user, has_hosts, has_jobs)."""
     has_hosts = False
     has_jobs = False
     try:
@@ -2622,9 +2688,20 @@ def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
         all_jobs = list_jobs()
         has_jobs = any(j.get("submitted_by") == user_id or j.get("user_id") == user_id for j in all_jobs)
     except Exception:
-        pass  # Detection failure is non-fatal
+        log.debug("Onboarding detection failed — defaulting to new user", exc_info=True)
+    return (not has_hosts and not has_jobs, has_hosts, has_jobs)
 
-    is_new_user = not has_hosts and not has_jobs
+
+def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
+    """Build a context-rich system prompt including user details, platform docs, and onboarding detection."""
+    from chat import _load_llms_txt
+    context = _load_llms_txt()
+
+    role = user.get("role", "user")
+    is_admin = bool(user.get("is_admin"))
+
+    # ── Smart onboarding detection ────────────────────────────────────
+    is_new_user, has_hosts, has_jobs = _detect_onboarding(user)
 
     role_context = ""
     onboarding_context = ""
@@ -2789,19 +2866,7 @@ def get_suggestions(user: dict) -> list[dict]:
     suggestions = []
 
     # ── Smart onboarding detection ────────────────────────────────────
-    has_hosts = False
-    has_jobs = False
-    try:
-        from scheduler import list_jobs, list_hosts
-        user_id = user.get("user_id", user.get("email", ""))
-        all_hosts = list_hosts(active_only=False)
-        has_hosts = any(h.get("owner") == user_id or h.get("user_id") == user_id for h in all_hosts)
-        all_jobs = list_jobs()
-        has_jobs = any(j.get("submitted_by") == user_id or j.get("user_id") == user_id for j in all_jobs)
-    except Exception:
-        pass
-
-    is_new_user = not has_hosts and not has_jobs
+    is_new_user, has_hosts, has_jobs = _detect_onboarding(user)
 
     if is_new_user:
         # Onboarding-first suggestions for new users
@@ -3029,8 +3094,7 @@ async def _stream_with_openai_tool_provider(
     messages = _build_text_messages(history_rows, system, clean_message)
     db_ops: list[tuple] = []
 
-    max_tool_rounds = 5
-    for _round in range(max_tool_rounds + 1):
+    for _round in range(MAX_TOOL_ROUNDS + 1):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -3039,7 +3103,7 @@ async def _stream_with_openai_tool_provider(
             "model": model,
             "messages": messages,
             "max_tokens": AI_MAX_TOKENS,
-            "temperature": 0.2,
+            "temperature": AI_TEMPERATURE,
             "stream": True,
         }
         # Only include tools on rounds where tool calls are possible
@@ -3049,11 +3113,11 @@ async def _stream_with_openai_tool_provider(
         round_text: list[str] = []
         tool_calls_acc: dict[int, dict] = {}  # index -> {id, name, arguments}
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=TOOL_PROVIDER_TIMEOUT) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
-                    raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:200]}")
+                    raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:ERROR_BODY_PREVIEW_LEN]}")
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -3164,7 +3228,7 @@ async def _stream_with_anthropic_provider(
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     tools = _build_tools()
 
-    max_tool_rounds = 5
+    max_tool_rounds = MAX_TOOL_ROUNDS
     db_ops: list[tuple] = []
     total_in = 0
     total_out = 0
@@ -3304,7 +3368,7 @@ async def stream_ai_response(
         ).fetchall()
 
     history = [dict(r) for r in rows]
-    anthropic_messages = _reconstruct_history(history[-30:])
+    anthropic_messages = _reconstruct_history(history[-MAX_HISTORY_ROWS:])
 
     from privacy import redact_pii
 
@@ -3316,7 +3380,7 @@ async def stream_ai_response(
         if not history:
             conn.execute(
                 "UPDATE ai_conversations SET title = %s WHERE conversation_id = %s",
-                (clean_message[:80], conversation_id),
+                (clean_message[:CONVERSATION_TITLE_MAX_LEN], conversation_id),
             )
 
     system = build_ai_system_prompt(user, page_context=page_context)
@@ -3392,7 +3456,7 @@ async def _stream_summary_with_anthropic(prompt: str) -> AsyncGenerator[str, Non
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     summary_response = await client.messages.create(
         model=AI_MODEL,
-        max_tokens=512,
+        max_tokens=SUMMARY_MAX_TOKENS,
         system="You are Xcel, the Xcelsior AI assistant. Write a brief, friendly confirmation of the action result. Use Canadian English.",
         messages=[{"role": "user", "content": prompt}],
         stream=True,
@@ -3415,7 +3479,7 @@ async def _stream_summary_with_text_provider(provider: str, prompt: str) -> Asyn
         _get_provider_api_key(provider),
         _get_provider_model(provider),
         messages,
-        512,
+        SUMMARY_MAX_TOKENS,
     ):
         yield token
 

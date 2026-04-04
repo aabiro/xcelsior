@@ -9836,6 +9836,10 @@ async def api_ai_confirm(body: AiConfirmRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
 
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        raise HTTPException(429, "Rate limit exceeded. Please wait a moment.")
+
     return StreamingResponse(
         execute_confirmed_action(body.confirmation_id, user, body.approved),
         media_type="text/event-stream",
