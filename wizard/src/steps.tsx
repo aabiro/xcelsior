@@ -20,9 +20,11 @@ export function ProgressBar({ current, total }: ProgressProps) {
   const filled = Math.round((current / total) * 20);
   const empty = 20 - filled;
   return (
-    <Text dimColor>
-      {"  "}[{"█".repeat(filled)}{"░".repeat(empty)}] {current}/{total}
-    </Text>
+    <Box justifyContent="center" marginTop={1}>
+      <Text dimColor>
+        [{"█".repeat(filled)}{"░".repeat(empty)}] {current}/{total}
+      </Text>
+    </Box>
   );
 }
 
@@ -34,6 +36,13 @@ interface SelectStepProps {
 }
 
 export function SelectStep({ options, onSelect }: SelectStepProps) {
+  if (!options || options.length === 0) {
+    return (
+      <Box marginLeft={4}>
+        <Text dimColor>No options available. Press <Text bold>Enter</Text> to go back.</Text>
+      </Box>
+    );
+  }
   return (
     <Box marginLeft={4}>
       <SelectInput
@@ -189,6 +198,22 @@ interface DeviceAuthStepProps {
 export function DeviceAuthStep({
   userCode, verificationUri, status, token, email, errorMessage,
 }: DeviceAuthStepProps) {
+  const [countdown, setCountdown] = useState<number | null>(null);
+
+  // Start 10s countdown when we get the verification URI and are waiting
+  useEffect(() => {
+    if (status === "waiting" && verificationUri && countdown === null) {
+      setCountdown(10);
+    }
+  }, [status, verificationUri]);
+
+  // Tick the countdown
+  useEffect(() => {
+    if (countdown === null || countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
   if (status === "loading") {
     return (
       <Box marginLeft={4}>
@@ -212,10 +237,14 @@ export function DeviceAuthStep({
         <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
         {token && (
           <Box marginTop={1} flexDirection="column">
-            <Text>Your API token: <Text bold color="#ffcc00">{token}</Text></Text>
-            <Text dimColor>Saved to ~/.xcelsior/token.json</Text>
+            <Text>API key: <Text bold color="#ffcc00">{token.slice(0, 12)}...{token.slice(-4)}</Text></Text>
+            <Text dimColor>Saved to <Text bold>~/.xcelsior/token.json</Text></Text>
+            <Text dimColor>Hexara will use this key for all future API calls.</Text>
           </Box>
         )}
+        <Box marginTop={1}>
+          <Text dimColor italic>Continuing automatically...</Text>
+        </Box>
       </Box>
     );
   }
@@ -231,8 +260,11 @@ export function DeviceAuthStep({
   // status === "waiting"
   return (
     <Box marginLeft={4} flexDirection="column">
-      {verificationUri && (
-        <Text>Opening browser → <Text bold color="#00d4ff">{verificationUri}</Text></Text>
+      {verificationUri && countdown !== null && countdown > 0 && (
+        <Text>Opening browser in <Text bold color="#ffcc00">{countdown}s</Text> → <Text bold color="#00d4ff">{verificationUri}</Text></Text>
+      )}
+      {verificationUri && (countdown === null || countdown <= 0) && (
+        <Text>Browser opened → <Text bold color="#00d4ff">{verificationUri}</Text></Text>
       )}
       {userCode && (
         <Box marginTop={1}>
@@ -408,15 +440,24 @@ export function DoneStep({ answers, instanceInfo, onExit }: DoneStepProps) {
   );
 }
 
-// ── AI Response Inline ───────────────────────────────────────────────
+// ── AI Response Inline (with chat history) ──────────────────────────
+
+interface ChatMessage {
+  question: string;
+  answer: string;
+}
 
 interface AiResponseProps {
   response: string;
   streaming: boolean;
   onDismiss: () => void;
+  /** Previous Q&A pairs from this step's session */
+  chatHistory?: ChatMessage[];
+  /** The current question being answered */
+  currentQuestion?: string;
 }
 
-export function AiResponse({ response, streaming, onDismiss }: AiResponseProps) {
+export function AiResponse({ response, streaming, onDismiss, chatHistory, currentQuestion }: AiResponseProps) {
   useInput((input) => {
     if (!streaming && (input === "\r" || input === " ")) {
       onDismiss();
@@ -432,10 +473,24 @@ export function AiResponse({ response, streaming, onDismiss }: AiResponseProps) 
       paddingX={1}
       paddingY={0}
     >
-      <Text color="#a78bfa" bold>Hexara says:</Text>
-      <Text wrap="wrap">{response}</Text>
+      <Text color="#a78bfa" bold>Hexara</Text>
+      {/* Previous chat history */}
+      {chatHistory && chatHistory.map((msg, i) => (
+        <Box key={i} flexDirection="column" marginBottom={1}>
+          <Text color="#00d4ff" dimColor>  You: {msg.question}</Text>
+          <Text wrap="wrap">  {msg.answer}</Text>
+        </Box>
+      ))}
+      {/* Current question */}
+      {currentQuestion && (
+        <Text color="#00d4ff" dimColor>  You: {currentQuestion}</Text>
+      )}
+      {/* Current response */}
+      <Text wrap="wrap">  {response}</Text>
       {!streaming && (
-        <Text dimColor>Press Enter to continue with setup</Text>
+        <Box marginTop={1}>
+          <Text dimColor>Press <Text bold>Enter</Text> to continue · <Text bold>?</Text> to ask another question</Text>
+        </Box>
       )}
     </Box>
   );

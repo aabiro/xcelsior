@@ -96,6 +96,10 @@ export interface UseWizardFlowReturn {
     toggleAiPrompt: () => void;
     /** Detected project framework */
     detectedFramework: string | null;
+    /** Chat history for current step (Q&A pairs) */
+    chatHistory: { question: string; answer: string }[];
+    /** Current question being answered by Hexara */
+    currentAiQuestion: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -245,6 +249,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const [confirmError, setConfirmError] = useState<string | null>(null);
     const [showAiPrompt, setShowAiPrompt] = useState(false);
 
+    // AI chat history — persists within current step, cleared on step advance
+    const [chatHistory, setChatHistory] = useState<{ question: string; answer: string }[]>([]);
+    const [currentAiQuestion, setCurrentAiQuestion] = useState<string | null>(null);
+
     // Device auth
     const [deviceAuth, setDeviceAuth] = useState<DeviceAuthState>({
         status: "loading",
@@ -326,8 +334,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setWizardState("waiting");
             setWizardMessage("Enter the code shown below in your browser...");
 
-            // Open browser
-            await openBrowser(result.verification_uri);
+            // Delay browser open by 10 seconds so user can see the code
+            setTimeout(() => {
+                openBrowser(result.verification_uri);
+            }, 10_000);
 
             // Start polling
             devicePollRef.current = setInterval(async () => {
@@ -377,14 +387,19 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         // Auto-advance after showing success
                         setTimeout(() => {
                             advanceToNext(updated);
-                        }, CHOREOGRAPHY_DELAY_MS);
+                        }, CHOREOGRAPHY_DELAY_MS * 2);
                     }
                 } catch (err) {
-                    stopDevicePoll();
+                    // Don't stop polling on transient errors — only on fatal ones
                     const msg = err instanceof Error ? err.message : "Auth failed";
-                    setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: msg }));
-                    setWizardState("error");
-                    setWizardMessage("Authentication failed — press Enter to retry");
+                    // "expired_token" or "access_denied" are fatal
+                    if (msg.includes("expired") || msg.includes("denied")) {
+                        stopDevicePoll();
+                        setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: msg }));
+                        setWizardState("error");
+                        setWizardMessage("Authentication failed — press Enter to retry");
+                    }
+                    // Otherwise keep polling — user might not have entered code yet
                 }
             }, DEVICE_POLL_MS);
         } catch (err) {
@@ -471,9 +486,22 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }, CHOREOGRAPHY_DELAY_MS);
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Search failed";
-            setBrowseError(msg);
+            // Friendly error messages for common failures
+            let friendlyMsg: string;
+            if (msg.includes("401") || msg.includes("Unauthorized")) {
+                friendlyMsg = "Authentication expired or invalid. Try restarting the wizard to re-authenticate.";
+            } else if (msg.includes("403") || msg.includes("Forbidden")) {
+                friendlyMsg = "Your account doesn't have marketplace access yet. Contact support.";
+            } else if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("Connection")) {
+                friendlyMsg = "Can't reach the marketplace — check your internet connection.";
+            } else if (msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
+                friendlyMsg = "Marketplace request timed out — try again in a moment.";
+            } else {
+                friendlyMsg = `Marketplace error: ${msg}`;
+            }
+            setBrowseError(friendlyMsg);
             setWizardState("error");
-            setWizardMessage("Marketplace search failed — press Enter to retry");
+            setWizardMessage("Marketplace unavailable — press Enter to retry");
         }
     }, []);
 
@@ -610,6 +638,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setConfirmError(null);
             setCheckCanRetry(false);
             setShowAiPrompt(false);
+            setChatHistory([]);
+            setCurrentAiQuestion(null);
 
             const next = getNextStep(stepIndexRef.current, currentAnswers);
             if (next === -1 || WIZARD_STEPS[next].type === "done") {
@@ -754,6 +784,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
         (value: string | string[]) => {
             const currentStep = WIZARD_STEPS[stepIndexRef.current];
 
+            // Auto-fetch retry — re-trigger browse instead of advancing
+            if (currentStep.type === "auto-fetch" && value === "retry") {
+                browseGpus(answersRef.current);
+                return;
+            }
+
             // Confirm step validation — only y/n allowed
             if (currentStep.type === "confirm") {
                 if (value !== "yes" && value !== "no") {
@@ -894,6 +930,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
             setAiStreaming(true);
             setAiResponse("");
+            setCurrentAiQuestion(question);
             setWizardState("thinking");
             setWizardMessage("Hexara is thinking...");
             setShowAiPrompt(false);
@@ -912,7 +949,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 setWizardState("idle");
                 setWizardMessage(step.prompt);
             } catch (err) {
-                setAiResponse(`Connection error: ${err instanceof Error ? err.message : "unknown"}`);
+                content = `Connection error: ${err instanceof Error ? err.message : "unknown"}`;
+                setAiResponse(content);
                 setWizardState("error");
                 setWizardMessage("AI unavailable — continue with the wizard steps.");
             } finally {
@@ -923,10 +961,15 @@ export function useWizardFlow(): UseWizardFlowReturn {
     );
 
     const dismissAi = useCallback(() => {
+        // Save current Q&A to chat history before dismissing
+        if (aiResponse && currentAiQuestion) {
+            setChatHistory((prev) => [...prev, { question: currentAiQuestion, answer: aiResponse }]);
+        }
         setAiResponse(null);
+        setCurrentAiQuestion(null);
         setWizardState("idle");
         setWizardMessage(step.prompt);
-    }, [step]);
+    }, [step, aiResponse, currentAiQuestion]);
 
     const toggleAiPrompt = useCallback(() => {
         if (!aiAvailable) return;
@@ -975,5 +1018,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         showAiPrompt,
         toggleAiPrompt,
         detectedFramework,
+        chatHistory,
+        currentAiQuestion,
     };
 }
