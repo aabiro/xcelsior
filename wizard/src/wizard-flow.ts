@@ -1,10 +1,18 @@
 // wizard-flow.ts — Deterministic step definitions for the Xcelsior CLI wizard.
 // Same questions, same order, every time. PostHog-style structured flow.
 //
-// Each step has a type (select, checklist, auto-check, text, confirm, done)
+// Each step has a type (select, auto-check, text, confirm, device-auth, auto-fetch, done)
 // and a condition function that decides if the step runs based on prior answers.
 
-export type StepType = "select" | "checklist" | "auto-check" | "text" | "confirm" | "done";
+export type StepType =
+    | "select"
+    | "auto-check"
+    | "text"
+    | "confirm"
+    | "done"
+    | "device-auth"
+    | "auto-fetch"
+    | "payment-gate";
 
 export interface SelectOption {
     label: string;
@@ -16,7 +24,7 @@ export interface WizardStep {
     type: StepType;
     /** Wizard sprite message when this step is active */
     prompt: string;
-    /** For select/checklist steps */
+    /** For select steps */
     options?: SelectOption[];
     /** For text steps — placeholder text */
     placeholder?: string;
@@ -26,7 +34,37 @@ export interface WizardStep {
     checkId?: string;
     /** For confirm steps — what we're confirming */
     confirmLabel?: string;
+    /** For text steps — validate input. Return error string or null if valid. */
+    validate?: (value: string) => string | null;
+    /** If true, auto-check failures cannot be skipped (must retry or fix) */
+    checkRequired?: boolean;
 }
+
+// ── Docker image templates ───────────────────────────────────────────
+// Mapped by workload type for auto-selection, with full list for overrides.
+
+export interface ImageTemplate {
+    label: string;
+    value: string;
+    vram: number; // minimum recommended VRAM in GB
+}
+
+export const IMAGE_TEMPLATES: ImageTemplate[] = [
+    { label: "🧠 PyTorch (NVIDIA)", value: "nvcr.io/nvidia/pytorch:24.01-py3", vram: 24 },
+    { label: "📊 TensorFlow (NVIDIA)", value: "nvcr.io/nvidia/tensorflow:24.01-tf2-py3", vram: 24 },
+    { label: "⚡ vLLM (inference)", value: "vllm/vllm-openai:latest", vram: 24 },
+    { label: "🎨 ComfyUI", value: "comfyanonymous/comfyui:latest", vram: 12 },
+    { label: "📓 Jupyter + PyTorch", value: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: 8 },
+    { label: "🐧 Ubuntu + CUDA", value: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: 8 },
+];
+
+export const WORKLOAD_IMAGE_MAP: Record<string, string> = {
+    training: "nvcr.io/nvidia/pytorch:24.01-py3",
+    inference: "vllm/vllm-openai:latest",
+    research: "quay.io/jupyter/pytorch-notebook:cuda12-latest",
+    "fine-tuning": "nvcr.io/nvidia/pytorch:24.01-py3",
+    other: "nvidia/cuda:12.4.1-devel-ubuntu22.04",
+};
 
 // ── The Flow ─────────────────────────────────────────────────────────
 // Every run walks this exact sequence. Steps with conditions may be skipped.
@@ -36,7 +74,7 @@ export const WIZARD_STEPS: WizardStep[] = [
     {
         id: "mode",
         type: "select",
-        prompt: "Welcome to Xcelsior! I'm your setup wizard — let's get you started. What would you like to do?",
+        prompt: "Welcome! I'm Hexara, your setup wizard. What would you like to do?",
         options: [
             { label: "🖥️  Rent GPUs — launch jobs on the marketplace", value: "rent" },
             { label: "🔌 Provide GPUs — earn by sharing your hardware", value: "provide" },
@@ -53,31 +91,23 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
-    // ── Step 3: API endpoint ───────────────────────────────────────────
+    // ── Step 3: Device-code auth ───────────────────────────────────────
     {
-        id: "api-url",
-        type: "text",
-        prompt: "What's your Xcelsior API URL?",
-        placeholder: "https://xcelsior.ca (press Enter for default)",
+        id: "device-auth",
+        type: "device-auth",
+        prompt: "Let's get you authenticated. Opening your browser...",
     },
 
-    // ── Step 4: API key ────────────────────────────────────────────────
-    {
-        id: "api-key",
-        type: "text",
-        prompt: "Paste your API key (from Dashboard → Settings → API Keys):",
-        placeholder: "xcel_...",
-    },
-
-    // ── Step 5: Validate connection ────────────────────────────────────
+    // ── Step 4: Validate connection ────────────────────────────────────
     {
         id: "api-check",
         type: "auto-check",
-        prompt: "Connecting to Xcelsior API...",
+        prompt: "Verifying your connection...",
         checkId: "api",
+        checkRequired: true,
     },
 
-    // ── Step 6: Provider — GPU detection ───────────────────────────────
+    // ── Step 5: Provider — GPU detection ───────────────────────────────
     {
         id: "gpu-detect",
         type: "auto-check",
@@ -86,7 +116,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
-    // ── Step 7: Provider — Pricing ─────────────────────────────────────
+    // ── Step 6: Provider — Pricing ─────────────────────────────────────
     {
         id: "pricing",
         type: "select",
@@ -99,7 +129,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
-    // ── Step 8: Provider — Custom rate ─────────────────────────────────
+    // ── Step 7: Provider — Custom rate ─────────────────────────────────
     {
         id: "custom-rate",
         type: "text",
@@ -107,9 +137,15 @@ export const WIZARD_STEPS: WizardStep[] = [
         placeholder: "2.50",
         condition: (a) =>
             (a.mode === "provide" || a.mode === "both") && a.pricing === "custom",
+        validate: (v) => {
+            const n = parseFloat(v);
+            if (isNaN(n) || n <= 0) return "Enter a positive number (e.g. 2.50)";
+            if (n > 1000) return "Rate seems too high — max $1000/hr";
+            return null;
+        },
     },
 
-    // ── Step 9: Renter — Workload type ─────────────────────────────────
+    // ── Step 8: Renter — Workload type ─────────────────────────────────
     {
         id: "workload",
         type: "select",
@@ -123,7 +159,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "rent" || a.mode === "both",
     },
 
-    // ── Step 10: Renter — GPU preference ───────────────────────────────
+    // ── Step 9: Renter — GPU preference ────────────────────────────────
     {
         id: "gpu-preference",
         type: "select",
@@ -136,19 +172,85 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "rent" || a.mode === "both",
     },
 
-    // ── Step 11: Confirm & save ────────────────────────────────────────
+    // ── Step 10: Renter — Browse GPUs ──────────────────────────────────
+    {
+        id: "browse-gpus",
+        type: "auto-fetch",
+        prompt: "Searching the marketplace for available GPUs...",
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 11: Renter — Pick GPU ─────────────────────────────────────
+    {
+        id: "gpu-pick",
+        type: "select",
+        prompt: "Choose a GPU to launch your instance on:",
+        options: [], // dynamically populated in useWizardFlow
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 12: Renter — Pick Docker image ────────────────────────────
+    {
+        id: "image-pick",
+        type: "select",
+        prompt: "Choose your environment:",
+        options: [], // dynamically populated with pre-selected default
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 13: Renter — Confirm launch ───────────────────────────────
+    {
+        id: "confirm-launch",
+        type: "confirm",
+        prompt: "Ready to launch your instance?",
+        confirmLabel: "Launch this instance",
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 14: Renter — Wallet check ─────────────────────────────────
+    {
+        id: "wallet-check",
+        type: "auto-check",
+        prompt: "Checking your wallet...",
+        checkId: "wallet",
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 15: Renter — Payment gate ─────────────────────────────────
+    {
+        id: "payment-gate",
+        type: "payment-gate",
+        prompt: "Your balance is too low for this GPU. Let's add funds.",
+        condition: (a) => {
+            if (a.mode !== "rent" && a.mode !== "both") return false;
+            // Only show if wallet balance is insufficient (set by wallet-check)
+            return a["_wallet_insufficient"] === "true";
+        },
+    },
+
+    // ── Step 16: Renter — Launch instance ──────────────────────────────
+    {
+        id: "launch-instance",
+        type: "auto-check",
+        prompt: "Launching your instance — this may take a few minutes to spin up...",
+        checkId: "launch",
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 17: Provider — Confirm & save ─────────────────────────────
     {
         id: "confirm-setup",
         type: "confirm",
         prompt: "Ready to save your configuration?",
         confirmLabel: "Save config to ~/.xcelsior/config.toml",
+        condition: (a) => a.mode === "provide",
     },
 
     // ── Done ───────────────────────────────────────────────────────────
     {
         id: "done",
         type: "done",
-        prompt: "Setup complete! You're ready to go.",
+        prompt: "You're all set! Hexara will be here whenever you need — just run `xcelsior setup` to summon the wizard again.",
     },
 ];
 
