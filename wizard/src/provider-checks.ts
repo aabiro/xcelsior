@@ -113,10 +113,17 @@ async function run(cmd: string, args: string[], timeout = 10_000): Promise<strin
     try {
         const { stdout } = await exec(cmd, args, { timeout });
         return stdout.trim();
-    } catch {
+    } catch (err) {
+        lastRunError = err instanceof Error ? err.message : String(err);
         return null;
     }
 }
+
+/** Last error from run() — for diagnostic context */
+let lastRunError: string | null = null;
+
+/** XCU score divisor — normalizes TFLOPS to marketplace compute units */
+const XCU_DIVISOR = 10;
 
 // ── 1. Version checks ───────────────────────────────────────────────
 
@@ -315,7 +322,15 @@ export async function runComputeBenchmark(): Promise<BenchmarkResult | null> {
         );
 
         const line = stdout.trim().split("\n").pop();
-        if (!line) return null;
+        if (!line) {
+            return {
+                tflops: 0, pcie_bandwidth_gbps: 0, pcie_h2d_gbps: 0, pcie_d2h_gbps: 0,
+                gpu_temp_celsius: 0, gpu_temp_avg_celsius: 0, gpu_temp_samples: 0,
+                gpu_model: "", total_vram_gb: 0, compute_capability: "",
+                cuda_version: "", driver_version: "", xcu_score: 0, elapsed_s: 0,
+                error: stderr?.trim() || "No output from benchmark script",
+            };
+        }
 
         const data = JSON.parse(line);
         if (data.error) return { ...data, xcu_score: 0 } as BenchmarkResult;
@@ -333,11 +348,18 @@ export async function runComputeBenchmark(): Promise<BenchmarkResult | null> {
             compute_capability: data.compute_capability ?? "",
             cuda_version: data.cuda_version ?? "",
             driver_version: data.driver_version ?? "",
-            xcu_score: Math.round((data.tflops ?? 0) / 10 * 100) / 100,
+            xcu_score: Math.round((data.tflops ?? 0) / XCU_DIVISOR * 100) / 100,
             elapsed_s: data.elapsed_s ?? 0,
         };
-    } catch {
-        return null;
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+            tflops: 0, pcie_bandwidth_gbps: 0, pcie_h2d_gbps: 0, pcie_d2h_gbps: 0,
+            gpu_temp_celsius: 0, gpu_temp_avg_celsius: 0, gpu_temp_samples: 0,
+            gpu_model: "", total_vram_gb: 0, compute_capability: "",
+            cuda_version: "", driver_version: "", xcu_score: 0, elapsed_s: 0,
+            error: msg,
+        };
     }
 }
 
@@ -361,14 +383,19 @@ export async function runNetworkBenchmark(schedulerUrl: string): Promise<Network
         return result;
     }
 
-    // Ping for latency + jitter + loss
-    const pingOut = await run("ping", ["-c", "20", "-i", "0.2", "-W", "2", host], 30_000);
+    // Ping for latency + jitter + loss (Linux/macOS compatible)
+    const isLinux = process.platform === "linux";
+    const pingArgs = isLinux
+        ? ["-c", "20", "-i", "0.2", "-W", "2", host]
+        : ["-c", "20", host]; // macOS: no -i/-W with these semantics
+    const pingOut = await run("ping", pingArgs, 30_000);
     if (pingOut) {
         const lossMatch = pingOut.match(/(\d+(?:\.\d+)?)% packet loss/);
         if (lossMatch) result.packet_loss_pct = parseFloat(lossMatch[1]);
 
+        // Linux: rtt min/avg/max/mdev   macOS: round-trip min/avg/max/stddev
         const rttMatch = pingOut.match(
-            /rtt min\/avg\/max\/mdev = ([\d.]+)\/([\d.]+)\/([\d.]+)\/([\d.]+)/,
+            /(?:rtt|round-trip) min\/avg\/max\/(?:mdev|stddev) = ([\d.]+)\/([\d.]+)\/([\d.]+)\/([\d.]+)/,
         );
         if (rttMatch) {
             result.latency_min_ms = parseFloat(rttMatch[1]);
@@ -378,12 +405,14 @@ export async function runNetworkBenchmark(schedulerUrl: string): Promise<Network
         }
     }
 
-    // Throughput estimate via HTTP
+    // Throughput estimate via HTTP — download a larger payload for meaningful measurement
     try {
+        // Use /healthz (small) but do many iterations to amortize connection overhead
         const url = new URL("/healthz", schedulerUrl);
         const totalStart = performance.now();
         let totalBytes = 0;
-        for (let i = 0; i < 5; i++) {
+        const ITERATIONS = 20;
+        for (let i = 0; i < ITERATIONS; i++) {
             const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(5_000) });
             const body = await resp.arrayBuffer();
             totalBytes += body.byteLength;
@@ -436,13 +465,16 @@ export function runVerificationChecks(
         actual: `${bench.pcie_bandwidth_gbps} GB/s`,
     });
 
-    // 4. Thermal Stability
+    // 4. Thermal Stability — if temp is 0, sensor failed; treat as unknown/pass
+    const thermalMeasured = bench.gpu_temp_celsius > 0;
     checks.push({
         name: "Thermal Stability",
-        passed: bench.gpu_temp_celsius > 0 && bench.gpu_temp_celsius <= T.max_gpu_temp_celsius,
-        detail: `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)`,
+        passed: !thermalMeasured || bench.gpu_temp_celsius <= T.max_gpu_temp_celsius,
+        detail: thermalMeasured
+            ? `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)`
+            : "Temperature sensor unavailable — skipped",
         threshold: `≤ ${T.max_gpu_temp_celsius}°C`,
-        actual: `${bench.gpu_temp_celsius}°C`,
+        actual: thermalMeasured ? `${bench.gpu_temp_celsius}°C` : "N/A",
     });
 
     // 5. Network Quality

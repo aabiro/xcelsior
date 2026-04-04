@@ -304,13 +304,13 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "rent" || a.mode === "both",
     },
 
-    // ── Step 17: Provider — Confirm & save ─────────────────────────────
+    // ── Step 17: Both mode — Confirm & save (provider-only confirms at provider-summary) ──
     {
         id: "confirm-setup",
         type: "confirm",
         prompt: "Ready to save your configuration?",
         confirmLabel: "Save config to ~/.xcelsior/config.toml",
-        condition: (a) => a.mode === "provide" || a.mode === "both",
+        condition: (a) => a.mode === "both",
     },
 
     // ── Done ───────────────────────────────────────────────────────────

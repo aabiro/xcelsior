@@ -107,7 +107,9 @@ describe("wizard-flow", () => {
             expect(visited).toContain("docker-check");
             expect(visited).toContain("gpu-detect");
             expect(visited).toContain("pricing");
-            expect(visited).toContain("confirm-setup");
+            // confirm-setup only shows for "both" mode; provider-only confirms at provider-summary
+            expect(visited).not.toContain("confirm-setup");
+            expect(visited).toContain("provider-summary");
             // custom-rate skipped because pricing != "custom"
             expect(visited).not.toContain("custom-rate");
         });

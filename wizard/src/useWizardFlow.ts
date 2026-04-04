@@ -3,6 +3,7 @@
 // marketplace browsing, payment gating, instance launch, and AI escape hatch.
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { existsSync, readFileSync } from "node:fs";
 import { WIZARD_STEPS, getNextStep, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
 import {
     streamChat, type ApiClientConfig,
@@ -25,7 +26,6 @@ import {
 // ── Config ───────────────────────────────────────────────────────────
 
 const API_BASE_URL = process.env["XCELSIOR_API_URL"] || "https://xcelsior.ca";
-const TOKEN_PATH = "~/.xcelsior/token.json";
 const CONFIG_HOME = process.env["HOME"] ?? "/tmp";
 const TOKEN_FILE = `${CONFIG_HOME}/.xcelsior/token.json`;
 const CONFIG_FILE = `${CONFIG_HOME}/.xcelsior/config.toml`;
@@ -219,9 +219,8 @@ async function saveConfig(answers: Record<string, string | string[]>): Promise<v
 /** Detect project framework in cwd */
 function detectFramework(): { name: string; envPath: string } | null {
     try {
-        const fs = require("node:fs");
-        if (fs.existsSync("package.json")) {
-            const pkg = JSON.parse(fs.readFileSync("package.json", "utf-8"));
+        if (existsSync("package.json")) {
+            const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
             const deps = { ...pkg.dependencies, ...pkg.devDependencies };
             if (deps["next"]) return { name: "Next.js", envPath: ".env.local" };
             if (deps["react"]) return { name: "React", envPath: ".env" };
@@ -229,11 +228,11 @@ function detectFramework(): { name: string; envPath: string } | null {
             if (deps["svelte"] || deps["@sveltejs/kit"]) return { name: "SvelteKit", envPath: ".env" };
             return { name: "Node.js", envPath: ".env" };
         }
-        if (fs.existsSync("requirements.txt") || fs.existsSync("pyproject.toml")) {
+        if (existsSync("requirements.txt") || existsSync("pyproject.toml")) {
             return { name: "Python", envPath: ".env" };
         }
-        if (fs.existsSync("Cargo.toml")) return { name: "Rust", envPath: ".env" };
-        if (fs.existsSync("go.mod")) return { name: "Go", envPath: ".env" };
+        if (existsSync("Cargo.toml")) return { name: "Rust", envPath: ".env" };
+        if (existsSync("go.mod")) return { name: "Go", envPath: ".env" };
     } catch {
         // ignore
     }
@@ -387,7 +386,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }, 10_000);
 
             // Start polling
+            let devicePollInFlight = false;
             devicePollRef.current = setInterval(async () => {
+                if (devicePollInFlight) return; // prevent overlapping poll iterations
+                devicePollInFlight = true;
                 try {
                     const tokenResult = await pollDeviceToken(API_BASE_URL, result.device_code);
                     if (tokenResult) {
@@ -447,6 +449,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         setWizardMessage("Authentication failed — press Enter to retry");
                     }
                     // Otherwise keep polling — user might not have entered code yet
+                } finally {
+                    devicePollInFlight = false;
                 }
             }, DEVICE_POLL_MS);
         } catch (err) {
@@ -693,17 +697,18 @@ export function useWizardFlow(): UseWizardFlowReturn {
             }
             case "benchmark": {
                 const bench = await runComputeBenchmark();
-                if (!bench) {
-                    return [{ name: "Benchmark", ok: false, detail: "Failed — is Python 3 with PyTorch + CUDA installed?" }];
-                }
-                if (bench.error) {
-                    return [{ name: "Benchmark", ok: false, detail: bench.error === "no_torch" ? "PyTorch not installed" : bench.error === "no_cuda" ? "CUDA not available" : bench.error }];
+                if (!bench || bench.error) {
+                    const errorDetail = bench?.error === "no_torch" ? "PyTorch not installed"
+                        : bench?.error === "no_cuda" ? "CUDA not available"
+                        : bench?.error || "Failed — is Python 3 with PyTorch + CUDA installed?";
+                    return [{ name: "Benchmark", ok: false, detail: errorDetail }];
                 }
                 benchResultRef.current = bench;
+                const thermalMeasured = bench.gpu_temp_celsius > 0;
                 return [
                     { name: "FP16 Matmul", ok: bench.tflops > 0, detail: `${bench.tflops} TFLOPS · XCU score: ${bench.xcu_score}` },
                     { name: "PCIe Bandwidth", ok: bench.pcie_bandwidth_gbps >= 8, detail: `${bench.pcie_bandwidth_gbps} GB/s (H2D: ${bench.pcie_h2d_gbps}, D2H: ${bench.pcie_d2h_gbps})` },
-                    { name: "Thermal Stability", ok: bench.gpu_temp_celsius > 0 && bench.gpu_temp_celsius <= 90, detail: `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)` },
+                    { name: "Thermal Stability", ok: !thermalMeasured || bench.gpu_temp_celsius <= 90, detail: thermalMeasured ? `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)` : "Temperature sensor unavailable — skipped" },
                 ];
             }
             case "network": {
@@ -829,8 +834,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         customRate: customRateVal,
                         admitted,
                         runtimeRecommendation: runtime,
-                        reputationPoints: 125, // EMAIL(50) + HARDWARE_AUDIT(75)
-                        tier: "Bronze",
+                        reputationPoints: (result.details as Record<string, number>)?.reputation_points ?? 0,
+                        tier: (result.details as Record<string, string>)?.tier ?? "Unranked",
                     });
 
                     return [
@@ -907,11 +912,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 // Open billing page
                 openBrowser(paymentGate.billingUrl).catch(() => { });
 
+                let walletPollFailures = 0;
                 walletPollRef.current = setInterval(async () => {
                     const customerId = currentAnswers["_customer_id"] as string;
                     if (!customerId) return;
                     try {
                         const wallet = await getWallet(API_BASE_URL, currentAnswers["api-key"] as string, customerId);
+                        walletPollFailures = 0; // reset on success
                         setPaymentGate((prev) => ({ ...prev, balance: wallet.balance_cad }));
                         const listing = gpuListings.find((l) => l.host_id === (currentAnswers["gpu-pick"] as string));
                         if (wallet.balance_cad >= (listing?.price_per_hour ?? 0)) {
@@ -925,7 +932,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setTimeout(() => advanceToNext(updated), CHOREOGRAPHY_DELAY_MS);
                         }
                     } catch {
-                        // ignore poll errors
+                        walletPollFailures++;
+                        if (walletPollFailures >= 10) {
+                            if (walletPollRef.current) clearInterval(walletPollRef.current);
+                            walletPollRef.current = null;
+                            setWizardState("error");
+                            setWizardMessage("Wallet polling failed repeatedly — press s to skip");
+                        }
                     }
                 }, WALLET_POLL_MS);
                 return;
@@ -1042,6 +1055,21 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setWizardMessage(WIZARD_STEPS[doneIdx].prompt);
                             setIsComplete(true);
                             saveConfig(updated).catch(() => { });
+                        }
+                        return;
+                    }
+                    // On provider flow cancel, jump to done without saving config
+                    if (currentStep.id === "provider-summary" || currentStep.id === "confirm-setup") {
+                        const updated = { ...answersRef.current, [currentStep.id]: "cancelled" };
+                        answersRef.current = updated;
+                        setAnswers(updated);
+                        const doneIdx = WIZARD_STEPS.findIndex((s) => s.type === "done");
+                        if (doneIdx >= 0) {
+                            stepIndexRef.current = doneIdx;
+                            setStepIndex(doneIdx);
+                            setWizardState("success");
+                            setWizardMessage("Setup cancelled. Run the wizard again when you're ready.");
+                            setIsComplete(true);
                         }
                         return;
                     }

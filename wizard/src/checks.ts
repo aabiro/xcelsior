@@ -46,12 +46,12 @@ export async function checkDocker(): Promise<CheckResult[]> {
     const docker = await run("docker", ["info", "--format", "{{.ServerVersion}}"]);
     if (docker.ok) {
         const ver = parseVersion(docker.stdout);
-        const minVer: [number, number, number] = [20, 10, 0];
+        const minVer: [number, number, number] = [24, 0, 0];
         const ok = versionGte(ver, minVer);
         results.push({
             name: "Docker",
             ok,
-            detail: ok ? `v${docker.stdout}` : `v${docker.stdout} — needs ≥20.10.0`,
+            detail: ok ? `v${docker.stdout}` : `v${docker.stdout} — needs ≥24.0.0`,
         });
     } else {
         results.push({ name: "Docker", ok: false, detail: "not found or daemon not running" });

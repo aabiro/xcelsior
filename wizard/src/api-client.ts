@@ -60,10 +60,12 @@ async function jsonRequest<T>(
                 path: url.pathname + url.search,
                 method,
                 headers,
+                timeout: 30_000,
             },
             resolve,
         );
         req.on("error", reject);
+        req.on("timeout", () => { req.destroy(new Error("Request timed out")); });
         if (payload) req.write(payload);
         req.end();
     });
@@ -71,7 +73,12 @@ async function jsonRequest<T>(
     const chunks: Buffer[] = [];
     for await (const chunk of response) chunks.push(chunk as Buffer);
     const text = Buffer.concat(chunks).toString();
-    const data = text ? JSON.parse(text) as T : {} as T;
+    let data: T;
+    try {
+        data = text ? JSON.parse(text) as T : {} as T;
+    } catch {
+        throw new Error(`Invalid JSON response (HTTP ${response.statusCode ?? "?"}): ${text.slice(0, 200)}`);
+    }
     return { status: response.statusCode ?? 500, data };
 }
 
@@ -176,6 +183,15 @@ export async function* confirmAction(
         req.write(body);
         req.end();
     });
+
+    // Guard against non-200 responses
+    if (response.statusCode !== 200) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of response) chunks.push(chunk as Buffer);
+        const text = Buffer.concat(chunks).toString();
+        yield { type: "error", message: `HTTP ${response.statusCode}: ${text}` };
+        return;
+    }
 
     let buffer = "";
     for await (const chunk of response) {
