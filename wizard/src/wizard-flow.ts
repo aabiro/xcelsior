@@ -116,6 +116,45 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
+    // ── Step 5b: Provider — Version check ──────────────────────────────
+    {
+        id: "version-check",
+        type: "auto-check",
+        prompt: "Checking component versions (runc, Docker, NVIDIA driver, toolkit)...",
+        checkId: "versions",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+        checkRequired: true,
+    },
+
+    // ── Step 5c: Provider — Compute benchmark ──────────────────────────
+    {
+        id: "benchmark",
+        type: "auto-check",
+        prompt: "Running GPU benchmarks — FP16 matmul, PCIe bandwidth, thermal soak (≈60s)...",
+        checkId: "benchmark",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+        checkRequired: true,
+    },
+
+    // ── Step 5d: Provider — Network benchmark ──────────────────────────
+    {
+        id: "network-bench",
+        type: "auto-check",
+        prompt: "Testing network quality to the scheduler...",
+        checkId: "network",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+    },
+
+    // ── Step 5e: Provider — Verification ───────────────────────────────
+    {
+        id: "verification",
+        type: "auto-check",
+        prompt: "Running 7-point hardware verification...",
+        checkId: "verify",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+        checkRequired: true,
+    },
+
     // ── Step 6: Provider — Pricing ─────────────────────────────────────
     {
         id: "pricing",
@@ -143,6 +182,34 @@ export const WIZARD_STEPS: WizardStep[] = [
             if (n > 1000) return "Rate seems too high — max $1000/hr";
             return null;
         },
+    },
+
+    // ── Step 7b: Provider — Host registration ──────────────────────────
+    {
+        id: "host-register",
+        type: "auto-check",
+        prompt: "Registering your host on the marketplace...",
+        checkId: "host-register",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+        checkRequired: true,
+    },
+
+    // ── Step 7c: Provider — Admission gate ─────────────────────────────
+    {
+        id: "admission-gate",
+        type: "auto-check",
+        prompt: "Checking admission status and security runtime...",
+        checkId: "admission",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+    },
+
+    // ── Step 7d: Provider — Summary ────────────────────────────────────
+    {
+        id: "provider-summary",
+        type: "confirm",
+        prompt: "Your GPU is verified and listed on the marketplace!",
+        confirmLabel: "Continue to save configuration",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
     // ── Step 8: Renter — Workload type ─────────────────────────────────
@@ -243,7 +310,7 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "confirm",
         prompt: "Ready to save your configuration?",
         confirmLabel: "Save config to ~/.xcelsior/config.toml",
-        condition: (a) => a.mode === "provide",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
     // ── Done ───────────────────────────────────────────────────────────

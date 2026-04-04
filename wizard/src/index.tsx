@@ -8,7 +8,7 @@ import React, { useState, useCallback, useMemo } from "react";
 import { render, Box, Text, useApp, useInput } from "ink";
 import { WizardLine, type BranchId } from "./WizardLine.js";
 import { setupWizardRegion, resetWizardRegion } from "./useWizardAnimation.js";
-import { STATE_COLORS } from "./wizard-sprite.js";
+import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
 import { WIZARD_STEPS } from "./wizard-flow.js";
 import { useWizardFlow } from "./useWizardFlow.js";
 import {
@@ -24,6 +24,7 @@ import {
   ManualTokenStep,
   GpuBrowseStep,
   PaymentGateStep,
+  ProviderSummaryStep,
 } from "./steps.js";
 
 function App() {
@@ -65,6 +66,7 @@ function App() {
     toggleAiPrompt,
     chatHistory,
     currentAiQuestion,
+    providerSummary,
   } = useWizardFlow();
 
   const handleExit = useCallback(() => setExiting(true), []);
@@ -113,7 +115,7 @@ function App() {
   }, [wizardState, isComplete, exiting]);
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" alignItems="center">
       {/* Hexara wizard sprite — choreographed animation */}
       <WizardLine
         message={wizardMessage}
@@ -178,7 +180,15 @@ function App() {
             />
           )}
 
-          {step.type === "confirm" && (
+          {step.type === "confirm" && step.id === "provider-summary" && providerSummary && (
+            <ProviderSummaryStep
+              summary={providerSummary}
+              onConfirm={(yes) => submitAnswer(yes ? "yes" : "no")}
+              error={confirmError}
+            />
+          )}
+
+          {step.type === "confirm" && (step.id !== "provider-summary" || !providerSummary) && (
             <ConfirmStep
               label={step.confirmLabel ?? "Confirm?"}
               onConfirm={(yes) => submitAnswer(yes ? "yes" : "no")}

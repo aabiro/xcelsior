@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { streamChat, confirmAction, type SSEEvent, type ApiClientConfig } from "./api-client.js";
-import type { WizardState } from "./wizard-sprite.js";
+import type { WizardState } from "../sprites/wizard/wizard-sprite.js";
 
 export interface ChatMessage {
     role: "user" | "assistant" | "system";

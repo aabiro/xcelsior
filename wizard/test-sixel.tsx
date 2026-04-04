@@ -6,7 +6,7 @@
 import React, { useEffect, useRef } from "react";
 import { render, Box, Text } from "ink";
 import { writeSync } from "fs";
-import { IDLE_FRAMES, INTRO_FRAMES, SPRITE_COLS, SPRITE_ROWS } from "./src/wizard-frames.js";
+import { IDLE_FRAMES, INTRO_FRAMES, SPRITE_COLS, SPRITE_ROWS } from "./sprites/wizard/wizard-frames.js";
 
 const FRAMES = [...INTRO_FRAMES, ...IDLE_FRAMES, ...IDLE_FRAMES, ...IDLE_FRAMES];
 
