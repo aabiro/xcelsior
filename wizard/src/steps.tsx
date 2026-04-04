@@ -192,7 +192,6 @@ interface DeviceAuthStepProps {
   token?: string;
   email?: string;
   errorMessage?: string;
-  onManualFallback?: () => void;
 }
 
 export function DeviceAuthStep({
@@ -237,10 +236,7 @@ export function DeviceAuthStep({
         <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
         {token && (
           <Box marginTop={1} flexDirection="column">
-            <Text>Your API key:</Text>
-            <Box marginTop={0}>
-              <Text bold color="#ffcc00">{token}</Text>
-            </Box>
+            <Text>Your API key: <Text bold color="#ffcc00">{token.slice(0, 8)}{"·".repeat(16)}</Text></Text>
             <Text dimColor>Saved to <Text bold>~/.xcelsior/token.json</Text> and <Text bold>~/.xcelsior/config.toml</Text></Text>
           </Box>
         )}
@@ -578,27 +574,4 @@ export function AiPrompt({ onSubmit, onCancel }: AiPromptProps) {
   );
 }
 
-// ── Project detection step ───────────────────────────────────────────
-
-interface ProjectDetectStepProps {
-  framework: string | null;
-  envPath: string | null;
-  onConfirm: (yes: boolean) => void;
-}
-
-export function ProjectDetectStep({ framework, envPath, onConfirm }: ProjectDetectStepProps) {
-  useInput((input) => {
-    if (input === "y" || input === "Y") onConfirm(true);
-    else if (input === "n" || input === "N") onConfirm(false);
-  });
-
-  if (!framework) return null;
-
-  return (
-    <Box marginLeft={4} flexDirection="column">
-      <Text color="#22c55e">Detected <Text bold>{framework}</Text> project</Text>
-      <Text>Save API token to <Text bold>{envPath ?? ".env"}</Text>?</Text>
-      <Text dimColor>Press <Text bold>y</Text> to save, <Text bold>n</Text> to skip</Text>
-    </Box>
-  );
-}
+// (ProjectDetectStep removed — unused)
