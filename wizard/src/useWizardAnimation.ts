@@ -150,7 +150,7 @@ function advance(prev: AnimState, wantExit: boolean, pendingBranch: BranchId | n
 }
 
 /** Row where wizard sprite is drawn (CUP row, 1-based) */
-export const WIZARD_ROW = 1;
+export const WIZARD_ROW = 2;
 /** Extra blank rows between sprite bottom and Ink content */
 const PAD_ROWS = 0;
 

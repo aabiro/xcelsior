@@ -63,6 +63,8 @@ function App() {
     aiAvailable,
     showAiPrompt,
     toggleAiPrompt,
+    chatHistory,
+    currentAiQuestion,
   } = useWizardFlow();
 
   const handleExit = useCallback(() => setExiting(true), []);
@@ -86,7 +88,6 @@ function App() {
     }
     // Auto-fetch retry
     if (step.type === "auto-fetch" && browseError && input === "\r") {
-      // retrigger browse by re-submitting
       submitAnswer("retry");
     }
   });
@@ -132,6 +133,8 @@ function App() {
             response={aiResponse}
             streaming={aiStreaming}
             onDismiss={dismissAi}
+            chatHistory={chatHistory}
+            currentQuestion={currentAiQuestion ?? undefined}
           />
         </Box>
       )}
@@ -241,6 +244,18 @@ function App() {
               : <>Press <Text bold>?</Text> to ask Hexara for help</>
             }
           </Text>
+        </Box>
+      )}
+
+      {/* Persistent chat history from this step (visible even after dismiss) */}
+      {chatHistory.length > 0 && aiResponse === null && !showAiPrompt && (
+        <Box marginTop={1} marginLeft={4} flexDirection="column" borderStyle="single" borderColor="#374151" paddingX={1}>
+          {chatHistory.map((msg, i) => (
+            <Box key={i} flexDirection="column">
+              <Text color="#00d4ff" dimColor>You: {msg.question}</Text>
+              <Text wrap="wrap" dimColor>{msg.answer}</Text>
+            </Box>
+          ))}
         </Box>
       )}
     </Box>

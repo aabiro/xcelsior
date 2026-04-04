@@ -2157,45 +2157,83 @@ def api_auth_verify_page():
 <title>Xcelsior — Device Authorization</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e5e7eb;
-       display:flex;align-items:center;justify-content:center;min-height:100vh}
-  .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:2rem;
-        max-width:420px;width:100%;text-align:center}
-  h1{font-size:1.5rem;margin-bottom:.5rem;color:#60a5fa}
-  p{color:#9ca3af;margin-bottom:1.5rem;font-size:.9rem}
-  input{width:100%;padding:.75rem;border:1px solid #374151;border-radius:8px;
-        background:#1f2937;color:#f9fafb;font-size:1.2rem;text-align:center;
-        letter-spacing:.2em;text-transform:uppercase;margin-bottom:1rem}
-  input:focus{outline:none;border-color:#3b82f6}
-  button{width:100%;padding:.75rem;border:none;border-radius:8px;
-         background:#3b82f6;color:white;font-size:1rem;cursor:pointer;font-weight:600}
-  button:hover{background:#2563eb}
-  .msg{margin-top:1rem;padding:.75rem;border-radius:8px;font-size:.9rem}
-  .ok{background:#064e3b;color:#6ee7b7;border:1px solid #065f46}
-  .err{background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#060a14;color:#e5e7eb;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;
+       background-image:radial-gradient(ellipse at 50% 0%,rgba(0,212,255,.06) 0%,transparent 60%)}
+  .brand-line{height:2px;width:100%;background:linear-gradient(90deg,#00d4ff 0%,#8b5cf6 50%,#ef4444 100%);
+              border-radius:1px}
+  .card{background:rgba(13,19,32,.85);border:1px solid rgba(75,85,99,.4);border-radius:16px;
+        padding:2.5rem 2rem 2rem;max-width:440px;width:100%;text-align:center;
+        backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+        box-shadow:0 0 60px rgba(0,212,255,.05)}
+  .logo{width:180px;height:auto;margin:0 auto 1.5rem}
+  .subtitle{color:#9ca3af;margin-bottom:2rem;font-size:.95rem;line-height:1.5}
+  .subtitle strong{color:#00d4ff}
+  input{width:100%;padding:.875rem;border:1px solid rgba(75,85,99,.5);border-radius:10px;
+        background:rgba(31,41,55,.6);color:#f9fafb;font-size:1.3rem;text-align:center;
+        letter-spacing:.25em;text-transform:uppercase;margin-bottom:1rem;
+        transition:border-color .2s,box-shadow .2s}
+  input:focus{outline:none;border-color:#00d4ff;box-shadow:0 0 0 3px rgba(0,212,255,.15)}
+  input::placeholder{color:#4b5563;letter-spacing:.15em;text-transform:none;font-size:.95rem}
+  button{width:100%;padding:.875rem;border:none;border-radius:10px;
+         background:linear-gradient(135deg,#00d4ff 0%,#0ea5e9 100%);color:#0a0a0a;
+         font-size:1rem;cursor:pointer;font-weight:700;letter-spacing:.02em;
+         transition:opacity .2s,transform .1s}
+  button:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
+  button:active:not(:disabled){transform:translateY(0)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .msg{margin-top:1.25rem;padding:.875rem;border-radius:10px;font-size:.9rem;font-weight:500}
+  .ok{background:rgba(6,78,59,.6);color:#6ee7b7;border:1px solid rgba(6,95,70,.6)}
+  .err{background:rgba(127,29,29,.5);color:#fca5a5;border:1px solid rgba(153,27,27,.5)}
+  .footer{margin-top:1.5rem;font-size:.8rem;color:#4b5563}
+  .footer a{color:#00d4ff;text-decoration:none}
+  .footer a:hover{text-decoration:underline}
 </style></head><body>
 <div class="card">
-  <h1>Xcelsior</h1>
-  <p>Enter the code shown in your CLI to authorize this device.</p>
+  <div class="brand-line" style="margin-bottom:1.5rem"></div>
+  <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" class="logo"
+       onerror="this.style.display='none';document.getElementById('fallback-title').style.display='block'">
+  <h1 id="fallback-title" style="display:none;font-size:1.8rem;margin-bottom:1rem;
+      background:linear-gradient(135deg,#00d4ff,#8b5cf6);-webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;font-weight:800">Xcelsior</h1>
+  <p class="subtitle">Enter the code shown in your <strong>CLI</strong> to authorize this device.</p>
   <form id="f">
     <input id="code" placeholder="XXXX-XXXX" maxlength="9" autocomplete="off" autofocus>
-    <button type="submit">Authorize Device</button>
+    <button type="submit" id="btn">Authorize Device</button>
   </form>
   <div id="msg"></div>
+  <div class="brand-line" style="margin-top:1.5rem"></div>
+  <div class="footer">
+    <a href="https://xcelsior.ca">xcelsior.ca</a> · GPU Cloud Platform
+  </div>
 </div>
 <script>
+const btn=document.getElementById('btn');
+const codeInput=document.getElementById('code');
 document.getElementById('f').onsubmit=async e=>{
   e.preventDefault();
-  const code=document.getElementById('code').value.trim();
+  const code=codeInput.value.trim();
   if(!code)return;
   const msg=document.getElementById('msg');
+  btn.disabled=true;btn.textContent='Authorizing...';
   try{
     const r=await fetch('/api/auth/verify',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify({user_code:code})});
     const d=await r.json();
-    if(r.ok){msg.className='msg ok';msg.textContent='✓ Device authorized! You can close this tab.';}
-    else{msg.className='msg err';msg.textContent=d.detail||'Authorization failed.';}
-  }catch(x){msg.className='msg err';msg.textContent='Network error.';}
+    if(r.ok){
+      msg.className='msg ok';
+      msg.textContent='\\u2713 Device authorized! You can close this tab.';
+      codeInput.disabled=true;
+      btn.textContent='Authorized';
+    }else{
+      msg.className='msg err';
+      msg.textContent=d.detail||'Authorization failed. Check your code and try again.';
+      btn.disabled=false;btn.textContent='Authorize Device';
+    }
+  }catch(x){
+    msg.className='msg err';msg.textContent='Network error — check your connection.';
+    btn.disabled=false;btn.textContent='Authorize Device';
+  }
 };
 </script></body></html>""")
 
