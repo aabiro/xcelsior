@@ -80,8 +80,8 @@ def nvml_shutdown():
     if _nvml_initialized and _nvml_available:
         try:
             pynvml.nvmlShutdown()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("NVML shutdown error: %s", e)
         _nvml_initialized = False
 
 
@@ -99,7 +99,8 @@ def get_device_count() -> int:
         return 0
     try:
         return pynvml.nvmlDeviceGetCount()
-    except Exception:
+    except Exception as e:
+        log.debug("NVML device count error: %s", e)
         return 0
 
 
@@ -111,11 +112,13 @@ def get_gpu_serial(handle) -> str:
     """
     try:
         return pynvml.nvmlDeviceGetSerial(handle)
-    except Exception:
+    except Exception as e:
         # Some consumer cards don't expose serial via NVML
+        log.debug("NVML serial unavailable, trying UUID: %s", e)
         try:
             return pynvml.nvmlDeviceGetUUID(handle)
-        except Exception:
+        except Exception as e:
+            log.debug("NVML serial/UUID unavailable: %s", e)
             return ""
 
 
@@ -128,7 +131,8 @@ def get_gpu_pci_info(handle) -> dict:
             "device_id": hex(pci.pciDeviceId) if hasattr(pci, "pciDeviceId") else "",
             "subsystem_id": hex(pci.pciSubSystemId) if hasattr(pci, "pciSubSystemId") else "",
         }
-    except Exception:
+    except Exception as e:
+        log.debug("NVML PCI info error: %s", e)
         return {"bus_id": "", "device_id": "", "subsystem_id": ""}
 
 
@@ -161,7 +165,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         result["gpu_model"] = pynvml.nvmlDeviceGetName(handle)
         if isinstance(result["gpu_model"], bytes):
             result["gpu_model"] = result["gpu_model"].decode()
-    except Exception:
+    except Exception as e:
+        log.debug("NVML GPU model error: %s", e)
         result["gpu_model"] = ""
 
     result["serial"] = get_gpu_serial(handle)
@@ -172,7 +177,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
         result["utilization"] = util.gpu  # SM active %
         result["memory_util"] = util.memory  # Memory controller %
-    except Exception:
+    except Exception as e:
+        log.debug("NVML utilization error: %s", e)
         result["utilization"] = 0
         result["memory_util"] = 0
 
@@ -185,7 +191,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         result["memory_total_gb"] = round(mem.total / (1024**3), 2)
         result["memory_used_gb"] = round(mem.used / (1024**3), 2)
         result["memory_free_gb"] = round(mem.free / (1024**3), 2)
-    except Exception:
+    except Exception as e:
+        log.debug("NVML memory info error: %s", e)
         result["memory_total_bytes"] = 0
         result["memory_used_bytes"] = 0
         result["memory_free_bytes"] = 0
@@ -222,7 +229,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
         result["temperature_c"] = temp
         result["temperature_avg_c"] = _get_thermal_avg(gpu_index, temp)
-    except Exception:
+    except Exception as e:
+        log.debug("NVML temperature error: %s", e)
         result["temperature_c"] = 0
         result["temperature_avg_c"] = 0.0
 
@@ -230,13 +238,15 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
     try:
         power_mw = pynvml.nvmlDeviceGetPowerUsage(handle)  # milliwatts
         result["power_draw_w"] = round(power_mw / 1000.0, 1)
-    except Exception:
+    except Exception as e:
+        log.debug("NVML power usage error: %s", e)
         result["power_draw_w"] = 0
 
     try:
         limit_mw = pynvml.nvmlDeviceGetEnforcedPowerLimit(handle)
         result["power_limit_w"] = round(limit_mw / 1000.0, 1)
-    except Exception:
+    except Exception as e:
+        log.debug("NVML power limit error: %s", e)
         result["power_limit_w"] = 0
 
     # ── PCIe (REPORT_FEATURE_1 §bandwidth bottleneck detection) ───────
@@ -245,7 +255,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         width = pynvml.nvmlDeviceGetCurrPcieLinkWidth(handle)
         result["pcie_gen"] = gen
         result["pcie_width"] = width
-    except Exception:
+    except Exception as e:
+        log.debug("NVML PCIe gen/width error: %s", e)
         result["pcie_gen"] = 0
         result["pcie_width"] = 0
 
@@ -255,7 +266,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         rx_bytes = pynvml.nvmlDeviceGetPcieThroughput(handle, pynvml.NVML_PCIE_UTIL_RX_BYTES)
         result["pcie_tx_mb_s"] = round(tx_bytes / 1024, 2)  # KB/s → MB/s
         result["pcie_rx_mb_s"] = round(rx_bytes / 1024, 2)
-    except Exception:
+    except Exception as e:
+        log.debug("NVML PCIe throughput error: %s", e)
         result["pcie_tx_mb_s"] = 0
         result["pcie_rx_mb_s"] = 0
 
@@ -274,7 +286,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         result["ecc_errors_single"] = ecc_single
         result["ecc_errors_double"] = ecc_double
         result["memory_errors"] = ecc_single + ecc_double
-    except Exception:
+    except Exception as e:
+        log.debug("NVML ECC errors query failed: %s", e)
         result["ecc_errors_single"] = 0
         result["ecc_errors_double"] = 0
         result["memory_errors"] = 0
@@ -283,7 +296,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
     try:
         major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
         result["compute_capability"] = f"{major}.{minor}"
-    except Exception:
+    except Exception as e:
+        log.debug("NVML compute capability error: %s", e)
         result["compute_capability"] = ""
 
     # ── Driver & CUDA Version ─────────────────────────────────────────
@@ -291,7 +305,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
         result["driver_version"] = pynvml.nvmlSystemGetDriverVersion()
         if isinstance(result["driver_version"], bytes):
             result["driver_version"] = result["driver_version"].decode()
-    except Exception:
+    except Exception as e:
+        log.debug("NVML driver version error: %s", e)
         result["driver_version"] = ""
 
     try:
@@ -301,7 +316,8 @@ def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
             major = result["cuda_version"] // 1000
             minor = (result["cuda_version"] % 1000) // 10
             result["cuda_version"] = f"{major}.{minor}"
-    except Exception:
+    except Exception as e:
+        log.debug("NVML CUDA version error: %s", e)
         result["cuda_version"] = ""
 
     return result
