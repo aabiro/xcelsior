@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace PrivacyClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * PIPEDA consent management, retention policies, privacy officer config.
- */
 export class PrivacyClient {
     protected readonly _options: NormalizedClientOptions<PrivacyClient.Options>;
 
-    constructor(options: PrivacyClient.Options = {}) {
+    constructor(options: PrivacyClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -44,8 +40,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/privacy/retention-policies",
             ),
             method: "GET",
@@ -96,8 +91,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/privacy/retention-summary",
             ),
             method: "GET",
@@ -130,53 +124,6 @@ export class PrivacyClient {
     }
 
     /**
-     * Purge all expired retention records (daily maintenance).
-     *
-     * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.privacy.purgeExpired()
-     */
-    public purgeExpired(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__purgeExpired(requestOptions));
-    }
-
-    private async __purgeExpired(
-        requestOptions?: PrivacyClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/privacy/purge-expired",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/privacy/purge-expired");
-    }
-
-    /**
      * Save privacy configuration for an organization.
      *
      * @param {XcelsiorApi.PrivacyConfigRequest} request
@@ -204,8 +151,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/privacy/config",
             ),
             method: "POST",
@@ -272,8 +218,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/privacy/config/${core.url.encodePathParam(orgId)}`,
             ),
             method: "GET",
@@ -337,8 +282,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/privacy/consent",
             ),
             method: "POST",
@@ -406,8 +350,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/privacy/consent/${core.url.encodePathParam(entityId)}/${core.url.encodePathParam(consentType)}`,
             ),
             method: "DELETE",
@@ -476,8 +419,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/privacy/consent/${core.url.encodePathParam(entityId)}`,
             ),
             method: "GET",
@@ -545,8 +487,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/v2/privacy/consent",
             ),
             method: "POST",
@@ -613,8 +554,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/v2/privacy/consent/${core.url.encodePathParam(purpose)}`,
             ),
             method: "DELETE",
@@ -673,8 +613,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/v2/privacy/consents",
             ),
             method: "GET",
@@ -720,8 +659,7 @@ export class PrivacyClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/v2/privacy/erase",
             ),
             method: "POST",

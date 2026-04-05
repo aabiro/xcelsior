@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -18,7 +17,7 @@ export declare namespace InstancesClient {
 export class InstancesClient {
     protected readonly _options: NormalizedClientOptions<InstancesClient.Options>;
 
-    constructor(options: InstancesClient.Options = {}) {
+    constructor(options: InstancesClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -54,8 +53,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "instance",
             ),
             method: "POST",
@@ -123,8 +121,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "instances",
             ),
             method: "GET",
@@ -188,8 +185,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `instance/${core.url.encodePathParam(jobId)}`,
             ),
             method: "GET",
@@ -254,8 +250,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `instance/${core.url.encodePathParam(jobId)}`,
             ),
             method: "PATCH",
@@ -294,98 +289,6 @@ export class InstancesClient {
     }
 
     /**
-     * Process the job queue — assign jobs to hosts.
-     *
-     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.instances.processQueue()
-     */
-    public processQueue(requestOptions?: InstancesClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__processQueue(requestOptions));
-    }
-
-    private async __processQueue(
-        requestOptions?: InstancesClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "queue/process",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/queue/process");
-    }
-
-    /**
-     * Run a full failover cycle: check hosts, requeue orphaned jobs, reassign.
-     *
-     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.instances.failover()
-     */
-    public failover(requestOptions?: InstancesClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__failover(requestOptions));
-    }
-
-    private async __failover(requestOptions?: InstancesClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "failover",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/failover");
-    }
-
-    /**
      * Cancel a running or queued instance. For interactive instances, stops the container.
      *
      * @param {XcelsiorApi.CancelInstancesRequest} request
@@ -414,8 +317,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `instances/${core.url.encodePathParam(jobId)}/cancel`,
             ),
             method: "POST",
@@ -479,8 +381,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `instance/${core.url.encodePathParam(jobId)}/requeue`,
             ),
             method: "POST",
@@ -553,8 +454,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `instances/${core.url.encodePathParam(jobId)}/logs/stream`,
             ),
             method: "GET",
@@ -629,8 +529,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `instances/${core.url.encodePathParam(jobId)}/logs`,
             ),
             method: "GET",
@@ -682,8 +581,7 @@ export class InstancesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "tiers",
             ),
             method: "GET",

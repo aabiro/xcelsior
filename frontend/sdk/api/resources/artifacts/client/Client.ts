@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace ArtifactsClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Presigned upload/download URLs for model weights, checkpoints, outputs.
- */
 export class ArtifactsClient {
     protected readonly _options: NormalizedClientOptions<ArtifactsClient.Options>;
 
-    constructor(options: ArtifactsClient.Options = {}) {
+    constructor(options: ArtifactsClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -54,8 +50,7 @@ export class ArtifactsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/artifacts/upload",
             ),
             method: "POST",
@@ -122,8 +117,7 @@ export class ArtifactsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/artifacts/download",
             ),
             method: "POST",
@@ -190,8 +184,7 @@ export class ArtifactsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/artifacts/${core.url.encodePathParam(jobId)}`,
             ),
             method: "GET",
@@ -258,8 +251,7 @@ export class ArtifactsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/artifacts/${core.url.encodePathParam(jobId)}/expiry`,
             ),
             method: "GET",
@@ -316,8 +308,7 @@ export class ArtifactsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/artifacts",
             ),
             method: "GET",

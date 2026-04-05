@@ -128,7 +128,7 @@ def _send_sms(phone_number: str, message: str) -> None:
         log.error("SMS send failed to %s: %s", phone_number[-4:], e)
         raise HTTPException(502, "Failed to send SMS. Please try again.")
 
-@router.get("/api/auth/mfa/methods", tags=["Auth – MFA"])
+@router.get("/api/auth/mfa/methods", tags=["Auth - MFA"])
 def api_mfa_list_methods(request: Request):
     """List the user's configured MFA methods."""
     user = _get_current_user(request)
@@ -153,7 +153,7 @@ def api_mfa_list_methods(request: Request):
         "backup_codes_remaining": sum(1 for c in backup_codes if not c["used"]),
     }
 
-@router.post("/api/auth/mfa/totp/setup", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/totp/setup", tags=["Auth - MFA"])
 def api_mfa_totp_setup(request: Request):
     """Generate a TOTP secret and QR code URI for setup."""
     import pyotp
@@ -196,7 +196,7 @@ class TotpVerifyRequest(BaseModel):
     code: str
     method_id: int | None = None
 
-@router.post("/api/auth/mfa/totp/verify", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/totp/verify", tags=["Auth - MFA"])
 def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
     """Verify a TOTP code to complete setup and enable TOTP."""
     user = _get_current_user(request)
@@ -242,7 +242,7 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
         "backup_codes": backup_codes,
     }
 
-@router.delete("/api/auth/mfa/totp", tags=["Auth – MFA"])
+@router.delete("/api/auth/mfa/totp", tags=["Auth - MFA"])
 def api_mfa_totp_disable(request: Request):
     """Disable and remove TOTP."""
     user = _get_current_user(request)
@@ -258,7 +258,7 @@ def api_mfa_totp_disable(request: Request):
 class SmsSetupRequest(BaseModel):
     phone_number: str  # E.164 format, e.g. +14165551234
 
-@router.post("/api/auth/mfa/sms/setup", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/sms/setup", tags=["Auth - MFA"])
 def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     """Register a phone number for SMS MFA. Sends a verification code."""
     import re
@@ -300,7 +300,7 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
 class SmsVerifyRequest(BaseModel):
     code: str
 
-@router.post("/api/auth/mfa/sms/verify", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/sms/verify", tags=["Auth - MFA"])
 def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
     """Verify the SMS code to complete SMS MFA setup."""
     user = _get_current_user(request)
@@ -343,7 +343,7 @@ def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
         "backup_codes": backup_codes,
     }
 
-@router.delete("/api/auth/mfa/sms", tags=["Auth – MFA"])
+@router.delete("/api/auth/mfa/sms", tags=["Auth - MFA"])
 def api_mfa_sms_disable(request: Request):
     """Disable and remove SMS MFA."""
     user = _get_current_user(request)
@@ -396,7 +396,7 @@ def _webauthn_options_to_json(options) -> dict:
 class PasskeyRegisterRequest(BaseModel):
     device_name: str = "Security Key"
 
-@router.post("/api/auth/mfa/passkey/register-options", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/passkey/register-options", tags=["Auth - MFA"])
 def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Request):
     """Generate WebAuthn registration options for adding a new passkey."""
     user = _get_current_user(request)
@@ -449,7 +449,7 @@ class PasskeyRegisterCompleteRequest(BaseModel):
     state_id: str
     credential: dict
 
-@router.post("/api/auth/mfa/passkey/register-complete", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/passkey/register-complete", tags=["Auth - MFA"])
 def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, request: Request):
     """Complete passkey registration with the browser's attestation response."""
     user = _get_current_user(request)
@@ -533,7 +533,7 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
 class PasskeyDeleteRequest(BaseModel):
     method_id: int
 
-@router.post("/api/auth/mfa/passkey/delete", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/passkey/delete", tags=["Auth - MFA"])
 def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
     """Remove a registered passkey."""
     user = _get_current_user(request)
@@ -554,7 +554,7 @@ def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
 class PasskeyAuthenticateOptionsRequest(BaseModel):
     challenge_id: str
 
-@router.post("/api/auth/mfa/passkey/authenticate-options", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/passkey/authenticate-options", tags=["Auth - MFA"])
 def api_mfa_passkey_authenticate_options(req: PasskeyAuthenticateOptionsRequest):
     """Generate WebAuthn authentication options during login MFA challenge."""
     challenge = MfaStore.get_challenge(req.challenge_id)
@@ -607,7 +607,7 @@ class PasskeyAuthenticateCompleteRequest(BaseModel):
     state_id: str
     credential: dict
 
-@router.post("/api/auth/mfa/passkey/authenticate-complete", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/passkey/authenticate-complete", tags=["Auth - MFA"])
 def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteRequest, request: Request):
     """Verify passkey authentication to complete MFA login."""
     challenge = MfaStore.get_challenge(req.state_id)
@@ -685,7 +685,7 @@ class MfaVerifyLogin(BaseModel):
     method: str  # totp | sms | backup
     code: str
 
-@router.post("/api/auth/mfa/verify", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/verify", tags=["Auth - MFA"])
 def api_mfa_verify_login(req: MfaVerifyLogin, request: Request):
     """Verify MFA code during login to complete authentication."""
     _check_auth_rate_limit(request)
@@ -741,7 +741,7 @@ def api_mfa_verify_login(req: MfaVerifyLogin, request: Request):
 class MfaSendSmsRequest(BaseModel):
     challenge_id: str
 
-@router.post("/api/auth/mfa/sms/send", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/sms/send", tags=["Auth - MFA"])
 def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
     """Send an SMS verification code during MFA login challenge."""
     _check_auth_rate_limit(request)
@@ -775,7 +775,7 @@ def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
     _send_sms(method.get("phone_number", ""), f"Your Xcelsior login code is: {code}")
     return {"ok": True, "message": "Code sent"}
 
-@router.post("/api/auth/mfa/backup-codes/regenerate", tags=["Auth – MFA"])
+@router.post("/api/auth/mfa/backup-codes/regenerate", tags=["Auth - MFA"])
 def api_mfa_regenerate_backup_codes(request: Request):
     """Regenerate backup recovery codes. Invalidates all previous codes."""
     user = _get_current_user(request)
@@ -790,7 +790,7 @@ def api_mfa_regenerate_backup_codes(request: Request):
 
     return {"ok": True, "backup_codes": codes}
 
-@router.delete("/api/auth/mfa/all", tags=["Auth – MFA"])
+@router.delete("/api/auth/mfa/all", tags=["Auth - MFA"])
 def api_mfa_disable_all(request: Request):
     """Disable all MFA methods for the user."""
     user = _get_current_user(request)

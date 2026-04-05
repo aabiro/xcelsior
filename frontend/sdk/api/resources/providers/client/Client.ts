@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace ProvidersClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Stripe Connect onboarding, Canadian company registration, payouts.
- */
 export class ProvidersClient {
     protected readonly _options: NormalizedClientOptions<ProvidersClient.Options>;
 
-    constructor(options: ProvidersClient.Options = {}) {
+    constructor(options: ProvidersClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -63,8 +59,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/providers/register",
             ),
             method: "POST",
@@ -131,8 +126,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/providers/${core.url.encodePathParam(providerId)}`,
             ),
             method: "GET",
@@ -197,8 +191,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/providers",
             ),
             method: "GET",
@@ -266,8 +259,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/providers/${core.url.encodePathParam(providerId)}/incorporation`,
             ),
             method: "POST",
@@ -339,8 +331,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/providers/${core.url.encodePathParam(providerId)}/earnings`,
             ),
             method: "GET",
@@ -416,8 +407,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/providers/${core.url.encodePathParam(providerId)}/payout`,
             ),
             method: "POST",
@@ -474,8 +464,7 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/providers/webhook",
             ),
             method: "POST",

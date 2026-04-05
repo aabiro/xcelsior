@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace ReputationClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Trust scoring, verification tiers (Bronze→Platinum), leaderboards.
- */
 export class ReputationClient {
     protected readonly _options: NormalizedClientOptions<ReputationClient.Options>;
 
-    constructor(options: ReputationClient.Options = {}) {
+    constructor(options: ReputationClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -56,8 +52,7 @@ export class ReputationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/reputation/leaderboard",
             ),
             method: "GET",
@@ -109,8 +104,7 @@ export class ReputationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/reputation/me",
             ),
             method: "GET",
@@ -166,8 +160,7 @@ export class ReputationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/reputation/${core.url.encodePathParam(entityId)}`,
             ),
             method: "GET",
@@ -234,8 +227,7 @@ export class ReputationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/reputation/${core.url.encodePathParam(entityId)}/history`,
             ),
             method: "GET",
@@ -304,8 +296,7 @@ export class ReputationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/reputation/verify",
             ),
             method: "POST",
@@ -374,8 +365,7 @@ export class ReputationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/reputation/${core.url.encodePathParam(entityId)}/breakdown`,
             ),
             method: "GET",

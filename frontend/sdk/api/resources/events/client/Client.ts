@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace EventsClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Event sourcing, state machine transitions, audit trail.
- */
 export class EventsClient {
     protected readonly _options: NormalizedClientOptions<EventsClient.Options>;
 
-    constructor(options: EventsClient.Options = {}) {
+    constructor(options: EventsClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -58,8 +54,7 @@ export class EventsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/events/${core.url.encodePathParam(entityType)}/${core.url.encodePathParam(entityId)}`,
             ),
             method: "GET",
@@ -128,8 +123,7 @@ export class EventsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/events/leases/${core.url.encodePathParam(jobId)}`,
             ),
             method: "GET",
@@ -184,8 +178,7 @@ export class EventsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/audit/verify-chain",
             ),
             method: "GET",
@@ -244,8 +237,7 @@ export class EventsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/audit/instance/${core.url.encodePathParam(jobId)}`,
             ),
             method: "GET",
@@ -310,8 +302,7 @@ export class EventsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/events",
             ),
             method: "GET",

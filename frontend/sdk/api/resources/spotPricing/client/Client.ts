@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace SpotPricingClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Dynamic spot pricing, interruptible jobs, preemption cycles.
- */
 export class SpotPricingClient {
     protected readonly _options: NormalizedClientOptions<SpotPricingClient.Options>;
 
-    constructor(options: SpotPricingClient.Options = {}) {
+    constructor(options: SpotPricingClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -42,8 +38,7 @@ export class SpotPricingClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "spot-prices",
             ),
             method: "GET",
@@ -68,51 +63,6 @@ export class SpotPricingClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/spot-prices");
-    }
-
-    /**
-     * Trigger spot price recalculation.
-     *
-     * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.spotPricing.update()
-     */
-    public update(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__update(requestOptions));
-    }
-
-    private async __update(requestOptions?: SpotPricingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "spot-prices/update",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/spot-prices/update");
     }
 
     /**
@@ -145,8 +95,7 @@ export class SpotPricingClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "spot/instance",
             ),
             method: "POST",
@@ -182,52 +131,5 @@ export class SpotPricingClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/spot/instance");
-    }
-
-    /**
-     * Run a preemption cycle — reclaim resources from underbidding spot jobs.
-     *
-     * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.spotPricing.runPreemptionCycle()
-     */
-    public runPreemptionCycle(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__runPreemptionCycle(requestOptions));
-    }
-
-    private async __runPreemptionCycle(
-        requestOptions?: SpotPricingClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "spot/preemption-cycle",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/spot/preemption-cycle");
     }
 }

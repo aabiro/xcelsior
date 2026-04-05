@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace HostsClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * GPU host registration, admission gating, and management.
- */
 export class HostsClient {
     protected readonly _options: NormalizedClientOptions<HostsClient.Options>;
 
-    constructor(options: HostsClient.Options = {}) {
+    constructor(options: HostsClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -63,8 +59,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "host",
             ),
             method: "PUT",
@@ -131,8 +126,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `host/${core.url.encodePathParam(hostId)}`,
             ),
             method: "GET",
@@ -196,8 +190,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `host/${core.url.encodePathParam(hostId)}`,
             ),
             method: "DELETE",
@@ -262,8 +255,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "hosts",
             ),
             method: "GET",
@@ -299,51 +291,6 @@ export class HostsClient {
     }
 
     /**
-     * Ping all hosts and update status.
-     *
-     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.hosts.check()
-     */
-    public check(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__check(requestOptions));
-    }
-
-    private async __check(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "hosts/check",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/hosts/check");
-    }
-
-    /**
      * Get the compute score (XCU) for a host.
      *
      * @param {XcelsiorApi.GetComputeScoreHostsRequest} request
@@ -372,8 +319,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `compute-score/${core.url.encodePathParam(hostId)}`,
             ),
             method: "GET",
@@ -427,8 +373,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "compute-scores",
             ),
             method: "GET",
@@ -472,8 +417,7 @@ export class HostsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "hosts/ca",
             ),
             method: "GET",

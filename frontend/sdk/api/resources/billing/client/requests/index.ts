@@ -1,6 +1,4 @@
-export type { ApiResetWalletTestingStateApiBillingWalletCustomerIdResetTestingPostRequest } from "./ApiResetWalletTestingStateApiBillingWalletCustomerIdResetTestingPostRequest.js";
 export type { AutoTopupConfig } from "./AutoTopupConfig.js";
-export type { BillInstanceBillingRequest } from "./BillInstanceBillingRequest.js";
 export type { ClaimFreeCreditsBillingRequest } from "./ClaimFreeCreditsBillingRequest.js";
 export type { CryptoDepositRequest } from "./CryptoDepositRequest.js";
 export type { CryptoDepositStatusBillingRequest } from "./CryptoDepositStatusBillingRequest.js";
@@ -9,7 +7,6 @@ export type { DepositRequest } from "./DepositRequest.js";
 export type { DownloadInvoiceBillingRequest } from "./DownloadInvoiceBillingRequest.js";
 export type { EstimateRequest } from "./EstimateRequest.js";
 export type { ExportCafBillingRequest } from "./ExportCafBillingRequest.js";
-export type { GetAnalyticsBillingRequest } from "./GetAnalyticsBillingRequest.js";
 export type { GetFreeCreditsStatusBillingRequest } from "./GetFreeCreditsStatusBillingRequest.js";
 export type { GetInvoiceBillingRequest } from "./GetInvoiceBillingRequest.js";
 export type { GetProviderGstThresholdBillingRequest } from "./GetProviderGstThresholdBillingRequest.js";

@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,175 +14,11 @@ export declare namespace JurisdictionClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Canada-first scheduling, province filtering, data residency traces.
- */
 export class JurisdictionClient {
     protected readonly _options: NormalizedClientOptions<JurisdictionClient.Options>;
 
-    constructor(options: JurisdictionClient.Options = {}) {
+    constructor(options: JurisdictionClient.Options) {
         this._options = normalizeClientOptions(options);
-    }
-
-    /**
-     * Check if Canada-only mode is active.
-     *
-     * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.jurisdiction.getCanadaStatus()
-     */
-    public getCanadaStatus(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getCanadaStatus(requestOptions));
-    }
-
-    private async __getCanadaStatus(
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "canada",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/canada");
-    }
-
-    /**
-     * Toggle Canada-only mode.
-     *
-     * @param {XcelsiorApi.CanadaToggle} request
-     * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.jurisdiction.setCanadaStatus({
-     *         enabled: true
-     *     })
-     */
-    public setCanadaStatus(
-        request: XcelsiorApi.CanadaToggle,
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__setCanadaStatus(request, requestOptions));
-    }
-
-    private async __setCanadaStatus(
-        request: XcelsiorApi.CanadaToggle,
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "canada",
-            ),
-            method: "PUT",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "PUT", "/canada");
-    }
-
-    /**
-     * Process queue with Canada-only hosts.
-     *
-     * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.jurisdiction.processQueueCanada()
-     */
-    public processQueueCanada(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__processQueueCanada(requestOptions));
-    }
-
-    private async __processQueueCanada(
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "queue/process/ca",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/queue/process/ca");
     }
 
     /**
@@ -212,8 +47,7 @@ export class JurisdictionClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/jurisdiction/hosts",
             ),
             method: "POST",
@@ -280,8 +114,7 @@ export class JurisdictionClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/jurisdiction/residency-trace/${core.url.encodePathParam(jobId)}`,
             ),
             method: "GET",
@@ -340,8 +173,7 @@ export class JurisdictionClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/trust-tiers",
             ),
             method: "GET",
@@ -366,70 +198,5 @@ export class JurisdictionClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/trust-tiers");
-    }
-
-    /**
-     * Process queue with jurisdiction + verification + reputation awareness.
-     *
-     * @param {XcelsiorApi.SovereignQueueRequest} request
-     * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.jurisdiction.processQueueSovereign()
-     */
-    public processQueueSovereign(
-        request: XcelsiorApi.SovereignQueueRequest = {},
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__processQueueSovereign(request, requestOptions));
-    }
-
-    private async __processQueueSovereign(
-        request: XcelsiorApi.SovereignQueueRequest = {},
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/queue/process-sovereign",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/queue/process-sovereign");
     }
 }
