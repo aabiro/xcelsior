@@ -146,7 +146,7 @@ export default function AdminOverviewPage() {
                     <p className="text-sm text-text-muted py-8 text-center">No revenue data yet</p>
                   ) : (
                     <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                      <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                         <AreaChart data={data.daily_revenue}>
                           <defs>
                             <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
@@ -177,7 +177,7 @@ export default function AdminOverviewPage() {
                     <p className="text-sm text-text-muted py-8 text-center">No job data yet</p>
                   ) : (
                     <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                      <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                         <BarChart data={data.daily_jobs}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                           <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" tickFormatter={(v: any) => String(v).slice(5)} />
@@ -202,7 +202,7 @@ export default function AdminOverviewPage() {
                     <p className="text-sm text-text-muted py-8 text-center">No signup data yet</p>
                   ) : (
                     <div className="h-48">
-                      <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                      <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                         <BarChart data={data.daily_signups}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                           <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" tickFormatter={(v: any) => String(v).slice(5)} />

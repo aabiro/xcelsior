@@ -270,7 +270,7 @@ export function SpendTrendChart({ data }: { data: { date: string; spend: number 
       badge={<TrendBadge values={data.map(d => d.spend)} />}
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="spendGrad" color={CHART_COLORS.gold} />
@@ -301,7 +301,7 @@ export function JobsTrendChart({ data }: { data: { date: string; count: number }
       badge={<TrendBadge values={data.map(d => d.count)} />}
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="jobsGrad" color={CHART_COLORS.cyan} />
@@ -334,7 +334,7 @@ export function UtilizationChart({ data }: { data: { date: string; util: number 
       }
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="utilGrad" color={CHART_COLORS.emerald} />
@@ -365,7 +365,7 @@ export function CumulativeSpendChart({ data }: { data: { date: string; total: nu
       fullWidth
     >
       <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="cumulativeGrad" color={CHART_COLORS.violet} opacity={0.4} />
@@ -395,7 +395,7 @@ export function CostPerHourChart({ data }: { data: { date: string; cost_per_hour
       badge={<TrendBadge values={data.map(d => d.cost_per_hour)} suffix="" />}
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <ComposedChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="cphGrad" color={CHART_COLORS.orange} />
@@ -426,7 +426,7 @@ export function GpuHoursChart({ data }: { data: { date: string; hours: number }[
       badge={<span className="text-xs font-mono font-bold text-accent-cyan">{total.toFixed(1)}h total</span>}
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <BarChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <linearGradient id="gpuHoursBar" x1="0" y1="0" x2="0" y2="1">
@@ -454,7 +454,7 @@ export function DurationHistogramChart({ data }: { data: { bucket: string; count
   return (
     <ChartCard title="Job Duration Distribution" subtitle="How long your jobs typically run">
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <BarChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <linearGradient id="durationBar" x1="0" y1="0" x2="0" y2="1">
@@ -488,7 +488,7 @@ export function SovereigntyChart({ data }: { data: { date: string; canadian: num
       badge={<MetricRing value={caPct} color={CHART_COLORS.cyan} size={40} strokeWidth={4} label={`${caPct}%`} />}
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <AreaChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="caGrad" color={CHART_COLORS.cyan} opacity={0.3} />
@@ -551,7 +551,7 @@ export function ProvinceDonutChart({ data }: { data: { name: string; value: numb
   return (
     <ChartCard title="Spend by Province" subtitle="Geographic distribution">
       <div className="h-64 relative">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <PieChart>
             <Pie
               data={data}
@@ -603,7 +603,7 @@ export function GpuPerformanceRadar({ data }: { data: { gpu_model: string; avg_u
   return (
     <ChartCard title="GPU Performance Radar" subtitle="Compare GPU models across metrics">
       <div className="h-72">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <RadarChart data={radarData} outerRadius={90}>
             <PolarGrid stroke="rgba(26, 34, 53, 0.8)" strokeDasharray="3 3" />
             <PolarAngleAxis dataKey="model" tick={{ fill: "#5a6a7e", fontSize: 9, fontFamily: "'JetBrains Mono', monospace" }} />
@@ -713,7 +713,7 @@ export function ProviderRevenueTrendChart({ data }: { data: { date: string; tota
       badge={<span className="text-xs font-mono font-bold text-emerald">{formatCurrency(totalRev)} earned</span>}
     >
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <ComposedChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <defs>
               <GradientDef id="provRevGrad" color={CHART_COLORS.emerald} opacity={0.4} />
@@ -758,7 +758,7 @@ export function WalletActivityChart({ data }: { data: { date: string; tx_type: s
   return (
     <ChartCard title="Wallet Activity" subtitle="Deposits, charges, and refunds">
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
           <BarChart data={pivoted} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey="date" tick={axisStyle} stroke={axisStroke} tickFormatter={formatShortDate} tickLine={false} />

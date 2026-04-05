@@ -78,7 +78,7 @@ function HpcContent() {
     setLoading(true);
     Promise.allSettled([
       api.fetchSlurmProfiles(),
-      fetch("/api/slurm/jobs", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
+      fetch("/api/slurm/instances", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
     ]).then(([p, j]) => {
       if (p.status === "fulfilled") {
         const raw = p.value.profiles || {};

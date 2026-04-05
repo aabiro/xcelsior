@@ -1475,7 +1475,7 @@ function ApiKeysTab({
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             <code className="text-xs text-text-muted font-mono">
-                              {revealed ? k.preview + "..." : maskKey(k.preview.slice(0, 6))}
+                              {revealed ? k.preview : maskKey(k.preview.slice(0, 10))}
                             </code>
                             <button
                               onClick={() => toggleReveal(k.preview)}

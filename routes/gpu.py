@@ -20,27 +20,31 @@ def api_gpu_available():
         from db import _get_pg_pool
         from psycopg.rows import dict_row
         pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            rows = conn.execute(
-                """SELECT gpu_model, vram_gb, region, province,
-                          COUNT(*) FILTER (WHERE available = true) AS count_available,
-                          MIN(ask_cents_per_hour) AS min_price_cents
-                   FROM gpu_offers
-                   GROUP BY gpu_model, vram_gb, region, province
-                   ORDER BY gpu_model, region""",
-            ).fetchall()
         gpus = []
         source = "gpu_offers"
-        for r in rows:
-            gpus.append({
-                "gpu_model": r["gpu_model"],
-                "vram_gb": r["vram_gb"],
-                "region": r["region"],
-                "province": r.get("province", ""),
-                "count_available": r["count_available"],
-                "price_per_hour_cad": round(r["min_price_cents"] / 100, 2) if r["min_price_cents"] else 0,
-            })
+        try:
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                rows = conn.execute(
+                    """SELECT gpu_model, vram_gb, region, province,
+                              COUNT(*) FILTER (WHERE available = true) AS count_available,
+                              MIN(ask_cents_per_hour) AS min_price_cents
+                       FROM gpu_offers
+                       GROUP BY gpu_model, vram_gb, region, province
+                       ORDER BY gpu_model, region""",
+                ).fetchall()
+            for r in rows:
+                gpus.append({
+                    "gpu_model": r["gpu_model"],
+                    "vram_gb": r["vram_gb"],
+                    "region": r["region"],
+                    "province": r.get("province", ""),
+                    "count_available": r["count_available"],
+                    "price_per_hour_cad": round(r["min_price_cents"] / 100, 2) if r["min_price_cents"] else 0,
+                })
+        except Exception as e:
+            log.debug("gpu_offers query failed (table may not exist): %s", e)
+            gpus = []
         if not gpus:
             # Fallback: derive from registered hosts
             source = "hosts"

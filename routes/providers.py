@@ -10,9 +10,6 @@ from routes._deps import (
     log,
     otel_span,
 )
-from scheduler import (
-    log,
-)
 from db import UserStore
 from stripe_connect import get_stripe_manager
 from reputation import VerificationType, get_reputation_engine
@@ -68,6 +65,9 @@ def api_register_provider(req: ProviderRegisterRequest):
         )
     except RuntimeError as e:
         raise HTTPException(502, str(e)) from e
+    except Exception as e:
+        log.error("Provider registration failed: %s", e)
+        raise HTTPException(502, f"Provider registration failed: {e}") from e
     # Link provider_id to user account
     from db import UserStore
     UserStore.update_user(req.email, {"provider_id": req.provider_id})
