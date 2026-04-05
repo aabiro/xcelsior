@@ -278,7 +278,6 @@ export default function EarningsPage() {
                     {stripeError && (
                       <p className="text-xs text-accent-red mt-1">{stripeError}</p>
                     )}
-                    </Button>
                   </div>
                 ) : (
                   <div className="space-y-3">
