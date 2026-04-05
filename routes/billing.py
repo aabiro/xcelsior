@@ -743,6 +743,152 @@ def api_usage_analytics(
     }
 
 
+@router.get("/api/analytics/enhanced", tags=["Billing"])
+def api_usage_analytics_enhanced(
+    request: Request,
+    customer_id: str = "",
+    provider_id: str = "",
+    days: int = 30,
+    offset_days: int = 0,
+):
+    """Enhanced usage analytics with additional aggregations for dashboards."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    is_admin = bool(user.get("is_admin"))
+    if not is_admin:
+        customer_id = user["email"]
+        provider_id = ""
+
+    billing = get_billing_engine()
+    now = time.time()
+    safe_days = max(1, min(days, 3650))
+    safe_offset_days = max(0, min(offset_days, 3650))
+    window_end = now - (safe_offset_days * 86400)
+    since = window_end - (safe_days * 86400)
+
+    where_clauses = ["started_at >= %s", "started_at < %s"]
+    params: list = [since, window_end]
+    if customer_id:
+        where_clauses.append("owner = %s")
+        params.append(customer_id)
+    if provider_id:
+        where_clauses.append("host_id = %s")
+        params.append(provider_id)
+
+    where_sql = " AND ".join(where_clauses)
+
+    try:
+        with billing._conn() as conn:
+            avg_cost_rows = conn.execute(
+                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                "ROUND(SUM(total_cost_cad) / NULLIF(SUM(gpu_seconds) / 3600.0, 0), 4) AS cost_per_hour "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY date ORDER BY date",
+                params,
+            ).fetchall()
+
+            cumulative_rows = conn.execute(
+                "SELECT date, running_total FROM ("
+                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                "ROUND(SUM(total_cost_cad), 2) AS daily_spend, "
+                "ROUND(SUM(SUM(total_cost_cad)) OVER (ORDER BY to_char(to_timestamp(started_at), 'YYYY-MM-DD')), 2) AS running_total "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY date"
+                ") s ORDER BY date",
+                params,
+            ).fetchall()
+
+            histogram_rows = conn.execute(
+                "SELECT bucket, COUNT(*) AS count FROM ("
+                "SELECT CASE "
+                "WHEN gpu_seconds < 60 THEN '< 1min' "
+                "WHEN gpu_seconds < 300 THEN '1-5min' "
+                "WHEN gpu_seconds < 1800 THEN '5-30min' "
+                "WHEN gpu_seconds < 3600 THEN '30min-1h' "
+                "ELSE '1h+' END AS bucket "
+                f"FROM usage_meters WHERE {where_sql}"
+                ") d GROUP BY bucket",
+                params,
+            ).fetchall()
+
+            top_hosts_rows = conn.execute(
+                "SELECT host_id, COUNT(*) AS job_count, ROUND(SUM(total_cost_cad), 2) AS total_cost "
+                f"FROM usage_meters WHERE {where_sql} AND host_id IS NOT NULL "
+                "GROUP BY host_id ORDER BY job_count DESC, total_cost DESC LIMIT 10",
+                params,
+            ).fetchall()
+
+            daily_hours_rows = conn.execute(
+                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                "ROUND(SUM(gpu_seconds) / 3600.0, 3) AS hours "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY date ORDER BY date",
+                params,
+            ).fetchall()
+
+            # Some deployments may not yet have a `status` column on usage_meters.
+            # Keep endpoint resilient by degrading this one aggregation only.
+            try:
+                status_row = conn.execute(
+                    "SELECT "
+                    "SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed, "
+                    "SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed, "
+                    "SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled "
+                    f"FROM usage_meters WHERE {where_sql}",
+                    params,
+                ).fetchone()
+            except Exception:
+                status_row = {"completed": 0, "failed": 0, "cancelled": 0}
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "avg_cost_per_hour_trend": [],
+            "cumulative_spend": [],
+            "duration_histogram": [],
+            "job_status_breakdown": {"completed": 0, "failed": 0, "cancelled": 0},
+            "top_hosts_used": [],
+            "daily_gpu_hours": [],
+        }
+
+    order = {"< 1min": 0, "1-5min": 1, "5-30min": 2, "30min-1h": 3, "1h+": 4}
+    histogram_sorted = sorted(
+        [{"bucket": r["bucket"], "count": int(r["count"] or 0)} for r in histogram_rows],
+        key=lambda r: order.get(r["bucket"], 99),
+    )
+
+    return {
+        "ok": True,
+        "days": safe_days,
+        "offset_days": safe_offset_days,
+        "avg_cost_per_hour_trend": [
+            {"date": r["date"], "cost_per_hour": float(r["cost_per_hour"] or 0)} for r in avg_cost_rows
+        ],
+        "cumulative_spend": [
+            {"date": r["date"], "running_total": float(r["running_total"] or 0)} for r in cumulative_rows
+        ],
+        "duration_histogram": histogram_sorted,
+        "job_status_breakdown": {
+            "completed": int((status_row["completed"] if status_row else 0) or 0),
+            "failed": int((status_row["failed"] if status_row else 0) or 0),
+            "cancelled": int((status_row["cancelled"] if status_row else 0) or 0),
+        },
+        "top_hosts_used": [
+            {
+                "host_id": r["host_id"],
+                "job_count": int(r["job_count"] or 0),
+                "total_cost": float(r["total_cost"] or 0),
+            }
+            for r in top_hosts_rows
+        ],
+        "daily_gpu_hours": [
+            {"date": r["date"], "hours": float(r["hours"] or 0)} for r in daily_hours_rows
+        ],
+    }
+
+
 # ── Model: AutoTopupConfig ──
 
 class AutoTopupConfig(BaseModel):
@@ -785,4 +931,3 @@ def api_billing_get_topup(request: Request):
             "threshold_cad": wallet.get("auto_topup_threshold", 0),
         },
     }
-

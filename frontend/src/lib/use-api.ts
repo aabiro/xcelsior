@@ -23,7 +23,10 @@ export function useApi() {
     fetchPricingReference: api.fetchPricingReference,
     fetchReservedPlans: api.fetchReservedPlans,
     fetchSpotPrices: api.fetchSpotPrices,
+    fetchWalletHistory: api.fetchWalletHistory,
+    fetchUsageSummary: api.fetchUsageSummary,
     fetchLeaderboard: api.fetchLeaderboard,
     fetchAnalytics: api.fetchAnalytics,
+    fetchEnhancedAnalytics: api.fetchEnhancedAnalytics,
   }), []);
 }

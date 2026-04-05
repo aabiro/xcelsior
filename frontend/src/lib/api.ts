@@ -509,6 +509,11 @@ export async function fetchAnalytics(params?: Record<string, string>) {
   return apiFetch(`/api/analytics/usage${qs}`);
 }
 
+export async function fetchEnhancedAnalytics(params?: Record<string, string>) {
+  const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
+  return apiFetch(`/api/analytics/enhanced${qs}`);
+}
+
 // ── Instance Detail ───────────────────────────────────────────────────
 export async function fetchInstance(instanceId: string) {
   return apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}`);
