@@ -25,7 +25,7 @@ from chat import (
     stream_chat_response,
 )
 from privacy import redact_pii
-from ai_assistant import FEATURE_AI_ASSISTANT
+from ai_assistant import FEATURE_AI_ASSISTANT, get_suggestions
 
 router = APIRouter()
 
@@ -258,5 +258,5 @@ def api_ai_suggestions(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-    return {"ok": True, "suggestions": ai_get_suggestions(user)}
+    return {"ok": True, "suggestions": get_suggestions(user)}
 

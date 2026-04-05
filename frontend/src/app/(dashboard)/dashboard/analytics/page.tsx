@@ -176,7 +176,7 @@ export default function AnalyticsPage() {
             </Card>
           </div>
           <p className="text-xs text-text-muted mt-6">
-            Launch an instance to start collecting analytics data
+            Analytics populate automatically when you launch instances or when jobs run on your hosts
           </p>
         </div>
       ) : (

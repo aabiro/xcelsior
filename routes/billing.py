@@ -626,6 +626,7 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
 
 @router.get("/api/analytics/usage", tags=["Billing"])
 def api_usage_analytics(
+    request: Request,
     customer_id: str = "",
     provider_id: str = "",
     days: int = 30,
@@ -638,12 +639,24 @@ def api_usage_analytics(
     aggregates over time. Supports grouping by day, week, GPU model,
     or province for detailed reporting.
 
+    Non-admin users are automatically scoped to their own data.
+
     Query params:
-    - `customer_id` — filter to one customer (submitter view)
-    - `provider_id` — filter to one provider (earnings view)
+    - `customer_id` — filter to one customer (submitter view, admin only)
+    - `provider_id` — filter to one provider (earnings view, admin only)
     - `days` — lookback window (default 30)
     - `group_by` — aggregation: `day`, `week`, `gpu_model`, `province`
     """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    # Non-admin users are scoped to their own data automatically
+    is_admin = bool(user.get("is_admin"))
+    if not is_admin:
+        customer_id = user["email"]
+        provider_id = ""  # provider filtering requires admin
+
     billing = get_billing_engine()
     now = time.time()
     safe_days = max(1, min(days, 3650))

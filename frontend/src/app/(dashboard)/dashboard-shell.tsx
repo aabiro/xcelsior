@@ -519,8 +519,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200",
             aiPanelOpen
-              ? "bg-accent-orange text-white shadow-lg shadow-accent-orange/25 scale-110"
-              : "text-accent-orange hover:bg-accent-orange/15"
+              ? "bg-accent-red text-white shadow-lg shadow-accent-red/25 scale-110"
+              : "text-accent-red hover:bg-accent-red/15"
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
