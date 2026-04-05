@@ -53,9 +53,9 @@ TERMINAL_STATES = frozenset(
 # Valid state transitions — anything not here is rejected
 VALID_TRANSITIONS = {
     JobState.QUEUED: {JobState.ASSIGNED, JobState.CANCELLED},
-    JobState.ASSIGNED: {JobState.LEASED, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
+    JobState.ASSIGNED: {JobState.LEASED, JobState.RUNNING, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
     JobState.LEASED: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
-    JobState.RUNNING: {JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED},
+    JobState.RUNNING: {JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED, JobState.CANCELLED},
     JobState.COMPLETED: set(),  # Terminal
     JobState.FAILED: {JobState.QUEUED},  # Retry
     JobState.PREEMPTED: {JobState.QUEUED},  # Re-queue
@@ -219,6 +219,8 @@ class EventStore:
         """
         from psycopg.types.json import Jsonb
         with self._conn() as conn:
+            # Lock to prevent concurrent forks of the hash chain
+            conn.execute("LOCK TABLE events IN EXCLUSIVE MODE")
             # Get the hash of the most recent event (chain link)
             row = conn.execute(
                 "SELECT event_hash FROM events ORDER BY timestamp DESC, event_id DESC LIMIT 1"
@@ -481,27 +483,27 @@ class EventStore:
                     (row["lease_id"],),
                 )
                 expired_jobs.append(row["job_id"])
-
-                self.append(
-                    Event(
-                        event_type=EventType.JOB_LEASE_EXPIRED,
-                        entity_type="job",
-                        entity_id=row["job_id"],
-                        actor="scheduler",
-                        data={
-                            "lease_id": row["lease_id"],
-                            "host_id": row["host_id"],
-                            "expired_at": now,
-                            "was_due_at": row["expires_at"],
-                        },
-                    )
-                )
                 log.warning(
                     "LEASE EXPIRED job=%s host=%s lease=%s",
                     row["job_id"],
                     row["host_id"],
                     row["lease_id"],
                 )
+
+        # Append events outside the lease connection to avoid nested pool checkouts
+        for job_id_expired in expired_jobs:
+            try:
+                self.append(
+                    Event(
+                        event_type=EventType.JOB_LEASE_EXPIRED,
+                        entity_type="job",
+                        entity_id=job_id_expired,
+                        actor="scheduler",
+                        data={"expired_at": now},
+                    )
+                )
+            except Exception as exc:
+                log.debug("Failed to record lease expiry event for %s: %s", job_id_expired, exc)
 
         return expired_jobs
 

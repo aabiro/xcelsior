@@ -1009,6 +1009,15 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
     # Validate docker image format: [registry/]name[:tag]
     if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?$', image) or len(image) > MAX_DOCKER_IMAGE_LEN:
         return {"error": f"Invalid docker image format: {image!r}. Expected format: 'registry/image:tag'."}
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    import time as _time
+    _w = get_billing_engine().get_wallet(customer_id)
+    if _w.get("status") == "suspended":
+        return {"error": "Wallet suspended — please add funds before launching jobs."}
+    if _w["balance_cad"] <= 0 and (_w.get("grace_until") or 0) < _time.time():
+        return {"error": "Insufficient wallet balance — please deposit credits before launching jobs."}
     job = submit_job(
         name=args.get("name", "ai-assisted-job"),
         vram_needed_gb=args.get("vram_needed_gb", DEFAULT_GPU_VRAM_GB),
@@ -1016,6 +1025,7 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
         tier=args.get("tier", "on-demand"),
         num_gpus=args.get("gpu_count", 1),
         image=args.get("docker_image", ""),
+        owner=customer_id,
     )
     if not job or not job.get("job_id", job.get("id")):
         return {"error": "Failed to submit job. Please try again."}
@@ -2776,6 +2786,7 @@ When a user wants to rent GPU compute, guide them step-by-step:
     # ── Page context / wizard step steering ──────────────────────────
     page_context_section = ""
     is_wizard = page_context.startswith("cli-wizard:")
+    is_analytics = page_context.startswith("analytics-dashboard:")
     wizard_identity = ""
     if page_context:
         if is_wizard:
@@ -2802,6 +2813,72 @@ WIZARD CONTEXT: {page_context}
             # Step builders provide detailed context — skip generic wizard blocks
             provider_wizard = ""
             renter_wizard = ""
+        elif is_analytics:
+            chart_context = page_context.removeprefix("analytics-dashboard:")
+            tab_awareness = {
+                "overview": "the Overview tab — showing KPI cards (jobs, spend, GPU hours, utilisation), spend trend, jobs trend, utilisation chart, insights cards, and sparklines",
+                "compute": "the Compute tab — showing GPU performance radar, duration histogram, GPU hours chart, utilisation trend, GPU performance table, and peak days",
+                "financial": "the Financial tab — showing cumulative spend, cost per hour trend, wallet activity, top GPU spend bar chart, province donut chart, sovereignty chart, and top entities table",
+                "provider": "the Provider tab — showing provider revenue trend, host utilisation, jobs served, total revenue, GPU hours, and average utilisation stats",
+            }
+            tab_desc = tab_awareness.get(chart_context, f"tab: {chart_context}" if chart_context else "the dashboard overview")
+            page_context_section = f"""
+ANALYTICS DASHBOARD CONTEXT:
+The user is viewing their analytics dashboard — specifically {tab_desc}.
+
+You are **Xcel Analytics** — a sharp, data-obsessed analyst embedded in the Xcelsior GPU marketplace dashboard.
+
+PERSONALITY & TONE:
+- You are direct, confident, and insight-driven. Lead with the most important finding.
+- Use precise numbers — never say "some" or "a lot" when you have exact data.
+- Be opinionated: if the data shows something notable, say so clearly. "Your utilisation dropped 18% — that's worth investigating."
+- Celebrate wins: "Your cost efficiency improved 23% — that's excellent optimisation."
+- Flag concerns: "Your spend is accelerating faster than your job volume — watch this."
+- Keep a professional but energetic tone — you're a trusted data analyst, not a chatbot.
+
+AVAILABLE CHARTS & DATA:
+You have access to ALL of the following data from their live dashboard:
+1. **Core KPIs** — total jobs, total spend (CAD), GPU hours, avg utilisation, with period-over-period deltas
+2. **Spend Trend** — daily spending over time with area chart
+3. **Jobs Trend** — daily job count over time
+4. **Utilisation Trend** — daily avg GPU utilisation %
+5. **Cumulative Spend** — running total spend over the period
+6. **Cost Per GPU Hour** — daily $/hr trend with min/max/avg/median statistics
+7. **GPU Hours** — daily GPU hour consumption
+8. **Duration Histogram** — job duration distribution (buckets: 0-5min, 5-15min, etc)
+9. **Hourly Heatmap** — job activity by day-of-week × hour-of-day
+10. **Data Sovereignty** — Canadian vs international job/spend split
+11. **GPU Performance** — per-model breakdown: jobs, utilisation, cost/hr, duration, hours, efficiency score
+12. **Top GPU Spend** — bar chart of spend by GPU model
+13. **Province Distribution** — donut chart of spend by province
+14. **Top Entities** — highest-spend entities table
+15. **Wallet Activity** — deposit/charge history with net flow
+16. **Peak Days** — busiest days by jobs, hours, and spend
+17. **Provider Revenue** — daily revenue trend for hosts (if provider)
+18. **Provider Summary** — total jobs served, revenue, GPU hours, utilisation (if provider)
+19. **Insight Cards** — auto-generated insight summaries with positive/negative/info types
+
+ANALYSIS CAPABILITIES:
+- Trend analysis: identify direction, acceleration, inflection points
+- Anomaly detection: spot outliers, unusual spikes, or drops
+- Comparative analysis: current period vs previous period with % changes
+- Efficiency scoring: utilisation-to-cost ratios per GPU model
+- Pattern recognition: weekly cycles, peak hours, seasonal trends
+- Cost optimisation: identify high-cost/low-efficiency areas
+- Forecasting language: project trends forward based on recent trajectory
+
+RESPONSE GUIDELINES:
+- **Lead with the headline insight** — don't bury the lede
+- **Bold key numbers**: "$48.30", "23.5%", "142 jobs"
+- **Use comparison language**: "up 18% from last period", "3× higher than your daily average"
+- **Structure with headers** for multi-topic answers: ## Spending Analysis, ## Recommendations
+- **Bullet points** for lists of insights or recommendations (3-5 items max)
+- **End with a forward-looking note** or actionable recommendation when appropriate
+- Use CAD ($) for all monetary values
+- Keep core answers to 2-4 focused paragraphs; expand only when the user asks for detail
+- If data is missing or zero, say so clearly rather than guessing
+- When uncertain, qualify with "based on the available data" rather than fabricating
+"""
         else:
             page_context_section = f"""
 CURRENT PAGE CONTEXT:
@@ -2899,6 +2976,17 @@ def get_suggestions(user: dict) -> list[dict]:
     suggestions.append({"label": "Check my reputation", "prompt": "Show me my reputation score and tier"})
 
     return suggestions
+
+
+# ── Analytics AI System Prompt ────────────────────────────────────────
+
+def build_analytics_system_prompt(user: dict, chart_context: str = "") -> str:
+    """Build a specialised system prompt for the analytics AI assistant.
+
+    This is called by the /api/ai/analytics endpoint. The actual analytics data
+    is injected by stream_ai_response via the analytics_data parameter.
+    """
+    return build_ai_system_prompt(user, page_context=f"analytics-dashboard:{chart_context}")
 
 
 # ── History Reconstruction ────────────────────────────────────────────
@@ -3346,6 +3434,7 @@ async def stream_ai_response(
     conversation_id: str,
     user: dict,
     page_context: str = "",
+    analytics_data: str = "",
 ) -> AsyncGenerator[str, None]:
     """Stream AI assistant response with provider fallbacks and safe dev mode."""
     user_id = user.get("user_id", user.get("email", ""))
@@ -3384,6 +3473,28 @@ async def stream_ai_response(
             )
 
     system = build_ai_system_prompt(user, page_context=page_context)
+
+    # Inject analytics data into system prompt if provided
+    if analytics_data:
+        system += f"""
+
+═══════════════════════════════════════════════════════════════
+LIVE ANALYTICS DATA — THE USER'S ACTUAL DASHBOARD NUMBERS
+═══════════════════════════════════════════════════════════════
+
+This is the user's real, live analytics data. Every number below comes directly
+from their dashboard. Use these EXACT figures in your responses — do not round
+excessively or paraphrase when precision matters.
+
+When the user asks about a chart, metric, or trend — THIS is your source of truth.
+Cross-reference multiple data sections to provide richer insights.
+
+{analytics_data}
+
+═══════════════════════════════════════════════════════════════
+END OF ANALYTICS DATA
+═══════════════════════════════════════════════════════════════
+"""
 
     # Pre-fetch data once for text-only providers (cached, reused across fallbacks)
     prefetch_data = ""

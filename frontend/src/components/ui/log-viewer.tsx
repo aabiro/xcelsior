@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createInstanceLogStream, fetchInstanceLogs } from "@/lib/api";
 import type { InstanceLog } from "@/lib/api";
+import { Download } from "lucide-react";
 
 interface LogViewerProps {
   jobId: string;
@@ -11,6 +12,7 @@ interface LogViewerProps {
 
 const LEVEL_COLORS: Record<string, string> = {
   error: "text-accent-red",
+  stderr: "text-accent-red",
   warn: "text-accent-gold",
   warning: "text-accent-gold",
   info: "text-ice-blue",
@@ -42,7 +44,7 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
     es.addEventListener("job_log", (e) => {
       try {
         const data = JSON.parse(e.data);
-        setLogs((prev) => [...prev, data]);
+        setLogs((prev) => [...prev, data].slice(-5000));
       } catch {}
     });
 
@@ -52,7 +54,7 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
         setLogs((prev) => [
           ...prev,
           { timestamp: new Date().toISOString(), level: "info", message: `Status changed to ${data.status}` },
-        ]);
+        ].slice(-5000));
       } catch {}
     });
 
@@ -74,12 +76,52 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 40);
   }
 
+  function handleDownload() {
+    const text = logs.map((log) => {
+      const rawTs = typeof log.timestamp === "number" && log.timestamp < 1e12
+        ? log.timestamp * 1000
+        : log.timestamp;
+      const ts = rawTs ? new Date(rawTs).toISOString() : "";
+      const level = log.level ? `[${log.level.toUpperCase()}]` : "";
+      return `${ts} ${level} ${log.message}`;
+    }).join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${jobId}-logs.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-2">
       {live && (
         <div className="flex items-center gap-2 text-xs">
           <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald animate-pulse" : "bg-text-muted"}`} />
           <span className="text-text-muted">{connected ? "Live" : "Disconnected"}</span>
+          {logs.length > 0 && (
+            <button
+              onClick={handleDownload}
+              title="Download logs"
+              className="ml-auto flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download</span>
+            </button>
+          )}
+        </div>
+      )}
+      {!live && logs.length > 0 && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleDownload}
+            title="Download logs"
+            className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Download</span>
+          </button>
         </div>
       )}
       <div
@@ -92,8 +134,11 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
         ) : (
           logs.map((log, i) => {
             const color = LEVEL_COLORS[log.level?.toLowerCase() || ""] || "text-text-secondary";
-            const ts = log.timestamp
-              ? new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+            const rawTs = typeof log.timestamp === "number" && log.timestamp < 1e12
+              ? log.timestamp * 1000
+              : log.timestamp;
+            const ts = rawTs
+              ? new Date(rawTs).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
               : "";
             return (
               <div key={i} className="flex gap-2 hover:bg-surface-hover -mx-1 px-1 rounded">

@@ -463,7 +463,14 @@ export async function launchInstance(
         token,
     );
     if (status !== 200 || !data.instance) {
-        throw new Error(`Instance launch failed: HTTP ${status}`);
+        const detail = (data as Record<string, unknown>)?.detail;
+        if (status === 402) {
+            const msg = typeof detail === "string" && /suspend/i.test(detail)
+                ? "Wallet suspended — visit the dashboard to resolve"
+                : `Insufficient balance — add funds at ${baseUrl.replace(/\/api$/, "")}/dashboard/billing`;
+            throw new Error(msg);
+        }
+        throw new Error(typeof detail === "string" ? detail : `Instance launch failed: HTTP ${status}`);
     }
     return data.instance;
 }

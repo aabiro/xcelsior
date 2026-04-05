@@ -61,6 +61,9 @@ SSH_KEY_PATH = os.environ.get("XCELSIOR_SSH_KEY_PATH", os.path.expanduser("~/.ss
 SSH_USER = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
 API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN", "")
 
+# Guard against concurrent process_queue / failover_and_reassign
+_scheduler_lock = threading.Lock()
+
 
 # ── Phase 7: Logging ─────────────────────────────────────────────────
 
@@ -594,6 +597,10 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
     return best
 
 
+# Throttle: track last job_error notification per job_id
+_job_error_notified: dict[str, float] = {}
+
+
 def process_queue_binpack(canada_only=None, province=None):
     """Process job queue using best-fit-decreasing order.
 
@@ -611,13 +618,29 @@ def process_queue_binpack(canada_only=None, province=None):
     jobs.sort(key=lambda j: j.get("vram_needed_gb", 0), reverse=True)
 
     assigned = []
+    skipped = []
     for job in jobs:
         host = allocate_binpack(job, hosts)
         if host:
             update_job_status(job["job_id"], "assigned", host["host_id"])
             assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
-            # Reduce host's available VRAM for subsequent allocations
-            host["free_vram_gb"] = host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0)
+            # Reduce host's available VRAM for subsequent allocations (clamped)
+            host["free_vram_gb"] = max(0, host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0))
+        else:
+            skipped.append(job["job_id"])
+
+    # Notify about unassignable jobs (throttle: once per 5 minutes per job)
+    now = time.time()
+    for jid in skipped:
+        last_notified = _job_error_notified.get(jid, 0)
+        if now - last_notified < 300:
+            continue
+        _job_error_notified[jid] = now
+        emit_event("job_error", {
+            "job_id": jid,
+            "error": "no_hosts_available",
+            "message": "No GPU hosts currently match your requirements. Your job remains queued.",
+        })
 
     return assigned
 
@@ -772,23 +795,32 @@ def check_hosts():
 
 
 def _requeue_dead_host_jobs(host_id: str, ip: str):
-    """Requeue all running/assigned jobs from a dead host so they get rescheduled."""
+    """Requeue all running/assigned/leased jobs from a dead host so they get rescheduled.
+
+    Delegates to requeue_job() per-job to ensure proper VRAM release,
+    retry tracking, and JSONB payload consistency.
+    """
     try:
-        with _atomic_mutation() as conn:
+        with _db_connection() as conn:
             jobs = conn.execute(
-                "SELECT job_id, name FROM jobs WHERE host_id = %s AND status IN ('running', 'assigned', 'leased')",
+                "SELECT job_id, payload->>'name' AS name FROM jobs WHERE host_id = %s AND status IN ('running', 'assigned', 'leased')",
                 (host_id,),
             ).fetchall()
-            if not jobs:
-                return
-            requeued_ids = [j["job_id"] for j in jobs]
-            conn.execute(
-                """UPDATE jobs SET status = 'queued', host_id = NULL, started_at = 0
-                   WHERE host_id = %s AND status IN ('running', 'assigned', 'leased')""",
-                (host_id,),
-            )
-        log.warning("REQUEUED %d jobs from dead host %s (%s): %s",
-                     len(requeued_ids), host_id, ip, requeued_ids)
+        if not jobs:
+            return
+
+        requeued_ids = []
+        for j in jobs:
+            try:
+                result = requeue_job(j["job_id"])
+                if result:
+                    requeued_ids.append(j["job_id"])
+            except Exception as e:
+                log.error("Failed to requeue job %s from dead host %s: %s", j["job_id"], host_id, e)
+
+        if requeued_ids:
+            log.warning("REQUEUED %d jobs from dead host %s (%s): %s",
+                         len(requeued_ids), host_id, ip, requeued_ids)
     except Exception as e:
         log.error("Failed to requeue jobs from dead host %s: %s", host_id, e)
 
@@ -894,6 +926,7 @@ def submit_job(
     interactive=False,
     command=None,
     ssh_port=22,
+    owner="",
 ):
     """
     Submit a job to the queue.
@@ -905,6 +938,11 @@ def submit_job(
     NFS: Optionally specify NFS server/path for shared storage.
     Interactive: If True, container stays running with SSH access until stopped.
     """
+    # Validate Docker image if provided
+    if image:
+        from security import validate_docker_image
+        image = validate_docker_image(image)
+
     # Tier overrides raw priority
     if tier and tier in PRIORITY_TIERS:
         tier_info = PRIORITY_TIERS[tier]
@@ -922,6 +960,7 @@ def submit_job(
     job = {
         "job_id": str(uuid.uuid4())[:8],
         "name": name,
+        "owner": owner,
         "vram_needed_gb": vram_needed_gb,
         "priority": priority,
         "tier": tier,
@@ -1024,6 +1063,62 @@ def _release_host_vram(conn, host_id, amount_gb):
     return True
 
 
+def reconcile_host_vram():
+    """Periodic VRAM reconciliation: recompute free_vram_gb from ground truth.
+
+    For each host, sums the vram_reserved_gb (or vram_needed_gb) of all
+    jobs in running/assigned/leased status, then corrects free_vram_gb if
+    it has drifted.  This catches VRAM leaks that bypass the normal
+    reserve/release path.
+
+    Returns dict of {host_id: correction_amount} for hosts that were corrected.
+    """
+    corrections = {}
+
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        _migrate_jobs_if_needed(conn)
+
+        hosts = _load_hosts_from_conn(conn, active_only=False)
+        jobs = _load_jobs_from_conn(conn)
+
+        # Sum VRAM usage per host from jobs that have actually reserved VRAM.
+        # Only "running" jobs have VRAM reserved in the DB (done by update_job_status).
+        # Assigned/leased jobs have vram_reserved_gb=0 — counting their vram_needed_gb
+        # would over-count and deflate free_vram_gb, blocking legitimate assignments.
+        host_vram_used: dict[str, float] = {}
+        for j in jobs:
+            if j.get("status") == "running":
+                hid = j.get("host_id")
+                reserved = float(j.get("vram_reserved_gb", 0) or 0)
+                if hid and reserved > 0:
+                    host_vram_used[hid] = host_vram_used.get(hid, 0.0) + reserved
+
+        for host in hosts:
+            hid = host.get("host_id")
+            if not hid:
+                continue
+            total = float(host.get("total_vram_gb", 0) or 0)
+            current_free = float(host.get("free_vram_gb", 0) or 0)
+            used = host_vram_used.get(hid, 0.0)
+            expected_free = round(max(0.0, min(total, total - used)), 4)
+
+            drift = abs(current_free - expected_free)
+            if drift > 0.01:  # Correct if drift exceeds 10MB
+                log.warning(
+                    "VRAM RECONCILE host=%s total=%.2f current_free=%.2f expected_free=%.2f drift=%.2f",
+                    hid, total, current_free, expected_free, drift,
+                )
+                host["free_vram_gb"] = expected_free
+                _upsert_host_row(conn, host)
+                corrections[hid] = round(expected_free - current_free, 4)
+
+    if corrections:
+        log.info("VRAM RECONCILE corrected %d hosts: %s", len(corrections), corrections)
+
+    return corrections
+
+
 def update_job_status(job_id, status, host_id=None):
     """Mark a job. queued -> running -> completed/failed. That's the lifecycle."""
     if status not in VALID_STATUSES:
@@ -1043,6 +1138,20 @@ def update_job_status(job_id, status, host_id=None):
         old_status = j.get("status")
         old_host_id = j.get("host_id")
 
+        # Validate state transition against the state machine
+        from events import VALID_TRANSITIONS, JobState
+        try:
+            old_state = JobState(old_status) if old_status else None
+            new_state = JobState(status)
+            if old_state and new_state not in VALID_TRANSITIONS.get(old_state, set()):
+                log.warning(
+                    "INVALID TRANSITION job=%s %s -> %s (allowed: %s)",
+                    job_id, old_status, status,
+                    [s.value for s in VALID_TRANSITIONS.get(old_state, set())],
+                )
+        except ValueError:
+            pass  # Unknown state enum value — allow for forward compat
+
         # Idempotency: if already running, don't allow accidental reassignment.
         if status == "running" and old_status == "running":
             return j
@@ -1054,6 +1163,10 @@ def update_job_status(job_id, status, host_id=None):
             if target_host and reserved > 0:
                 reserve_result = _reserve_host_vram(conn, target_host, reserved)
                 if reserve_result is False:
+                    log.warning(
+                        "VRAM RESERVE FAILED job=%s host=%s needed=%.1fGB",
+                        job_id, target_host, reserved,
+                    )
                     return None
                 j["vram_reserved_gb"] = reserved
 
@@ -1144,6 +1257,13 @@ def list_jobs(status=None):
     with _db_connection() as conn:
         _migrate_jobs_if_needed(conn)
         return _load_jobs_from_conn(conn, status=status)
+
+
+def get_job(job_id: str):
+    """Get a single job by ID. Returns full JSONB payload dict or None."""
+    with _db_connection() as conn:
+        _migrate_jobs_if_needed(conn)
+        return _get_job_by_id_conn(conn, job_id)
 
 
 def process_queue():
@@ -1240,15 +1360,72 @@ def process_assigned():
 
 
 def scheduler_tick():
-    """Single scheduler iteration: assign queued jobs, then start assigned ones."""
-    try:
-        process_queue()
-    except Exception as e:
-        log.error("Scheduler queue error: %s", e)
-    try:
-        process_assigned()
-    except Exception as e:
-        log.error("Scheduler runner error: %s", e)
+    """Single scheduler iteration: assign queued jobs, then start assigned ones.
+
+    Uses _scheduler_lock to prevent concurrent process_queue calls from
+    the failover monitor thread.
+    """
+    with _scheduler_lock:
+        try:
+            process_queue()
+        except Exception as e:
+            log.error("Scheduler queue error: %s", e)
+        try:
+            process_assigned()
+        except Exception as e:
+            log.error("Scheduler runner error: %s", e)
+
+
+def scheduler_main():
+    """Production scheduler entry point.
+
+    Starts background threads for health monitoring and failover,
+    then runs the scheduler tick loop with lease expiry checks.
+    Intended to be the single command for the scheduler-worker container.
+    """
+    log.info("SCHEDULER MAIN starting — tick=2s, health=30s, failover=60s")
+
+    # Start health monitor: pings all hosts every 30s, marks dead/alive
+    start_health_monitor(interval=30)
+    log.info("Health monitor thread started (30s interval)")
+
+    # Start failover monitor: requeues orphaned jobs every 60s
+    start_failover_monitor(interval=60)
+    log.info("Failover monitor thread started (60s interval)")
+
+    event_store = get_event_store()
+    tick_count = 0
+
+    while True:
+        scheduler_tick()
+
+        # Expire stale leases every 5th tick (10s)
+        tick_count += 1
+        if tick_count % 5 == 0:
+            try:
+                expired = event_store.expire_stale_leases()
+                if expired:
+                    log.warning(
+                        "LEASE EXPIRY: %d jobs expired — requeueing: %s",
+                        len(expired),
+                        expired,
+                    )
+                    for job_id in expired:
+                        try:
+                            requeue_job(job_id)
+                        except Exception as e:
+                            log.error("Failed to requeue expired lease job %s: %s", job_id, e)
+            except Exception as e:
+                log.error("Lease expiry check failed: %s", e)
+
+        # Reconcile VRAM every 30th tick (60s) to catch drift
+        if tick_count % 30 == 0:
+            try:
+                reconcile_host_vram()
+            except Exception as e:
+                log.error("VRAM reconciliation failed: %s", e)
+
+        time.sleep(2)
 
 
 # ── Phase 5 & 6: Run Job / Kill Job ──────────────────────────────────
@@ -1330,24 +1507,130 @@ def run_job(job, host, docker_image=None):
     """
     SSH into the host. docker run the model. Log the container ID.
     Returns the container ID or None on failure.
+
+    If the job has checkpoint metadata (resume_from), attempts to resume
+    from the checkpoint first. Falls through to fresh docker run on failure.
+
+    Constructs a hardened docker run command with:
+    - NFS volume mounts (if specified in job)
+    - Interactive mode with SSH port mapping
+    - Security flags (no-new-privileges, pids-limit)
+    - Memory limits based on host capacity
+    - Per-GPU selection when available
     """
-    image = docker_image or f"xcelsior/{job['name']}:latest"
+    # ── Checkpoint Resume Path ────────────────────────────────────────
+    checkpoint_meta = job.get("resume_from")
+    if checkpoint_meta and checkpoint_meta.get("success"):
+        log.info("RUN_JOB attempting checkpoint resume for job=%s on host=%s",
+                 job["job_id"], host["host_id"])
+        resumed = resume_from_checkpoint(job["job_id"], host["host_id"], checkpoint_meta)
+        if resumed:
+            # Clear resume_from metadata now that we've successfully resumed
+            _set_job_fields(job["job_id"], resume_from=None)
+            return checkpoint_meta.get("container", f"xcelsior-job-{job['job_id']}")
+        log.warning("RUN_JOB checkpoint resume failed for job=%s — falling through to fresh start",
+                     job["job_id"])
+        # Clear stale checkpoint metadata so we don't retry forever
+        _set_job_fields(job["job_id"], resume_from=None)
+
+    # ── Fresh Start Path ──────────────────────────────────────────────
+    image = docker_image or job.get("image") or f"xcelsior/{job['name']}:latest"
     container_name = f"xcl-{job['job_id']}"
 
     # Validate names to prevent shell injection
     _validate_name(image, "docker image")
     _validate_name(container_name, "container name")
 
-    cmd = (
-        f"docker run -d --gpus all "
-        f"--name {shlex.quote(container_name)} "
-        f"{shlex.quote(image)}"
-    )
+    # Validate image against allowlist
+    from security import validate_docker_image
+    image = validate_docker_image(image)
+
+    # Build docker run command parts
+    parts = ["docker run -d"]
+
+    # GPU passthrough
+    num_gpus = job.get("num_gpus", 1)
+    if num_gpus > 0:
+        parts.append(f"--gpus all")
+
+    # Container name
+    parts.append(f"--name {shlex.quote(container_name)}")
+
+    # Security hardening (parity with build_secure_docker_args in security.py)
+    parts.append("--security-opt=no-new-privileges")
+    parts.append("--security-opt=seccomp=default")
+    parts.append("--cap-drop=ALL")
+    parts.append("--pids-limit=4096")
+    parts.append("--no-healthcheck")
+
+    # Non-root execution
+    parts.append("--user=1000:1000")
+
+    # Read-only root filesystem for batch jobs; tmpfs for temp dirs
+    is_interactive = job.get("interactive", False)
+    if not is_interactive:
+        parts.append("--read-only")
+    parts.append("--tmpfs=/tmp:rw,noexec,nosuid,size=1g")
+    parts.append("--tmpfs=/var/tmp:rw,noexec,nosuid,size=512m")
+
+    # Memory limit: use host's total VRAM as a rough proxy for container memory
+    # (containers typically need system RAM proportional to VRAM)
+    host_vram = host.get("total_vram_gb", 0)
+    if host_vram > 0:
+        mem_limit = max(8, int(host_vram * 2))  # 2x VRAM as system RAM, min 8GB
+        parts.append(f"--memory={mem_limit}g")
+        parts.append(f"--memory-swap={mem_limit}g")
+    else:
+        parts.append("--memory=32g")
+        parts.append("--memory-swap=32g")
+
+    # CPU, ulimit, and shared memory limits
+    parts.append("--cpus=16")
+    parts.append("--ulimit=nofile=65535:65535")
+    parts.append("--ulimit=nproc=4096:4096")
+    parts.append("--shm-size=1g")
+
+    # Sandboxed runtime (gVisor) — use if available on the host
+    host_runtime = host.get("runtime", "")
+    if host_runtime and host_runtime != "runc":
+        parts.append(f"--runtime={shlex.quote(host_runtime)}")
+
+    # NFS volume mount
+    nfs_server = job.get("nfs_server", "")
+    nfs_path = job.get("nfs_path", "")
+    nfs_mount = job.get("nfs_mount_point", "/mnt/xcelsior-nfs")
+    if nfs_server and nfs_path:
+        nfs_mount = nfs_mount or "/mnt/xcelsior-nfs"
+        nfs_opts = f"addr={nfs_server},nolock,soft,timeo=30"
+        parts.append(
+            f"--mount type=volume,volume-driver=local,"
+            f"volume-opt=type=nfs,volume-opt=o={nfs_opts},"
+            f"volume-opt=device=:{shlex.quote(nfs_path)},"
+            f"dst={shlex.quote(nfs_mount)}"
+        )
+
+    # Interactive mode: keep stdin open, map SSH port
+    if job.get("interactive"):
+        ssh_port = int(job.get("ssh_port", 22))
+        parts.append(f"-p {ssh_port}:22")
+        # Don't auto-remove interactive containers
+    else:
+        parts.append("--restart=no")
+
+    # Environment variables: pass job ID and API token so the container
+    # can report status back if needed
+    parts.append(f"-e XCELSIOR_JOB_ID={shlex.quote(job['job_id'])}")
+
+    # Image
+    parts.append(shlex.quote(image))
+
     # Append the job command if specified (quote each token to prevent injection)
     job_command = job.get("command", "").strip()
     if job_command:
         tokens = shlex.split(job_command)
-        cmd += " " + " ".join(shlex.quote(t) for t in tokens)
+        parts.append(" ".join(shlex.quote(t) for t in tokens))
+
+    cmd = " ".join(parts)
 
     rc, stdout, stderr = ssh_exec(host["ip"], cmd)
     if rc != 0:
@@ -1363,6 +1646,18 @@ def run_job(job, host, docker_image=None):
         container_id,
         image,
     )
+
+    # Apply egress filtering (mining port blocks + default-deny for batch jobs)
+    try:
+        from security import build_egress_iptables_rules
+        is_interactive = job.get("interactive", False)
+        egress_rules = build_egress_iptables_rules(
+            container_name, strict=not is_interactive,
+        )
+        for rule in egress_rules:
+            ssh_exec(host["ip"], rule)
+    except Exception as e:
+        log.warning("EGRESS RULES FAILED job=%s: %s", job["job_id"], e)
 
     # Store container info on the job atomically.
     _set_job_fields(job["job_id"], container_id=container_id, container_name=container_name)
@@ -1392,23 +1687,28 @@ def kill_job(job, host):
     ssh_exec(host["ip"], f"docker kill {shlex.quote(container_name)}")
     # Remove it
     ssh_exec(host["ip"], f"docker rm -f {shlex.quote(container_name)}")
-    # Mark done
-    update_job_status(job["job_id"], "completed")
+    # NOTE: Caller is responsible for setting the final status (cancelled, completed, etc.)
     log.info(
         "JOB KILLED job=%s host=%s container=%s", job["job_id"], host["host_id"], container_name
     )
 
 
-def wait_for_job(job, host, poll_interval=5):
+def wait_for_job(job, host, poll_interval=5, max_wait=172800):
     """
     Watch a job until it finishes on its own.
     When the container exits, mark it complete and clean up.
-    Returns final status: "completed" or "failed".
+    Returns final status: "completed", "failed", or "timeout".
+    max_wait defaults to 48 hours.
     """
     container_name = job.get("container_name", f"xcl-{job['job_id']}")
     _validate_name(container_name, "container name")
 
+    start = time.time()
     while True:
+        if time.time() - start > max_wait:
+            log.warning("JOB TIMEOUT job=%s exceeded max_wait=%ds", job["job_id"], max_wait)
+            update_job_status(job["job_id"], "failed")
+            return "timeout"
         # Check if container still exists
         cmd = f"docker inspect -f '{{{{.State.Status}}}}' {shlex.quote(container_name)}"
         rc, stdout, _ = ssh_exec(host["ip"], cmd)
@@ -1544,6 +1844,15 @@ def bill_job(job_id):
     }
 
     records = load_billing()
+    # Atomic check-and-insert to prevent double-billing
+    with _atomic_mutation() as conn:
+        cur = conn.execute(
+            "INSERT INTO state (namespace, payload) VALUES (%s, %s) ON CONFLICT (namespace) DO NOTHING",
+            (f"billed:{job_id}", "1"),
+        )
+        if cur.rowcount == 0:
+            log.warning("BILLING SKIPPED job=%s already billed", job_id)
+            return None
     if any(r["job_id"] == job_id for r in records):
         log.warning("BILLING SKIPPED job=%s already billed", job_id)
         return None
@@ -1711,8 +2020,8 @@ def alert_job_completed(job_id, job_name, duration_sec=None):
 
 def requeue_job(job_id):
     """
-    Reset a failed/running job back to queued.
-    Increment retry counter. Clear host assignment.
+    Reset a failed/running/leased/assigned job back to queued.
+    Increment retry counter. Clear host assignment. Release VRAM.
     If max retries exceeded, mark permanently failed.
     """
     exhausted = None
@@ -1720,14 +2029,24 @@ def requeue_job(job_id):
 
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
+        _migrate_hosts_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
         if not j:
             return None
 
-        # Only requeue running or failed jobs
-        if j["status"] not in ("running", "failed"):
+        # Accept running, failed, leased, and assigned jobs for requeue
+        if j["status"] not in ("running", "failed", "leased", "assigned"):
             log.warning("REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"])
             return None
+
+        old_host_id = j.get("host_id")
+        old_status = j["status"]
+
+        # Release VRAM if the job had any reserved on its host
+        reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
+        if old_host_id and reserved > 0 and old_status in ("running",):
+            _release_host_vram(conn, old_host_id, reserved)
+            log.info("REQUEUE VRAM RELEASED job=%s host=%s vram=%.2fGB", job_id, old_host_id, reserved)
 
         retries = j.get("retries", 0) + 1
         max_retries = j.get("max_retries", 3)
@@ -1735,17 +2054,18 @@ def requeue_job(job_id):
         if retries > max_retries:
             j["status"] = "failed"
             j["completed_at"] = time.time()
+            j["vram_reserved_gb"] = 0
             _upsert_job_row(conn, j)
-            exhausted = (retries, max_retries, j.get("name", "?"), j.get("host_id"))
+            exhausted = (retries, max_retries, j.get("name", "?"), old_host_id)
         else:
-            old_host = j.get("host_id", "—")
             j["status"] = "queued"
             j["host_id"] = None
             j["started_at"] = None
             j["completed_at"] = None
             j["retries"] = retries
+            j["vram_reserved_gb"] = 0
             _upsert_job_row(conn, j)
-            requeued = (j, retries, max_retries, old_host)
+            requeued = (j, retries, max_retries, old_host_id or "—")
 
     if exhausted:
         retries, max_retries, name, host_id = exhausted
@@ -1801,21 +2121,25 @@ def failover_dead_hosts():
 def failover_and_reassign():
     """
     Full failover cycle:
-    1. Check hosts (ping)
-    2. Requeue jobs on dead hosts
-    3. Process queue (assign requeued jobs to alive hosts)
-    Returns (requeued_jobs, newly_assigned).
+    1. Check hosts (ping) — dead hosts trigger _requeue_dead_host_jobs which
+       delegates to requeue_job() per-job (releases VRAM, increments retry counter)
+    2. Process queue (assign requeued jobs to alive hosts)
+    Returns newly_assigned list.
+
+    Uses _scheduler_lock on the assignment pass to prevent concurrent
+    process_queue calls with scheduler_tick.
     """
     check_hosts()
-    requeued = failover_dead_hosts()
 
-    assigned = []
-    if requeued:
+    # check_hosts() already requeues jobs from newly-dead hosts via
+    # _requeue_dead_host_jobs → requeue_job(), so we only need to
+    # run the assignment pass here.
+    with _scheduler_lock:
         assigned = process_queue()
-        for j, h in assigned:
-            log.info("FAILOVER REASSIGNED job=%s -> host=%s", j["job_id"], h["host_id"])
+    for j, h in assigned:
+        log.info("FAILOVER REASSIGNED job=%s -> host=%s", j["job_id"], h["host_id"])
 
-    return requeued, assigned
+    return [], assigned
 
 
 # ── Auto-Remediation: Checkpoint + Re-Queue ──────────────────────────
@@ -1827,27 +2151,46 @@ CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
 
 
 def checkpoint_container(host_id: str, job_id: str, container_name: str = "") -> dict | None:
-    """Create a Docker CRIU checkpoint for a running container on a host.
+    """Create a Docker CRIU checkpoint for a running container on a remote host.
 
-    Uses `docker checkpoint create` to freeze the container state.
+    Uses `docker checkpoint create` via SSH to freeze the container state.
     Returns checkpoint metadata or None on failure.
     """
     if not container_name:
-        container_name = f"xcelsior-job-{job_id}"
+        # Match run_job() naming convention: xcl-{job_id}
+        container_name = f"xcl-{job_id}"
+
+    # Validate inputs to prevent path traversal / injection
+    _validate_name(job_id, "job_id")
+    _validate_name(container_name, "container name")
 
     checkpoint_name = f"ckpt-{job_id}-{int(time.time())}"
     checkpoint_path = os.path.join(CHECKPOINT_DIR, checkpoint_name)
 
+    # Ensure checkpoint_path stays under CHECKPOINT_DIR
+    resolved = os.path.realpath(checkpoint_path)
+    if not resolved.startswith(os.path.realpath(CHECKPOINT_DIR)):
+        log.error("CHECKPOINT PATH TRAVERSAL BLOCKED: %s", checkpoint_path)
+        return None
+
+    # Look up host IP for SSH
+    with _db_connection() as conn:
+        host = _get_host_by_id_conn(conn, host_id)
+    if not host or not host.get("ip"):
+        log.error("CHECKPOINT FAILED: host %s not found or missing IP", host_id)
+        return None
+    host_ip = host["ip"]
+
     try:
         os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-        # In production, this would SSH to the host and run docker checkpoint.
-        # For now we record the intent and metadata.
-        cmd = (
+        remote_ckpt_dir = f"/tmp/xcelsior-checkpoints/{shlex.quote(checkpoint_name)}"
+        docker_cmd = (
+            f"mkdir -p {remote_ckpt_dir} && "
             f"docker checkpoint create "
-            f"--checkpoint-dir={checkpoint_path} "
+            f"--checkpoint-dir={remote_ckpt_dir} "
             f"--leave-running=false "
-            f"{container_name} {checkpoint_name}"
+            f"{shlex.quote(container_name)} {shlex.quote(checkpoint_name)}"
         )
 
         log.info(
@@ -1855,32 +2198,35 @@ def checkpoint_container(host_id: str, job_id: str, container_name: str = "") ->
             job_id, host_id, container_name, checkpoint_name,
         )
 
-        # Attempt the checkpoint (best-effort — container may already be dead)
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120,
-        )
+        # Execute checkpoint on remote host via SSH
+        rc, stdout, stderr = ssh_exec(host_ip, docker_cmd)
 
         checkpoint_meta = {
             "checkpoint_name": checkpoint_name,
-            "checkpoint_path": checkpoint_path,
+            "checkpoint_path": remote_ckpt_dir,
+            "local_path": checkpoint_path,
             "job_id": job_id,
             "host_id": host_id,
+            "host_ip": host_ip,
             "container": container_name,
             "created_at": time.time(),
-            "success": result.returncode == 0,
-            "stderr": result.stderr[:500] if result.stderr else "",
+            "success": rc == 0,
+            "stderr": (stderr or "")[:500],
         }
 
-        # Persist metadata
+        # Persist metadata locally
         meta_file = os.path.join(checkpoint_path, "meta.json")
         os.makedirs(checkpoint_path, exist_ok=True)
         with open(meta_file, "w") as f:
             json.dump(checkpoint_meta, f, indent=2)
 
+        if not checkpoint_meta["success"]:
+            log.error("CHECKPOINT DOCKER FAILED job=%s host=%s: %s",
+                       job_id, host_id, checkpoint_meta["stderr"])
+            return None
+
         return checkpoint_meta
 
-    except subprocess.TimeoutExpired:
-        log.error("CHECKPOINT TIMEOUT job=%s host=%s", job_id, host_id)
     except Exception as e:
         log.error("CHECKPOINT FAILED job=%s host=%s: %s", job_id, host_id, e)
 
@@ -1888,25 +2234,32 @@ def checkpoint_container(host_id: str, job_id: str, container_name: str = "") ->
 
 
 def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: dict) -> bool:
-    """Resume a checkpointed job on a new host.
+    """Resume a checkpointed job on a new host via SSH.
 
-    Sends the checkpoint tar to the target host and starts the container
-    with `--checkpoint` flag.
+    Transfers the checkpoint via the scheduler (source→scheduler→target)
+    since hosts don't have cross-host SSH credentials.
+    Updates job status and reserves VRAM on success.
     """
     checkpoint_name = checkpoint_meta.get("checkpoint_name", "")
     checkpoint_path = checkpoint_meta.get("checkpoint_path", "")
-    container = checkpoint_meta.get("container", f"xcelsior-job-{job_id}")
+    source_ip = checkpoint_meta.get("host_ip", "")
+    container = checkpoint_meta.get("container", f"xcl-{job_id}")
 
     if not checkpoint_name:
         log.error("RESUME FAILED: no checkpoint_name for job=%s", job_id)
         return False
 
-    cmd = (
-        f"docker start "
-        f"--checkpoint-dir={checkpoint_path} "
-        f"--checkpoint={checkpoint_name} "
-        f"{container}"
-    )
+    # Validate inputs
+    _validate_name(checkpoint_name, "checkpoint name")
+    _validate_name(container, "container name")
+
+    # Look up target host IP
+    with _db_connection() as conn:
+        target_host = _get_host_by_id_conn(conn, target_host_id)
+    if not target_host or not target_host.get("ip"):
+        log.error("RESUME FAILED: target host %s not found or missing IP", target_host_id)
+        return False
+    target_ip = target_host["ip"]
 
     log.info(
         "RESUME job=%s target_host=%s checkpoint=%s",
@@ -1914,16 +2267,71 @@ def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: di
     )
 
     try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=180,
+        remote_ckpt_dir = checkpoint_path or f"/tmp/xcelsior-checkpoints/{checkpoint_name}"
+
+        # Step 1: Transfer checkpoint via scheduler if source != target.
+        # Hosts don't have SSH keys to each other, so we pull to the
+        # scheduler first, then push to the target.
+        if source_ip and source_ip != target_ip:
+            local_staging = os.path.join(CHECKPOINT_DIR, checkpoint_name)
+            os.makedirs(local_staging, exist_ok=True)
+
+            # Pull from source host to scheduler
+            pull_cmd = [
+                "scp", "-r",
+                "-i", SSH_KEY_PATH,
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "PasswordAuthentication=no",
+                f"{SSH_USER}@{source_ip}:{remote_ckpt_dir}",
+                local_staging,
+            ]
+            pull_result = subprocess.run(pull_cmd, capture_output=True, text=True, timeout=300)
+            if pull_result.returncode != 0:
+                log.error("RESUME TRANSFER PULL FAILED job=%s: %s", job_id, (pull_result.stderr or "")[:300])
+                return False
+
+            # Push from scheduler to target host
+            push_cmd = [
+                "scp", "-r",
+                "-i", SSH_KEY_PATH,
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "PasswordAuthentication=no",
+                local_staging,
+                f"{SSH_USER}@{target_ip}:/tmp/xcelsior-checkpoints/",
+            ]
+            push_result = subprocess.run(push_cmd, capture_output=True, text=True, timeout=300)
+            if push_result.returncode != 0:
+                log.error("RESUME TRANSFER PUSH FAILED job=%s: %s", job_id, (push_result.stderr or "")[:300])
+                return False
+
+            log.info("RESUME CHECKPOINT TRANSFERRED job=%s via scheduler: %s -> %s", job_id, source_ip, target_ip)
+
+        # Step 2: Start container from checkpoint on target host
+        docker_cmd = (
+            f"docker start "
+            f"--checkpoint-dir={shlex.quote(remote_ckpt_dir)} "
+            f"--checkpoint={shlex.quote(checkpoint_name)} "
+            f"{shlex.quote(container)}"
         )
-        if result.returncode == 0:
+        rc, stdout, stderr = ssh_exec(target_ip, docker_cmd)
+
+        if rc == 0:
+            # Step 3: Update job status and reserve VRAM
+            result = update_job_status(job_id, "running", target_host_id)
+            if not result:
+                # VRAM reservation failed — kill the orphaned container
+                log.error("RESUME VRAM RESERVATION FAILED job=%s on host=%s — killing container",
+                          job_id, target_host_id)
+                ssh_exec(target_ip, f"docker kill {shlex.quote(container)}")
+                return False
             log.info("RESUME SUCCESS job=%s on host=%s", job_id, target_host_id)
             return True
         else:
             log.error(
-                "RESUME FAILED job=%s: %s", job_id, result.stderr[:300],
+                "RESUME FAILED job=%s: %s", job_id, (stderr or "")[:300],
             )
+    except subprocess.TimeoutExpired:
+        log.error("RESUME TRANSFER TIMEOUT job=%s", job_id)
     except Exception as e:
         log.error("RESUME EXCEPTION job=%s: %s", job_id, e)
 
@@ -1968,7 +2376,10 @@ def remediate_unhealthy_host(host_id: str) -> list[dict]:
         result = requeue_job(job_id)
         if result:
             if ckpt and ckpt.get("success"):
-                # Attach checkpoint metadata so the next scheduler pass can resume
+                # Persist checkpoint metadata atomically via _set_job_fields
+                # (single read-modify-write transaction avoids TOCTOU race
+                # where process_queue could reassign the job between transactions)
+                _set_job_fields(result["job_id"], resume_from=ckpt)
                 result["resume_from"] = ckpt
             requeued.append(result)
 
@@ -2583,17 +2994,18 @@ def provision_host(pool_entry):
         base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
         registry = os.environ.get("XCELSIOR_REGISTRY", "")
         image = f"{registry}/xcelsior-worker:latest" if registry else "xcelsior-worker:latest"
+        cost = float(pool_entry.get("cost_per_hour", 0.20))
         docker_cmd = (
-            f"docker pull {image} 2>/dev/null; "
+            f"docker pull {shlex.quote(image)} 2>/dev/null; "
             f"docker rm -f xcelsior-worker 2>/dev/null; "
             f"docker run -d --restart unless-stopped --name xcelsior-worker "
             f"--gpus all "
-            f"-e XCELSIOR_HOST_ID={host_id} "
-            f"-e XCELSIOR_SCHEDULER_URL={base_url} "
-            f"-e XCELSIOR_API_TOKEN={API_TOKEN} "
-            f"-e XCELSIOR_COST_PER_HOUR={pool_entry.get('cost_per_hour', 0.20)} "
+            f"-e XCELSIOR_HOST_ID={shlex.quote(host_id)} "
+            f"-e XCELSIOR_SCHEDULER_URL={shlex.quote(base_url)} "
+            f"-e XCELSIOR_API_TOKEN={shlex.quote(API_TOKEN)} "
+            f"-e XCELSIOR_COST_PER_HOUR={cost:.4f} "
             f"-v /var/run/docker.sock:/var/run/docker.sock "
-            f"{image}"
+            f"{shlex.quote(image)}"
         )
         rc, stdout, stderr = ssh_exec(ip, docker_cmd)
         if rc != 0:
@@ -3243,7 +3655,7 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
 # ── Spot Job Submission ───────────────────────────────────────────────
 
 
-def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None):
+def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner=""):
     """Submit a spot/interruptible job with a maximum bid price.
 
     Spot jobs are:
@@ -3251,7 +3663,7 @@ def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None):
     - Preemptible (evicted when demand exceeds bid)
     - Automatically requeued on preemption
     """
-    job = submit_job(name, vram_needed_gb, priority, tier=tier)
+    job = submit_job(name, vram_needed_gb, priority, tier=tier, owner=owner)
 
     _set_job_fields(
         job["job_id"],

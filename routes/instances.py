@@ -7,8 +7,8 @@ import os
 import time
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse, Response
+from pydantic import BaseModel, Field, field_validator
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -27,6 +27,7 @@ from routes._deps import (
 from scheduler import (
     API_TOKEN,
     failover_and_reassign,
+    kill_job,
     list_hosts,
     list_jobs,
     list_tiers,
@@ -34,6 +35,7 @@ from scheduler import (
     process_queue,
     process_queue_binpack,
     requeue_job,
+    run_job,
     submit_job,
     update_job_status,
 )
@@ -47,6 +49,20 @@ router = APIRouter()
 _JOB_LOG_MAX = 500
 _job_log_buffers: dict[str, list[dict]] = defaultdict(list)
 _ws_connections: dict[str, set] = defaultdict(set)
+
+
+def _check_job_access(user: dict, job_id: str):
+    """Verify user owns the job or is admin."""
+    if user.get("role") == "admin" or user.get("is_admin"):
+        return
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"Instance {job_id} not found")
+    job_owner = job.get("owner", "")
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    if job_owner and job_owner != customer_id:
+        raise HTTPException(403, "Not authorized to access this instance")
 
 
 class JobIn(BaseModel):
@@ -65,12 +81,42 @@ class JobIn(BaseModel):
     command: str | None = None
     ssh_port: int = Field(default=22, ge=1, le=65535)
 
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        from security import validate_docker_image
+        return validate_docker_image(v)
+
 
 class StatusUpdate(BaseModel):
     status: str
     host_id: str | None = None
     container_id: str | None = None
     container_name: str | None = None
+
+
+# ── Image Templates ──
+
+class ImageTemplate(BaseModel):
+    id: str
+    label: str
+    image: str
+    default_vram_gb: int
+    icon: str
+    category: str
+    description: str
+
+
+@router.get("/api/images/templates", tags=["Images"])
+def api_image_templates():
+    """Return the authoritative list of validated container image templates.
+
+    Single source of truth consumed by frontend, wizard, and API callers.
+    """
+    from security import get_image_templates
+    return {"templates": [ImageTemplate(**t).model_dump() for t in get_image_templates()]}
 
 
 # ── Helper: _refresh_job ──
@@ -113,6 +159,17 @@ def api_submit_instance(j: JobIn, request: Request):
             vram_needed = 4.0  # minimal default when no hosts available
 
     with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
+        customer_id = user.get("customer_id", user.get("user_id", ""))
+
+        # ── Wallet pre-flight: block launch if wallet is broke ────────
+        from billing import get_billing_engine
+        be = get_billing_engine()
+        wallet = be.get_wallet(customer_id)
+        if wallet.get("status") == "suspended":
+            raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+        if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
+            raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+
         job = submit_job(
             j.name,
             vram_needed,
@@ -126,10 +183,11 @@ def api_submit_instance(j: JobIn, request: Request):
             interactive=j.interactive,
             command=j.command,
             ssh_port=j.ssh_port,
+            owner=customer_id,
         )
-        # Track job ownership
+        # Track job ownership (response-only, already persisted via owner param)
         job["submitted_by"] = user.get("email", "")
-        job["customer_id"] = user.get("customer_id", user.get("user_id", ""))
+        job["customer_id"] = customer_id
         broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
 
         # Direct host assignment: assign + start immediately
@@ -242,8 +300,9 @@ def api_failover():
     }
 
 @router.post("/instances/{job_id}/cancel", tags=["Instances"])
-def api_cancel_instance(job_id: str):
+def api_cancel_instance(job_id: str, request: Request):
     """Cancel a running or queued instance. For interactive instances, stops the container."""
+    _require_auth(request)
     jobs = list_jobs()
     job = next((j for j in jobs if j["job_id"] == job_id), None)
     if not job:
@@ -270,8 +329,9 @@ def api_cancel_instance(job_id: str):
     return {"ok": True, "job_id": job_id, "status": "cancelled"}
 
 @router.post("/instance/{job_id}/requeue", tags=["Instances"])
-def api_requeue_instance(job_id: str):
+def api_requeue_instance(job_id: str, request: Request):
     """Manually requeue a failed or stuck job."""
+    _require_auth(request)
     result = requeue_job(job_id)
     if not result:
         raise HTTPException(
@@ -281,17 +341,117 @@ def api_requeue_instance(job_id: str):
     return {"ok": True, "instance": result}
 
 
+# ── Pause / Resume ───────────────────────────────────────────────────
+
+@router.post("/instances/{job_id}/pause", tags=["Instances"])
+def api_pause_instance(job_id: str, request: Request):
+    """Pause a running instance. Stops the container but preserves volumes.
+
+    Requires authentication. Only the instance owner or an admin can pause.
+    """
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    role = user.get("role", "")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    # Owner check (admins can pause any instance)
+    job_owner = job.get("owner", "")
+    if role != "admin" and job_owner != customer_id:
+        raise HTTPException(status_code=403, detail="Not authorized to pause this instance")
+
+    if job.get("status") != "running":
+        raise HTTPException(status_code=400, detail=f"Instance is {job.get('status')}, not running")
+
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    result = be.pause_instance(job_id, reason="user_paused")
+    if not result.get("paused"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "pause failed"))
+
+    broadcast_sse("instance_paused", {"job_id": job_id})
+    return {"ok": True, "instance": result}
+
+
+@router.post("/instances/{job_id}/resume", tags=["Instances"])
+def api_resume_instance(job_id: str, request: Request):
+    """Resume a paused instance. Restarts the container from preserved state.
+
+    Requires authentication. Only the instance owner or an admin can resume.
+    Returns 402 if wallet has insufficient funds.
+    """
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    role = user.get("role", "")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    # Owner check (admins can resume any instance)
+    job_owner = job.get("owner", "")
+    if role != "admin" and job_owner != customer_id:
+        raise HTTPException(status_code=403, detail="Not authorized to resume this instance")
+
+    status = job.get("status", "")
+    if status not in ("paused_low_balance", "user_paused"):
+        raise HTTPException(status_code=400, detail=f"Instance is {status}, not paused")
+
+    # Wallet pre-flight — must have funds to resume
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    wallet = be.get_wallet(job_owner or customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
+    if wallet["balance_cad"] <= 0:
+        raise HTTPException(status_code=402, detail="Insufficient wallet balance to resume")
+
+    result = be.resume_instance(job_id)
+    if not result.get("resumed"):
+        detail = result.get("reason", "resume failed")
+        code = 402 if detail == "insufficient_balance" else 400
+        raise HTTPException(status_code=code, detail=detail)
+
+    broadcast_sse("instance_resumed", {"job_id": job_id})
+    return {"ok": True, "instance": result}
+
+
 # ── Helper: push_job_log ──
 
-def push_job_log(job_id: str, line: str, level: str = "info"):
+def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float | None = None):
     """Push a log line into the per-job log buffer (called from scheduler/worker)."""
-    entry = {"timestamp": time.time(), "line": line, "level": level}
+    entry = {"timestamp": timestamp or time.time(), "line": line, "message": line, "level": level}
     buf = _job_log_buffers[job_id]
     buf.append(entry)
     if len(buf) > _JOB_LOG_MAX:
         _job_log_buffers[job_id] = buf[-_JOB_LOG_MAX:]
     # Also broadcast to general SSE stream
     broadcast_sse("job_log", {"job_id": job_id, **entry})
+
+
+# ── Helper: _load_pg_logs ──
+
+def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
+    """Load recent log lines from PG job_logs table (fallback when in-memory buffer is empty)."""
+    try:
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT ts AS timestamp, level, line, line AS message FROM job_logs "
+                "WHERE job_id = %s ORDER BY ts DESC LIMIT %s",
+                (job_id, limit),
+            ).fetchall()
+        if not rows:
+            return []
+        cols = ["timestamp", "level", "line", "message"]
+        return [dict(zip(cols, r)) for r in reversed(rows)]  # chronological order
+    except Exception:
+        return []
 
 
 # ── Helper: _job_log_generator ──
@@ -307,8 +467,11 @@ async def _job_log_generator(request: Request, job_id: str):
         _sse_subscribers.append(queue)
 
     try:
-        # Replay buffered log lines
-        for entry in list(_job_log_buffers.get(job_id, [])):
+        # Replay buffered log lines (PG fallback if buffer is empty)
+        replay = list(_job_log_buffers.get(job_id, []))
+        if not replay:
+            replay = _load_pg_logs(job_id, limit=200)
+        for entry in replay:
             data = json.dumps({"job_id": job_id, **entry})
             yield f"event: job_log\ndata: {data}\n\n"
 
@@ -372,12 +535,48 @@ async def api_instance_log_stream(request: Request, job_id: str):
 def api_instance_logs(job_id: str, request: Request, limit: int = 100):
     """Get buffered log lines for a job (non-streaming).
 
-    Returns the last `limit` log lines from the in-memory buffer.
+    Returns the last `limit` log lines. Tries in-memory buffer first,
+    falls back to persistent job_logs table in PG.
     For real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).
     """
-    _require_auth(request)
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
+    limit = min(limit, 10_000)
     buf = _job_log_buffers.get(job_id, [])
+
+    # If in-memory buffer is empty, load from PG
+    if not buf:
+        buf = _load_pg_logs(job_id, limit=limit)
+
     return {"ok": True, "job_id": job_id, "logs": buf[-limit:], "total": len(buf)}
+
+
+@router.get("/instances/{job_id}/logs/download", tags=["Instances"])
+def api_instance_logs_download(job_id: str, request: Request):
+    """Download all available logs for a job as a plain text file."""
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
+    buf = _job_log_buffers.get(job_id, [])
+    if not buf:
+        buf = _load_pg_logs(job_id, limit=10_000)
+    if not buf:
+        raise HTTPException(404, "No logs available for this job")
+
+    lines = []
+    for entry in buf:
+        ts = entry.get("timestamp", "")
+        level = entry.get("level", "")
+        msg = entry.get("message", "") or entry.get("line", "")
+        lines.append(f"{ts} [{level.upper()}] {msg}")
+    text = "\n".join(lines)
+
+    import re
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', job_id)[:128]
+    return Response(
+        content=text,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{safe_id}-logs.txt"'},
+    )
 
 
 # ── Helper: _validate_ws_auth ──
@@ -445,7 +644,8 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
     Client can send ``{"event": "pong"}`` or ``{"event": "refresh"}``
     to request a fresh instance snapshot.
     """
-    if not _validate_ws_auth(websocket):
+    user = _validate_ws_auth(websocket)
+    if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
@@ -459,11 +659,23 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
         await websocket.close(code=4004)
         return
 
+    # Ownership check — only job owner or admin may stream
+    if not (user.get("role") == "admin" or user.get("is_admin")):
+        job_owner = instance.get("owner", "")
+        customer_id = user.get("customer_id", user.get("user_id", ""))
+        if job_owner and job_owner != customer_id:
+            await websocket.send_json({"event": "error", "data": {"message": "Not authorized"}})
+            await websocket.close(code=4003)
+            return
+
     _ws_connections[job_id].add(websocket)
     await websocket.send_json({"event": "instance", "data": instance})
 
-    # Replay buffered logs
-    for entry in list(_job_log_buffers.get(job_id, []))[-50:]:
+    # Replay buffered logs (PG fallback if buffer is empty)
+    replay = list(_job_log_buffers.get(job_id, []))[-50:]
+    if not replay:
+        replay = _load_pg_logs(job_id, limit=50)
+    for entry in replay:
         await websocket.send_json({"event": "job_log", "data": {"job_id": job_id, **entry}})
 
     # Subscribe to the broadcast SSE bus
@@ -554,7 +766,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     - Server sends: ``{"type": "error", "message": "..."}``
     - Server sends: ``{"type": "exit", "code": N}``
     """
-    if not _validate_ws_auth(websocket):
+    user = _validate_ws_auth(websocket)
+    if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
@@ -568,6 +781,15 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         await websocket.close(code=4004)
         return
 
+    # Ownership check
+    if not (user.get("role") == "admin" or user.get("is_admin")):
+        job_owner = instance.get("owner", "")
+        customer_id = user.get("customer_id", user.get("user_id", ""))
+        if job_owner and job_owner != customer_id:
+            await websocket.send_json({"type": "error", "message": "Not authorized"})
+            await websocket.close(code=4003)
+            return
+
     if instance.get("status") != "running":
         await websocket.send_json({"type": "error", "message": f"Instance is {instance.get('status', 'unknown')}, not running"})
         await websocket.close(code=4003)
@@ -580,13 +802,42 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         await websocket.close(code=4003)
         return
 
-    # Build docker exec command via Tailscale
-    # In production: ssh through Tailscale mesh to the worker host
-    # For local dev: direct docker exec
+    # Look up host IP for remote SSH proxy
+    host_ip = instance.get("host_ip", "")
+    if not host_ip:
+        hmap = {h["host_id"]: h for h in list_hosts(active_only=False)}
+        host_record = hmap.get(host_id)
+        host_ip = host_record.get("ip", "") if host_record else ""
+
+    # Validate host_ip format before SSH
+    import re as _re
+    if host_ip and not _re.match(r'^[a-zA-Z0-9._-]+$', host_ip):
+        await websocket.send_json({"type": "error", "message": "Invalid host address"})
+        await websocket.close(code=4003)
+        return
+
     shell = instance.get("shell", "/bin/bash")
-    docker_cmd = [
-        "docker", "exec", "-it", container_id, shell,
-    ]
+    is_remote = bool(host_ip) and host_ip not in ("127.0.0.1", "localhost", "0.0.0.0")
+
+    if is_remote:
+        # SSH into remote host and run docker exec there
+        from scheduler import SSH_KEY_PATH, SSH_USER
+        import shlex
+        docker_cmd = [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "-i", SSH_KEY_PATH,
+            "-tt",
+            f"{SSH_USER}@{host_ip}",
+            "docker", "exec", "-it", shlex.quote(container_id), shell,
+        ]
+    else:
+        # Local dev: direct docker exec
+        docker_cmd = [
+            "docker", "exec", "-it", container_id, shell,
+        ]
 
     session_start = time.time()
     process = None

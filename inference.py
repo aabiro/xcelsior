@@ -143,7 +143,8 @@ class InferenceEngine:
         worker_job_id = None
         if min_workers >= 1:
             worker_job_id = self.provision_worker(endpoint_id, model_id, gpu_type,
-                                                   vram_required, region, docker_image)
+                                                   vram_required, region, docker_image,
+                                                   owner_id=owner_id)
 
         # Look up cost_per_hour for the GPU type
         cost_per_hour = self._get_gpu_cost_per_hour(gpu_type, region)
@@ -163,7 +164,8 @@ class InferenceEngine:
         }
 
     def provision_worker(self, endpoint_id: str, model_id: str, gpu_type: str,
-                         vram_gb: float, region: str, docker_image: str) -> Optional[str]:
+                         vram_gb: float, region: str, docker_image: str,
+                         owner_id: str = "") -> Optional[str]:
         """Provision a GPU worker for an inference endpoint via the scheduler.
 
         Submits the job, processes the queue to assign a host, and polls
@@ -179,6 +181,7 @@ class InferenceEngine:
                 num_gpus=1,
                 image=docker_image,
                 command=f"serve --model {model_id}",
+                owner=owner_id,
             )
             worker_job_id = job.get("job_id", "")
 
@@ -247,7 +250,7 @@ class InferenceEngine:
                     from scheduler import kill_job as scheduler_kill
                     # Look up the job + host to pass to kill_job
                     job_row = conn.execute(
-                        "SELECT j.*, h.ip FROM jobs j JOIN hosts h ON j.host_id = h.host_id WHERE j.job_id = %s",
+                        "SELECT j.*, h.payload->>'ip' AS ip FROM jobs j JOIN hosts h ON j.host_id = h.host_id WHERE j.job_id = %s",
                         (worker_job_id,),
                     ).fetchone()
                     if job_row:
@@ -279,7 +282,7 @@ class InferenceEngine:
             # Fall back to hosts table
             row = conn.execute(
                 """SELECT COUNT(*) as cnt FROM hosts
-                   WHERE gpu_model = %s AND status = 'active'""",
+                   WHERE payload->>'gpu_model' = %s AND status = 'active'""",
                 (gpu_type,),
             ).fetchone()
             return bool(row and row["cnt"] > 0)
@@ -298,8 +301,8 @@ class InferenceEngine:
                 return round(float(row["price"]) / 100.0, 2)
             # Fall back to hosts table
             row = conn.execute(
-                """SELECT MIN(cost_per_hour) as price FROM hosts
-                   WHERE gpu_model = %s AND status = 'active'""",
+                """SELECT MIN((payload->>'cost_per_hour')::float) as price FROM hosts
+                   WHERE payload->>'gpu_model' = %s AND status = 'active'""",
                 (gpu_type,),
             ).fetchone()
             if row and row.get("price"):
@@ -372,7 +375,7 @@ class InferenceEngine:
 
             # Count active workers for this model
             workers = conn.execute(
-                """SELECT wmc.worker_id, wmc.state, wmc.last_used_at, h.gpu_model, h.free_vram_gb
+                """SELECT wmc.worker_id, wmc.state, wmc.last_used_at, h.payload->>'gpu_model' AS gpu_model, (h.payload->>'free_vram_gb')::float AS free_vram_gb
                    FROM worker_model_cache wmc
                    JOIN hosts h ON h.host_id = wmc.worker_id
                    WHERE wmc.model_id = %s AND wmc.state IN ('ready', 'loading')""",
@@ -479,11 +482,11 @@ class InferenceEngine:
 
             # Priority 2: Worker with most free VRAM (cold start on best-capacity worker)
             cold = conn.execute(
-                """SELECT h.host_id, h.free_vram_gb
+                """SELECT h.host_id, (h.payload->>'free_vram_gb')::float AS free_vram_gb
                    FROM hosts h
                    WHERE h.status = 'active'
-                     AND h.free_vram_gb >= %s
-                   ORDER BY h.free_vram_gb DESC
+                     AND (h.payload->>'free_vram_gb')::float >= %s
+                   ORDER BY (h.payload->>'free_vram_gb')::float DESC
                    LIMIT 1""",
                 (vram_needed,),
             ).fetchone()
@@ -671,7 +674,7 @@ class InferenceEngine:
         """Get workers currently serving a model."""
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT wmc.*, h.gpu_model, h.free_vram_gb
+                """SELECT wmc.*, h.payload->>'gpu_model' AS gpu_model, (h.payload->>'free_vram_gb')::float AS free_vram_gb
                    FROM worker_model_cache wmc
                    JOIN hosts h ON h.host_id = wmc.worker_id
                    WHERE wmc.model_id = %s AND wmc.state = 'ready'""",
@@ -689,11 +692,11 @@ class InferenceEngine:
 
         with self._conn() as conn:
             evicting = conn.execute(
-                """SELECT wmc.worker_id, wmc.model_id, j.job_id, h.ip
+                """SELECT wmc.worker_id, wmc.model_id, j.job_id, h.payload->>'ip' AS ip
                    FROM worker_model_cache wmc
                    JOIN hosts h ON h.host_id = wmc.worker_id
                    LEFT JOIN jobs j ON j.host_id = h.host_id
-                     AND j.name LIKE 'inference-%' AND j.status = 'running'
+                     AND j.payload->>'name' LIKE 'inference-%' AND j.status = 'running'
                    WHERE wmc.state = 'evicting'""",
             ).fetchall()
 

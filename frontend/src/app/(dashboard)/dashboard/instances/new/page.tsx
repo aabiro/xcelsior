@@ -6,10 +6,10 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-import { ArrowLeft, Rocket, DollarSign, Box } from "lucide-react";
-import { submitInstance, fetchPricingReference, fetchProvinces } from "@/lib/api";
+import { ArrowLeft, Rocket, DollarSign, Box, AlertTriangle, CreditCard } from "lucide-react";
+import { submitInstance, fetchPricingReference, fetchProvinces, fetchImageTemplates, classifyLaunchError, ApiError } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
-import type { PricingReference } from "@/lib/api";
+import type { PricingReference, ImageTemplate, LaunchErrorInfo } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -47,19 +47,20 @@ const PRIORITIES = [
   { label: "Urgent", value: 3 },
 ] as const;
 
-const TEMPLATES = [
-  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.01-py3", vram: "24", icon: "🔥" },
-  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.01-tf2-py3", vram: "24", icon: "🧠" },
-  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:latest", vram: "24", icon: "⚡" },
-  { id: "comfyui", label: "ComfyUI", image: "comfyanonymous/comfyui:latest", vram: "12", icon: "🎨" },
+const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string; icon: string }[] = [
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", vram: "24", icon: "🔥" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", vram: "24", icon: "🧠" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", vram: "24", icon: "⚡" },
+  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", vram: "12", icon: "🎨" },
   { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: "8", icon: "📓" },
   { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: "8", icon: "🐧" },
-] as const;
+];
 
 export default function NewInstancePage() {
   const router = useRouter();
   const { t } = useLocale();
   const [submitting, setSubmitting] = useState(false);
+  const [launchError, setLaunchError] = useState<LaunchErrorInfo | null>(null);
 
   // Form state
   const [name, setName] = useState("");
@@ -79,6 +80,7 @@ export default function NewInstancePage() {
   // Reference data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
   const [provinces, setProvinces] = useState<Record<string, { tax_rate: number; description: string }>>({});
+  const [templates, setTemplates] = useState<{ id: string; label: string; image: string; vram: string; icon: string }[]>(FALLBACK_TEMPLATES);
 
   useEffect(() => {
     setPastValues(getHistory());
@@ -88,6 +90,21 @@ export default function NewInstancePage() {
     fetchProvinces()
       .then((r) => setProvinces(r.provinces || {}))
       .catch((e) => console.error("Failed to load provinces", e));
+    fetchImageTemplates()
+      .then((r) => {
+        if (r.templates?.length) {
+          setTemplates(
+            r.templates.map((t: ImageTemplate) => ({
+              id: t.id,
+              label: t.label,
+              image: t.image,
+              vram: String(t.default_vram_gb),
+              icon: t.icon,
+            })),
+          );
+        }
+      })
+      .catch((e) => console.error("Failed to load templates, using defaults", e));
   }, []);
 
   // GPU model options from pricing reference
@@ -134,7 +151,12 @@ export default function NewInstancePage() {
       const jobId = (res as { instance?: { job_id?: string } })?.instance?.job_id;
       router.push(jobId ? `/dashboard/instances/${jobId}` : "/dashboard/instances");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit instance");
+      const info = classifyLaunchError(err);
+      if (info.action) {
+        setLaunchError(info);
+      } else {
+        toast.error(info.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -171,7 +193,7 @@ export default function NewInstancePage() {
               onClick={() => { setImage(""); setVramNeeded("24"); }}
               className={cn(
                 "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
-                !TEMPLATES.some((t) => t.image === image)
+                !templates.some((t) => t.image === image)
                   ? "border-accent-red bg-accent-red/10 text-accent-red"
                   : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
               )}
@@ -179,7 +201,7 @@ export default function NewInstancePage() {
               <span className="text-lg">⚙️</span>
               <span className="font-medium">Custom</span>
             </button>
-            {TEMPLATES.map((tpl) => (
+            {templates.map((tpl) => (
               <button
                 key={tpl.id}
                 type="button"
@@ -397,6 +419,28 @@ export default function NewInstancePage() {
         )}
 
         {/* Submit */}
+        {launchError && (
+          <div className="rounded-lg border border-accent-red/30 bg-accent-red/10 p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-accent-red mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-accent-red font-medium">{launchError.message}</p>
+              {launchError.action && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => router.push(launchError.action!.href)}
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  {launchError.action.label}
+                </Button>
+              )}
+            </div>
+            <button type="button" onClick={() => setLaunchError(null)} className="text-text-muted hover:text-text-primary">
+              <span className="sr-only">Dismiss</span>×
+            </button>
+          </div>
+        )}
         <div className="flex justify-end gap-3">
           <Link href="/dashboard/instances">
             <Button variant="outline" type="button">{t("dash.newinstance.cancel")}</Button>

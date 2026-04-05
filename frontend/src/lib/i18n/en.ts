@@ -871,6 +871,7 @@ const en: Record<string, string> = {
   "dash.analytics.col_jobs": "Jobs",
   "dash.analytics.col_hours": "GPU Hours",
   "dash.analytics.col_spend": "Spend",
+  "dash.analytics.avg_util": "Avg Utilization",
 
   /* ── Dashboard — Earnings ───────────────────────────────────────────── */
   "dash.earnings.title": "Earnings",

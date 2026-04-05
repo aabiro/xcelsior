@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from routes._deps import (
     _get_current_user,
+    _require_auth,
     broadcast_sse,
     otel_span,
 )
@@ -44,14 +45,23 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     Schedules a short-lived GPU job that runs the specified model on the
     provided inputs. Returns a job_id to poll for results.
     """
-    user = _get_current_user(request)
-    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
+
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    wallet = get_billing_engine().get_wallet(customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if wallet["balance_cad"] <= 0 and (wallet.get("grace_until") or 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     job = submit_job(
         name=f"inference:{req.model.replace('/', '--')}",
         vram_needed_gb=2,
         image=f"xcelsior/inference:{req.model.replace('/', '--')}",
+        owner=customer_id,
     )
     job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
     # Persist inference metadata to SQLite (survives API restarts)
@@ -173,15 +183,24 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
     Submits an inference request and polls for results up to 30 seconds.
     If stream=true, returns SSE text/event-stream with token deltas.
     """
-    user = _get_current_user(request)
-    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
+
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    wallet = get_billing_engine().get_wallet(customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if wallet["balance_cad"] <= 0 and (wallet.get("grace_until") or 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     with otel_span("inference.v1.sync", {"model": body.model, "stream": body.stream}):
         job = submit_job(
             name=f"inference:{body.model.replace('/', '--')}",
             vram_needed_gb=2,
             image=f"xcelsior/inference:{body.model.replace('/', '--')}",
+            owner=customer_id,
         )
         job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
         store_inference_job(
@@ -249,15 +268,24 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
 @router.post("/v1/inference/async", tags=["Inference v2"])
 def api_v1_inference_async(body: V1InferenceRequest, request: Request):
     """Asynchronous inference — returns job_id immediately for polling."""
-    user = _get_current_user(request)
-    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
+
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    wallet = get_billing_engine().get_wallet(customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if wallet["balance_cad"] <= 0 and (wallet.get("grace_until") or 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     with otel_span("inference.v1.async", {"model": body.model}):
         job = submit_job(
             name=f"inference:{body.model.replace('/', '--')}",
             vram_needed_gb=2,
             image=f"xcelsior/inference:{body.model.replace('/', '--')}",
+            owner=customer_id,
         )
         job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
         store_inference_job(

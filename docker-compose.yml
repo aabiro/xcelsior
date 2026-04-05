@@ -95,7 +95,7 @@ services:
 
   scheduler-worker:
     build: .
-    command: python -c "import time,scheduler; [scheduler.scheduler_tick() or time.sleep(2) for _ in iter(int,1)]"
+    command: python -c "from scheduler import scheduler_main; scheduler_main()"
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
       XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}

@@ -1,6 +1,8 @@
 """Routes: spot."""
 
-from fastapi import APIRouter, Request
+import time
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -48,9 +50,20 @@ def api_update_spot_prices(request: Request):
 def api_submit_spot_instance(j: SpotJobIn, request: Request):
     """Submit a spot job with a maximum bid price."""
     user = _require_auth(request)
-    job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+
+    # ── Wallet pre-flight: block launch if wallet is broke ────────
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    wallet = be.get_wallet(customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+
+    job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier, owner=customer_id)
     job["submitted_by"] = user.get("email", "")
-    job["customer_id"] = user.get("customer_id", user.get("user_id", ""))
+    job["customer_id"] = customer_id
 
     # Auto-process queue
     try:

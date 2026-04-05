@@ -830,7 +830,10 @@ class TestLaunchJob:
 
     @pytest.fixture(autouse=True)
     def _mock_deps(self):
-        with patch("scheduler.submit_job", return_value={"job_id": "j-new-123"}) as self.mock_submit:
+        mock_wallet = {"balance_cad": 10000.0, "status": "active", "grace_until": 0}
+        with patch("scheduler.submit_job", return_value={"job_id": "j-new-123"}) as self.mock_submit, \
+             patch("billing.get_billing_engine") as mock_be:
+            mock_be.return_value.get_wallet.return_value = mock_wallet
             yield
 
     def test_passes_docker_image(self):
@@ -2059,7 +2062,10 @@ class TestToolInputValidation:
         assert "Invalid docker image" in result["error"]
 
     def test_launch_job_valid_image(self):
-        with patch("scheduler.submit_job", return_value={"job_id": "j-1"}):
+        mock_wallet = {"balance_cad": 10000.0, "status": "active", "grace_until": 0}
+        with patch("scheduler.submit_job", return_value={"job_id": "j-1"}), \
+             patch("billing.get_billing_engine") as mock_be:
+            mock_be.return_value.get_wallet.return_value = mock_wallet
             result = _TOOL_HANDLERS["launch_job"]({"docker_image": "nvcr.io/nvidia/pytorch:24.01-py3", "name": "ok"}, _user())
         assert "error" not in result
 

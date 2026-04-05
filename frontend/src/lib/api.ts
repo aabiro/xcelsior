@@ -80,6 +80,47 @@ export class ApiError extends Error {
   }
 }
 
+// ── Launch Error Classification ──────────────────────────────────────
+
+export interface LaunchErrorInfo {
+  message: string;
+  action?: { label: string; href: string };
+}
+
+/**
+ * Classify an instance-launch error into a user-friendly message and
+ * optional call-to-action (like RunPod / Vast "add funds" prompts).
+ */
+export function classifyLaunchError(err: unknown): LaunchErrorInfo {
+  if (err instanceof ApiError) {
+    const detail =
+      typeof err.body === "object" && err.body
+        ? ((err.body as Record<string, string>).detail ?? err.message)
+        : err.message;
+
+    if (err.status === 402) {
+      if (/suspend/i.test(detail)) {
+        return {
+          message: "Your wallet has been suspended.",
+          action: { label: "Manage Wallet", href: "/dashboard/billing" },
+        };
+      }
+      return {
+        message: "Insufficient balance — add funds to launch instances.",
+        action: { label: "Add Funds", href: "/dashboard/billing?topup=true" },
+      };
+    }
+    if (err.status === 503) {
+      return { message: "No GPU hosts available right now. Try again shortly." };
+    }
+    if (err.status === 422) {
+      return { message: "Invalid configuration — check your instance settings." };
+    }
+    return { message: detail || `Request failed (${err.status})` };
+  }
+  return { message: err instanceof Error ? err.message : "Failed to launch instance" };
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────
 export async function login(email: string, password: string) {
   return apiFetch<{
@@ -163,6 +204,20 @@ export async function submitInstance(data: Record<string, unknown>) {
   return apiFetch<{ ok: boolean; instance?: Record<string, unknown>; instance_id?: string; id?: string }>(
     "/instance", { method: "POST", body: JSON.stringify(data) },
   );
+}
+
+export interface ImageTemplate {
+  id: string;
+  label: string;
+  image: string;
+  default_vram_gb: number;
+  icon: string;
+  category: string;
+  description: string;
+}
+
+export async function fetchImageTemplates() {
+  return apiFetch<{ templates: ImageTemplate[] }>("/api/images/templates");
 }
 
 export async function cancelInstance(instanceId: string) {
@@ -507,6 +562,39 @@ export async function fetchTrustTiers() {
 export async function fetchAnalytics(params?: Record<string, string>) {
   const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
   return apiFetch(`/api/analytics/usage${qs}`);
+}
+
+export interface EnhancedAnalytics {
+  ok: boolean;
+  days: number;
+  role: "admin" | "provider" | "customer";
+  customer_id: string;
+  provider_id: string;
+  cost_per_hour_trend: { date: string; cost_per_hour: number; gpu_hours: number; spend: number }[];
+  cumulative_spend: { date: string; total: number }[];
+  duration_histogram: { bucket: string; count: number; total_cost: number }[];
+  daily_gpu_hours: { date: string; hours: number }[];
+  hourly_heatmap: { dow: number; hour: number; count: number }[];
+  top_entities: { entity: string; job_count: number; total_cost: number; gpu_hours: number }[];
+  sovereignty: {
+    total_jobs: number; canadian_jobs: number; canadian_pct: number;
+    canadian_spend: number; international_spend: number;
+  };
+  gpu_performance: {
+    gpu_model: string; jobs: number; avg_util: number; avg_duration_min: number;
+    total_cost: number; gpu_hours: number; avg_cost_per_hour: number;
+  }[];
+  provider_daily?: { date: string; jobs_served: number; total_revenue: number; avg_util: number }[];
+  provider_summary?: {
+    total_jobs_served: number; total_revenue: number;
+    total_gpu_hours: number; avg_util: number;
+  };
+  wallet_activity: { date: string; tx_type: string; total_amount: number; tx_count: number }[];
+  peak_days: { date: string; jobs: number; gpu_hours: number; spend: number; avg_util: number }[];
+}
+
+export async function fetchEnhancedAnalytics(days = 30) {
+  return apiFetch<EnhancedAnalytics>(`/api/analytics/enhanced?days=${days}`);
 }
 
 // ── Instance Detail ───────────────────────────────────────────────────
@@ -1268,9 +1356,10 @@ export interface ReputationEntry {
 }
 
 export interface InstanceLog {
-  timestamp: string;
+  timestamp: number | string;
   level?: string;
   message: string;
+  line?: string;
   stream?: string;
 }
 

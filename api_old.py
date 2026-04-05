@@ -1179,6 +1179,17 @@ def api_submit_instance(j: JobIn, request: Request):
             vram_needed = 4.0  # minimal default when no hosts available
 
     with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
+        customer_id = user.get("customer_id", user.get("user_id", ""))
+
+        # ── Wallet pre-flight: block launch if wallet is broke ────────
+        from billing import get_billing_engine
+        be = get_billing_engine()
+        wallet = be.get_wallet(customer_id)
+        if wallet.get("status") == "suspended":
+            raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+        if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
+            raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+
         job = submit_job(
             j.name,
             vram_needed,
@@ -1192,10 +1203,11 @@ def api_submit_instance(j: JobIn, request: Request):
             interactive=j.interactive,
             command=j.command,
             ssh_port=j.ssh_port,
+            owner=customer_id,
         )
-        # Track job ownership
+        # Track job ownership (response-only, already persisted via owner param)
         job["submitted_by"] = user.get("email", "")
-        job["customer_id"] = user.get("customer_id", user.get("user_id", ""))
+        job["customer_id"] = customer_id
         broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
 
         # Direct host assignment: assign + start immediately
@@ -1368,7 +1380,7 @@ _JOB_LOG_MAX = 500  # max buffered lines per job
 
 def push_job_log(job_id: str, line: str, level: str = "info"):
     """Push a log line into the per-job log buffer (called from scheduler/worker)."""
-    entry = {"timestamp": time.time(), "line": line, "level": level}
+    entry = {"timestamp": time.time(), "line": line, "message": line, "level": level}
     buf = _job_log_buffers[job_id]
     buf.append(entry)
     if len(buf) > _JOB_LOG_MAX:
@@ -7982,14 +7994,23 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     Schedules a short-lived GPU job that runs the specified model on the
     provided inputs. Returns a job_id to poll for results.
     """
-    user = _get_current_user(request)
-    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
+
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    _w = get_billing_engine().get_wallet(customer_id)
+    if _w.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if _w["balance_cad"] <= 0 and (_w.get("grace_until") or 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     job = submit_job(
         name=f"inference:{req.model.replace('/', '--')}",
         vram_needed_gb=2,
         image=f"xcelsior/inference:{req.model.replace('/', '--')}",
+        owner=customer_id,
     )
     job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
     # Persist inference metadata to SQLite (survives API restarts)
@@ -8114,15 +8135,24 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
     Submits an inference request and polls for results up to 30 seconds.
     If stream=true, returns SSE text/event-stream with token deltas.
     """
-    user = _get_current_user(request)
-    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
+
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    _w = get_billing_engine().get_wallet(customer_id)
+    if _w.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if _w["balance_cad"] <= 0 and (_w.get("grace_until") or 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     with otel_span("inference.v1.sync", {"model": body.model, "stream": body.stream}):
         job = submit_job(
             name=f"inference:{body.model.replace('/', '--')}",
             vram_needed_gb=2,
             image=f"xcelsior/inference:{body.model.replace('/', '--')}",
+            owner=customer_id,
         )
         job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
         store_inference_job(
@@ -8191,15 +8221,24 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
 @app.post("/v1/inference/async", tags=["Inference v2"])
 def api_v1_inference_async(body: V1InferenceRequest, request: Request):
     """Asynchronous inference — returns job_id immediately for polling."""
-    user = _get_current_user(request)
-    customer_id = user.get("customer_id", user.get("email", "anon")) if user else "anon"
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
+
+    # Wallet pre-flight
+    from billing import get_billing_engine
+    _w = get_billing_engine().get_wallet(customer_id)
+    if _w.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if _w["balance_cad"] <= 0 and (_w.get("grace_until") or 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
     with otel_span("inference.v1.async", {"model": body.model}):
         job = submit_job(
             name=f"inference:{body.model.replace('/', '--')}",
             vram_needed_gb=2,
             image=f"xcelsior/inference:{body.model.replace('/', '--')}",
+            owner=customer_id,
         )
         job_id = job.get("job_id", job.get("id", str(uuid.uuid4())))
         store_inference_job(
@@ -9300,13 +9339,16 @@ def api_gpu_available():
             with pool.connection() as conn:
                 conn.row_factory = dict_row
                 hosts = conn.execute(
-                    """SELECT gpu_model, total_vram_gb, region, province,
+                    """SELECT payload->>'gpu_model' AS gpu_model,
+                              (payload->>'total_vram_gb')::float AS total_vram_gb,
+                              payload->>'region' AS region,
+                              payload->>'province' AS province,
                               COUNT(*) FILTER (WHERE status = 'active') AS count_available,
-                              MIN(cost_per_hour) AS min_price
+                              MIN((payload->>'cost_per_hour')::float) AS min_price
                        FROM hosts
-                       WHERE admitted = true
-                       GROUP BY gpu_model, total_vram_gb, region, province
-                       ORDER BY gpu_model""",
+                       WHERE (payload->>'admitted')::boolean = true
+                       GROUP BY payload->>'gpu_model', payload->>'total_vram_gb', payload->>'region', payload->>'province'
+                       ORDER BY payload->>'gpu_model'""",
                 ).fetchall()
             for h in hosts:
                 gpus.append({

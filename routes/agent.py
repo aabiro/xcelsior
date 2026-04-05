@@ -1,5 +1,6 @@
 """Routes: agent."""
 
+import gzip
 import time
 from collections import defaultdict
 
@@ -9,19 +10,31 @@ from pydantic import BaseModel
 
 from routes._deps import (
     broadcast_sse,
-    log,
 )
 from scheduler import (
     list_hosts,
     list_jobs,
     log,
     register_compute_score,
+    update_job_status,
 )
 from events import Event, get_event_store, get_state_machine
 from security import admit_node
+from db import _get_pg_pool
 import threading
 
 router = APIRouter()
+
+# Critical container log patterns to detect image pull / launch errors
+_IMAGE_PULL_PATTERNS = (
+    "manifest unknown",
+    "pull access denied",
+    "not found: manifest unknown",
+    "Error response from daemon",
+    "image not found",
+    "ErrImagePull",
+    "ImagePullBackOff",
+)
 
 # Agent work/preemption state
 _agent_work: dict[str, list[dict]] = defaultdict(list)  # host_id -> [job, ...]
@@ -232,7 +245,11 @@ class LeaseRenewRequest(BaseModel):
 
 class LeaseReleaseRequest(BaseModel):
     job_id: str
-    reason: str = "completed"  # completed, failed, preempted
+    reason: str = "completed"
+
+    @classmethod
+    def _valid_reasons(cls):
+        return {"completed", "failed", "preempted"}
 
 @router.post("/agent/lease/claim", tags=["Agent"])
 def api_agent_lease_claim(req: LeaseClaimRequest):
@@ -255,6 +272,14 @@ def api_agent_lease_claim(req: LeaseClaimRequest):
         raise HTTPException(
             status_code=409,
             detail=f"Job {req.job_id} is '{current_status}', expected 'assigned'",
+        )
+
+    # Verify the requesting host is the one assigned to this job
+    assigned_host = job.get("host_id", "")
+    if assigned_host and assigned_host != req.host_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Host {req.host_id} is not assigned to job {req.job_id}",
         )
 
     # Grant lease
@@ -375,4 +400,92 @@ def api_all_telemetry():
             "stale": (now - data.get("received_at", 0)) > 30,
         }
     return {"ok": True, "hosts": result, "count": len(result)}
+
+
+# ── Log Forwarding (worker → API → SSE/WS → frontend) ──
+
+
+@router.post("/agent/logs/{job_id}", tags=["Agent"])
+async def api_agent_logs(job_id: str, request: Request):
+    """Ingest container log lines from the worker agent.
+
+    Accepts JSON body (LogBatch) or gzip-compressed JSON.
+    Persists to job_logs table, pushes to in-memory buffer + SSE.
+    """
+    # Handle gzip-compressed body
+    content_encoding = request.headers.get("content-encoding", "")
+    raw = await request.body()
+    if content_encoding == "gzip":
+        try:
+            raw = gzip.decompress(raw)
+        except Exception:
+            raise HTTPException(400, "Invalid gzip payload")
+
+    import json as _json
+    try:
+        data = _json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "Invalid JSON")
+
+    lines = data.get("lines", [])
+    if not lines:
+        return {"ok": True, "accepted": 0}
+
+    # Cap batch size to prevent abuse
+    if len(lines) > 500:
+        lines = lines[:500]
+
+    now = time.time()
+    accepted = 0
+
+    # Detect critical errors in log lines (image pull failures, OOM, etc.)
+    critical_error = None
+    for entry in lines:
+        msg = entry.get("message", "")
+        if msg and any(pat.lower() in msg.lower() for pat in _IMAGE_PULL_PATTERNS):
+            critical_error = msg
+            break
+
+    if critical_error:
+        from db import emit_event
+        emit_event("job_error", {
+            "job_id": job_id,
+            "error": "image_pull_failed",
+            "message": f"Container image error: {critical_error[:200]}",
+        })
+
+    # Persist to PG and broadcast to SSE in one pass
+    from routes.instances import push_job_log
+
+    try:
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            for entry in lines:
+                msg = entry.get("message", "")
+                level = entry.get("level", "info")
+                ts = entry.get("timestamp") or now
+                if not msg:
+                    continue
+
+                # Persist
+                conn.execute(
+                    "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
+                    (job_id, ts, level, msg),
+                )
+
+                # Push to in-memory buffer + SSE (feeds LogViewer in real-time)
+                push_job_log(job_id, msg, level, ts)
+                accepted += 1
+
+            conn.commit()
+    except Exception as e:
+        log.error("Failed to persist logs for job %s: %s", job_id, e)
+        # Still try to push to SSE even if PG fails
+        for entry in lines:
+            msg = entry.get("message", "")
+            if msg:
+                push_job_log(job_id, msg, entry.get("level", "info"), entry.get("timestamp") or now)
+                accepted += 1
+
+    return {"ok": True, "accepted": accepted}
 

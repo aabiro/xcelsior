@@ -15,7 +15,6 @@ from routes._deps import (
 from scheduler import (
     list_hosts,
     list_jobs,
-    log,
 )
 from db import UserStore, emit_event
 from billing import get_billing_engine
@@ -24,14 +23,6 @@ from events import get_event_store
 
 router = APIRouter()
 
-
-# ── Helper: _admin_flag ──
-
-def _admin_flag(value) -> int:
-    """Normalize truthy admin values from DB/session payloads."""
-    if isinstance(value, str):
-        return 1 if value.strip().lower() in {"1", "true", "yes", "on"} else 0
-    return 1 if value else 0
 
 @router.get("/api/admin/stats", tags=["Admin"])
 def api_admin_stats(request: Request):

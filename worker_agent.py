@@ -1462,6 +1462,7 @@ def run_job(job):
         "XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs"
     )
     nfs_mounted = False
+    log_fwd = None
 
     if not image:
         log.error("Job %s has no image specified — skipping", job_id)
@@ -1632,11 +1633,15 @@ def run_job(job):
         except Exception as e:
             log.debug("Egress rules failed (non-fatal): %s", e)
 
-        # 6. Monitor container until completion
+        # 6. Start log forwarding (container → API → SSE → frontend)
+        log_fwd = LogForwarder(job_id, container_name)
+        log_fwd.start()
+
+        # 7. Monitor container until completion
         if is_interactive:
-            _monitor_interactive(job_id, container_name)
+            _monitor_interactive(job_id, container_name, log_forwarder=log_fwd)
         else:
-            _monitor_container(job_id, container_name)
+            _monitor_container(job_id, container_name, log_forwarder=log_fwd)
 
     except subprocess.TimeoutExpired:
         log.error("Job %s timed out during execution", job_id)
@@ -1649,6 +1654,13 @@ def run_job(job):
         report_job_status(job_id, "failed")
         release_lease(job_id, "failed")
     finally:
+        # Stop log forwarding (final flush)
+        if log_fwd:
+            try:
+                log_fwd.stop()
+            except Exception:
+                pass
+
         # Stop lease renewal thread
         _lease_stop.set()
         with _active_lock:
@@ -1663,7 +1675,194 @@ def run_job(job):
             detach_encrypted_volume(vol_id)
 
 
-def _monitor_container(job_id, container_name):
+# ── Log Forwarding ───────────────────────────────────────────────────
+# Streams container stdout/stderr to the API via HTTP POST batches.
+# Disk-backed buffer survives transient API downtime.
+# Gzip compression on batches > 1KB, exponential backoff retry.
+
+import gzip as _gzip
+import tempfile as _tempfile
+
+_LOG_BATCH_SIZE = 50        # flush every N lines
+_LOG_FLUSH_INTERVAL = 1.0   # or every N seconds
+_LOG_BACKOFF_MAX = 60       # max retry delay (seconds)
+_LOG_SPOOL_MAX = 50_000     # max lines in disk spool before dropping oldest
+
+
+class LogForwarder:
+    """Forward container stdout/stderr to the API server.
+
+    Runs two threads:
+    - _tail_thread: reads `docker logs --follow --timestamps`
+    - _flush_thread: batches lines and POSTs them to /agent/logs/{job_id}
+    """
+
+    def __init__(self, job_id: str, container_name: str):
+        self.job_id = job_id
+        self.container_name = container_name
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._buffer: list[dict] = []
+        self._spool_path = os.path.join(
+            _tempfile.gettempdir(), f"xcelsior-logs-{job_id}.jsonl"
+        )
+        self._tail_proc = None
+        self._tail_thread = None
+        self._flush_thread = None
+        self._backoff = 1.0
+
+    def start(self):
+        """Start tailing container logs and flushing to the API."""
+        self._tail_thread = threading.Thread(
+            target=self._tail_loop, daemon=True, name=f"log-tail-{self.job_id[:8]}"
+        )
+        self._flush_thread = threading.Thread(
+            target=self._flush_loop, daemon=True, name=f"log-flush-{self.job_id[:8]}"
+        )
+        self._tail_thread.start()
+        self._flush_thread.start()
+        log.debug("LogForwarder started for %s", self.job_id)
+
+    def stop(self):
+        """Stop tailing and do a final flush."""
+        self._stop.set()
+        if self._tail_proc:
+            with suppress(Exception):
+                self._tail_proc.kill()
+        # Wait for threads to finish processing
+        if self._tail_thread:
+            self._tail_thread.join(timeout=5)
+        if self._flush_thread:
+            self._flush_thread.join(timeout=5)
+        # Final flush of remaining lines after threads have stopped
+        self._flush_batch()
+        # Clean up spool file
+        with suppress(FileNotFoundError):
+            os.remove(self._spool_path)
+        log.debug("LogForwarder stopped for %s", self.job_id)
+
+    def _tail_loop(self):
+        """Run `docker logs --follow --timestamps` and buffer lines."""
+        try:
+            self._tail_proc = subprocess.Popen(
+                ["docker", "logs", "--follow", "--timestamps", self.container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for raw_line in self._tail_proc.stdout:
+                if self._stop.is_set():
+                    break
+                line = raw_line.rstrip("\n")
+                if not line:
+                    continue
+
+                # Docker --timestamps format: "2026-04-05T12:00:00.123456789Z <message>"
+                ts = time.time()
+                msg = line
+                if len(line) > 31 and line[0].isdigit() and "T" in line[:30]:
+                    # Try to parse the Docker timestamp
+                    space = line.find(" ")
+                    if space > 0:
+                        try:
+                            dt = datetime.fromisoformat(line[:space].rstrip("Z"))
+                            ts = dt.timestamp()
+                            msg = line[space + 1:]
+                        except (ValueError, IndexError):
+                            pass
+
+                level = "stderr" if "ERROR" in msg[:50] or "FATAL" in msg[:50] else "info"
+
+                entry = {"message": msg, "level": level, "timestamp": ts}
+                with self._lock:
+                    self._buffer.append(entry)
+
+                # Flush if batch is full
+                if len(self._buffer) >= _LOG_BATCH_SIZE:
+                    self._flush_batch()
+
+        except Exception as e:
+            if not self._stop.is_set():
+                log.debug("Log tail ended for %s: %s", self.job_id, e)
+        finally:
+            if self._tail_proc:
+                with suppress(Exception):
+                    self._tail_proc.kill()
+
+    def _flush_loop(self):
+        """Periodically flush buffered log lines to the API."""
+        while not self._stop.is_set():
+            self._stop.wait(_LOG_FLUSH_INTERVAL)
+            if self._buffer:
+                self._flush_batch()
+
+    def _flush_batch(self):
+        """Send buffered lines to the API. Retry with exponential backoff."""
+        with self._lock:
+            if not self._buffer:
+                return
+            batch = self._buffer[:_LOG_BATCH_SIZE]
+            self._buffer = self._buffer[_LOG_BATCH_SIZE:]
+
+        # Spool to disk (WAL-style) so we don't lose lines if API is down
+        try:
+            spool_size = os.path.getsize(self._spool_path) if os.path.exists(self._spool_path) else 0
+        except OSError:
+            spool_size = 0
+        if spool_size < 10_000_000:  # 10MB cap
+            try:
+                with open(self._spool_path, "a") as f:
+                    for entry in batch:
+                        f.write(json.dumps(entry) + "\n")
+            except OSError:
+                pass  # disk full — best-effort
+
+        body = json.dumps({"lines": batch}).encode()
+
+        # Gzip compress if > 1KB
+        headers = {**_api_headers()}
+        if len(body) > 1024:
+            body = _gzip.compress(body)
+            headers["Content-Encoding"] = "gzip"
+
+        try:
+            resp = requests.post(
+                _api_url(f"/agent/logs/{self.job_id}"),
+                data=body,
+                headers=headers,
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                self._backoff = 1.0  # reset on success
+                # Drain from disk spool what we successfully sent
+                self._drain_spool(len(batch))
+            else:
+                log.debug("Log POST returned %d for %s", resp.status_code, self.job_id)
+                self._backoff_wait()
+        except requests.RequestException:
+            self._backoff_wait()
+
+    def _backoff_wait(self):
+        """Wait with exponential backoff, capped at _LOG_BACKOFF_MAX."""
+        self._stop.wait(self._backoff)
+        self._backoff = min(self._backoff * 2, _LOG_BACKOFF_MAX)
+
+    def _drain_spool(self, count: int):
+        """Remove successfully sent lines from disk spool."""
+        try:
+            with open(self._spool_path, "r") as f:
+                remaining = f.readlines()[count:]
+            if remaining:
+                with open(self._spool_path, "w") as f:
+                    f.writelines(remaining[-_LOG_SPOOL_MAX:])
+            else:
+                os.remove(self._spool_path)
+        except (FileNotFoundError, OSError):
+            pass
+
+
+def _monitor_container(job_id, container_name, log_forwarder=None):
     """Monitor a running container until it exits or is preempted."""
     check_interval = 5  # seconds
 
@@ -1731,7 +1930,7 @@ def _monitor_container(job_id, container_name):
             time.sleep(1)
 
 
-def _monitor_interactive(job_id, container_name):
+def _monitor_interactive(job_id, container_name, log_forwarder=None):
     """Monitor an interactive container — stays running until cancelled or shutdown.
 
     Unlike batch containers, interactive containers run indefinitely.

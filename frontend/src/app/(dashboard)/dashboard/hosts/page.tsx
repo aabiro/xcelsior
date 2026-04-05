@@ -322,7 +322,7 @@ export default function HostsPage() {
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="font-mono text-xs px-2 py-0.5">
+                        <Badge variant="default" className="font-mono text-xs px-2 py-0.5">
                           {host.gpu_model || "Unknown"}
                         </Badge>
                       </div>
