@@ -487,14 +487,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <button
           onClick={toggleAiPanel}
           className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+            "flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200",
             aiPanelOpen
-              ? "bg-accent-red text-white shadow-lg shadow-accent-red/20"
-              : "text-text-muted hover:bg-accent-red/10 hover:text-accent-red"
+              ? "bg-accent-gold text-white shadow-lg shadow-accent-gold/25 scale-110"
+              : "text-text-muted hover:bg-accent-gold/15 hover:text-accent-gold"
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
-          <Sparkles className="h-5 w-5" />
+          <Sparkles className={cn("h-5 w-5 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
         </button>
       </div>
 

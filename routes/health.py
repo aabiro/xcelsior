@@ -260,7 +260,7 @@ def api_auth_verify_page():
     return HTMLResponse("""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="https://xcelsior.ca/favicon.svg" type="image/svg+xml">
 <title>Xcelsior — Device Authorization</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -273,7 +273,8 @@ def api_auth_verify_page():
         padding:2.5rem 2rem 2rem;max-width:440px;width:100%;text-align:center;
         backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
         box-shadow:0 0 60px rgba(0,212,255,.05)}
-  .logo{width:180px;height:auto;margin:0 auto 1.5rem;display:block}
+  .logo-wrap{display:flex;justify-content:center;margin-bottom:1.5rem}
+  .logo{width:180px;height:auto}
   .subtitle{color:#9ca3af;margin-bottom:2rem;font-size:.95rem;line-height:1.5}
   .subtitle strong{color:#00d4ff}
   input{width:100%;padding:.875rem;border:1px solid rgba(75,85,99,.5);border-radius:10px;
@@ -298,8 +299,10 @@ def api_auth_verify_page():
 </style></head><body>
 <div class="card">
   <div class="brand-line" style="margin-bottom:1.5rem"></div>
-  <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" class="logo"
-       onerror="this.style.display='none';document.getElementById('fallback-title').style.display='block'">
+  <div class="logo-wrap">
+    <img src="https://xcelsior.ca/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" class="logo"
+         onerror="this.parentElement.style.display='none';document.getElementById('fallback-title').style.display='block'">
+  </div>
   <h1 id="fallback-title" style="display:none;font-size:1.8rem;margin-bottom:1rem;
       background:linear-gradient(135deg,#00d4ff,#8b5cf6);-webkit-background-clip:text;
       -webkit-text-fill-color:transparent;font-weight:800">Xcelsior</h1>
