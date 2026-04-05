@@ -215,9 +215,9 @@ def _start_background_tasks():
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         try:
-            from events import get_snapshot_manager
+            from events import get_snapshot_manager, get_event_store
             sm = get_snapshot_manager()
-            sm.snapshot_all_jobs()
+            sm.snapshot_all_jobs(get_event_store())
         except Exception as e:
             log.error("Event snapshots error: %s", e)
     tasks.append(("event_snapshots", _event_snapshots, 900))

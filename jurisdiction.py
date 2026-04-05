@@ -405,3 +405,35 @@ def generate_residency_trace(
         "is_canadian_compute": (jurisdiction.country.upper() == "CA") if jurisdiction else False,
         "trace_generated_at": time.time(),
     }
+
+
+def requires_quebec_pia(
+    data_origin_province: str,
+    processing_province: str,
+    data_contains_pi: bool = False,
+) -> dict:
+    """Check whether Québec Law 25 Privacy Impact Assessment is required.
+
+    Under Law 25, a PIA is mandatory before transferring personal information
+    outside Québec — even within Canada — when the data originates from or
+    involves Québec residents.
+    """
+    quebec_involved = "QC" in (data_origin_province.upper(), processing_province.upper())
+    cross_border = data_origin_province.upper() != processing_province.upper()
+    required = quebec_involved and cross_border and data_contains_pi
+
+    qc_info = PROVINCE_COMPLIANCE.get(Province.QC, {})
+
+    return {
+        "pia_required": required,
+        "reason": (
+            qc_info.get("key_rule", "Cross-border transfer requires PIA + written agreement")
+            if required
+            else "No PIA required — either no personal information, no cross-border transfer, or Québec is not involved."
+        ),
+        "regime": qc_info.get("regime", "Law 25 (private sector)"),
+        "max_penalty": qc_info.get("max_penalty", "$25M or 4% worldwide turnover"),
+        "data_origin": data_origin_province,
+        "processing_province": processing_province,
+        "data_contains_pi": data_contains_pi,
+    }
