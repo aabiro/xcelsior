@@ -278,6 +278,13 @@ class StripeConnectManager:
             )
         except Exception as e:
             log.error("Stripe account creation failed for %s: %s", provider_id, e)
+            err_msg = str(e)
+            if "signed up for Connect" in err_msg:
+                raise RuntimeError(
+                    "Stripe Connect is not yet activated on the platform account. "
+                    "The platform administrator needs to enable Connect at "
+                    "https://dashboard.stripe.com/connect before providers can onboard."
+                ) from e
             raise RuntimeError(
                 "Failed to start Stripe onboarding. Please try again in a moment."
             ) from e
