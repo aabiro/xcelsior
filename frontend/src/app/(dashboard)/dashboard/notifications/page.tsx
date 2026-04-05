@@ -269,11 +269,10 @@ export default function NotificationsPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Type badge + timestamp */}
+              {/* Type badge (icon only) + unread indicator */}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn("flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 bg-surface-hover", getTypeMeta(selected.type).color)}>
+                <span className={cn("flex items-center justify-center h-7 w-7 text-xs font-medium rounded-full bg-surface-hover", getTypeMeta(selected.type).color)}>
                   {getTypeMeta(selected.type).icon}
-                  {getTypeMeta(selected.type).label}
                 </span>
                 {!selected.read && (
                   <span className="text-xs font-medium text-accent-blue bg-accent-blue/10 rounded-full px-2 py-0.5">Unread</span>
