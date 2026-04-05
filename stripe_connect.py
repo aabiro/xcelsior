@@ -380,6 +380,20 @@ class StripeConnectManager:
                         provider["status"] = updates.get("status", provider.get("status"))
                         if "onboarded_at" in updates:
                             provider["onboarded_at"] = updates["onboarded_at"]
+
+                        # Send in-app notification when status just transitioned to active
+                        if new_status == "active" and provider.get("email"):
+                            try:
+                                from db import NotificationStore
+                                NotificationStore.create(
+                                    user_email=provider["email"],
+                                    notif_type="stripe_connected",
+                                    title="Stripe Account Connected",
+                                    body="Your Stripe account has been connected successfully! You can now receive payouts for completed GPU jobs.",
+                                    data={"provider_id": provider_id},
+                                )
+                            except Exception as ne:
+                                log.warning("Failed to create stripe notification for %s: %s", provider_id, ne)
                 except Exception as e:
                     log.warning(
                         "Stripe status sync failed for provider %s (acct=%s): %s",
@@ -413,6 +427,27 @@ class StripeConnectManager:
                 (now, provider_id),
             )
         log.info("Provider %s onboarding COMPLETE", provider_id)
+
+        # Send in-app notification
+        try:
+            from db import NotificationStore, UserStore
+            # Look up the user email from provider_id
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT email FROM provider_accounts WHERE provider_id=%s",
+                    (provider_id,),
+                ).fetchone()
+            if row and row.get("email"):
+                NotificationStore.create(
+                    user_email=row["email"],
+                    notif_type="stripe_connected",
+                    title="Stripe Account Connected",
+                    body="Your Stripe account has been connected successfully! You can now receive payouts for completed GPU jobs.",
+                    data={"provider_id": provider_id},
+                )
+        except Exception as e:
+            log.warning("Failed to create Stripe onboarding notification for %s: %s", provider_id, e)
+
         return {"provider_id": provider_id, "status": "active"}
 
     # ── Payment Processing ────────────────────────────────────────────
