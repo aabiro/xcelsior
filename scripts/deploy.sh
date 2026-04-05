@@ -320,6 +320,11 @@ deploy_docker() {
     ssh_cmd "cd /opt/xcelsior && docker compose build api" || error "API build failed"
     success "API image built"
 
+    # Scheduler-worker — same Dockerfile as api, must be rebuilt too
+    log "Building scheduler-worker image..."
+    ssh_cmd "cd /opt/xcelsior && docker compose build scheduler-worker" || error "Scheduler-worker build failed"
+    success "Scheduler-worker image built"
+
     # Frontend image — explicitly pass every NEXT_PUBLIC_* as --build-arg.
     # Use --no-cache ONLY when env vars changed (hash comparison).
     log "Building frontend image (explicit build args)..."
