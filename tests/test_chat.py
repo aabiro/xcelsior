@@ -192,11 +192,12 @@ class TestChatEndpoint:
 
     def test_chat_returns_503_without_api_key(self):
         import chat
-        import api as api_mod
+        import routes.chat as routes_chat
 
         original_key = chat.CHAT_API_KEY
+        original_route_key = routes_chat.CHAT_API_KEY
         chat.CHAT_API_KEY = ""
-        api_mod.CHAT_API_KEY = ""
+        routes_chat.CHAT_API_KEY = ""
         try:
             from fastapi.testclient import TestClient
             from api import app
@@ -206,7 +207,7 @@ class TestChatEndpoint:
             assert resp.status_code == 503
         finally:
             chat.CHAT_API_KEY = original_key
-            api_mod.CHAT_API_KEY = original_key
+            routes_chat.CHAT_API_KEY = original_route_key
 
     def test_suggestions_endpoint(self):
         from fastapi.testclient import TestClient

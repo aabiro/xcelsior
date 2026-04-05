@@ -34,18 +34,18 @@ export class TelemetryClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.telemetry.apiAgentTelemetry({
+     *     await client.telemetry.submit({
      *         host_id: "host_id"
      *     })
      */
-    public apiAgentTelemetry(
+    public submit(
         request: XcelsiorApi.TelemetryPayload,
         requestOptions?: TelemetryClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentTelemetry(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__submit(request, requestOptions));
     }
 
-    private async __apiAgentTelemetry(
+    private async __submit(
         request: XcelsiorApi.TelemetryPayload,
         requestOptions?: TelemetryClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -95,25 +95,25 @@ export class TelemetryClient {
     /**
      * Get latest telemetry for a host (dashboard live gauges).
      *
-     * @param {XcelsiorApi.ApiGetTelemetryAgentTelemetryHostIdGetRequest} request
+     * @param {XcelsiorApi.GetTelemetryRequest} request
      * @param {TelemetryClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.telemetry.apiGetTelemetry({
+     *     await client.telemetry.get({
      *         host_id: "host_id"
      *     })
      */
-    public apiGetTelemetry(
-        request: XcelsiorApi.ApiGetTelemetryAgentTelemetryHostIdGetRequest,
+    public get(
+        request: XcelsiorApi.GetTelemetryRequest,
         requestOptions?: TelemetryClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetTelemetry(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
-    private async __apiGetTelemetry(
-        request: XcelsiorApi.ApiGetTelemetryAgentTelemetryHostIdGetRequest,
+    private async __get(
+        request: XcelsiorApi.GetTelemetryRequest,
         requestOptions?: TelemetryClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -163,15 +163,13 @@ export class TelemetryClient {
      * @param {TelemetryClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.telemetry.apiAllTelemetry()
+     *     await client.telemetry.getAll()
      */
-    public apiAllTelemetry(requestOptions?: TelemetryClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAllTelemetry(requestOptions));
+    public getAll(requestOptions?: TelemetryClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getAll(requestOptions));
     }
 
-    private async __apiAllTelemetry(
-        requestOptions?: TelemetryClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getAll(requestOptions?: TelemetryClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(

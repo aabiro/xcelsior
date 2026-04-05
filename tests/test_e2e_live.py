@@ -562,4 +562,5 @@ if failed:
         if r[0] == "FAIL":
             print(f"  ✗ {r[1]}: {r[2]}")
 print("=" * 60)
-sys.exit(1 if failed else 0)
+if __name__ == "__main__":
+    sys.exit(1 if failed else 0)

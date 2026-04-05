@@ -31,13 +31,13 @@ export class PrivacyClient {
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.privacy.apiRetentionPolicies()
+     *     await client.privacy.getRetentionPolicies()
      */
-    public apiRetentionPolicies(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRetentionPolicies(requestOptions));
+    public getRetentionPolicies(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getRetentionPolicies(requestOptions));
     }
 
-    private async __apiRetentionPolicies(
+    private async __getRetentionPolicies(
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -83,13 +83,13 @@ export class PrivacyClient {
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.privacy.apiRetentionSummary()
+     *     await client.privacy.getRetentionSummary()
      */
-    public apiRetentionSummary(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRetentionSummary(requestOptions));
+    public getRetentionSummary(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getRetentionSummary(requestOptions));
     }
 
-    private async __apiRetentionSummary(
+    private async __getRetentionSummary(
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -135,13 +135,13 @@ export class PrivacyClient {
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.privacy.apiPurgeExpired()
+     *     await client.privacy.purgeExpired()
      */
-    public apiPurgeExpired(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiPurgeExpired(requestOptions));
+    public purgeExpired(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__purgeExpired(requestOptions));
     }
 
-    private async __apiPurgeExpired(
+    private async __purgeExpired(
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -185,18 +185,18 @@ export class PrivacyClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.privacy.apiSavePrivacyConfig({
+     *     await client.privacy.saveConfig({
      *         org_id: "org_id"
      *     })
      */
-    public apiSavePrivacyConfig(
+    public saveConfig(
         request: XcelsiorApi.PrivacyConfigRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSavePrivacyConfig(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__saveConfig(request, requestOptions));
     }
 
-    private async __apiSavePrivacyConfig(
+    private async __saveConfig(
         request: XcelsiorApi.PrivacyConfigRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -246,25 +246,25 @@ export class PrivacyClient {
     /**
      * Get privacy configuration for an organization (defaults to STRICT).
      *
-     * @param {XcelsiorApi.ApiGetPrivacyConfigApiPrivacyConfigOrgIdGetRequest} request
+     * @param {XcelsiorApi.GetConfigPrivacyRequest} request
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.privacy.apiGetPrivacyConfig({
+     *     await client.privacy.getConfig({
      *         org_id: "org_id"
      *     })
      */
-    public apiGetPrivacyConfig(
-        request: XcelsiorApi.ApiGetPrivacyConfigApiPrivacyConfigOrgIdGetRequest,
+    public getConfig(
+        request: XcelsiorApi.GetConfigPrivacyRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetPrivacyConfig(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getConfig(request, requestOptions));
     }
 
-    private async __apiGetPrivacyConfig(
-        request: XcelsiorApi.ApiGetPrivacyConfigApiPrivacyConfigOrgIdGetRequest,
+    private async __getConfig(
+        request: XcelsiorApi.GetConfigPrivacyRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { org_id: orgId } = request;
@@ -311,26 +311,26 @@ export class PrivacyClient {
     /**
      * Record explicit consent (PIPEDA principle: Consent).
      *
-     * @param {XcelsiorApi.ConsentRequest} request
+     * @param {XcelsiorApi.RoutesPrivacyConsentRequest1} request
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.privacy.apiRecordConsent({
+     *     await client.privacy.recordConsent({
      *         entity_id: "entity_id",
      *         consent_type: "consent_type"
      *     })
      */
-    public apiRecordConsent(
-        request: XcelsiorApi.ConsentRequest,
+    public recordConsent(
+        request: XcelsiorApi.RoutesPrivacyConsentRequest1,
         requestOptions?: PrivacyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRecordConsent(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__recordConsent(request, requestOptions));
     }
 
-    private async __apiRecordConsent(
-        request: XcelsiorApi.ConsentRequest,
+    private async __recordConsent(
+        request: XcelsiorApi.RoutesPrivacyConsentRequest1,
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -379,26 +379,26 @@ export class PrivacyClient {
     /**
      * Revoke consent (PIPEDA: individuals can withdraw consent).
      *
-     * @param {XcelsiorApi.ApiRevokeConsentApiPrivacyConsentEntityIdConsentTypeDeleteRequest} request
+     * @param {XcelsiorApi.RevokeConsentPrivacyRequest} request
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.privacy.apiRevokeConsent({
+     *     await client.privacy.revokeConsent({
      *         entity_id: "entity_id",
      *         consent_type: "consent_type"
      *     })
      */
-    public apiRevokeConsent(
-        request: XcelsiorApi.ApiRevokeConsentApiPrivacyConsentEntityIdConsentTypeDeleteRequest,
+    public revokeConsent(
+        request: XcelsiorApi.RevokeConsentPrivacyRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRevokeConsent(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__revokeConsent(request, requestOptions));
     }
 
-    private async __apiRevokeConsent(
-        request: XcelsiorApi.ApiRevokeConsentApiPrivacyConsentEntityIdConsentTypeDeleteRequest,
+    private async __revokeConsent(
+        request: XcelsiorApi.RevokeConsentPrivacyRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { entity_id: entityId, consent_type: consentType } = request;
@@ -450,25 +450,25 @@ export class PrivacyClient {
     /**
      * Get all consent records for an entity (PIPEDA: Individual Access).
      *
-     * @param {XcelsiorApi.ApiGetConsentsApiPrivacyConsentEntityIdGetRequest} request
+     * @param {XcelsiorApi.GetConsentsPrivacyRequest} request
      * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.privacy.apiGetConsents({
+     *     await client.privacy.getConsents({
      *         entity_id: "entity_id"
      *     })
      */
-    public apiGetConsents(
-        request: XcelsiorApi.ApiGetConsentsApiPrivacyConsentEntityIdGetRequest,
+    public getConsents(
+        request: XcelsiorApi.GetConsentsPrivacyRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetConsents(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getConsents(request, requestOptions));
     }
 
-    private async __apiGetConsents(
-        request: XcelsiorApi.ApiGetConsentsApiPrivacyConsentEntityIdGetRequest,
+    private async __getConsents(
+        request: XcelsiorApi.GetConsentsPrivacyRequest,
         requestOptions?: PrivacyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { entity_id: entityId } = request;
@@ -515,5 +515,236 @@ export class PrivacyClient {
             "GET",
             "/api/privacy/consent/{entity_id}",
         );
+    }
+
+    /**
+     * Record CASL consent for a purpose.
+     *
+     * @param {XcelsiorApi.RoutesPrivacyConsentRequest2} request
+     * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.privacy.recordConsentV2({
+     *         purpose: "purpose"
+     *     })
+     */
+    public recordConsentV2(
+        request: XcelsiorApi.RoutesPrivacyConsentRequest2,
+        requestOptions?: PrivacyClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__recordConsentV2(request, requestOptions));
+    }
+
+    private async __recordConsentV2(
+        request: XcelsiorApi.RoutesPrivacyConsentRequest2,
+        requestOptions?: PrivacyClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/v2/privacy/consent",
+            ),
+            method: "POST",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: request,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/v2/privacy/consent");
+    }
+
+    /**
+     * Withdraw CASL consent for a purpose (unsubscribe).
+     *
+     * @param {XcelsiorApi.WithdrawConsentV2PrivacyRequest} request
+     * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.privacy.withdrawConsentV2({
+     *         purpose: "purpose"
+     *     })
+     */
+    public withdrawConsentV2(
+        request: XcelsiorApi.WithdrawConsentV2PrivacyRequest,
+        requestOptions?: PrivacyClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__withdrawConsentV2(request, requestOptions));
+    }
+
+    private async __withdrawConsentV2(
+        request: XcelsiorApi.WithdrawConsentV2PrivacyRequest,
+        requestOptions?: PrivacyClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { purpose } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/v2/privacy/consent/${core.url.encodePathParam(purpose)}`,
+            ),
+            method: "DELETE",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "DELETE",
+            "/api/v2/privacy/consent/{purpose}",
+        );
+    }
+
+    /**
+     * List all consent records for the current user.
+     *
+     * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.privacy.listConsentsV2()
+     */
+    public listConsentsV2(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listConsentsV2(requestOptions));
+    }
+
+    private async __listConsentsV2(
+        requestOptions?: PrivacyClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/v2/privacy/consents",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/v2/privacy/consents");
+    }
+
+    /**
+     * Execute right-to-erasure (PIPEDA/Law 25). Irreversible.
+     *
+     * @param {PrivacyClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.privacy.rightToErasure()
+     */
+    public rightToErasure(requestOptions?: PrivacyClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__rightToErasure(requestOptions));
+    }
+
+    private async __rightToErasure(
+        requestOptions?: PrivacyClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/v2/privacy/erase",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/v2/privacy/erase");
     }
 }

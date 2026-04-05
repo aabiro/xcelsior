@@ -1,5 +1,6 @@
 export type { AddTeamMemberRequest } from "./AddTeamMemberRequest.js";
-export type { ApiDeleteTeamApiTeamsTeamIdDeleteRequest } from "./ApiDeleteTeamApiTeamsTeamIdDeleteRequest.js";
-export type { ApiGetTeamApiTeamsTeamIdGetRequest } from "./ApiGetTeamApiTeamsTeamIdGetRequest.js";
-export type { ApiRemoveTeamMemberApiTeamsTeamIdMembersEmailDeleteRequest } from "./ApiRemoveTeamMemberApiTeamsTeamIdMembersEmailDeleteRequest.js";
 export type { CreateTeamRequest } from "./CreateTeamRequest.js";
+export type { DeleteTeamsRequest } from "./DeleteTeamsRequest.js";
+export type { GetTeamsRequest } from "./GetTeamsRequest.js";
+export type { RemoveMemberTeamsRequest } from "./RemoveMemberTeamsRequest.js";
+export type { UpdateTeamMemberRoleRequest } from "./UpdateTeamMemberRoleRequest.js";

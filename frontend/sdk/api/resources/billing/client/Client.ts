@@ -28,25 +28,25 @@ export class BillingClient {
     /**
      * Bill a specific completed job.
      *
-     * @param {XcelsiorApi.ApiBillJobBillingBillJobIdPostRequest} request
+     * @param {XcelsiorApi.BillInstanceBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiBillJob({
+     *     await client.billing.billInstance({
      *         job_id: "job_id"
      *     })
      */
-    public apiBillJob(
-        request: XcelsiorApi.ApiBillJobBillingBillJobIdPostRequest,
+    public billInstance(
+        request: XcelsiorApi.BillInstanceBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiBillJob(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__billInstance(request, requestOptions));
     }
 
-    private async __apiBillJob(
-        request: XcelsiorApi.ApiBillJobBillingBillJobIdPostRequest,
+    private async __billInstance(
+        request: XcelsiorApi.BillInstanceBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -96,13 +96,13 @@ export class BillingClient {
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.billing.apiBillAll()
+     *     await client.billing.billAll()
      */
-    public apiBillAll(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiBillAll(requestOptions));
+    public billAll(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__billAll(requestOptions));
     }
 
-    private async __apiBillAll(requestOptions?: BillingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __billAll(requestOptions?: BillingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -141,13 +141,13 @@ export class BillingClient {
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.billing.apiBilling()
+     *     await client.billing.getSummary()
      */
-    public apiBilling(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiBilling(requestOptions));
+    public getSummary(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getSummary(requestOptions));
     }
 
-    private async __apiBilling(requestOptions?: BillingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __getSummary(requestOptions?: BillingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -183,25 +183,25 @@ export class BillingClient {
     /**
      * Get credit wallet balance and status.
      *
-     * @param {XcelsiorApi.ApiGetWalletApiBillingWalletCustomerIdGetRequest} request
+     * @param {XcelsiorApi.GetWalletBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiGetWallet({
+     *     await client.billing.getWallet({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiGetWallet(
-        request: XcelsiorApi.ApiGetWalletApiBillingWalletCustomerIdGetRequest,
+    public getWallet(
+        request: XcelsiorApi.GetWalletBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetWallet(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getWallet(request, requestOptions));
     }
 
-    private async __apiGetWallet(
-        request: XcelsiorApi.ApiGetWalletApiBillingWalletCustomerIdGetRequest,
+    private async __getWallet(
+        request: XcelsiorApi.GetWalletBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { customer_id: customerId } = request;
@@ -251,6 +251,77 @@ export class BillingClient {
     }
 
     /**
+     * Create a Stripe PaymentIntent for depositing compute credits.
+     *
+     * Returns client_secret for front-end Stripe Elements confirmation.
+     * On payment_intent.succeeded webhook the wallet is credited automatically.
+     *
+     * @param {XcelsiorApi.PaymentIntentRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.createPaymentIntent({
+     *         customer_id: "customer_id",
+     *         amount_cad: 1.1
+     *     })
+     */
+    public createPaymentIntent(
+        request: XcelsiorApi.PaymentIntentRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__createPaymentIntent(request, requestOptions));
+    }
+
+    private async __createPaymentIntent(
+        request: XcelsiorApi.PaymentIntentRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/billing/payment-intent",
+            ),
+            method: "POST",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: request,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/billing/payment-intent");
+    }
+
+    /**
      * Deposit credits into a customer wallet.
      *
      * @param {XcelsiorApi.DepositRequest} request
@@ -259,19 +330,19 @@ export class BillingClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiDeposit({
+     *     await client.billing.deposit({
      *         customer_id: "customer_id",
      *         amount_cad: 1.1
      *     })
      */
-    public apiDeposit(
+    public deposit(
         request: XcelsiorApi.DepositRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiDeposit(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__deposit(request, requestOptions));
     }
 
-    private async __apiDeposit(
+    private async __deposit(
         request: XcelsiorApi.DepositRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -325,27 +396,240 @@ export class BillingClient {
     }
 
     /**
-     * Get transaction history for a wallet.
+     * Reset wallet balance and promo state for admin testing. Disabled in production.
      *
-     * @param {XcelsiorApi.ApiWalletHistoryApiBillingWalletCustomerIdHistoryGetRequest} request
+     * @param {XcelsiorApi.ApiResetWalletTestingStateApiBillingWalletCustomerIdResetTestingPostRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiWalletHistory({
+     *     await client.billing.apiResetWalletTestingState({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiWalletHistory(
-        request: XcelsiorApi.ApiWalletHistoryApiBillingWalletCustomerIdHistoryGetRequest,
+    public apiResetWalletTestingState(
+        request: XcelsiorApi.ApiResetWalletTestingStateApiBillingWalletCustomerIdResetTestingPostRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiWalletHistory(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__apiResetWalletTestingState(request, requestOptions));
     }
 
-    private async __apiWalletHistory(
-        request: XcelsiorApi.ApiWalletHistoryApiBillingWalletCustomerIdHistoryGetRequest,
+    private async __apiResetWalletTestingState(
+        request: XcelsiorApi.ApiResetWalletTestingStateApiBillingWalletCustomerIdResetTestingPostRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { customer_id: customerId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/wallet/${core.url.encodePathParam(customerId)}/reset-testing`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "POST",
+            "/api/billing/wallet/{customer_id}/reset-testing",
+        );
+    }
+
+    /**
+     * Claim one-time $10 CAD signup bonus.
+     *
+     * Uses an idempotency key derived from the customer_id so the bonus
+     * can only be claimed once per customer.
+     *
+     * @param {XcelsiorApi.ClaimFreeCreditsBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.claimFreeCredits({
+     *         customer_id: "customer_id"
+     *     })
+     */
+    public claimFreeCredits(
+        request: XcelsiorApi.ClaimFreeCreditsBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__claimFreeCredits(request, requestOptions));
+    }
+
+    private async __claimFreeCredits(
+        request: XcelsiorApi.ClaimFreeCreditsBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { customer_id: customerId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/free-credits/${core.url.encodePathParam(customerId)}`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "POST",
+            "/api/billing/free-credits/{customer_id}",
+        );
+    }
+
+    /**
+     * Check whether the customer has already claimed the free signup bonus.
+     *
+     * @param {XcelsiorApi.GetFreeCreditsStatusBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.getFreeCreditsStatus({
+     *         customer_id: "customer_id"
+     *     })
+     */
+    public getFreeCreditsStatus(
+        request: XcelsiorApi.GetFreeCreditsStatusBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getFreeCreditsStatus(request, requestOptions));
+    }
+
+    private async __getFreeCreditsStatus(
+        request: XcelsiorApi.GetFreeCreditsStatusBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { customer_id: customerId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/free-credits/${core.url.encodePathParam(customerId)}/status`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "GET",
+            "/api/billing/free-credits/{customer_id}/status",
+        );
+    }
+
+    /**
+     * Get transaction history for a wallet.
+     *
+     * @param {XcelsiorApi.GetWalletHistoryBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.getWalletHistory({
+     *         customer_id: "customer_id"
+     *     })
+     */
+    public getWalletHistory(
+        request: XcelsiorApi.GetWalletHistoryBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getWalletHistory(request, requestOptions));
+    }
+
+    private async __getWalletHistory(
+        request: XcelsiorApi.GetWalletHistoryBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { customer_id: customerId, limit } = request;
@@ -398,27 +682,100 @@ export class BillingClient {
     }
 
     /**
-     * Get usage summary for a customer.
+     * Get real-time balance depletion projection.
      *
-     * @param {XcelsiorApi.ApiUsageSummaryApiBillingUsageCustomerIdGetRequest} request
+     * Returns burn rate, seconds-to-zero, per-instance cost breakdown,
+     * and alert thresholds (T-30min, T-5min, T-0).
+     *
+     * @param {XcelsiorApi.GetWalletDepletionBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiUsageSummary({
+     *     await client.billing.getWalletDepletion({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiUsageSummary(
-        request: XcelsiorApi.ApiUsageSummaryApiBillingUsageCustomerIdGetRequest,
+    public getWalletDepletion(
+        request: XcelsiorApi.GetWalletDepletionBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiUsageSummary(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getWalletDepletion(request, requestOptions));
     }
 
-    private async __apiUsageSummary(
-        request: XcelsiorApi.ApiUsageSummaryApiBillingUsageCustomerIdGetRequest,
+    private async __getWalletDepletion(
+        request: XcelsiorApi.GetWalletDepletionBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { customer_id: customerId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/wallet/${core.url.encodePathParam(customerId)}/depletion`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "GET",
+            "/api/billing/wallet/{customer_id}/depletion",
+        );
+    }
+
+    /**
+     * Get usage summary for a customer.
+     *
+     * @param {XcelsiorApi.GetUsageBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.getUsage({
+     *         customer_id: "customer_id"
+     *     })
+     */
+    public getUsage(
+        request: XcelsiorApi.GetUsageBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getUsage(request, requestOptions));
+    }
+
+    private async __getUsage(
+        request: XcelsiorApi.GetUsageBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { customer_id: customerId, period_start: periodStart, period_end: periodEnd } = request;
@@ -474,25 +831,25 @@ export class BillingClient {
     /**
      * Generate an AI Compute Access Fund–aligned invoice.
      *
-     * @param {XcelsiorApi.ApiGenerateInvoiceApiBillingInvoiceCustomerIdGetRequest} request
+     * @param {XcelsiorApi.GetInvoiceBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiGenerateInvoice({
+     *     await client.billing.getInvoice({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiGenerateInvoice(
-        request: XcelsiorApi.ApiGenerateInvoiceApiBillingInvoiceCustomerIdGetRequest,
+    public getInvoice(
+        request: XcelsiorApi.GetInvoiceBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGenerateInvoice(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getInvoice(request, requestOptions));
     }
 
-    private async __apiGenerateInvoice(
-        request: XcelsiorApi.ApiGenerateInvoiceApiBillingInvoiceCustomerIdGetRequest,
+    private async __getInvoice(
+        request: XcelsiorApi.GetInvoiceBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const {
@@ -559,25 +916,25 @@ export class BillingClient {
      * From REPORT_FEATURE_2.md: /billing/export?format=caf
      * Supports json and csv formats.
      *
-     * @param {XcelsiorApi.ApiExportCafApiBillingExportCafCustomerIdGetRequest} request
+     * @param {XcelsiorApi.ExportCafBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiExportCaf({
+     *     await client.billing.exportCaf({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiExportCaf(
-        request: XcelsiorApi.ApiExportCafApiBillingExportCafCustomerIdGetRequest,
+    public exportCaf(
+        request: XcelsiorApi.ExportCafBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiExportCaf(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__exportCaf(request, requestOptions));
     }
 
-    private async __apiExportCaf(
-        request: XcelsiorApi.ApiExportCafApiBillingExportCafCustomerIdGetRequest,
+    private async __exportCaf(
+        request: XcelsiorApi.ExportCafBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { customer_id: customerId, period_start: periodStart, period_end: periodEnd, format } = request;
@@ -637,25 +994,25 @@ export class BillingClient {
      * Generates monthly invoice stubs for the last N months showing
      * total spend, tax, job count, and top GPUs used.
      *
-     * @param {XcelsiorApi.ApiListInvoicesApiBillingInvoicesCustomerIdGetRequest} request
+     * @param {XcelsiorApi.ListInvoicesBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiListInvoices({
+     *     await client.billing.listInvoices({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiListInvoices(
-        request: XcelsiorApi.ApiListInvoicesApiBillingInvoicesCustomerIdGetRequest,
+    public listInvoices(
+        request: XcelsiorApi.ListInvoicesBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListInvoices(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__listInvoices(request, requestOptions));
     }
 
-    private async __apiListInvoices(
-        request: XcelsiorApi.ApiListInvoicesApiBillingInvoicesCustomerIdGetRequest,
+    private async __listInvoices(
+        request: XcelsiorApi.ListInvoicesBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { customer_id: customerId, limit } = request;
@@ -712,25 +1069,25 @@ export class BillingClient {
      *
      * Formats: csv (spreadsheet-ready), txt (printable receipt).
      *
-     * @param {XcelsiorApi.ApiDownloadInvoiceApiBillingInvoiceCustomerIdDownloadGetRequest} request
+     * @param {XcelsiorApi.DownloadInvoiceBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiDownloadInvoice({
+     *     await client.billing.downloadInvoice({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiDownloadInvoice(
-        request: XcelsiorApi.ApiDownloadInvoiceApiBillingInvoiceCustomerIdDownloadGetRequest,
+    public downloadInvoice(
+        request: XcelsiorApi.DownloadInvoiceBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiDownloadInvoice(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__downloadInvoice(request, requestOptions));
     }
 
-    private async __apiDownloadInvoice(
-        request: XcelsiorApi.ApiDownloadInvoiceApiBillingInvoiceCustomerIdDownloadGetRequest,
+    private async __downloadInvoice(
+        request: XcelsiorApi.DownloadInvoiceBillingRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const {
@@ -799,13 +1156,13 @@ export class BillingClient {
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.billing.apiProviderAttestation()
+     *     await client.billing.getAttestation()
      */
-    public apiProviderAttestation(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProviderAttestation(requestOptions));
+    public getAttestation(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getAttestation(requestOptions));
     }
 
-    private async __apiProviderAttestation(
+    private async __getAttestation(
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -853,19 +1210,19 @@ export class BillingClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiProcessRefund({
+     *     await client.billing.refund({
      *         job_id: "job_id",
      *         exit_code: 1
      *     })
      */
-    public apiProcessRefund(
+    public refund(
         request: XcelsiorApi.RefundRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProcessRefund(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__refund(request, requestOptions));
     }
 
-    private async __apiProcessRefund(
+    private async __refund(
         request: XcelsiorApi.RefundRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -913,6 +1270,306 @@ export class BillingClient {
     }
 
     /**
+     * Create a BTC deposit request. Returns address, amount, and QR data.
+     *
+     * @param {XcelsiorApi.CryptoDepositRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.cryptoDeposit({
+     *         customer_id: "customer_id",
+     *         amount_cad: 1.1
+     *     })
+     */
+    public cryptoDeposit(
+        request: XcelsiorApi.CryptoDepositRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__cryptoDeposit(request, requestOptions));
+    }
+
+    private async __cryptoDeposit(
+        request: XcelsiorApi.CryptoDepositRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/billing/crypto/deposit",
+            ),
+            method: "POST",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: request,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/billing/crypto/deposit");
+    }
+
+    /**
+     * Poll deposit confirmation status.
+     *
+     * @param {XcelsiorApi.CryptoDepositStatusBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.cryptoDepositStatus({
+     *         deposit_id: "deposit_id"
+     *     })
+     */
+    public cryptoDepositStatus(
+        request: XcelsiorApi.CryptoDepositStatusBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__cryptoDepositStatus(request, requestOptions));
+    }
+
+    private async __cryptoDepositStatus(
+        request: XcelsiorApi.CryptoDepositStatusBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { deposit_id: depositId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/crypto/deposit/${core.url.encodePathParam(depositId)}`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "GET",
+            "/api/billing/crypto/deposit/{deposit_id}",
+        );
+    }
+
+    /**
+     * Get current BTC/CAD exchange rate.
+     *
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.billing.cryptoRate()
+     */
+    public cryptoRate(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__cryptoRate(requestOptions));
+    }
+
+    private async __cryptoRate(requestOptions?: BillingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/billing/crypto/rate",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/billing/crypto/rate");
+    }
+
+    /**
+     * Refresh an expired deposit with a new BTC/CAD rate.
+     *
+     * @param {XcelsiorApi.CryptoRefreshBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.cryptoRefresh({
+     *         deposit_id: "deposit_id"
+     *     })
+     */
+    public cryptoRefresh(
+        request: XcelsiorApi.CryptoRefreshBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__cryptoRefresh(request, requestOptions));
+    }
+
+    private async __cryptoRefresh(
+        request: XcelsiorApi.CryptoRefreshBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { deposit_id: depositId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/crypto/refresh/${core.url.encodePathParam(depositId)}`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "POST",
+            "/api/billing/crypto/refresh/{deposit_id}",
+        );
+    }
+
+    /**
+     * Check if Bitcoin deposits are enabled.
+     *
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.billing.cryptoEnabled()
+     */
+    public cryptoEnabled(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__cryptoEnabled(requestOptions));
+    }
+
+    private async __cryptoEnabled(
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/billing/crypto/enabled",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/billing/crypto/enabled");
+    }
+
+    /**
      * Estimate job cost with AI Compute Access Fund rebate preview.
      *
      * From REPORT_FEATURE_2.md: --estimate-rebate / simulate=true
@@ -923,16 +1580,16 @@ export class BillingClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiEstimateCost()
+     *     await client.billing.estimateCost()
      */
-    public apiEstimateCost(
+    public estimateCost(
         request: XcelsiorApi.EstimateRequest = {},
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiEstimateCost(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__estimateCost(request, requestOptions));
     }
 
-    private async __apiEstimateCost(
+    private async __estimateCost(
         request: XcelsiorApi.EstimateRequest = {},
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -985,13 +1642,13 @@ export class BillingClient {
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.billing.apiReferencePricing()
+     *     await client.billing.getReferencePricing()
      */
-    public apiReferencePricing(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiReferencePricing(requestOptions));
+    public getReferencePricing(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getReferencePricing(requestOptions));
     }
 
-    private async __apiReferencePricing(
+    private async __getReferencePricing(
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -1039,13 +1696,13 @@ export class BillingClient {
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.billing.apiReservedPlans()
+     *     await client.billing.listReservedPlans()
      */
-    public apiReservedPlans(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiReservedPlans(requestOptions));
+    public listReservedPlans(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listReservedPlans(requestOptions));
     }
 
-    private async __apiReservedPlans(
+    private async __listReservedPlans(
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -1093,18 +1750,18 @@ export class BillingClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiReserveCommitment({
+     *     await client.billing.reserveCommitment({
      *         customer_id: "customer_id"
      *     })
      */
-    public apiReserveCommitment(
+    public reserveCommitment(
         request: XcelsiorApi.ReservedCommitmentRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiReserveCommitment(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__reserveCommitment(request, requestOptions));
     }
 
-    private async __apiReserveCommitment(
+    private async __reserveCommitment(
         request: XcelsiorApi.ReservedCommitmentRequest,
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -1164,23 +1821,23 @@ export class BillingClient {
      * - `days` — lookback window (default 30)
      * - `group_by` — aggregation: `day`, `week`, `gpu_model`, `province`
      *
-     * @param {XcelsiorApi.ApiUsageAnalyticsApiAnalyticsUsageGetRequest} request
+     * @param {XcelsiorApi.GetAnalyticsBillingRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.billing.apiUsageAnalytics()
+     *     await client.billing.getAnalytics()
      */
-    public apiUsageAnalytics(
-        request: XcelsiorApi.ApiUsageAnalyticsApiAnalyticsUsageGetRequest = {},
+    public getAnalytics(
+        request: XcelsiorApi.GetAnalyticsBillingRequest = {},
         requestOptions?: BillingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiUsageAnalytics(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getAnalytics(request, requestOptions));
     }
 
-    private async __apiUsageAnalytics(
-        request: XcelsiorApi.ApiUsageAnalyticsApiAnalyticsUsageGetRequest = {},
+    private async __getAnalytics(
+        request: XcelsiorApi.GetAnalyticsBillingRequest = {},
         requestOptions?: BillingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { customer_id: customerId, provider_id: providerId, days, group_by: groupBy } = request;
@@ -1228,5 +1885,249 @@ export class BillingClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/analytics/usage");
+    }
+
+    /**
+     * Get current auto-top-up configuration.
+     *
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.billing.getAutoTopup()
+     */
+    public getAutoTopup(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getAutoTopup(requestOptions));
+    }
+
+    private async __getAutoTopup(
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/v2/billing/auto-topup",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/v2/billing/auto-topup");
+    }
+
+    /**
+     * Configure wallet auto-top-up via Stripe.
+     *
+     * @param {XcelsiorApi.AutoTopupConfig} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.configureAutoTopup()
+     */
+    public configureAutoTopup(
+        request: XcelsiorApi.AutoTopupConfig = {},
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__configureAutoTopup(request, requestOptions));
+    }
+
+    private async __configureAutoTopup(
+        request: XcelsiorApi.AutoTopupConfig = {},
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/v2/billing/auto-topup",
+            ),
+            method: "POST",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: request,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/v2/billing/auto-topup");
+    }
+
+    /**
+     * Check platform-wide GST/HST small-supplier threshold status.
+     *
+     * Under the Excise Tax Act, a distribution platform operator **must**
+     * register for GST/HST once total taxable revenue exceeds $30,000 CAD
+     * over any four consecutive calendar quarters.
+     *
+     * Returns:
+     * - `exceeded`: whether the $30k threshold is passed
+     * - `total_revenue_cad`: estimated revenue from all billing
+     * - `threshold_cad`: the $30,000 statutory limit
+     * - `quarters_assessed`: number of quarters with data
+     *
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.billing.getGstThreshold()
+     */
+    public getGstThreshold(requestOptions?: BillingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getGstThreshold(requestOptions));
+    }
+
+    private async __getGstThreshold(
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/billing/gst-threshold",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/billing/gst-threshold");
+    }
+
+    /**
+     * Check whether a specific provider has exceeded the $30,000 GST/HST
+     * small-supplier threshold based on their historical payouts.
+     *
+     * Used by providers to determine if they need to independently register
+     * for GST/HST. The simplified regime is recommended for non-resident
+     * providers serving Canadians.
+     *
+     * @param {XcelsiorApi.GetProviderGstThresholdBillingRequest} request
+     * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.billing.getProviderGstThreshold({
+     *         provider_id: "provider_id"
+     *     })
+     */
+    public getProviderGstThreshold(
+        request: XcelsiorApi.GetProviderGstThresholdBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getProviderGstThreshold(request, requestOptions));
+    }
+
+    private async __getProviderGstThreshold(
+        request: XcelsiorApi.GetProviderGstThresholdBillingRequest,
+        requestOptions?: BillingClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { provider_id: providerId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/billing/gst-threshold/${core.url.encodePathParam(providerId)}`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "GET",
+            "/api/billing/gst-threshold/{provider_id}",
+        );
     }
 }

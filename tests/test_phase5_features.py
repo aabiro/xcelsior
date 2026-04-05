@@ -77,10 +77,13 @@ class TestOpenTelemetryIntegration:
 
     def test_custom_spans_in_endpoints(self):
         """Key endpoints have otel_span() calls."""
-        source = Path(__file__).resolve().parent.parent / "api.py"
-        text = source.read_text()
+        base = Path(__file__).resolve().parent.parent
+        routes_dir = base / "routes"
+        all_text = (base / "api.py").read_text()
+        for py in routes_dir.glob("*.py"):
+            all_text += py.read_text()
         for span_name in ["job.submit", "job.status_update", "billing.bill_job", "webhook.stripe", "billing.cycle"]:
-            assert span_name in text, f"Custom span '{span_name}' not found in api.py"
+            assert span_name in all_text, f"Custom span '{span_name}' not found in routes/ or api.py"
 
     def test_otlp_exporter_conditional(self):
         """OTLP exporter only activates when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
@@ -101,16 +104,16 @@ class TestOpenTelemetryGracefulDegradation:
 
     def test_otel_span_with_none_tracer(self):
         """otel_span returns nullcontext when _otel_tracer is None."""
-        import api
-        original = api._otel_tracer
+        import routes._deps as _deps_mod
+        original = _deps_mod._otel_tracer
         try:
-            api._otel_tracer = None
-            ctx = api.otel_span("test.noop")
+            _deps_mod._otel_tracer = None
+            ctx = _deps_mod.otel_span("test.noop")
             with ctx:
                 result = 42
             assert result == 42
         finally:
-            api._otel_tracer = original
+            _deps_mod._otel_tracer = original
 
     def test_api_source_has_import_error_handler(self):
         """api.py wraps OTel imports in try/except ImportError."""

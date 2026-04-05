@@ -31,13 +31,13 @@ export class JurisdictionClient {
      * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.jurisdiction.apiCanadaStatus()
+     *     await client.jurisdiction.getCanadaStatus()
      */
-    public apiCanadaStatus(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiCanadaStatus(requestOptions));
+    public getCanadaStatus(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getCanadaStatus(requestOptions));
     }
 
-    private async __apiCanadaStatus(
+    private async __getCanadaStatus(
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -81,18 +81,18 @@ export class JurisdictionClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.jurisdiction.apiSetCanada({
+     *     await client.jurisdiction.setCanadaStatus({
      *         enabled: true
      *     })
      */
-    public apiSetCanada(
+    public setCanadaStatus(
         request: XcelsiorApi.CanadaToggle,
         requestOptions?: JurisdictionClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSetCanada(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__setCanadaStatus(request, requestOptions));
     }
 
-    private async __apiSetCanada(
+    private async __setCanadaStatus(
         request: XcelsiorApi.CanadaToggle,
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -140,65 +140,18 @@ export class JurisdictionClient {
     }
 
     /**
-     * List only Canadian hosts.
-     *
-     * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.jurisdiction.apiListCanadianHosts()
-     */
-    public apiListCanadianHosts(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListCanadianHosts(requestOptions));
-    }
-
-    private async __apiListCanadianHosts(
-        requestOptions?: JurisdictionClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "hosts/ca",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/hosts/ca");
-    }
-
-    /**
      * Process queue with Canada-only hosts.
      *
      * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.jurisdiction.apiProcessQueueCa()
+     *     await client.jurisdiction.processQueueCanada()
      */
-    public apiProcessQueueCa(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProcessQueueCa(requestOptions));
+    public processQueueCanada(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__processQueueCanada(requestOptions));
     }
 
-    private async __apiProcessQueueCa(
+    private async __processQueueCanada(
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -242,16 +195,16 @@ export class JurisdictionClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.jurisdiction.apiJurisdictionHosts()
+     *     await client.jurisdiction.filterHosts()
      */
-    public apiJurisdictionHosts(
+    public filterHosts(
         request: XcelsiorApi.JurisdictionFilterRequest = {},
         requestOptions?: JurisdictionClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiJurisdictionHosts(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__filterHosts(request, requestOptions));
     }
 
-    private async __apiJurisdictionHosts(
+    private async __filterHosts(
         request: XcelsiorApi.JurisdictionFilterRequest = {},
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -301,25 +254,25 @@ export class JurisdictionClient {
     /**
      * Generate a residency trace for a job (compliance artifact).
      *
-     * @param {XcelsiorApi.ApiResidencyTraceApiJurisdictionResidencyTraceJobIdGetRequest} request
+     * @param {XcelsiorApi.GetResidencyTraceJurisdictionRequest} request
      * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.jurisdiction.apiResidencyTrace({
+     *     await client.jurisdiction.getResidencyTrace({
      *         job_id: "job_id"
      *     })
      */
-    public apiResidencyTrace(
-        request: XcelsiorApi.ApiResidencyTraceApiJurisdictionResidencyTraceJobIdGetRequest,
+    public getResidencyTrace(
+        request: XcelsiorApi.GetResidencyTraceJurisdictionRequest,
         requestOptions?: JurisdictionClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiResidencyTrace(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getResidencyTrace(request, requestOptions));
     }
 
-    private async __apiResidencyTrace(
-        request: XcelsiorApi.ApiResidencyTraceApiJurisdictionResidencyTraceJobIdGetRequest,
+    private async __getResidencyTrace(
+        request: XcelsiorApi.GetResidencyTraceJurisdictionRequest,
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -374,13 +327,13 @@ export class JurisdictionClient {
      * @param {JurisdictionClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.jurisdiction.apiTrustTiers()
+     *     await client.jurisdiction.getTrustTiers()
      */
-    public apiTrustTiers(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiTrustTiers(requestOptions));
+    public getTrustTiers(requestOptions?: JurisdictionClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getTrustTiers(requestOptions));
     }
 
-    private async __apiTrustTiers(
+    private async __getTrustTiers(
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -424,16 +377,16 @@ export class JurisdictionClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.jurisdiction.apiProcessQueueSovereign()
+     *     await client.jurisdiction.processQueueSovereign()
      */
-    public apiProcessQueueSovereign(
+    public processQueueSovereign(
         request: XcelsiorApi.SovereignQueueRequest = {},
         requestOptions?: JurisdictionClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProcessQueueSovereign(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__processQueueSovereign(request, requestOptions));
     }
 
-    private async __apiProcessQueueSovereign(
+    private async __processQueueSovereign(
         request: XcelsiorApi.SovereignQueueRequest = {},
         requestOptions?: JurisdictionClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {

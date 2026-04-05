@@ -129,10 +129,11 @@ def clean_data():
         if os.path.exists(f):
             os.remove(f)
     # Clear in-memory telemetry and rate limit buckets
-    import api as api_mod
+    from routes.agent import _host_telemetry
+    from routes._deps import _RATE_BUCKETS
 
-    api_mod._host_telemetry.clear()
-    api_mod._RATE_BUCKETS.clear()
+    _host_telemetry.clear()
+    _RATE_BUCKETS.clear()
     yield
 
 
@@ -495,9 +496,9 @@ class TestTelemetry:
 
     def test_telemetry_stale_detection(self):
         """Telemetry older than 30s is marked stale."""
-        import api as api_mod
+        from routes.agent import _host_telemetry
 
-        api_mod._host_telemetry["h-stale"] = {
+        _host_telemetry["h-stale"] = {
             "timestamp": time.time() - 60,
             "metrics": {"utilization": 10},
             "received_at": time.time() - 60,
@@ -664,9 +665,9 @@ class TestBillingEndpoints:
 
     def test_billing_wallet_reset_requires_admin(self, monkeypatch):
         """POST wallet reset is restricted to platform admins."""
-        import api as api_mod
+        import routes._deps as _deps_mod
 
-        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         reg = client.post(
             "/api/auth/register",
             json={"email": "walletreset-user@xcelsior.ca", "password": "testpass123"},
@@ -682,9 +683,9 @@ class TestBillingEndpoints:
 
     def test_billing_wallet_reset_clears_balance_and_restores_promo(self, monkeypatch):
         """POST wallet reset zeroes the wallet and re-enables the signup promo."""
-        import api as api_mod
+        import routes._deps as _deps_mod
 
-        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         email = "walletreset-admin@xcelsior.ca"
         reg = client.post(
             "/api/auth/register",
@@ -693,8 +694,8 @@ class TestBillingEndpoints:
         token = reg["access_token"]
         customer_id = reg["user"]["customer_id"]
 
-        with api_mod._user_lock:
-            api_mod._users_db[email]["is_admin"] = 1
+        with _deps_mod._user_lock:
+            _deps_mod._users_db[email]["is_admin"] = 1
 
         claim = client.post(
             f"/api/billing/free-credits/{customer_id}",
@@ -1371,9 +1372,9 @@ class TestPlatformAdminSecurity:
     """Tests for platform admin privilege separation and enforcement."""
 
     def test_admin_endpoint_requires_platform_admin(self, monkeypatch):
-        import api as api_mod
+        import routes._deps as _deps_mod
 
-        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         reg = client.post(
             "/api/auth/register",
             json={"email": "plainsubmitter@xcelsior.ca", "password": "testpass123"},
@@ -1384,9 +1385,9 @@ class TestPlatformAdminSecurity:
         assert r.status_code == 403
 
     def test_submitter_with_admin_flag_can_access_admin_endpoints(self, monkeypatch):
-        import api as api_mod
+        import routes._deps as _deps_mod
 
-        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         email = "aaryn.alexander@gmail.com"
         reg = client.post(
             "/api/auth/register",
@@ -1394,9 +1395,9 @@ class TestPlatformAdminSecurity:
         ).json()
         token = reg["access_token"]
 
-        with api_mod._user_lock:
-            api_mod._users_db[email]["is_admin"] = 1
-            api_mod._users_db[email]["role"] = "submitter"
+        with _deps_mod._user_lock:
+            _deps_mod._users_db[email]["is_admin"] = 1
+            _deps_mod._users_db[email]["role"] = "submitter"
 
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
         assert me["user"]["role"] == "submitter"
@@ -1406,9 +1407,9 @@ class TestPlatformAdminSecurity:
         assert r.status_code == 200
 
     def test_slurm_profiles_require_provider_or_admin(self, monkeypatch):
-        import api as api_mod
+        import routes._deps as _deps_mod
 
-        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         reg = client.post(
             "/api/auth/register",
             json={"email": "hpcsubmitter@xcelsior.ca", "password": "testpass123", "role": "submitter"},
@@ -1445,7 +1446,7 @@ class TestApiKeys:
         d = r.json()
         assert d["ok"] is True
         assert d["name"] == "test-key"
-        assert d["key"].startswith("xc-")
+        assert d["key"].startswith("xcel_")
         api_key = d["key"]
 
         # List keys

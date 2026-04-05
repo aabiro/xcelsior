@@ -55,7 +55,7 @@ class TestTimeToZero:
 
     def test_depletion_api_endpoint_exists(self):
         """API has /api/billing/wallet/{id}/depletion endpoint."""
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "billing.py"
         text = source.read_text()
         assert "/api/billing/wallet/{customer_id}/depletion" in text
 
@@ -74,7 +74,7 @@ class TestEarlyTerminationFee:
 
     def test_cancel_reservation_api_endpoint_exists(self):
         """DELETE /api/v2/marketplace/reservations/{id} exists."""
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "marketplace.py"
         text = source.read_text()
         assert "api/v2/marketplace/reservations/{reservation_id}" in text
         assert "early_termination_fee" in (
@@ -97,37 +97,37 @@ class TestV1InferenceEndpoints:
     """Verify /v1/inference sync, async, and poll endpoints."""
 
     def test_v1_inference_sync_endpoint(self):
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
         text = source.read_text()
         assert '"/v1/inference"' in text
 
     def test_v1_inference_async_endpoint(self):
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
         text = source.read_text()
         assert '"/v1/inference/async"' in text
 
     def test_v1_inference_poll_endpoint(self):
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
         text = source.read_text()
         assert '"/v1/inference/{job_id}"' in text
 
     def test_sse_streaming_support(self):
         """Sync endpoint supports SSE streaming when stream=true."""
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
         text = source.read_text()
         assert "text/event-stream" in text
         assert "inference.chunk" in text
 
     def test_openai_compatible_format(self):
         """Response uses OpenAI-compatible delta format for SSE."""
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "inference.py"
         text = source.read_text()
         assert "finish_reason" in text
         assert "[DONE]" in text
 
     def test_v1_inference_request_model(self):
         """V1InferenceRequest model exists with expected fields."""
-        from api import V1InferenceRequest
+        from routes.inference import V1InferenceRequest
         fields = V1InferenceRequest.model_fields
         assert "model" in fields
         assert "inputs" in fields
@@ -332,7 +332,7 @@ class TestVolumeLifecycle:
         assert "volume_attachments" in text
 
     def test_volume_api_endpoints(self):
-        source = Path(__file__).resolve().parent.parent / "api.py"
+        source = Path(__file__).resolve().parent.parent / "routes" / "volumes.py"
         text = source.read_text()
         assert "/api/v2/volumes" in text
         assert "attach" in text

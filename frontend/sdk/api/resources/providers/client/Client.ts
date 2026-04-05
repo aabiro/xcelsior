@@ -43,19 +43,19 @@ export class ProvidersClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.providers.apiRegisterProvider({
+     *     await client.providers.register({
      *         provider_id: "provider_id",
      *         email: "email"
      *     })
      */
-    public apiRegisterProvider(
+    public register(
         request: XcelsiorApi.ProviderRegisterRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRegisterProvider(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__register(request, requestOptions));
     }
 
-    private async __apiRegisterProvider(
+    private async __register(
         request: XcelsiorApi.ProviderRegisterRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -105,25 +105,25 @@ export class ProvidersClient {
     /**
      * Get provider account details including company info and payout status.
      *
-     * @param {XcelsiorApi.ApiGetProviderApiProvidersProviderIdGetRequest} request
+     * @param {XcelsiorApi.GetProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.providers.apiGetProvider({
+     *     await client.providers.get({
      *         provider_id: "provider_id"
      *     })
      */
-    public apiGetProvider(
-        request: XcelsiorApi.ApiGetProviderApiProvidersProviderIdGetRequest,
+    public get(
+        request: XcelsiorApi.GetProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetProvider(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
-    private async __apiGetProvider(
-        request: XcelsiorApi.ApiGetProviderApiProvidersProviderIdGetRequest,
+    private async __get(
+        request: XcelsiorApi.GetProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { provider_id: providerId } = request;
@@ -170,23 +170,23 @@ export class ProvidersClient {
     /**
      * List all provider accounts, optionally filtered by status.
      *
-     * @param {XcelsiorApi.ApiListProvidersApiProvidersGetRequest} request
+     * @param {XcelsiorApi.ListProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.providers.apiListProviders()
+     *     await client.providers.list()
      */
-    public apiListProviders(
-        request: XcelsiorApi.ApiListProvidersApiProvidersGetRequest = {},
+    public list(
+        request: XcelsiorApi.ListProvidersRequest = {},
         requestOptions?: ProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListProviders(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
     }
 
-    private async __apiListProviders(
-        request: XcelsiorApi.ApiListProvidersApiProvidersGetRequest = {},
+    private async __list(
+        request: XcelsiorApi.ListProvidersRequest = {},
         requestOptions?: ProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { status } = request;
@@ -245,19 +245,19 @@ export class ProvidersClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.providers.apiUploadIncorporation({
+     *     await client.providers.uploadIncorporation({
      *         provider_id: "provider_id",
      *         file_id: "file_id"
      *     })
      */
-    public apiUploadIncorporation(
+    public uploadIncorporation(
         request: XcelsiorApi.IncorporationUploadRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiUploadIncorporation(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__uploadIncorporation(request, requestOptions));
     }
 
-    private async __apiUploadIncorporation(
+    private async __uploadIncorporation(
         request: XcelsiorApi.IncorporationUploadRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -313,25 +313,25 @@ export class ProvidersClient {
     /**
      * Get aggregate earnings and payout history for a provider.
      *
-     * @param {XcelsiorApi.ApiProviderEarningsApiProvidersProviderIdEarningsGetRequest} request
+     * @param {XcelsiorApi.GetEarningsProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.providers.apiProviderEarnings({
+     *     await client.providers.getEarnings({
      *         provider_id: "provider_id"
      *     })
      */
-    public apiProviderEarnings(
-        request: XcelsiorApi.ApiProviderEarningsApiProvidersProviderIdEarningsGetRequest,
+    public getEarnings(
+        request: XcelsiorApi.GetEarningsProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProviderEarnings(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getEarnings(request, requestOptions));
     }
 
-    private async __apiProviderEarnings(
-        request: XcelsiorApi.ApiProviderEarningsApiProvidersProviderIdEarningsGetRequest,
+    private async __getEarnings(
+        request: XcelsiorApi.GetEarningsProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { provider_id: providerId } = request;
@@ -386,25 +386,25 @@ export class ProvidersClient {
      * Applies province-specific GST/HST. If Stripe is configured,
      * creates a real Transfer to the provider's connected account.
      *
-     * @param {XcelsiorApi.ApiProviderPayoutApiProvidersProviderIdPayoutPostRequest} request
+     * @param {XcelsiorApi.PayoutProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.providers.apiProviderPayout({
+     *     await client.providers.payout({
      *         provider_id: "provider_id"
      *     })
      */
-    public apiProviderPayout(
-        request: XcelsiorApi.ApiProviderPayoutApiProvidersProviderIdPayoutPostRequest,
+    public payout(
+        request: XcelsiorApi.PayoutProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProviderPayout(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__payout(request, requestOptions));
     }
 
-    private async __apiProviderPayout(
-        request: XcelsiorApi.ApiProviderPayoutApiProvidersProviderIdPayoutPostRequest,
+    private async __payout(
+        request: XcelsiorApi.PayoutProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { provider_id: providerId, job_id: jobId, total_cad: totalCad } = request;
@@ -460,25 +460,16 @@ export class ProvidersClient {
     /**
      * Handle Stripe Connect webhooks (account.updated, payment_intent.succeeded, etc.).
      *
-     * @param {XcelsiorApi.StripeWebhookRaw} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.providers.apiStripeWebhook()
+     *     await client.providers.webhook()
      */
-    public apiStripeWebhook(
-        request: XcelsiorApi.StripeWebhookRaw = {},
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiStripeWebhook(request, requestOptions));
+    public webhook(requestOptions?: ProvidersClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__webhook(requestOptions));
     }
 
-    private async __apiStripeWebhook(
-        request: XcelsiorApi.StripeWebhookRaw = {},
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __webhook(requestOptions?: ProvidersClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -489,10 +480,7 @@ export class ProvidersClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -504,19 +492,11 @@ export class ProvidersClient {
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/providers/webhook");

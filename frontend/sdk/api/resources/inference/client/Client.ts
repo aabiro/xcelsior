@@ -34,19 +34,19 @@ export class InferenceClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.inference.apiInferenceSubmit({
+     *     await client.inference.submit({
      *         model: "model",
      *         inputs: ["inputs"]
      *     })
      */
-    public apiInferenceSubmit(
+    public submit(
         request: XcelsiorApi.InferenceRequest,
         requestOptions?: InferenceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiInferenceSubmit(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__submit(request, requestOptions));
     }
 
-    private async __apiInferenceSubmit(
+    private async __submit(
         request: XcelsiorApi.InferenceRequest,
         requestOptions?: InferenceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -96,25 +96,25 @@ export class InferenceClient {
     /**
      * Get inference results for a submitted request.
      *
-     * @param {XcelsiorApi.ApiInferenceResultApiInferenceJobIdGetRequest} request
+     * @param {XcelsiorApi.GetResultInferenceRequest} request
      * @param {InferenceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.inference.apiInferenceResult({
+     *     await client.inference.getResult({
      *         job_id: "job_id"
      *     })
      */
-    public apiInferenceResult(
-        request: XcelsiorApi.ApiInferenceResultApiInferenceJobIdGetRequest,
+    public getResult(
+        request: XcelsiorApi.GetResultInferenceRequest,
         requestOptions?: InferenceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiInferenceResult(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getResult(request, requestOptions));
     }
 
-    private async __apiInferenceResult(
-        request: XcelsiorApi.ApiInferenceResultApiInferenceJobIdGetRequest,
+    private async __getResult(
+        request: XcelsiorApi.GetResultInferenceRequest,
         requestOptions?: InferenceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -164,13 +164,13 @@ export class InferenceClient {
      * @param {InferenceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.inference.apiInferenceModels()
+     *     await client.inference.listModels()
      */
-    public apiInferenceModels(requestOptions?: InferenceClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiInferenceModels(requestOptions));
+    public listModels(requestOptions?: InferenceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listModels(requestOptions));
     }
 
-    private async __apiInferenceModels(
+    private async __listModels(
         requestOptions?: InferenceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -213,28 +213,28 @@ export class InferenceClient {
     /**
      * Worker callback: post inference results. Internal use.
      *
-     * @param {XcelsiorApi.ApiInferencePostResultApiInferenceJobIdResultPostRequest} request
+     * @param {XcelsiorApi.InferenceResultCallback} request
      * @param {InferenceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.inference.apiInferencePostResult({
+     *     await client.inference.postResult({
      *         job_id: "job_id"
      *     })
      */
-    public apiInferencePostResult(
-        request: XcelsiorApi.ApiInferencePostResultApiInferenceJobIdResultPostRequest,
+    public postResult(
+        request: XcelsiorApi.InferenceResultCallback,
         requestOptions?: InferenceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiInferencePostResult(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__postResult(request, requestOptions));
     }
 
-    private async __apiInferencePostResult(
-        request: XcelsiorApi.ApiInferencePostResultApiInferenceJobIdResultPostRequest,
+    private async __postResult(
+        request: XcelsiorApi.InferenceResultCallback,
         requestOptions?: InferenceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
-        const { job_id: jobId } = request;
+        const { job_id: jobId, ..._body } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -245,7 +245,10 @@ export class InferenceClient {
             ),
             method: "POST",
             headers: _headers,
+            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: _body,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,

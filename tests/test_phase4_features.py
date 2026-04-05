@@ -260,14 +260,14 @@ class TestWebSocketTerminal:
 
     def test_terminal_constants(self):
         """Terminal session constants are properly defined."""
-        import api
+        from routes import instances as instances_mod
 
-        assert hasattr(api, "_TERMINAL_SESSION_TIMEOUT")
-        assert api._TERMINAL_SESSION_TIMEOUT == 1800  # 30 minutes
-        assert hasattr(api, "_TERMINAL_MAX_SCROLLBACK")
-        assert api._TERMINAL_MAX_SCROLLBACK == 50_000  # 50 KB
-        assert hasattr(api, "_TERMINAL_RATE_LIMIT_BYTES")
-        assert api._TERMINAL_RATE_LIMIT_BYTES == 10_240  # 10 KB/s
+        assert hasattr(instances_mod, "_TERMINAL_SESSION_TIMEOUT")
+        assert instances_mod._TERMINAL_SESSION_TIMEOUT == 1800  # 30 minutes
+        assert hasattr(instances_mod, "_TERMINAL_MAX_SCROLLBACK")
+        assert instances_mod._TERMINAL_MAX_SCROLLBACK == 50_000  # 50 KB
+        assert hasattr(instances_mod, "_TERMINAL_RATE_LIMIT_BYTES")
+        assert instances_mod._TERMINAL_RATE_LIMIT_BYTES == 10_240  # 10 KB/s
 
     @pytest.mark.skipif(
         os.environ.get("XCELSIOR_DB_BACKEND") == "sqlite",
@@ -280,21 +280,22 @@ class TestWebSocketTerminal:
 
     def test_terminal_ws_auth_validator(self):
         """_validate_ws_auth returns None for empty tokens when auth required."""
-        import api
+        import routes.instances as _instances_mod
+        from routes.instances import _validate_ws_auth
 
         # When auth is required and no token provided
-        original = api.AUTH_REQUIRED
+        original = _instances_mod.AUTH_REQUIRED
         try:
-            api.AUTH_REQUIRED = True
+            _instances_mod.AUTH_REQUIRED = True
 
             class FakeWebSocket:
                 cookies = {}
                 query_params = {}
 
-            result = api._validate_ws_auth(FakeWebSocket())
+            result = _validate_ws_auth(FakeWebSocket())
             assert result is None
         finally:
-            api.AUTH_REQUIRED = original
+            _instances_mod.AUTH_REQUIRED = original
 
 
 # ── Instance Detail Terminal Integration ─────────────────────────────

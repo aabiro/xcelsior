@@ -28,25 +28,25 @@ export class AgentClient {
     /**
      * Pull pending work for an agent. Returns assigned jobs.
      *
-     * @param {XcelsiorApi.ApiAgentWorkAgentWorkHostIdGetRequest} request
+     * @param {XcelsiorApi.GetWorkAgentRequest} request
      * @param {AgentClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentWork({
+     *     await client.agent.getWork({
      *         host_id: "host_id"
      *     })
      */
-    public apiAgentWork(
-        request: XcelsiorApi.ApiAgentWorkAgentWorkHostIdGetRequest,
+    public getWork(
+        request: XcelsiorApi.GetWorkAgentRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentWork(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getWork(request, requestOptions));
     }
 
-    private async __apiAgentWork(
-        request: XcelsiorApi.ApiAgentWorkAgentWorkHostIdGetRequest,
+    private async __getWork(
+        request: XcelsiorApi.GetWorkAgentRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -93,25 +93,25 @@ export class AgentClient {
     /**
      * Check if any jobs on this host should be preempted.
      *
-     * @param {XcelsiorApi.ApiAgentPreemptAgentPreemptHostIdGetRequest} request
+     * @param {XcelsiorApi.CheckPreemptionAgentRequest} request
      * @param {AgentClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentPreempt({
+     *     await client.agent.checkPreemption({
      *         host_id: "host_id"
      *     })
      */
-    public apiAgentPreempt(
-        request: XcelsiorApi.ApiAgentPreemptAgentPreemptHostIdGetRequest,
+    public checkPreemption(
+        request: XcelsiorApi.CheckPreemptionAgentRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentPreempt(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__checkPreemption(request, requestOptions));
     }
 
-    private async __apiAgentPreempt(
-        request: XcelsiorApi.ApiAgentPreemptAgentPreemptHostIdGetRequest,
+    private async __checkPreemption(
+        request: XcelsiorApi.CheckPreemptionAgentRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -158,26 +158,26 @@ export class AgentClient {
     /**
      * Schedule a job for preemption on a host.
      *
-     * @param {XcelsiorApi.ApiSchedulePreemptionAgentPreemptHostIdJobIdPostRequest} request
+     * @param {XcelsiorApi.SchedulePreemptionAgentRequest} request
      * @param {AgentClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiSchedulePreemption({
+     *     await client.agent.schedulePreemption({
      *         host_id: "host_id",
      *         job_id: "job_id"
      *     })
      */
-    public apiSchedulePreemption(
-        request: XcelsiorApi.ApiSchedulePreemptionAgentPreemptHostIdJobIdPostRequest,
+    public schedulePreemption(
+        request: XcelsiorApi.SchedulePreemptionAgentRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSchedulePreemption(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__schedulePreemption(request, requestOptions));
     }
 
-    private async __apiSchedulePreemption(
-        request: XcelsiorApi.ApiSchedulePreemptionAgentPreemptHostIdJobIdPostRequest,
+    private async __schedulePreemption(
+        request: XcelsiorApi.SchedulePreemptionAgentRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId, job_id: jobId } = request;
@@ -241,21 +241,21 @@ export class AgentClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentVersions({
+     *     await client.agent.submitVersions({
      *         host_id: "host_id",
      *         versions: {
      *             "key": "value"
      *         }
      *     })
      */
-    public apiAgentVersions(
+    public submitVersions(
         request: XcelsiorApi.VersionReport,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentVersions(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__submitVersions(request, requestOptions));
     }
 
-    private async __apiAgentVersions(
+    private async __submitVersions(
         request: XcelsiorApi.VersionReport,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -311,21 +311,21 @@ export class AgentClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiMiningAlert({
+     *     await client.agent.miningAlert({
      *         host_id: "host_id",
      *         gpu_index: 1,
      *         confidence: 1.1,
      *         reason: "reason"
      *     })
      */
-    public apiMiningAlert(
+    public miningAlert(
         request: XcelsiorApi.MiningAlert,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiMiningAlert(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__miningAlert(request, requestOptions));
     }
 
-    private async __apiMiningAlert(
+    private async __miningAlert(
         request: XcelsiorApi.MiningAlert,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -381,21 +381,21 @@ export class AgentClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentBenchmark({
+     *     await client.agent.submitBenchmark({
      *         host_id: "host_id",
      *         gpu_model: "gpu_model",
      *         score: 1.1,
      *         tflops: 1.1
      *     })
      */
-    public apiAgentBenchmark(
+    public submitBenchmark(
         request: XcelsiorApi.BenchmarkReport,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentBenchmark(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__submitBenchmark(request, requestOptions));
     }
 
-    private async __apiAgentBenchmark(
+    private async __submitBenchmark(
         request: XcelsiorApi.BenchmarkReport,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -454,19 +454,19 @@ export class AgentClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentLeaseClaim({
+     *     await client.agent.claimLease({
      *         host_id: "host_id",
      *         job_id: "job_id"
      *     })
      */
-    public apiAgentLeaseClaim(
+    public claimLease(
         request: XcelsiorApi.LeaseClaimRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentLeaseClaim(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__claimLease(request, requestOptions));
     }
 
-    private async __apiAgentLeaseClaim(
+    private async __claimLease(
         request: XcelsiorApi.LeaseClaimRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -522,19 +522,19 @@ export class AgentClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentLeaseRenew({
+     *     await client.agent.renewLease({
      *         host_id: "host_id",
      *         job_id: "job_id"
      *     })
      */
-    public apiAgentLeaseRenew(
+    public renewLease(
         request: XcelsiorApi.LeaseRenewRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentLeaseRenew(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__renewLease(request, requestOptions));
     }
 
-    private async __apiAgentLeaseRenew(
+    private async __renewLease(
         request: XcelsiorApi.LeaseRenewRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -590,18 +590,18 @@ export class AgentClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.agent.apiAgentLeaseRelease({
+     *     await client.agent.releaseLease({
      *         job_id: "job_id"
      *     })
      */
-    public apiAgentLeaseRelease(
+    public releaseLease(
         request: XcelsiorApi.LeaseReleaseRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentLeaseRelease(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__releaseLease(request, requestOptions));
     }
 
-    private async __apiAgentLeaseRelease(
+    private async __releaseLease(
         request: XcelsiorApi.LeaseReleaseRequest,
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -657,13 +657,13 @@ export class AgentClient {
      * @param {AgentClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.agent.apiAgentPopularImages()
+     *     await client.agent.getPopularImages()
      */
-    public apiAgentPopularImages(requestOptions?: AgentClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentPopularImages(requestOptions));
+    public getPopularImages(requestOptions?: AgentClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getPopularImages(requestOptions));
     }
 
-    private async __apiAgentPopularImages(
+    private async __getPopularImages(
         requestOptions?: AgentClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -696,5 +696,75 @@ export class AgentClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/agent/popular-images");
+    }
+
+    /**
+     * Receive comprehensive benchmark report and run verification checks.
+     *
+     * @param {XcelsiorApi.VerificationReportPayload} request
+     * @param {AgentClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.agent.verify({
+     *         host_id: "host_id",
+     *         report: {
+     *             "key": "value"
+     *         }
+     *     })
+     */
+    public verify(
+        request: XcelsiorApi.VerificationReportPayload,
+        requestOptions?: AgentClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__verify(request, requestOptions));
+    }
+
+    private async __verify(
+        request: XcelsiorApi.VerificationReportPayload,
+        requestOptions?: AgentClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "agent/verify",
+            ),
+            method: "POST",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: request,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/agent/verify");
     }
 }

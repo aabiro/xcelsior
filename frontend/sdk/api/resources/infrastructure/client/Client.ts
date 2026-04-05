@@ -74,18 +74,151 @@ export class InfrastructureClient {
     }
 
     /**
+     * Legacy dashboard preserved at /legacy while Next.js serves /.
+     *
+     * @param {XcelsiorApi.LegacyDashboardPathInfrastructureRequest} request
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.infrastructure.legacyDashboardPath({
+     *         path: "path"
+     *     })
+     */
+    public legacyDashboardPath(
+        request: XcelsiorApi.LegacyDashboardPathInfrastructureRequest,
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): core.HttpResponsePromise<string> {
+        return core.HttpResponsePromise.fromPromise(this.__legacyDashboardPath(request, requestOptions));
+    }
+
+    private async __legacyDashboardPath(
+        request: XcelsiorApi.LegacyDashboardPathInfrastructureRequest,
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<string>> {
+        const { path } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `legacy/${core.url.encodePathParam(path)}`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            responseType: "text",
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body as string, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/legacy/{path}");
+    }
+
+    /**
+     * Legacy dashboard preserved at /legacy while Next.js serves /.
+     *
+     * @param {XcelsiorApi.LegacyDashboardInfrastructureRequest} request
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.infrastructure.legacyDashboard()
+     */
+    public legacyDashboard(
+        request: XcelsiorApi.LegacyDashboardInfrastructureRequest = {},
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): core.HttpResponsePromise<string> {
+        return core.HttpResponsePromise.fromPromise(this.__legacyDashboard(request, requestOptions));
+    }
+
+    private async __legacyDashboard(
+        request: XcelsiorApi.LegacyDashboardInfrastructureRequest = {},
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<string>> {
+        const { path } = request;
+        const _queryParams: Record<string, unknown> = {
+            path,
+        };
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "legacy",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
+            responseType: "text",
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body as string, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/legacy");
+    }
+
+    /**
      * Get current alert config (passwords redacted).
      *
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiGetAlertConfig()
+     *     await client.infrastructure.getAlertConfig()
      */
-    public apiGetAlertConfig(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetAlertConfig(requestOptions));
+    public getAlertConfig(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getAlertConfig(requestOptions));
     }
 
-    private async __apiGetAlertConfig(
+    private async __getAlertConfig(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -129,17 +262,17 @@ export class InfrastructureClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.infrastructure.apiSetAlertConfig()
+     *     await client.infrastructure.setAlertConfig({})
      */
-    public apiSetAlertConfig(
-        request: XcelsiorApi.AlertConfig = {},
+    public setAlertConfig(
+        request: XcelsiorApi.AlertConfig,
         requestOptions?: InfrastructureClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSetAlertConfig(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__setAlertConfig(request, requestOptions));
     }
 
-    private async __apiSetAlertConfig(
-        request: XcelsiorApi.AlertConfig = {},
+    private async __setAlertConfig(
+        request: XcelsiorApi.AlertConfig,
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -191,13 +324,13 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiGenerateSshKey()
+     *     await client.infrastructure.generateSshKey()
      */
-    public apiGenerateSshKey(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGenerateSshKey(requestOptions));
+    public generateSshKey(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__generateSshKey(requestOptions));
     }
 
-    private async __apiGenerateSshKey(
+    private async __generateSshKey(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -238,13 +371,60 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiGetPubkey()
+     *     await client.infrastructure.getSshPubkey()
      */
-    public apiGetPubkey(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetPubkey(requestOptions));
+    public getSshPubkey(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getSshPubkey(requestOptions));
     }
 
-    private async __apiGetPubkey(
+    private async __getSshPubkey(
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/ssh/pubkey",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/ssh/pubkey");
+    }
+
+    /**
+     * Get the public key to add to hosts' authorized_keys.
+     *
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.infrastructure.getSshPubkeyLegacy()
+     */
+    public getSshPubkeyLegacy(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getSshPubkeyLegacy(requestOptions));
+    }
+
+    private async __getSshPubkeyLegacy(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -285,13 +465,13 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiGenerateToken()
+     *     await client.infrastructure.generateToken()
      */
-    public apiGenerateToken(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGenerateToken(requestOptions));
+    public generateToken(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__generateToken(requestOptions));
     }
 
-    private async __apiGenerateToken(
+    private async __generateToken(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -327,510 +507,18 @@ export class InfrastructureClient {
     }
 
     /**
-     * Initiate OAuth2 device authorization flow (RFC 8628).
-     *
-     * Returns a device_code (for polling) and a user_code (for the user to enter
-     * in the browser at the verification_uri).
-     *
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.infrastructure.apiAuthDeviceCode()
-     */
-    public apiAuthDeviceCode(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAuthDeviceCode(requestOptions));
-    }
-
-    private async __apiAuthDeviceCode(
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/device",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/device");
-    }
-
-    /**
-     * Poll for device authorization result (RFC 8628 §3.4).
-     *
-     * Returns:
-     * - 200 + access_token when authorized
-     * - 428 "authorization_pending" while waiting
-     * - 410 "expired_token" if timed out
-     *
-     * @param {XcelsiorApi.DeviceTokenRequest} request
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.infrastructure.apiAuthDeviceToken({
-     *         device_code: "device_code"
-     *     })
-     */
-    public apiAuthDeviceToken(
-        request: XcelsiorApi.DeviceTokenRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAuthDeviceToken(request, requestOptions));
-    }
-
-    private async __apiAuthDeviceToken(
-        request: XcelsiorApi.DeviceTokenRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/token",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/token");
-    }
-
-    /**
-     * Browser-facing page where users enter their device code.
-     *
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.infrastructure.apiAuthVerifyPage()
-     */
-    public apiAuthVerifyPage(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<string> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAuthVerifyPage(requestOptions));
-    }
-
-    private async __apiAuthVerifyPage(
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<string>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/verify",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            responseType: "text",
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body as string, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/auth/verify");
-    }
-
-    /**
-     * Verify a device code by entering the user_code shown in the CLI.
-     *
-     * Called from the web dashboard after the user logs in and enters their code.
-     * Generates a bearer token and marks the device flow as authorized.
-     *
-     * @param {XcelsiorApi.DeviceVerifyRequest} request
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.infrastructure.apiAuthVerifyDevice({
-     *         user_code: "user_code"
-     *     })
-     */
-    public apiAuthVerifyDevice(
-        request: XcelsiorApi.DeviceVerifyRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAuthVerifyDevice(request, requestOptions));
-    }
-
-    private async __apiAuthVerifyDevice(
-        request: XcelsiorApi.DeviceVerifyRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/verify",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/verify");
-    }
-
-    /**
-     * Submit an Xcelsior job to a Slurm cluster (HPC bridge).
-     *
-     * Translates the job to an sbatch script and submits. Set dry_run=true
-     * to see the generated script without submitting.
-     *
-     * @param {XcelsiorApi.SlurmSubmitIn} request
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.infrastructure.apiSlurmSubmit({
-     *         name: "name"
-     *     })
-     */
-    public apiSlurmSubmit(
-        request: XcelsiorApi.SlurmSubmitIn,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlurmSubmit(request, requestOptions));
-    }
-
-    private async __apiSlurmSubmit(
-        request: XcelsiorApi.SlurmSubmitIn,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/slurm/submit",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/slurm/submit");
-    }
-
-    /**
-     * Check the status of a Slurm job.
-     *
-     * @param {XcelsiorApi.ApiSlurmStatusApiSlurmStatusSlurmJobIdGetRequest} request
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.infrastructure.apiSlurmStatus({
-     *         slurm_job_id: "slurm_job_id"
-     *     })
-     */
-    public apiSlurmStatus(
-        request: XcelsiorApi.ApiSlurmStatusApiSlurmStatusSlurmJobIdGetRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlurmStatus(request, requestOptions));
-    }
-
-    private async __apiSlurmStatus(
-        request: XcelsiorApi.ApiSlurmStatusApiSlurmStatusSlurmJobIdGetRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { slurm_job_id: slurmJobId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/slurm/status/${core.url.encodePathParam(slurmJobId)}`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "GET",
-            "/api/slurm/status/{slurm_job_id}",
-        );
-    }
-
-    /**
-     * Cancel a Slurm job.
-     *
-     * @param {XcelsiorApi.ApiSlurmCancelApiSlurmSlurmJobIdDeleteRequest} request
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.infrastructure.apiSlurmCancel({
-     *         slurm_job_id: "slurm_job_id"
-     *     })
-     */
-    public apiSlurmCancel(
-        request: XcelsiorApi.ApiSlurmCancelApiSlurmSlurmJobIdDeleteRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlurmCancel(request, requestOptions));
-    }
-
-    private async __apiSlurmCancel(
-        request: XcelsiorApi.ApiSlurmCancelApiSlurmSlurmJobIdDeleteRequest,
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { slurm_job_id: slurmJobId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/slurm/${core.url.encodePathParam(slurmJobId)}`,
-            ),
-            method: "DELETE",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/api/slurm/{slurm_job_id}");
-    }
-
-    /**
-     * List available Slurm cluster profiles (Nibi, Graham, Narval, generic).
-     *
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.infrastructure.apiSlurmProfiles()
-     */
-    public apiSlurmProfiles(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlurmProfiles(requestOptions));
-    }
-
-    private async __apiSlurmProfiles(
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/slurm/profiles",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/slurm/profiles");
-    }
-
-    /**
      * Get current NFS configuration from environment.
      *
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiNfsConfig()
+     *     await client.infrastructure.getNfsConfig()
      */
-    public apiNfsConfig(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiNfsConfig(requestOptions));
+    public getNfsConfig(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getNfsConfig(requestOptions));
     }
 
-    private async __apiNfsConfig(
+    private async __getNfsConfig(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -874,18 +562,18 @@ export class InfrastructureClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.infrastructure.apiBuildImage({
+     *     await client.infrastructure.buildImage({
      *         model: "model"
      *     })
      */
-    public apiBuildImage(
+    public buildImage(
         request: XcelsiorApi.BuildIn,
         requestOptions?: InfrastructureClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiBuildImage(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__buildImage(request, requestOptions));
     }
 
-    private async __apiBuildImage(
+    private async __buildImage(
         request: XcelsiorApi.BuildIn,
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -938,13 +626,13 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiListBuilds()
+     *     await client.infrastructure.listBuilds()
      */
-    public apiListBuilds(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListBuilds(requestOptions));
+    public listBuilds(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listBuilds(requestOptions));
     }
 
-    private async __apiListBuilds(
+    private async __listBuilds(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -982,25 +670,25 @@ export class InfrastructureClient {
     /**
      * Preview the generated Dockerfile without building.
      *
-     * @param {XcelsiorApi.ApiGenerateDockerfileBuildModelDockerfilePostRequest} request
+     * @param {XcelsiorApi.GenerateDockerfileInfrastructureRequest} request
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.infrastructure.apiGenerateDockerfile({
+     *     await client.infrastructure.generateDockerfile({
      *         model: "model"
      *     })
      */
-    public apiGenerateDockerfile(
-        request: XcelsiorApi.ApiGenerateDockerfileBuildModelDockerfilePostRequest,
+    public generateDockerfile(
+        request: XcelsiorApi.GenerateDockerfileInfrastructureRequest,
         requestOptions?: InfrastructureClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGenerateDockerfile(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__generateDockerfile(request, requestOptions));
     }
 
-    private async __apiGenerateDockerfile(
-        request: XcelsiorApi.ApiGenerateDockerfileBuildModelDockerfilePostRequest,
+    private async __generateDockerfile(
+        request: XcelsiorApi.GenerateDockerfileInfrastructureRequest,
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { model, base_image: baseImage, quantize } = request;
@@ -1054,13 +742,13 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.sseStream()
+     *     await client.infrastructure.stream()
      */
-    public sseStream(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__sseStream(requestOptions));
+    public stream(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__stream(requestOptions));
     }
 
-    private async __sseStream(
+    private async __stream(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -1096,6 +784,8 @@ export class InfrastructureClient {
     }
 
     /**
+     * Health check — verifies database connectivity and returns real system status.
+     *
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
@@ -1189,13 +879,13 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.metrics()
+     *     await client.infrastructure.getMetrics()
      */
-    public metrics(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__metrics(requestOptions));
+    public getMetrics(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getMetrics(requestOptions));
     }
 
-    private async __metrics(
+    private async __getMetrics(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -1231,6 +921,58 @@ export class InfrastructureClient {
     }
 
     /**
+     * Prometheus-compatible /metrics endpoint.
+     *
+     * Exports xcelsior_* gauges, counters, and histograms in Prometheus
+     * text exposition format for scraping by Prometheus/Grafana.
+     *
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.infrastructure.getMetricsPrometheus()
+     */
+    public getMetricsPrometheus(
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getMetricsPrometheus(requestOptions));
+    }
+
+    private async __getMetricsPrometheus(
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "metrics/prometheus",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/metrics/prometheus");
+    }
+
+    /**
      * Serve LLM-optimized documentation for AI agents.
      *
      * Per Report #1.B: "Standard llms.txt for AI agents".
@@ -1239,13 +981,13 @@ export class InfrastructureClient {
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.infrastructure.apiLlmsTxt()
+     *     await client.infrastructure.getLlmsTxt()
      */
-    public apiLlmsTxt(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiLlmsTxt(requestOptions));
+    public getLlmsTxt(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getLlmsTxt(requestOptions));
     }
 
-    private async __apiLlmsTxt(
+    private async __getLlmsTxt(
         requestOptions?: InfrastructureClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -1278,5 +1020,117 @@ export class InfrastructureClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/llms.txt");
+    }
+
+    /**
+     * Alias for /alerts/config with /api/ prefix.
+     *
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.infrastructure.getAlertConfigV2()
+     */
+    public getAlertConfigV2(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getAlertConfigV2(requestOptions));
+    }
+
+    private async __getAlertConfigV2(
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/alerts/config",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/alerts/config");
+    }
+
+    /**
+     * Alias for PUT /alerts/config with /api/ prefix.
+     *
+     * @param {XcelsiorApi.AlertConfig} request
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.infrastructure.setAlertConfigV2({})
+     */
+    public setAlertConfigV2(
+        request: XcelsiorApi.AlertConfig,
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__setAlertConfigV2(request, requestOptions));
+    }
+
+    private async __setAlertConfigV2(
+        request: XcelsiorApi.AlertConfig,
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/alerts/config",
+            ),
+            method: "PUT",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: request,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "PUT", "/api/alerts/config");
     }
 }
