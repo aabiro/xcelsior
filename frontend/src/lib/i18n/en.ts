@@ -998,6 +998,7 @@ const en: Record<string, string> = {
   "gear.all_done": "You're all set! 🎉",
   "gear.collapse": "Collapse sidebar",
   "gear.expand": "Expand sidebar",
+  "gear.support": "Support",
 
   /* ── AI Assistant ────────────────────────────────────────────────────── */
   "ai.title": "Xcel AI",

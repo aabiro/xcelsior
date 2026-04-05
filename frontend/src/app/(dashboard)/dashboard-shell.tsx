@@ -9,7 +9,7 @@ import {
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
   ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown,
   Zap, HardDrive, TrendingUp, BookOpen, Rocket, CheckCircle2, Circle,
-  ExternalLink, HelpCircle, Sparkles, Clock,
+  ExternalLink, HelpCircle, Sparkles, Clock, MessageCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -55,6 +55,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [gearOpen, setGearOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -248,6 +249,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       {t("gear.docs")}
                       <ExternalLink className="h-3 w-3 ml-auto text-text-muted" />
                     </a>
+                    <button
+                      onClick={() => { setSupportChatOpen(true); setGearOpen(false); }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      {t("gear.support")}
+                    </button>
                     <button
                       onClick={() => setOnboardingOpen(!onboardingOpen)}
                       className={cn(
@@ -474,8 +482,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
       </AnimatePresence>
 
-      {/* AI Chat Assistant */}
-      <ChatWidget onOpenAiPanel={toggleAiPanel} />
+      {/* AI Toggle Rail (persistent right edge) */}
+      <div className="hidden md:flex flex-col items-center justify-end border-l border-border/30 bg-surface/50 w-11 py-3 shrink-0">
+        <button
+          onClick={toggleAiPanel}
+          className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+            aiPanelOpen
+              ? "bg-accent-red text-white shadow-lg shadow-accent-red/20"
+              : "text-text-muted hover:bg-accent-red/10 hover:text-accent-red"
+          )}
+          title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
+        >
+          <Sparkles className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Support Chat */}
+      <ChatWidget showFab={false} externalOpen={supportChatOpen} onClose={() => setSupportChatOpen(false)} onOpenAiPanel={toggleAiPanel} aiPanelOpen={aiPanelOpen} />
     </div>
   );
 }

@@ -19,8 +19,8 @@ html[data-theme="dark"] pre {
   border: 1px solid #1e293b;
 }
 
-/* Smoother transitions */
-* {
+/* Smoother transitions on interactive elements */
+a, button, [role="button"], input, select, textarea {
   transition-property: background-color, border-color, color;
   transition-duration: 150ms;
   transition-timing-function: ease;

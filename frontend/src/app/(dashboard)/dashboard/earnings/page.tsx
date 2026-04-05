@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,8 @@ interface ProviderInfo {
 export default function EarningsPage() {
   const { user } = useAuth();
   const { t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const providerId = user?.provider_id || "";
   const customerId = user?.customer_id || user?.user_id || "";
 
@@ -47,6 +50,7 @@ export default function EarningsPage() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [onboarding, setOnboarding] = useState(false);
+  const [handledStripeReturn, setHandledStripeReturn] = useState(false);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -83,6 +87,28 @@ export default function EarningsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const stripeState = searchParams.get("stripe");
+    if (!stripeState || handledStripeReturn || loading) return;
+
+    if (stripeState === "refresh") {
+      toast.info("Stripe setup wasn’t finished yet. Click continue to resume onboarding.");
+    } else if (stripeState === "return") {
+      if (provider?.status === "active") {
+        toast.success("Stripe connected successfully! Your payouts are now enabled.");
+      } else {
+        toast.info("Stripe setup is still processing. Click continue if more details are required.");
+      }
+    }
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("stripe");
+    next.delete("provider");
+    const query = next.toString();
+    router.replace(query ? `/dashboard/earnings?${query}` : "/dashboard/earnings", { scroll: false });
+    setHandledStripeReturn(true);
+  }, [searchParams, handledStripeReturn, loading, provider?.status, router]);
+
   const handleStripeConnect = async () => {
     const pid = providerId || customerId;
     if (!pid || !user?.email) return;
@@ -94,6 +120,9 @@ export default function EarningsPage() {
       });
       if (res.onboarding_url) {
         window.location.href = res.onboarding_url;
+      } else if (provider) {
+        // Provider already existed but Stripe couldn't generate onboarding link
+        toast.error("Unable to generate Stripe onboarding link. Please try again or contact support.");
       } else {
         toast.success("Provider account created");
         load();
@@ -184,8 +213,15 @@ export default function EarningsPage() {
                 {provider?.status === "active" ? (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-emerald" />
-                      <span className="text-sm font-medium text-emerald">{t("dash.earnings.stripe_connected")}</span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-emerald" />
+                          <span className="text-sm font-medium text-emerald">{t("dash.earnings.stripe_connected")}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-text-secondary">
+                          Your account is connected to Stripe successfully and ready to receive payouts.
+                        </p>
+                      </div>
                     </div>
                     <span className="text-xs text-text-muted">
                       Since {provider.onboarded_at ? new Date(provider.onboarded_at).toLocaleDateString() : "—"}
@@ -205,8 +241,11 @@ export default function EarningsPage() {
                       </Badge>
                     </div>
                     <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
-                      {onboarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
-                      Complete Provider Setup
+                      {onboarding ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
+                      ) : (
+                        <><ExternalLink className="h-3.5 w-3.5" /> Continue the Stripe Process</>
+                      )}
                     </Button>
                   </div>
                 ) : (
@@ -282,7 +321,7 @@ export default function EarningsPage() {
                 </p>
               ) : (
                 <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
                     <BarChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                       <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
