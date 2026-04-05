@@ -166,48 +166,121 @@ class StripeConnectManager:
         stripe_account_id = ""
         onboarding_url = ""
 
-        if STRIPE_ENABLED and stripe:
-            try:
-                # Create Stripe Connect Express account
-                acct = stripe.Account.create(
-                    type="express",
-                    country="CA",
-                    email=email,
-                    capabilities={
-                        "card_payments": {"requested": True},
-                        "transfers": {"requested": True},
-                    },
-                    business_type=provider_type,
-                    metadata={
-                        "xcelsior_provider_id": provider_id,
-                        "corporation_name": corporation_name,
-                        "business_number": business_number,
-                    },
-                )
-                stripe_account_id = acct.id
-
-                # Generate onboarding link
-                _base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
-                link = stripe.AccountLink.create(
-                    account=stripe_account_id,
-                    refresh_url=f"{_base_url}/onboarding/refresh?provider={provider_id}",
-                    return_url=f"{_base_url}/onboarding/complete?provider={provider_id}",
-                    type="account_onboarding",
-                )
-                onboarding_url = link.url
-                log.info(
-                    "Stripe Connect account created: %s for provider %s",
-                    stripe_account_id,
-                    provider_id,
-                )
-            except Exception as e:
-                log.error("Stripe account creation failed for %s: %s", provider_id, e)
-                # Continue with local-only record
-        else:
+        if not (STRIPE_ENABLED and stripe):
             raise RuntimeError(
                 "Stripe Connect is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
                 "in .env with a valid Stripe secret key to enable provider onboarding."
             )
+
+        _base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+        refresh_url = f"{_base_url}/dashboard/earnings?stripe=refresh&provider={provider_id}"
+        return_url = f"{_base_url}/dashboard/earnings?stripe=return&provider={provider_id}"
+
+        def _create_hosted_stripe_url(account_id: str, status_hint: str) -> tuple[str, str]:
+            try:
+                link = stripe.AccountLink.create(
+                    account=account_id,
+                    refresh_url=refresh_url,
+                    return_url=return_url,
+                    type="account_onboarding",
+                )
+                return link.url, status_hint
+            except Exception as e:
+                log.warning(
+                    "Stripe AccountLink creation failed for provider %s (acct=%s): %s",
+                    provider_id,
+                    account_id,
+                    e,
+                )
+
+            # Fallback: if account is already fully enabled, open Stripe Express dashboard.
+            try:
+                acct = stripe.Account.retrieve(account_id)
+                charges_enabled = bool(acct.get("charges_enabled", False))
+                payouts_enabled = bool(acct.get("payouts_enabled", False))
+                if charges_enabled and payouts_enabled:
+                    login_link = stripe.Account.create_login_link(account_id)
+                    return login_link.url, "active"
+            except Exception as e:
+                log.warning(
+                    "Stripe login-link fallback failed for provider %s (acct=%s): %s",
+                    provider_id,
+                    account_id,
+                    e,
+                )
+
+            raise RuntimeError(
+                "Unable to open Stripe onboarding right now. Please try again in a moment."
+            )
+
+        # Check if provider already has a Stripe account
+        existing = None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT stripe_account_id, status FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+            if row:
+                existing = {
+                    "stripe_account_id": row["stripe_account_id"],
+                    "status": row["status"],
+                }
+
+        if existing and existing["stripe_account_id"]:
+            # Re-generate onboarding link for existing account
+            stripe_account_id = existing["stripe_account_id"]
+            onboarding_url, status = _create_hosted_stripe_url(
+                stripe_account_id,
+                existing["status"],
+            )
+            with self._conn() as conn:
+                conn.execute(
+                    "UPDATE provider_accounts SET status=%s WHERE provider_id=%s",
+                    (status, provider_id),
+                )
+
+            log.info(
+                "Stripe onboarding/login link generated for existing account %s (provider %s)",
+                stripe_account_id,
+                provider_id,
+            )
+
+            return {
+                "provider_id": provider_id,
+                "stripe_account_id": stripe_account_id,
+                "onboarding_url": onboarding_url,
+                "status": status,
+            }
+
+        try:
+            # Create Stripe Connect Express account
+            acct = stripe.Account.create(
+                type="express",
+                country="CA",
+                email=email,
+                capabilities={
+                    "card_payments": {"requested": True},
+                    "transfers": {"requested": True},
+                },
+                business_type=provider_type,
+                metadata={
+                    "xcelsior_provider_id": provider_id,
+                    "corporation_name": corporation_name,
+                    "business_number": business_number,
+                },
+            )
+            stripe_account_id = acct.id
+            onboarding_url, status = _create_hosted_stripe_url(stripe_account_id, "onboarding")
+            log.info(
+                "Stripe Connect account created: %s for provider %s",
+                stripe_account_id,
+                provider_id,
+            )
+        except Exception as e:
+            log.error("Stripe account creation failed for %s: %s", provider_id, e)
+            raise RuntimeError(
+                "Failed to start Stripe onboarding. Please try again in a moment."
+            ) from e
 
         # Persist locally
         with self._conn() as conn:
@@ -227,7 +300,7 @@ class StripeConnectManager:
                     provider_id,
                     provider_type,
                     stripe_account_id,
-                    "onboarding",
+                    status,
                     corporation_name,
                     business_number,
                     gst_hst_number,
@@ -242,7 +315,7 @@ class StripeConnectManager:
             "provider_id": provider_id,
             "stripe_account_id": stripe_account_id,
             "onboarding_url": onboarding_url,
-            "status": "onboarding",
+            "status": status,
         }
 
     def upload_incorporation_file(self, provider_id: str, file_id: str) -> dict:
@@ -266,7 +339,56 @@ class StripeConnectManager:
                 "SELECT * FROM provider_accounts WHERE provider_id=%s",
                 (provider_id,),
             ).fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+
+            provider = dict(row)
+
+            # Best-effort status sync in case webhook delivery is delayed or missed.
+            stripe_account_id = provider.get("stripe_account_id")
+            if STRIPE_ENABLED and stripe and stripe_account_id:
+                try:
+                    acct = stripe.Account.retrieve(stripe_account_id)
+                    charges_enabled = bool(acct.get("charges_enabled", False))
+                    payouts_enabled = bool(acct.get("payouts_enabled", False))
+                    disabled_reason = (acct.get("requirements") or {}).get("disabled_reason")
+
+                    if charges_enabled and payouts_enabled:
+                        new_status = "active"
+                    elif disabled_reason:
+                        new_status = "restricted"
+                    else:
+                        new_status = "onboarding"
+
+                    updates: dict[str, float | str] = {}
+                    if provider.get("status") != new_status:
+                        updates["status"] = new_status
+                    if new_status == "active" and not provider.get("onboarded_at"):
+                        updates["onboarded_at"] = time.time()
+
+                    if updates:
+                        if "onboarded_at" in updates:
+                            conn.execute(
+                                "UPDATE provider_accounts SET status=%s, onboarded_at=%s WHERE provider_id=%s",
+                                (updates["status"], updates["onboarded_at"], provider_id),
+                            )
+                        else:
+                            conn.execute(
+                                "UPDATE provider_accounts SET status=%s WHERE provider_id=%s",
+                                (updates["status"], provider_id),
+                            )
+                        provider["status"] = updates.get("status", provider.get("status"))
+                        if "onboarded_at" in updates:
+                            provider["onboarded_at"] = updates["onboarded_at"]
+                except Exception as e:
+                    log.warning(
+                        "Stripe status sync failed for provider %s (acct=%s): %s",
+                        provider_id,
+                        stripe_account_id,
+                        e,
+                    )
+
+            return provider
 
     def list_providers(self, status: str = "") -> list[dict]:
         """List all provider accounts, optionally filtered by status."""

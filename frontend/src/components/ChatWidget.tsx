@@ -21,6 +21,7 @@ import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
 import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import { formatMarkdown } from "@/lib/format-markdown";
 
 // ── Notification Sound (inline base64 tiny blip) ─────────────────────
@@ -192,7 +193,7 @@ function HistoryDrawer({
 }
 
 // ── Main Widget ──────────────────────────────────────────────────────
-export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
+export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPanel, aiPanelOpen }: { showFab?: boolean; externalOpen?: boolean; onClose?: () => void; onOpenAiPanel?: () => void; aiPanelOpen?: boolean }) {
   const { t } = useLocale();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -211,6 +212,11 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
   const lastStreamingAssistantId = isStreaming
     ? [...messages].reverse().find((msg) => msg.role === "assistant")?.id ?? null
     : null;
+
+  // Sync with external open control
+  useEffect(() => {
+    if (externalOpen !== undefined) setOpen(externalOpen);
+  }, [externalOpen]);
 
   // Mobile swipe-to-dismiss
   const dragY = useMotionValue(0);
@@ -312,6 +318,7 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
       if (e.key === "Escape" && open) {
         e.preventDefault();
         setOpen(false);
+        onClose?.();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -386,6 +393,7 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
   const handleDragEnd = (_: unknown, info: PanInfo) => {
     if (info.offset.y > 100) {
       setOpen(false);
+      onClose?.();
     }
   };
 
@@ -398,29 +406,31 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
 
   return (
     <>
-      {/* Floating button */}
-      <AnimatePresence>
-        {!open && (
-          <motion.button
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            onClick={() => setOpen(true)}
-            className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-accent-red text-white shadow-lg hover:bg-accent-red/90 transition-colors focus:outline-none focus:ring-2 focus:ring-accent-red focus:ring-offset-2"
-            aria-label={t("chat.open")}
-          >
-            <MessageCircle className="h-6 w-6" />
-            {/* Unread dot indicator */}
-            {hasUnread && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-green-500" />
-              </span>
-            )}
-          </motion.button>
-        )}
-      </AnimatePresence>
+      {/* Floating button (only on pages without Help popup, e.g. marketing) */}
+      {showFab && (
+        <AnimatePresence>
+          {!open && (
+            <motion.button
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              onClick={() => setOpen(true)}
+              className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-accent-red text-white shadow-lg hover:bg-accent-red/90 transition-colors focus:outline-none focus:ring-2 focus:ring-accent-red focus:ring-offset-2"
+              aria-label={t("chat.open")}
+            >
+              <MessageCircle className="h-6 w-6" />
+              {/* Unread dot indicator */}
+              {hasUnread && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-green-500" />
+                </span>
+              )}
+            </motion.button>
+          )}
+        </AnimatePresence>
+      )}
 
       {/* Chat panel */}
       <AnimatePresence>
@@ -488,12 +498,12 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
                         <History className="h-4 w-4" />
                       </button>
                     )}
-                    {/* Open Xcel AI */}
+                    {/* Toggle Xcel AI */}
                     {onOpenAiPanel && (
                       <button
-                        onClick={() => { onOpenAiPanel(); setOpen(false); }}
-                        className="rounded-lg p-1.5 text-text-muted hover:bg-accent-cyan/20 hover:text-accent-cyan transition-colors"
-                        title={t("ai.open_panel")}
+                        onClick={() => { onOpenAiPanel(); }}
+                        className={cn("rounded-lg p-1.5 transition-colors", aiPanelOpen ? "text-accent-cyan bg-accent-cyan/15 hover:bg-accent-cyan/25" : "text-text-muted hover:bg-accent-cyan/20 hover:text-accent-cyan")}
+                        title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
                       >
                         <Sparkles className="h-4 w-4" />
                       </button>
@@ -513,7 +523,7 @@ export function ChatWidget({ onOpenAiPanel }: { onOpenAiPanel?: () => void }) {
                     )}
                     {/* Close */}
                     <button
-                      onClick={() => setOpen(false)}
+                      onClick={() => { setOpen(false); onClose?.(); }}
                       className="rounded-lg p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
                       aria-label={t("chat.close")}
                     >

@@ -1588,7 +1588,7 @@ def get_total_revenue():
 # ── Phase 12: Alerts ─────────────────────────────────────────────────
 
 ALERT_CONFIG = {
-    "email_enabled": False,
+    "email_enabled": bool(os.environ.get("XCELSIOR_SMTP_HOST") and os.environ.get("XCELSIOR_SMTP_USER")),
     "smtp_host": os.environ.get("XCELSIOR_SMTP_HOST", ""),
     "smtp_port": int(os.environ.get("XCELSIOR_SMTP_PORT", "587")),
     "smtp_user": os.environ.get("XCELSIOR_SMTP_USER", ""),

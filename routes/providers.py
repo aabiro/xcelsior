@@ -55,16 +55,19 @@ def api_register_provider(req: ProviderRegisterRequest):
         raise HTTPException(400, "corporation_name required for company providers")
 
     mgr = get_stripe_manager()
-    result = mgr.create_provider_account(
-        provider_id=req.provider_id,
-        email=req.email,
-        provider_type=req.provider_type,
-        corporation_name=req.corporation_name,
-        business_number=req.business_number,
-        gst_hst_number=req.gst_hst_number,
-        province=req.province,
-        legal_name=req.legal_name,
-    )
+    try:
+        result = mgr.create_provider_account(
+            provider_id=req.provider_id,
+            email=req.email,
+            provider_type=req.provider_type,
+            corporation_name=req.corporation_name,
+            business_number=req.business_number,
+            gst_hst_number=req.gst_hst_number,
+            province=req.province,
+            legal_name=req.legal_name,
+        )
+    except RuntimeError as e:
+        raise HTTPException(502, str(e)) from e
     # Link provider_id to user account
     from db import UserStore
     UserStore.update_user(req.email, {"provider_id": req.provider_id})

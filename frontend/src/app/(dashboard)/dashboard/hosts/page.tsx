@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
-import { Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal, Download } from "lucide-react";
+import { Dialog } from "@/components/ui/dialog";
+import { Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal, Download, Cpu, Copy, Check } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host } from "@/lib/api";
@@ -75,26 +76,53 @@ export default function HostsPage() {
     return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
   }
 
+  const activeHosts = hosts.filter((h) => h.status === "active").length;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("dash.hosts.title")}</h1>
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{t("dash.hosts.title")}</h1>
+          <p className="text-sm text-text-secondary mt-1">
+            {hosts.length > 0
+              ? `${activeHosts} active of ${hosts.length} registered host${hosts.length !== 1 ? "s" : ""}`
+              : "Register a GPU host to start earning"}
+          </p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>
-          <Button size="sm" onClick={() => setShowRegister(!showRegister)}>
+          <Button size="sm" onClick={() => setShowRegister(true)}>
             <Plus className="h-3.5 w-3.5" /> {t("dash.hosts.register")}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowInstall(!showInstall)}>
+          <Button variant="outline" size="sm" onClick={() => setShowInstall(true)}>
             <Terminal className="h-3.5 w-3.5" /> Install Worker
           </Button>
         </div>
       </div>
 
-      {showRegister && <RegisterHostForm api={api} onDone={() => { setShowRegister(false); load(); }} />}
+      {/* Register Host Modal */}
+      <Dialog
+        open={showRegister}
+        onClose={() => setShowRegister(false)}
+        title="Register a New Host"
+        description="Add a GPU machine to the Xcelsior network. You'll need the hostname and GPU model."
+      >
+        <RegisterHostForm api={api} onDone={() => { setShowRegister(false); load(); }} />
+      </Dialog>
 
-      {showInstall && <InstallWorkerSection />}
+      {/* Install Worker Modal */}
+      <Dialog
+        open={showInstall}
+        onClose={() => setShowInstall(false)}
+        title="Install Worker Agent"
+        description="Set up the Xcelsior worker agent on your GPU host to start accepting compute jobs."
+        maxWidth="max-w-2xl"
+      >
+        <InstallWorkerSection />
+      </Dialog>
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -121,61 +149,78 @@ export default function HostsPage() {
         <Card className="p-12 text-center">
           <Server className="mx-auto h-12 w-12 text-text-muted mb-4" />
           <h3 className="text-lg font-semibold mb-1">{t("dash.hosts.empty")}</h3>
-          <p className="text-sm text-text-secondary">{t("dash.hosts.empty_desc")}</p>
+          <p className="text-sm text-text-secondary mb-6">{t("dash.hosts.empty_desc")}</p>
+          <div className="flex justify-center gap-3">
+            <Button size="sm" onClick={() => setShowRegister(true)}>
+              <Plus className="h-3.5 w-3.5" /> {t("dash.hosts.register")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowInstall(true)}>
+              <Terminal className="h-3.5 w-3.5" /> Install Worker
+            </Button>
+          </div>
         </Card>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-text-secondary">
-                <th className="py-3 pr-4 text-left font-medium cursor-pointer select-none" onClick={() => toggleSort("hostname")}>
-                  <span className="inline-flex items-center gap-1">{t("dash.hosts.col_hostname")} <SortIcon col="hostname" /></span>
-                </th>
-                <th className="py-3 px-4 text-left font-medium cursor-pointer select-none" onClick={() => toggleSort("gpu_model")}>
-                  <span className="inline-flex items-center gap-1">{t("dash.hosts.col_gpu")} <SortIcon col="gpu_model" /></span>
-                </th>
-                <th className="py-3 px-4 text-center font-medium cursor-pointer select-none" onClick={() => toggleSort("status")}>
-                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.hosts.col_status")} <SortIcon col="status" /></span>
-                </th>
-                <th className="py-3 px-4 text-center font-medium cursor-pointer select-none" onClick={() => toggleSort("vram_gb")}>
-                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.hosts.col_vram")} <SortIcon col="vram_gb" /></span>
-                </th>
-                <th className="py-3 px-4 text-center font-medium cursor-pointer select-none" onClick={() => toggleSort("cost_per_hour")}>
-                  <span className="inline-flex items-center gap-1 justify-center">{t("dash.hosts.col_price")} <SortIcon col="cost_per_hour" /></span>
-                </th>
-                <th className="py-3 px-4 text-right font-medium">{t("dash.hosts.col_actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageItems.map((host) => (
-                <tr key={host.host_id} className="border-b border-border/50 hover:bg-surface-hover transition-colors">
-                  <td className="py-3 pr-4">
-                    <Link href={`/dashboard/hosts/${host.host_id}`} className="font-medium text-ice-blue hover:underline">
-                      {host.hostname || host.host_id}
-                    </Link>
-                  </td>
-                  <td className="py-3 px-4 text-text-secondary">{host.gpu_model || "—"}</td>
-                  <td className="py-3 px-4 text-center"><StatusBadge status={host.status} /></td>
-                  <td className="py-3 px-4 text-center font-mono">{host.vram_gb ? `${host.vram_gb}GB` : "—"}</td>
-                  <td className="py-3 px-4 text-center font-mono">{host.cost_per_hour ? `$${host.cost_per_hour}/hr` : "—"}</td>
-                  <td className="py-3 px-4 text-right">
-                    <Link href={`/dashboard/hosts/${host.host_id}`}>
-                      <Button variant="ghost" size="sm">View</Button>
-                    </Link>
-                  </td>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-hover/50">
+                  <th className="py-3 pl-4 pr-3 text-left font-medium text-text-secondary cursor-pointer select-none" onClick={() => toggleSort("hostname")}>
+                    <span className="inline-flex items-center gap-1">{t("dash.hosts.col_hostname")} <SortIcon col="hostname" /></span>
+                  </th>
+                  <th className="py-3 px-3 text-left font-medium text-text-secondary cursor-pointer select-none" onClick={() => toggleSort("gpu_model")}>
+                    <span className="inline-flex items-center gap-1">{t("dash.hosts.col_gpu")} <SortIcon col="gpu_model" /></span>
+                  </th>
+                  <th className="py-3 px-3 text-center font-medium text-text-secondary cursor-pointer select-none" onClick={() => toggleSort("status")}>
+                    <span className="inline-flex items-center gap-1 justify-center">{t("dash.hosts.col_status")} <SortIcon col="status" /></span>
+                  </th>
+                  <th className="py-3 px-3 text-center font-medium text-text-secondary cursor-pointer select-none" onClick={() => toggleSort("vram_gb")}>
+                    <span className="inline-flex items-center gap-1 justify-center">{t("dash.hosts.col_vram")} <SortIcon col="vram_gb" /></span>
+                  </th>
+                  <th className="py-3 px-3 text-center font-medium text-text-secondary cursor-pointer select-none" onClick={() => toggleSort("cost_per_hour")}>
+                    <span className="inline-flex items-center gap-1 justify-center">{t("dash.hosts.col_price")} <SortIcon col="cost_per_hour" /></span>
+                  </th>
+                  <th className="py-3 pl-3 pr-4 text-right font-medium text-text-secondary">{t("dash.hosts.col_actions")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-4 flex items-center justify-between">
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {pageItems.map((host) => (
+                  <tr key={host.host_id} className="group hover:bg-surface-hover/60 transition-colors">
+                    <td className="py-3.5 pl-4 pr-3">
+                      <Link href={`/dashboard/hosts/${host.host_id}`} className="font-medium text-ice-blue hover:underline">
+                        {host.hostname || host.host_id}
+                      </Link>
+                    </td>
+                    <td className="py-3.5 px-3">
+                      <div className="flex items-center gap-1.5 text-text-secondary">
+                        <Cpu className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                        {host.gpu_model || "—"}
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-3 text-center"><StatusBadge status={host.status} /></td>
+                    <td className="py-3.5 px-3 text-center font-mono text-text-secondary">{host.vram_gb ? `${host.vram_gb} GB` : "—"}</td>
+                    <td className="py-3.5 px-3 text-center font-mono text-text-secondary">{host.cost_per_hour ? `$${host.cost_per_hour}/hr` : "—"}</td>
+                    <td className="py-3.5 pl-3 pr-4 text-right">
+                      <Link href={`/dashboard/hosts/${host.host_id}`}>
+                        <Button variant="ghost" size="sm">View</Button>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-border px-4 py-3 flex items-center justify-between">
             <span className="text-xs text-text-muted">{t("dash.hosts.count", { count: filtered.length })}</span>
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );
 }
+
+/* ── Register Host Form (renders inside Dialog) ─────────────────── */
 
 function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onDone: () => void }) {
   const { t } = useLocale();
@@ -198,21 +243,25 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
   }
 
   return (
-    <Card className="p-6">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex-1 space-y-2">
-          <Label>{t("dash.hosts.form_hostname")}</Label>
-          <Input value={hostname} onChange={(e) => setHostname(e.target.value)} required placeholder={t("dash.hosts.hostname_placeholder")} />
-        </div>
-        <div className="flex-1 space-y-2">
-          <Label>{t("dash.hosts.form_gpu")}</Label>
-          <Input value={gpuModel} onChange={(e) => setGpuModel(e.target.value)} required placeholder={t("dash.hosts.gpu_placeholder")} />
-        </div>
-        <Button type="submit" disabled={loading}>{loading ? t("dash.hosts.registering") : t("dash.hosts.register_btn")}</Button>
-      </form>
-    </Card>
+    <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+      <div className="space-y-2">
+        <Label>{t("dash.hosts.form_hostname")}</Label>
+        <Input value={hostname} onChange={(e) => setHostname(e.target.value)} required placeholder={t("dash.hosts.hostname_placeholder")} />
+      </div>
+      <div className="space-y-2">
+        <Label>{t("dash.hosts.form_gpu")}</Label>
+        <Input value={gpuModel} onChange={(e) => setGpuModel(e.target.value)} required placeholder={t("dash.hosts.gpu_placeholder")} />
+      </div>
+      <div className="flex justify-end gap-3 pt-2">
+        <Button type="submit" disabled={loading}>
+          {loading ? t("dash.hosts.registering") : t("dash.hosts.register_btn")}
+        </Button>
+      </div>
+    </form>
   );
 }
+
+/* ── Install Worker Section (renders inside Dialog) ──────────────── */
 
 function InstallWorkerSection() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -244,60 +293,52 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target`;
 
+  function CopyBtn({ label, text }: { label: string; text: string }) {
+    return (
+      <button
+        onClick={() => copy(label, text)}
+        className="absolute top-2 right-2 flex items-center gap-1 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
+      >
+        {copied === label ? <><Check className="h-3 w-3 text-emerald" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+      </button>
+    );
+  }
+
   return (
-    <Card className="p-6 space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Download className="h-5 w-5 text-ice-blue" />
-        <h3 className="text-lg font-semibold">Install Worker Agent</h3>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <p className="text-sm text-text-secondary mb-2">
-            Run the setup wizard on your GPU host to register it with Xcelsior:
-          </p>
-          <div className="relative">
-            <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{installCmd}</pre>
-            <button
-              onClick={() => copy("install", installCmd)}
-              className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
-            >
-              {copied === "install" ? "Copied!" : "Copy"}
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-sm text-text-secondary mb-2">
-            The wizard will detect your GPU, run benchmarks, and register with the network.
-            Alternatively, create <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/.env</code> manually:
-          </p>
-          <div className="relative">
-            <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{envTemplate}</pre>
-            <button
-              onClick={() => copy("env", envTemplate)}
-              className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
-            >
-              {copied === "env" ? "Copied!" : "Copy"}
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-sm text-text-secondary mb-2">
-            Enable the worker as a systemd service for automatic startup:
-          </p>
-          <div className="relative">
-            <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto text-xs">{systemdUnit}</pre>
-            <button
-              onClick={() => copy("systemd", systemdUnit)}
-              className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
-            >
-              {copied === "systemd" ? "Copied!" : "Copy"}
-            </button>
-          </div>
+    <div className="space-y-5 mt-2">
+      <div>
+        <p className="text-sm font-medium mb-1.5">1. Run the setup wizard</p>
+        <p className="text-xs text-text-secondary mb-2">
+          Execute this on your GPU host to auto-detect hardware and register with Xcelsior:
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{installCmd}</pre>
+          <CopyBtn label="install" text={installCmd} />
         </div>
       </div>
-    </Card>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">2. Configure environment</p>
+        <p className="text-xs text-text-secondary mb-2">
+          The wizard handles this automatically. To configure manually, create{" "}
+          <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/.env</code>:
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{envTemplate}</pre>
+          <CopyBtn label="env" text={envTemplate} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">3. Enable as a service</p>
+        <p className="text-xs text-text-secondary mb-2">
+          Set up automatic startup with systemd:
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-[13px] font-mono overflow-x-auto leading-relaxed">{systemdUnit}</pre>
+          <CopyBtn label="systemd" text={systemdUnit} />
+        </div>
+      </div>
+    </div>
   );
 }

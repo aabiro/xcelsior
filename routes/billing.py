@@ -629,6 +629,7 @@ def api_usage_analytics(
     customer_id: str = "",
     provider_id: str = "",
     days: int = 30,
+    offset_days: int = 0,
     group_by: str = "day",  # day | week | gpu_model | province
 ):
     """Usage analytics for both providers and submitters.
@@ -645,7 +646,10 @@ def api_usage_analytics(
     """
     billing = get_billing_engine()
     now = time.time()
-    since = now - (days * 86400)
+    safe_days = max(1, min(days, 3650))
+    safe_offset_days = max(0, min(offset_days, 3650))
+    window_end = now - (safe_offset_days * 86400)
+    since = window_end - (safe_days * 86400)
 
     _GROUP_SQL = {
         "day": "to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS period",
@@ -657,8 +661,8 @@ def api_usage_analytics(
         group_by = "day"
     group_sql = _GROUP_SQL[group_by]
 
-    where_clauses = ["started_at >= %s"]
-    params: list = [since]
+    where_clauses = ["started_at >= %s", "started_at < %s"]
+    params: list = [since, window_end]
     if customer_id:
         where_clauses.append("owner = %s")
         params.append(customer_id)
@@ -713,7 +717,8 @@ def api_usage_analytics(
 
     return {
         "ok": True,
-        "days": days,
+        "days": safe_days,
+        "offset_days": safe_offset_days,
         "group_by": group_by,
         "analytics": analytics,
         "summary": {

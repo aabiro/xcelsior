@@ -998,6 +998,7 @@ const fr: Record<string, string> = {
   "gear.all_done": "Vous êtes prêt(e) ! 🎉",
   "gear.collapse": "Réduire la barre latérale",
   "gear.expand": "Agrandir la barre latérale",
+  "gear.support": "Assistance",
 
   /* ── Assistant IA ──────────────────────────────────────────────────────── */
   "ai.title": "Xcel IA",
