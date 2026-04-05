@@ -583,7 +583,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                     </div>
                   )}
                   <form onSubmit={handleSubmit} className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-end gap-2">
                       <input
                         ref={inputRef}
                         type="text"
@@ -597,7 +597,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                       <button
                         type="submit"
                         disabled={!input.trim() || isStreaming}
-                        className="flex self-stretch aspect-square shrink-0 items-center justify-center rounded-xl bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex shrink-0 items-center justify-center h-10 w-10 rounded-lg bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         aria-label={t("chat.send")}
                       >
                         {isStreaming ? (

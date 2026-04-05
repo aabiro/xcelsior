@@ -51,6 +51,8 @@ export default function EarningsPage() {
   const [loading, setLoading] = useState(true);
   const [onboarding, setOnboarding] = useState(false);
   const [handledStripeReturn, setHandledStripeReturn] = useState(false);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [justConnected, setJustConnected] = useState(false);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -92,12 +94,13 @@ export default function EarningsPage() {
     if (!stripeState || handledStripeReturn || loading) return;
 
     if (stripeState === "refresh") {
-      toast.info("Stripe setup wasn’t finished yet. Click continue to resume onboarding.");
+      toast.info("Stripe setup wasn't finished yet. Click Continue to resume onboarding.", { duration: 8000 });
     } else if (stripeState === "return") {
       if (provider?.status === "active") {
-        toast.success("Stripe connected successfully! Your payouts are now enabled.");
+        setJustConnected(true);
+        toast.success("Stripe account connected successfully! You're ready to receive payouts.", { duration: 10000 });
       } else {
-        toast.info("Stripe setup is still processing. Click continue if more details are required.");
+        toast.info("Stripe setup is still processing. Click Continue to finish connecting your account.", { duration: 8000 });
       }
     }
 
@@ -111,7 +114,11 @@ export default function EarningsPage() {
 
   const handleStripeConnect = async () => {
     const pid = providerId || customerId;
-    if (!pid || !user?.email) return;
+    if (!pid || !user?.email) {
+      toast.error("Unable to start Stripe setup — please log in again.", { duration: 6000 });
+      return;
+    }
+    setStripeError(null);
     setOnboarding(true);
     try {
       const res = await api.registerProvider({
@@ -119,17 +126,23 @@ export default function EarningsPage() {
         email: user.email,
       });
       if (res.onboarding_url) {
+        // Redirect to Stripe onboarding
         window.location.href = res.onboarding_url;
       } else if (provider) {
-        // Provider already existed but Stripe couldn't generate onboarding link
-        toast.error("Unable to generate Stripe onboarding link. Please try again or contact support.");
+        const msg = "Unable to generate Stripe onboarding link. Please try again or contact support.";
+        setStripeError(msg);
+        toast.error(msg, { duration: 8000 });
+        setOnboarding(false);
       } else {
-        toast.success("Provider account created");
+        toast.success("Provider account created! Redirecting to Stripe…");
+        // Re-call to get the onboarding URL now that the account exists
         load();
+        setOnboarding(false);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to start onboarding");
-    } finally {
+      const msg = err instanceof Error ? err.message : "Failed to start Stripe onboarding";
+      setStripeError(msg);
+      toast.error(msg, { duration: 8000 });
       setOnboarding(false);
     }
   };
@@ -204,28 +217,43 @@ export default function EarningsPage() {
           {/* Stripe Connect Status + GST Alert */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Stripe Connect */}
-            <Card>
+            <Card className={justConnected && provider?.status === "active" ? "border-emerald/40 ring-1 ring-emerald/20" : ""}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">{t("dash.earnings.stripe_title")}</CardTitle>
                 <CardDescription>{t("dash.earnings.stripe_desc")}</CardDescription>
               </CardHeader>
               <CardContent>
                 {provider?.status === "active" ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div>
+                  <div className="space-y-3">
+                    {justConnected && (
+                      <div className="rounded-lg border border-emerald/30 bg-emerald/5 px-3 py-2.5">
                         <div className="flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4 text-emerald" />
-                          <span className="text-sm font-medium text-emerald">{t("dash.earnings.stripe_connected")}</span>
+                          <CheckCircle className="h-5 w-5 text-emerald shrink-0" />
+                          <div>
+                            <p className="text-sm font-semibold text-emerald">Stripe Connected Successfully!</p>
+                            <p className="text-xs text-text-secondary mt-0.5">
+                              Your account has been connected to Stripe and is ready to receive payouts for completed GPU jobs.
+                            </p>
+                          </div>
                         </div>
-                        <p className="mt-1 text-xs text-text-secondary">
-                          Your account is connected to Stripe successfully and ready to receive payouts.
-                        </p>
                       </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-emerald" />
+                            <span className="text-sm font-medium text-emerald">{t("dash.earnings.stripe_connected")}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-text-secondary">
+                            Your account is connected to Stripe successfully and ready to receive payouts.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-text-muted">
+                        Since {provider.onboarded_at ? new Date(provider.onboarded_at).toLocaleDateString() : "—"}
+                      </span>
                     </div>
-                    <span className="text-xs text-text-muted">
-                      Since {provider.onboarded_at ? new Date(provider.onboarded_at).toLocaleDateString() : "—"}
-                    </span>
                   </div>
                 ) : provider ? (
                   <div className="space-y-3">
@@ -247,6 +275,10 @@ export default function EarningsPage() {
                         <><ExternalLink className="h-3.5 w-3.5" /> Continue the Stripe Process</>
                       )}
                     </Button>
+                    {stripeError && (
+                      <p className="text-xs text-accent-red mt-1">{stripeError}</p>
+                    )}
+                    </Button>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -264,6 +296,9 @@ export default function EarningsPage() {
                         <><LinkIcon className="h-3.5 w-3.5" /> Become a Provider — Connect Stripe</>
                       )}
                     </Button>
+                    {stripeError && (
+                      <p className="text-xs text-accent-red mt-1">{stripeError}</p>
+                    )}
                   </div>
                 )}
               </CardContent>
