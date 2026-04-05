@@ -192,7 +192,7 @@ export default function AdminActivityPage() {
                   <p className="text-sm text-text-muted py-8 text-center">No job activity</p>
                 ) : (
                   <div className="h-56">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                    <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                       <BarChart data={data.daily_jobs}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                         <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" tickFormatter={(v: any) => String(v).slice(5)} />

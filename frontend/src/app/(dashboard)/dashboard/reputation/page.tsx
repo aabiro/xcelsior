@@ -153,7 +153,7 @@ export default function ReputationPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                     <RadarChart data={breakdown}>
                       <PolarGrid stroke="#334155" />
                       <PolarAngleAxis dataKey="category" tick={{ fill: "#94a3b8", fontSize: 11 }} />
@@ -182,7 +182,7 @@ export default function ReputationPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                     <LineChart data={history}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                       <XAxis

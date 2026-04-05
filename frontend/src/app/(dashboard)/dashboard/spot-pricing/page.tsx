@@ -134,7 +134,7 @@ export default function SpotPricingPage() {
           </CardHeader>
           <CardContent>
             <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+            <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
               <AreaChart
                 data={selectedHistory.slice(-96).map((p) => ({
                   time: new Date(p.recorded_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),

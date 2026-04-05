@@ -9,9 +9,6 @@ from pydantic import BaseModel
 from routes._deps import (
     log,
 )
-from scheduler import (
-    log,
-)
 from db import UserStore
 from stripe_connect import get_stripe_manager
 from events import Event, get_event_store

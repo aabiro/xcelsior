@@ -74,30 +74,49 @@ html.light body {
   font-family: var(--font-sans);
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────────────── */
+/* ── Scrollbar (auto-hide, very faint) ─────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+html.light *:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.08) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-navy-lighter);
-  border-radius: 3px;
+  background: transparent;
+  border-radius: 2px;
+  transition: background 0.2s;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-light);
+*:hover > ::-webkit-scrollbar-thumb,
+:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+}
+*:hover > ::-webkit-scrollbar-thumb:hover,
+:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 html.light ::-webkit-scrollbar-track {
-  background: #f8fafc;
+  background: transparent;
 }
-html.light ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+html.light *:hover > ::-webkit-scrollbar-thumb,
+html.light :hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
 }
-html.light ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+html.light *:hover > ::-webkit-scrollbar-thumb:hover,
+html.light :hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
 }
 
 /* ── AI Typewriter Cursor Blink ─────────────────────────────────────── */

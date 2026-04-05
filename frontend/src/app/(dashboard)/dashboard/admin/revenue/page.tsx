@@ -166,7 +166,7 @@ export default function AdminRevenuePage() {
               </CardHeader>
               <CardContent>
                 <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                     <AreaChart data={(() => {
                       const current = data!.daily;
                       if (!showComparison || !prevData?.daily?.length) return current;
@@ -213,7 +213,7 @@ export default function AdminRevenuePage() {
                     <p className="text-sm text-text-muted py-8 text-center">No data</p>
                   ) : (
                     <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                      <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                         <PieChart>
                           <Pie
                             data={data.by_gpu}
@@ -248,7 +248,7 @@ export default function AdminRevenuePage() {
                     <p className="text-sm text-text-muted py-8 text-center">No data</p>
                   ) : (
                     <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%" minHeight={1} minWidth={0} debounce={1}>
+                      <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                         <BarChart data={data.by_province} layout="vertical">
                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                           <XAxis type="number" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" tickFormatter={(v: any) => `$${v}`} />

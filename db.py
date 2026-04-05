@@ -912,17 +912,24 @@ class UserStore:
 
     @staticmethod
     def cleanup_expired_sessions() -> int:
+        now = time.time()
+        max_lifetime = 86400 * 7  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
         with auth_connection() as conn:
-            cursor = conn.execute("DELETE FROM sessions WHERE expires_at < %s", (time.time(),))
+            cursor = conn.execute(
+                "DELETE FROM sessions WHERE expires_at < %s OR created_at < %s",
+                (now, now - max_lifetime),
+            )
             return cursor.rowcount
 
     @staticmethod
     def list_user_sessions(email: str) -> list[dict]:
+        now = time.time()
+        max_lifetime = 86400 * 7  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
         with auth_connection() as conn:
             rows = conn.execute(
                 "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active "
-                "FROM sessions WHERE email = %s AND expires_at > %s ORDER BY last_active DESC",
-                (email, time.time()),
+                "FROM sessions WHERE email = %s AND expires_at > %s AND created_at > %s ORDER BY last_active DESC",
+                (email, now, now - max_lifetime),
             ).fetchall()
             return [dict(r) for r in rows]
 
