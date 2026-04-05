@@ -24,7 +24,7 @@ user_id = None
 customer_id = None
 
 
-def test(name, fn):
+def run_test(name, fn):
     """Run a test function and record pass/fail."""
     try:
         fn()
@@ -49,13 +49,13 @@ def api(method, path, **kwargs):
 print("\n═══ 1. AUTHENTICATION ═══")
 
 
-def test_healthz():
+def _e2e_healthz():
     r = api("get", "/healthz")
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
 
-def test_register():
+def _e2e_register():
     global user_id, customer_id
     r = api("post", "/api/auth/register", json={
         "email": TEST_EMAIL,
@@ -69,7 +69,7 @@ def test_register():
     customer_id = data.get("customer_id", "")
 
 
-def test_login():
+def _e2e_login():
     global session_token
     r = api("post", "/api/auth/login", json={
         "email": TEST_EMAIL,
@@ -87,7 +87,7 @@ def test_login():
         user_id = user_info.get("user_id", user_id)
 
 
-def test_auth_me():
+def _e2e_auth_me():
     r = api("get", "/api/auth/me", headers={"Authorization": f"Bearer {session_token}"}, allow_redirects=True)
     assert r.status_code == 200, f"me failed: {r.status_code} {r.text[:200]}"
     data = r.json()
@@ -96,7 +96,7 @@ def test_auth_me():
     assert email == TEST_EMAIL, f"Email mismatch: {data}"
 
 
-def test_change_password():
+def _e2e_change_password():
     new_pass = TEST_PASS + "X"
     r = api("post", "/api/auth/change-password", headers={"Authorization": f"Bearer {session_token}"}, json={
         "current_password": TEST_PASS,
@@ -111,11 +111,11 @@ def test_change_password():
     assert r2.status_code == 200
 
 
-test("Health check", test_healthz)
-test("Register new account", test_register)
-test("Login", test_login)
-test("Auth /me", test_auth_me)
-test("Change password", test_change_password)
+run_test("Health check", _e2e_healthz)
+run_test("Register new account", _e2e_register)
+run_test("Login", _e2e_login)
+run_test("Auth /me", _e2e_auth_me)
+run_test("Change password", _e2e_change_password)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -125,7 +125,7 @@ print("\n═══ 2. API KEY MANAGEMENT ═══")
 api_key_value = None
 
 
-def test_generate_api_key():
+def _e2e_generate_api_key():
     global api_key_value
     r = api("post", "/api/keys/generate", headers={"Authorization": f"Bearer {session_token}"}, json={
         "name": "e2e-test-key",
@@ -136,7 +136,7 @@ def test_generate_api_key():
     assert api_key_value, f"No key returned: {data}"
 
 
-def test_list_api_keys():
+def _e2e_list_api_keys():
     r = api("get", "/api/keys", headers={"Authorization": f"Bearer {session_token}"})
     assert r.status_code == 200
     data = r.json()
@@ -144,12 +144,12 @@ def test_list_api_keys():
     assert len(keys) >= 1, f"Expected at least 1 key: {data}"
 
 
-def test_auth_with_api_key():
+def _e2e_auth_with_api_key():
     r = api("get", "/healthz", headers={"Authorization": f"Bearer {api_key_value}"})
     assert r.status_code == 200
 
 
-def test_delete_api_key():
+def _e2e_delete_api_key():
     # Get the preview to delete
     r = api("get", "/api/keys", headers={"Authorization": f"Bearer {session_token}"})
     keys = r.json().get("keys", r.json().get("api_keys", []))
@@ -159,10 +159,10 @@ def test_delete_api_key():
         assert r2.status_code == 200, f"Delete key failed: {r2.status_code} {r2.text[:200]}"
 
 
-test("Generate API key", test_generate_api_key)
-test("List API keys", test_list_api_keys)
-test("Auth with API key", test_auth_with_api_key)
-test("Delete API key", test_delete_api_key)
+run_test("Generate API key", _e2e_generate_api_key)
+run_test("List API keys", _e2e_list_api_keys)
+run_test("Auth with API key", _e2e_auth_with_api_key)
+run_test("Delete API key", _e2e_delete_api_key)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -173,7 +173,7 @@ print("\n═══ 3. SSH KEY MANAGEMENT ═══")
 SSH_TEST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA e2e-test"
 
 
-def test_add_ssh_key():
+def _e2e_add_ssh_key():
     r = api("post", "/api/ssh/keys", headers={"Authorization": f"Bearer {session_token}"}, json={
         "name": "e2e-test-ssh",
         "public_key": SSH_TEST_KEY,
@@ -181,7 +181,7 @@ def test_add_ssh_key():
     assert r.status_code == 200, f"Add SSH key failed: {r.status_code} {r.text[:200]}"
 
 
-def test_list_ssh_keys():
+def _e2e_list_ssh_keys():
     r = api("get", "/api/ssh/keys", headers={"Authorization": f"Bearer {session_token}"})
     assert r.status_code == 200
     data = r.json()
@@ -189,7 +189,7 @@ def test_list_ssh_keys():
     assert len(keys) >= 1, f"Expected at least 1 SSH key: {data}"
 
 
-def test_delete_ssh_key():
+def _e2e_delete_ssh_key():
     r = api("get", "/api/ssh/keys", headers={"Authorization": f"Bearer {session_token}"})
     keys = r.json().get("keys", r.json().get("ssh_keys", []))
     if keys:
@@ -199,9 +199,9 @@ def test_delete_ssh_key():
             assert r2.status_code == 200, f"Delete SSH key failed: {r2.status_code} {r2.text[:200]}"
 
 
-test("Add SSH key", test_add_ssh_key)
-test("List SSH keys", test_list_ssh_keys)
-test("Delete SSH key", test_delete_ssh_key)
+run_test("Add SSH key", _e2e_add_ssh_key)
+run_test("List SSH keys", _e2e_list_ssh_keys)
+run_test("Delete SSH key", _e2e_delete_ssh_key)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -210,7 +210,7 @@ test("Delete SSH key", test_delete_ssh_key)
 print("\n═══ 4. BILLING / WALLET ═══")
 
 
-def test_get_wallet():
+def _e2e_get_wallet():
     global customer_id
     if not customer_id:
         # Get from /me
@@ -223,17 +223,17 @@ def test_get_wallet():
     assert "balance_cad" in data or "wallet" in data, f"No balance: {data}"
 
 
-def test_wallet_history():
+def _e2e_wallet_history():
     r = api("get", f"/api/billing/wallet/{customer_id}/history", headers={"Authorization": f"Bearer {session_token}"})
     assert r.status_code == 200, f"History failed: {r.status_code} {r.text[:200]}"
 
 
-def test_invoices():
+def _e2e_invoices():
     r = api("get", f"/api/billing/invoices/{customer_id}", headers={"Authorization": f"Bearer {session_token}"})
     assert r.status_code == 200, f"Invoices failed: {r.status_code} {r.text[:200]}"
 
 
-def test_create_deposit():
+def _e2e_create_deposit():
     """Test creating a Stripe PaymentIntent (does NOT charge — just creates intent)."""
     r = api("post", f"/api/billing/wallet/{customer_id}/deposit", headers={"Authorization": f"Bearer {session_token}"}, json={
         "amount_cad": 1.00,
@@ -245,10 +245,10 @@ def test_create_deposit():
         assert data.get("client_secret") or data.get("ok"), f"No client_secret: {data}"
 
 
-test("Get wallet", test_get_wallet)
-test("Wallet history", test_wallet_history)
-test("Invoices", test_invoices)
-test("Create deposit intent", test_create_deposit)
+run_test("Get wallet", _e2e_get_wallet)
+run_test("Wallet history", _e2e_wallet_history)
+run_test("Invoices", _e2e_invoices)
+run_test("Create deposit intent", _e2e_create_deposit)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -257,7 +257,7 @@ test("Create deposit intent", test_create_deposit)
 print("\n═══ 5. HOSTS / GPU ═══")
 
 
-def test_list_hosts():
+def _e2e_list_hosts():
     r = api("get", "/hosts?active_only=true", headers=AUTH)
     assert r.status_code == 200
     hosts = r.json().get("hosts", [])
@@ -267,14 +267,14 @@ def test_list_hosts():
         f"Expected 2060 host: {gpu_host.get('gpu_model')}"
 
 
-def test_compute_score():
+def _e2e_compute_score():
     r = api("get", "/compute-score/aaryn-tuf-rtx2060", headers=AUTH)
     # May or may not have a score
     assert r.status_code in (200, 404), f"Compute score: {r.status_code}"
 
 
-test("List active hosts", test_list_hosts)
-test("Compute score", test_compute_score)
+run_test("List active hosts", _e2e_list_hosts)
+run_test("Compute score", _e2e_compute_score)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -284,7 +284,7 @@ print("\n═══ 6. JOB SUBMISSION ═══")
 test_job_id = None
 
 
-def test_submit_job():
+def _e2e_submit_job():
     global test_job_id
     r = api("post", "/instance", headers=AUTH, json={
         "name": "e2e-test-job",
@@ -299,7 +299,7 @@ def test_submit_job():
     assert test_job_id, f"No job_id: {data}"
 
 
-def test_list_instances():
+def _e2e_list_instances():
     r = api("get", "/instances", headers=AUTH)
     assert r.status_code == 200
     data = r.json()
@@ -307,13 +307,13 @@ def test_list_instances():
     assert len(jobs) >= 1, f"Expected at least 1 instance: {data}"
 
 
-def test_process_queue():
+def _e2e_process_queue():
     """Trigger queue processing to allocate the job."""
     r = api("post", "/queue/process", headers=AUTH)
     assert r.status_code == 200, f"Queue process failed: {r.status_code} {r.text[:200]}"
 
 
-def test_get_instance_status():
+def _e2e_get_instance_status():
     r = api("get", f"/instances", headers=AUTH)
     assert r.status_code == 200
     jobs = r.json().get("instances", r.json().get("jobs", []))
@@ -323,10 +323,10 @@ def test_get_instance_status():
             print(f"    → job status: {job.get('status')}, host: {job.get('host_id', 'unassigned')}")
 
 
-test("Submit job", test_submit_job)
-test("Process queue", test_process_queue)
-test("List instances", test_list_instances)
-test("Get instance status", test_get_instance_status)
+run_test("Submit job", _e2e_submit_job)
+run_test("Process queue", _e2e_process_queue)
+run_test("List instances", _e2e_list_instances)
+run_test("Get instance status", _e2e_get_instance_status)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -335,12 +335,12 @@ test("Get instance status", test_get_instance_status)
 print("\n═══ 7. MARKETPLACE ═══")
 
 
-def test_marketplace_search():
+def _e2e_marketplace_search():
     r = api("get", "/marketplace/search", headers=AUTH)
     assert r.status_code == 200, f"Marketplace search: {r.status_code} {r.text[:200]}"
 
 
-test("Marketplace search", test_marketplace_search)
+run_test("Marketplace search", _e2e_marketplace_search)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -349,12 +349,12 @@ test("Marketplace search", test_marketplace_search)
 print("\n═══ 8. EVENTS ═══")
 
 
-def test_events_list():
+def _e2e_events_list():
     r = api("get", "/api/events", headers=AUTH)
     assert r.status_code == 200, f"Events: {r.status_code} {r.text[:200]}"
 
 
-def test_events_stream():
+def _e2e_events_stream():
     """Test SSE stream endpoint connects (don't wait for events)."""
     try:
         r = requests.get(f"{BASE}/api/stream", headers=AUTH, stream=True, timeout=3)
@@ -363,8 +363,8 @@ def test_events_stream():
         pass  # Expected — SSE keeps connection open
 
 
-test("Events list", test_events_list)
-test("SSE stream connects", test_events_stream)
+run_test("Events list", _e2e_events_list)
+run_test("SSE stream connects", _e2e_events_stream)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -373,14 +373,14 @@ test("SSE stream connects", test_events_stream)
 print("\n═══ 9. COMPLIANCE ═══")
 
 
-def test_compliance():
+def _e2e_compliance():
     r = api("get", "/api/compliance/status", headers={"Authorization": f"Bearer {session_token}"})
     assert r.status_code == 200, f"Compliance: {r.status_code} {r.text[:200]}"
     data = r.json()
     assert "checks" in data or "compliance" in data or "ok" in data, f"No compliance data: {data}"
 
 
-test("Compliance checks", test_compliance)
+run_test("Compliance checks", _e2e_compliance)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -390,7 +390,7 @@ print("\n═══ 10. TEAMS ═══")
 team_id = None
 
 
-def test_create_team():
+def _e2e_create_team():
     global team_id
     r = api("post", "/api/teams", headers={"Authorization": f"Bearer {session_token}"}, json={
         "name": "E2E Test Team",
@@ -400,13 +400,13 @@ def test_create_team():
     team_id = data.get("team_id", data.get("id", ""))
 
 
-def test_get_team():
+def _e2e_get_team():
     r = api("get", "/api/teams/me", headers={"Authorization": f"Bearer {session_token}"})
     assert r.status_code == 200, f"Get team: {r.status_code} {r.text[:200]}"
 
 
-test("Create team", test_create_team)
-test("Get team", test_get_team)
+run_test("Create team", _e2e_create_team)
+run_test("Get team", _e2e_get_team)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -415,7 +415,7 @@ test("Get team", test_get_team)
 print("\n═══ 11. CHAT ═══")
 
 
-def test_chat():
+def _e2e_chat():
     r = api("post", "/api/chat", headers=AUTH, json={
         "message": "What is Xcelsior?",
         "session_id": "e2e-test",
@@ -424,7 +424,7 @@ def test_chat():
     assert r.status_code in (200, 201), f"Chat: {r.status_code} {r.text[:200]}"
 
 
-test("Chat widget", test_chat)
+run_test("Chat widget", _e2e_chat)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -433,12 +433,12 @@ test("Chat widget", test_chat)
 print("\n═══ 12. ARTIFACTS ═══")
 
 
-def test_list_artifacts():
+def _e2e_list_artifacts():
     r = api("get", "/api/artifacts", headers=AUTH)
     assert r.status_code == 200, f"Artifacts: {r.status_code} {r.text[:200]}"
 
 
-test("List artifacts", test_list_artifacts)
+run_test("List artifacts", _e2e_list_artifacts)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -447,12 +447,12 @@ test("List artifacts", test_list_artifacts)
 print("\n═══ 13. SLURM / HPC ═══")
 
 
-def test_slurm_profiles():
+def _e2e_slurm_profiles():
     r = api("get", "/api/slurm/profiles", headers=AUTH)
     assert r.status_code == 200, f"Slurm profiles: {r.status_code} {r.text[:200]}"
 
 
-test("Slurm profiles", test_slurm_profiles)
+run_test("Slurm profiles", _e2e_slurm_profiles)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -461,18 +461,18 @@ test("Slurm profiles", test_slurm_profiles)
 print("\n═══ 14. JURISDICTION ═══")
 
 
-def test_canada_routing():
+def _e2e_canada_routing():
     r = api("get", "/hosts/ca", headers=AUTH)
     assert r.status_code == 200, f"Canada hosts: {r.status_code} {r.text[:200]}"
 
 
-def test_ca_hosts():
+def _e2e_ca_hosts():
     r = api("get", "/hosts/ca", headers=AUTH)
     assert r.status_code == 200
 
 
-test("Canada routing config", test_canada_routing)
-test("CA-only hosts", test_ca_hosts)
+run_test("Canada routing config", _e2e_canada_routing)
+run_test("CA-only hosts", _e2e_ca_hosts)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -481,12 +481,12 @@ test("CA-only hosts", test_ca_hosts)
 print("\n═══ 15. SPOT PRICING ═══")
 
 
-def test_spot_prices():
+def _e2e_spot_prices():
     r = api("get", "/spot-prices", headers=AUTH)
     assert r.status_code == 200, f"Spot prices: {r.status_code} {r.text[:200]}"
 
 
-test("Spot prices", test_spot_prices)
+run_test("Spot prices", _e2e_spot_prices)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -495,12 +495,12 @@ test("Spot prices", test_spot_prices)
 print("\n═══ 16. REPUTATION ═══")
 
 
-def test_reputation():
+def _e2e_reputation():
     r = api("get", "/api/reputation/aaryn-tuf-rtx2060", headers=AUTH)
     assert r.status_code in (200, 404), f"Reputation: {r.status_code}"
 
 
-test("Reputation lookup", test_reputation)
+run_test("Reputation lookup", _e2e_reputation)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -537,7 +537,7 @@ PAGES = [
 ]
 
 
-def test_page(path):
+def _e2e_page(path):
     def _test():
         r = requests.get(f"{BASE}{path}", timeout=15, allow_redirects=True)
         assert r.status_code in (200, 307, 302), f"Page {path}: HTTP {r.status_code}"
@@ -545,7 +545,7 @@ def test_page(path):
 
 
 for page in PAGES:
-    test(f"Page {page}", test_page(page))
+    run_test(f"Page {page}", _e2e_page(page))
 
 
 # ═══════════════════════════════════════════════════════════════════════

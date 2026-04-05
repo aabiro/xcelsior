@@ -22,6 +22,7 @@ paths:
       x-fern-sdk-method-name: remove
   /hosts/check:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: hosts
       x-fern-sdk-method-name: check
   /hosts/ca:
@@ -75,24 +76,29 @@ paths:
       x-fern-sdk-method-name: listTiers
   /failover:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: failover
   /queue/process:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: processQueue
 
   # ── Billing ───────────────────────────────────────────────────────
   /billing:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getSummary
   /billing/bill-all:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: billAll
   /billing/bill/{job_id}:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: billInstance
   /api/billing/wallet/{customer_id}:
@@ -173,6 +179,7 @@ paths:
       x-fern-sdk-method-name: cryptoRefresh
   /api/analytics/usage:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: getAnalytics
   /api/billing/gst-threshold:
@@ -226,6 +233,7 @@ paths:
       x-fern-sdk-method-name: getStats
   /marketplace/bill/{job_id}:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: marketplace
       x-fern-sdk-method-name: billJob
   /marketplace/{host_id}:
@@ -415,6 +423,7 @@ paths:
       x-fern-sdk-method-name: getTrustTierRequirements
   /api/compliance/quebec-pia-check:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: compliance
       x-fern-sdk-method-name: quebecPiaCheck
 
@@ -471,6 +480,7 @@ paths:
       x-fern-sdk-method-name: getRetentionSummary
   /api/privacy/purge-expired:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: privacy
       x-fern-sdk-method-name: purgeExpired
   /api/v2/privacy/consent:
@@ -493,28 +503,34 @@ paths:
   # ── Transparency ──────────────────────────────────────────────────
   /api/transparency/report:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: transparency
       x-fern-sdk-method-name: getReport
   /api/transparency/legal-request:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: transparency
       x-fern-sdk-method-name: recordLegalRequest
   /api/transparency/legal-request/{request_id}/respond:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: transparency
       x-fern-sdk-method-name: respondToLegalRequest
 
   # ── Telemetry ─────────────────────────────────────────────────────
   /agent/telemetry:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: telemetry
       x-fern-sdk-method-name: submit
   /agent/telemetry/{host_id}:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: telemetry
       x-fern-sdk-method-name: get
   /api/telemetry/all:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: telemetry
       x-fern-sdk-method-name: getAll
 
@@ -541,6 +557,7 @@ paths:
       x-fern-sdk-method-name: getViolations
   /api/sla/enforce:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: sla
       x-fern-sdk-method-name: enforce
 
@@ -649,14 +666,17 @@ paths:
   # ── Admin ─────────────────────────────────────────────────────────
   /api/admin/stats:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: admin
       x-fern-sdk-method-name: getStats
   /api/admin/users:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: admin
       x-fern-sdk-method-name: listUsers
   /api/admin/verification-queue:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: admin
       x-fern-sdk-method-name: getVerificationQueue
 
@@ -723,46 +743,57 @@ paths:
   # ── Agent ─────────────────────────────────────────────────────────
   /agent/versions:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: submitVersions
   /agent/benchmark:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: submitBenchmark
   /agent/verify:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: verify
   /agent/mining-alert:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: miningAlert
   /agent/work/{host_id}:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: getWork
   /agent/popular-images:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: getPopularImages
   /agent/preempt/{host_id}:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: checkPreemption
   /agent/preempt/{host_id}/{job_id}:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: schedulePreemption
   /agent/lease/claim:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: claimLease
   /agent/lease/renew:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: renewLease
   /agent/lease/release:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: agent
       x-fern-sdk-method-name: releaseLease
 
@@ -773,6 +804,7 @@ paths:
       x-fern-sdk-method-name: get
   /spot-prices/update:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: spotPricing
       x-fern-sdk-method-name: update
   /spot/instance:
@@ -781,6 +813,7 @@ paths:
       x-fern-sdk-method-name: submitSpotInstance
   /spot/preemption-cycle:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: spotPricing
       x-fern-sdk-method-name: runPreemptionCycle
 
@@ -817,10 +850,12 @@ paths:
       x-fern-sdk-method-name: getStatus
   /api/verify/{host_id}/approve:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: verification
       x-fern-sdk-method-name: approve
   /api/verify/{host_id}/reject:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: verification
       x-fern-sdk-method-name: reject
   /api/verified-hosts:
@@ -831,25 +866,31 @@ paths:
   # ── Autoscale ─────────────────────────────────────────────────────
   /autoscale/pool:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: getPool
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: addToPool
   /autoscale/pool/{host_id}:
     delete:
+      x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: removeFromPool
   /autoscale/up:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: scaleUp
   /autoscale/down:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: scaleDown
   /autoscale/cycle:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: autoscale
       x-fern-sdk-method-name: cycle
 
@@ -868,17 +909,21 @@ paths:
       x-fern-sdk-method-name: getTrustTiers
   /canada:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: getCanadaStatus
     put:
+      x-fern-ignore: true
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: setCanadaStatus
   /queue/process/ca:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: processQueueCanada
   /api/queue/process-sovereign:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: jurisdiction
       x-fern-sdk-method-name: processQueueSovereign
 
@@ -909,12 +954,14 @@ paths:
   # ── Cloud Burst ───────────────────────────────────────────────────
   /api/v2/burst/status:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: cloudBurst
       x-fern-sdk-method-name: getStatus
 
   # ── Jobs (Scheduler) ─────────────────────────────────────────────
   /api/v2/scheduler/process-binpack:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: jobs
       x-fern-sdk-method-name: processQueueBinpack
 
@@ -929,26 +976,32 @@ paths:
       x-fern-sdk-method-name: readyz
   /metrics:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getMetrics
   /metrics/prometheus:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getMetricsPrometheus
   /llms.txt:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getLlmsTxt
   /dashboard:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: dashboard
   /api/stream:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: stream
   /api/nfs/config:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getNfsConfig
   /api/ssh/pubkey:
@@ -957,48 +1010,60 @@ paths:
       x-fern-sdk-method-name: getSshPubkey
   /ssh/pubkey:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getSshPubkeyLegacy
   /ssh/keygen:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: generateSshKey
   /token/generate:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: generateToken
   /alerts/config:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getAlertConfig
     put:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: setAlertConfig
   /api/alerts/config:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: getAlertConfigV2
     put:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: setAlertConfigV2
   /builds:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: listBuilds
   /build:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: buildImage
   /build/{model}/dockerfile:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: generateDockerfile
   /legacy:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: legacyDashboard
   /legacy/{path}:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: infrastructure
       x-fern-sdk-method-name: legacyDashboardPath
   /api/auth/device:
@@ -1018,22 +1083,27 @@ paths:
       x-fern-sdk-method-name: verifyDevice
   /api/slurm/submit:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: slurm
       x-fern-sdk-method-name: submit
   /api/slurm/instances:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: slurm
       x-fern-sdk-method-name: listInstances
   /api/slurm/profiles:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: slurm
       x-fern-sdk-method-name: listProfiles
   /api/slurm/status/{slurm_job_id}:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: slurm
       x-fern-sdk-method-name: getStatus
   /api/slurm/{slurm_job_id}:
     delete:
+      x-fern-ignore: true
       x-fern-sdk-group-name: slurm
       x-fern-sdk-method-name: cancel
 
@@ -1142,3 +1212,29 @@ paths:
     get:
       x-fern-sdk-group-name: inferenceV2
       x-fern-sdk-method-name: getEndpointUsage
+
+
+  # ══════════════════════════════════════════════════════════════
+  # Internal / Admin endpoints — hidden from public SDK
+  # ══════════════════════════════════════════════════════════════
+  /api/admin/activity:
+    get:
+      x-fern-ignore: true
+  /api/admin/infrastructure:
+    get:
+      x-fern-ignore: true
+  /api/admin/overview:
+    get:
+      x-fern-ignore: true
+  /api/admin/revenue:
+    get:
+      x-fern-ignore: true
+  /api/admin/users/{email}/role:
+    post:
+      x-fern-ignore: true
+  /api/admin/users/{email}/toggle-admin:
+    post:
+      x-fern-ignore: true
+  /api/billing/wallet/{customer_id}/reset-testing:
+    post:
+      x-fern-ignore: true

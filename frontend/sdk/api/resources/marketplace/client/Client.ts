@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace MarketplaceClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Rig listings, browsing, and marketplace billing.
- */
 export class MarketplaceClient {
     protected readonly _options: NormalizedClientOptions<MarketplaceClient.Options>;
 
-    constructor(options: MarketplaceClient.Options = {}) {
+    constructor(options: MarketplaceClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -71,8 +67,7 @@ export class MarketplaceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "marketplace/search",
             ),
             method: "GET",
@@ -138,8 +133,7 @@ export class MarketplaceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "marketplace/list",
             ),
             method: "POST",
@@ -206,8 +200,7 @@ export class MarketplaceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `marketplace/${core.url.encodePathParam(hostId)}`,
             ),
             method: "DELETE",
@@ -272,8 +265,7 @@ export class MarketplaceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "marketplace",
             ),
             method: "GET",
@@ -309,71 +301,6 @@ export class MarketplaceClient {
     }
 
     /**
-     * Bill a marketplace job — split between host and platform.
-     *
-     * @param {XcelsiorApi.BillJobMarketplaceRequest} request
-     * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.marketplace.billJob({
-     *         job_id: "job_id"
-     *     })
-     */
-    public billJob(
-        request: XcelsiorApi.BillJobMarketplaceRequest,
-        requestOptions?: MarketplaceClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__billJob(request, requestOptions));
-    }
-
-    private async __billJob(
-        request: XcelsiorApi.BillJobMarketplaceRequest,
-        requestOptions?: MarketplaceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { job_id: jobId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `marketplace/bill/${core.url.encodePathParam(jobId)}`,
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/marketplace/bill/{job_id}");
-    }
-
-    /**
      * Marketplace aggregate stats.
      *
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
@@ -392,8 +319,7 @@ export class MarketplaceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "marketplace/stats",
             ),
             method: "GET",

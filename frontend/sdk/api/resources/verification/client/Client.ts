@@ -4,7 +4,6 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -15,13 +14,10 @@ export declare namespace VerificationClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Automated hardware attestation: GPU identity, CUDA, thermals, network.
- */
 export class VerificationClient {
     protected readonly _options: NormalizedClientOptions<VerificationClient.Options>;
 
-    constructor(options: VerificationClient.Options = {}) {
+    constructor(options: VerificationClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -54,8 +50,7 @@ export class VerificationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/verify/${core.url.encodePathParam(hostId)}`,
             ),
             method: "POST",
@@ -122,8 +117,7 @@ export class VerificationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 `api/verify/${core.url.encodePathParam(hostId)}/status`,
             ),
             method: "GET",
@@ -180,8 +174,7 @@ export class VerificationClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/verified-hosts",
             ),
             method: "GET",
@@ -206,151 +199,5 @@ export class VerificationClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/verified-hosts");
-    }
-
-    /**
-     * Admin manually approves a host, overriding automated checks.
-     *
-     * Sets host verification state to 'verified' regardless of check results.
-     * Useful when an admin has physically inspected hardware or reviewed logs.
-     *
-     * @param {XcelsiorApi.ApproveVerificationRequest} request
-     * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.verification.approve({
-     *         host_id: "host_id"
-     *     })
-     */
-    public approve(
-        request: XcelsiorApi.ApproveVerificationRequest,
-        requestOptions?: VerificationClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__approve(request, requestOptions));
-    }
-
-    private async __approve(
-        request: XcelsiorApi.ApproveVerificationRequest,
-        requestOptions?: VerificationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId, notes } = request;
-        const _queryParams: Record<string, unknown> = {
-            notes,
-        };
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/verify/${core.url.encodePathParam(hostId)}/approve`,
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "POST",
-            "/api/verify/{host_id}/approve",
-        );
-    }
-
-    /**
-     * Admin manually rejects/deverifies a host.
-     *
-     * Sets host verification state to 'deverified' so it cannot receive jobs.
-     *
-     * @param {XcelsiorApi.RejectVerificationRequest} request
-     * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.verification.reject({
-     *         host_id: "host_id"
-     *     })
-     */
-    public reject(
-        request: XcelsiorApi.RejectVerificationRequest,
-        requestOptions?: VerificationClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__reject(request, requestOptions));
-    }
-
-    private async __reject(
-        request: XcelsiorApi.RejectVerificationRequest,
-        requestOptions?: VerificationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId, reason } = request;
-        const _queryParams: Record<string, unknown> = {
-            reason,
-        };
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/verify/${core.url.encodePathParam(hostId)}/reject`,
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/verify/{host_id}/reject");
     }
 }

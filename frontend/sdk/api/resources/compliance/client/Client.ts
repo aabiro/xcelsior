@@ -4,10 +4,8 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
-import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
 
 export declare namespace ComplianceClient {
     export type Options = BaseClientOptions;
@@ -15,13 +13,10 @@ export declare namespace ComplianceClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Province compliance matrix, tax rates, Quebec PIA checks.
- */
 export class ComplianceClient {
     protected readonly _options: NormalizedClientOptions<ComplianceClient.Options>;
 
-    constructor(options: ComplianceClient.Options = {}) {
+    constructor(options: ComplianceClient.Options) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -48,8 +43,7 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/compliance/status",
             ),
             method: "GET",
@@ -95,8 +89,7 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/compliance/provinces",
             ),
             method: "GET",
@@ -142,8 +135,7 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/compliance/tax-rates",
             ),
             method: "GET",
@@ -191,8 +183,7 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
+                    (await core.Supplier.get(this._options.environment)),
                 "api/compliance/trust-tier-requirements",
             ),
             method: "GET",
@@ -221,76 +212,6 @@ export class ComplianceClient {
             _response.rawResponse,
             "GET",
             "/api/compliance/trust-tier-requirements",
-        );
-    }
-
-    /**
-     * Check if Québec Law 25 PIA is required for cross-border transfer.
-     *
-     * @param {XcelsiorApi.PiaCheckRequest} request
-     * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.compliance.quebecPiaCheck()
-     */
-    public quebecPiaCheck(
-        request: XcelsiorApi.PiaCheckRequest = {},
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__quebecPiaCheck(request, requestOptions));
-    }
-
-    private async __quebecPiaCheck(
-        request: XcelsiorApi.PiaCheckRequest = {},
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/compliance/quebec-pia-check",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "POST",
-            "/api/compliance/quebec-pia-check",
         );
     }
 }

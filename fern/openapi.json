@@ -3,27 +3,8 @@
   "info": {
     "title": "Xcelsior",
     "description": "Distributed GPU orchestration platform for AI/ML workloads. Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent\u2013optimized documentation.",
-    "contact": {
-      "name": "Xcelsior",
-      "url": "https://xcelsior.ca/",
-      "email": "admin@xcelsior.ca"
-    },
-    "license": {
-      "name": "MIT",
-      "url": "https://opensource.org/licenses/MIT"
-    },
     "version": "2.3.0"
   },
-  "servers": [
-    {
-      "url": "https://xcelsior.ca",
-      "description": "Production"
-    },
-    {
-      "url": "http://localhost:9500",
-      "description": "Development"
-    }
-  ],
   "paths": {
     "/api/admin/stats": {
       "get": {
@@ -6970,7 +6951,7 @@
     "/api/auth/mfa/methods": {
       "get": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa List Methods",
         "description": "List the user's configured MFA methods.",
@@ -6990,7 +6971,7 @@
     "/api/auth/mfa/totp/setup": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Totp Setup",
         "description": "Generate a TOTP secret and QR code URI for setup.",
@@ -7010,7 +6991,7 @@
     "/api/auth/mfa/totp/verify": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Totp Verify",
         "description": "Verify a TOTP code to complete setup and enable TOTP.",
@@ -7050,7 +7031,7 @@
     "/api/auth/mfa/totp": {
       "delete": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Totp Disable",
         "description": "Disable and remove TOTP.",
@@ -7070,7 +7051,7 @@
     "/api/auth/mfa/sms/setup": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Sms Setup",
         "description": "Register a phone number for SMS MFA. Sends a verification code.",
@@ -7110,7 +7091,7 @@
     "/api/auth/mfa/sms/verify": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Sms Verify",
         "description": "Verify the SMS code to complete SMS MFA setup.",
@@ -7150,7 +7131,7 @@
     "/api/auth/mfa/sms": {
       "delete": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Sms Disable",
         "description": "Disable and remove SMS MFA.",
@@ -7170,7 +7151,7 @@
     "/api/auth/mfa/passkey/register-options": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Passkey Register Options",
         "description": "Generate WebAuthn registration options for adding a new passkey.",
@@ -7210,7 +7191,7 @@
     "/api/auth/mfa/passkey/register-complete": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Passkey Register Complete",
         "description": "Complete passkey registration with the browser's attestation response.",
@@ -7250,7 +7231,7 @@
     "/api/auth/mfa/passkey/delete": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Passkey Delete",
         "description": "Remove a registered passkey.",
@@ -7290,7 +7271,7 @@
     "/api/auth/mfa/passkey/authenticate-options": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Passkey Authenticate Options",
         "description": "Generate WebAuthn authentication options during login MFA challenge.",
@@ -7330,7 +7311,7 @@
     "/api/auth/mfa/passkey/authenticate-complete": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Passkey Authenticate Complete",
         "description": "Verify passkey authentication to complete MFA login.",
@@ -7370,7 +7351,7 @@
     "/api/auth/mfa/verify": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Verify Login",
         "description": "Verify MFA code during login to complete authentication.",
@@ -7410,7 +7391,7 @@
     "/api/auth/mfa/sms/send": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Sms Send Login",
         "description": "Send an SMS verification code during MFA login challenge.",
@@ -7450,7 +7431,7 @@
     "/api/auth/mfa/backup-codes/regenerate": {
       "post": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Regenerate Backup Codes",
         "description": "Regenerate backup recovery codes. Invalidates all previous codes.",
@@ -7470,7 +7451,7 @@
     "/api/auth/mfa/all": {
       "delete": {
         "tags": [
-          "Auth \u2013 MFA"
+          "Auth - MFA"
         ],
         "summary": "Api Mfa Disable All",
         "description": "Disable all MFA methods for the user.",
@@ -12246,83 +12227,5 @@
         "title": "ConsentRequest"
       }
     }
-  },
-  "tags": [
-    {
-      "name": "Hosts",
-      "description": "GPU host registration, admission gating, and management."
-    },
-    {
-      "name": "Jobs",
-      "description": "Job submission, scheduling, and lifecycle management."
-    },
-    {
-      "name": "Billing",
-      "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing."
-    },
-    {
-      "name": "Marketplace",
-      "description": "Rig listings, browsing, and marketplace billing."
-    },
-    {
-      "name": "Spot Pricing",
-      "description": "Dynamic spot pricing, interruptible jobs, preemption cycles."
-    },
-    {
-      "name": "Reputation",
-      "description": "Trust scoring, verification tiers (Bronze\u2192Platinum), leaderboards."
-    },
-    {
-      "name": "Verification",
-      "description": "Automated hardware attestation: GPU identity, CUDA, thermals, network."
-    },
-    {
-      "name": "SLA",
-      "description": "Service Level Agreement enforcement, uptime tracking, credit calculation."
-    },
-    {
-      "name": "Providers",
-      "description": "Stripe Connect onboarding, Canadian company registration, payouts."
-    },
-    {
-      "name": "Artifacts",
-      "description": "Presigned upload/download URLs for model weights, checkpoints, outputs."
-    },
-    {
-      "name": "Jurisdiction",
-      "description": "Canada-first scheduling, province filtering, data residency traces."
-    },
-    {
-      "name": "Compliance",
-      "description": "Province compliance matrix, tax rates, Quebec PIA checks."
-    },
-    {
-      "name": "Privacy",
-      "description": "PIPEDA consent management, retention policies, privacy officer config."
-    },
-    {
-      "name": "Transparency",
-      "description": "Legal request handling, CLOUD Act canary, transparency reports."
-    },
-    {
-      "name": "Telemetry",
-      "description": "Real-time GPU metrics: utilization, temperature, memory, power."
-    },
-    {
-      "name": "Agent",
-      "description": "Worker agent endpoints: work assignment, leases, benchmarks, mining alerts."
-    },
-    {
-      "name": "Autoscale",
-      "description": "Auto-scaling pool management and provisioning cycles."
-    },
-    {
-      "name": "Events",
-      "description": "Event sourcing, state machine transitions, audit trail."
-    },
-    {
-      "name": "Infrastructure",
-      "description": "Health checks, readiness probes, metrics, SSE streaming, dashboard."
-    }
-  ]
+  }
 }
