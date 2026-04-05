@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Server, Monitor, Activity, CreditCard,
   Store, DollarSign, ShieldCheck, Star, FileCheck,
@@ -54,11 +54,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [supportPopoutOpen, setSupportPopoutOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [supportChatOpen, setSupportChatOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
 
@@ -74,9 +75,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     setAiPanelOpen((prev) => {
       const next = !prev;
       try { localStorage.setItem(AI_PANEL_KEY, String(next)); } catch { /* noop */ }
+      if (next && pathname === "/dashboard/ai") {
+        router.push("/dashboard");
+      }
       return next;
     });
-  }, []);
+  }, [pathname, router]);
 
   const closeAiPanel = useCallback(() => {
     setAiPanelOpen(false);
@@ -250,14 +254,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       <ExternalLink className="h-3 w-3 ml-auto text-text-muted" />
                     </a>
                     <button
-                      onClick={() => { setSupportChatOpen(true); setGearOpen(false); }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                      onClick={() => { setSupportPopoutOpen(!supportPopoutOpen); setOnboardingOpen(false); }}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                        supportPopoutOpen
+                          ? "bg-accent-cyan/8 text-accent-cyan"
+                          : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                      )}
                     >
                       <MessageCircle className="h-4 w-4" />
                       {t("gear.support")}
+                      <ChevronRight className="h-3.5 w-3.5 ml-auto" />
                     </button>
                     <button
-                      onClick={() => setOnboardingOpen(!onboardingOpen)}
+                      onClick={() => { setOnboardingOpen(!onboardingOpen); setSupportPopoutOpen(false); }}
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
                         onboardingOpen
@@ -282,6 +292,26 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                         className="absolute left-full bottom-0 ml-2 w-72 rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
                       >
                         <GearOnboarding t={t} onNavigate={() => { setGearOpen(false); setOnboardingOpen(false); }} user={user} pathname={pathname} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Support chat sub-popout */}
+                  <AnimatePresence>
+                    {supportPopoutOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, x: -8, scale: 0.96 }}
+                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                        exit={{ opacity: 0, x: -8, scale: 0.96 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute left-full bottom-0 ml-2 w-[360px] h-[500px] rounded-xl border border-border/60 bg-surface shadow-xl z-50 overflow-hidden"
+                      >
+                        <ChatWidget
+                          showFab={false}
+                          externalOpen={true}
+                          onClose={() => { setSupportPopoutOpen(false); }}
+                          embedded
+                        />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -489,17 +519,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200",
             aiPanelOpen
-              ? "bg-accent-gold text-white shadow-lg shadow-accent-gold/25 scale-110"
-              : "text-text-muted hover:bg-accent-gold/15 hover:text-accent-gold"
+              ? "bg-accent-orange text-white shadow-lg shadow-accent-orange/25 scale-110"
+              : "text-accent-orange hover:bg-accent-orange/15"
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
           <Sparkles className={cn("h-5 w-5 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
         </button>
       </div>
-
-      {/* Support Chat */}
-      <ChatWidget showFab={false} externalOpen={supportChatOpen} onClose={() => setSupportChatOpen(false)} onOpenAiPanel={toggleAiPanel} aiPanelOpen={aiPanelOpen} />
     </div>
   );
 }
