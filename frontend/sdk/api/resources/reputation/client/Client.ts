@@ -26,90 +26,25 @@ export class ReputationClient {
     }
 
     /**
-     * Get reputation score and tier for a host or user.
-     *
-     * @param {XcelsiorApi.ApiGetReputationApiReputationEntityIdGetRequest} request
-     * @param {ReputationClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.reputation.apiGetReputation({
-     *         entity_id: "entity_id"
-     *     })
-     */
-    public apiGetReputation(
-        request: XcelsiorApi.ApiGetReputationApiReputationEntityIdGetRequest,
-        requestOptions?: ReputationClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetReputation(request, requestOptions));
-    }
-
-    private async __apiGetReputation(
-        request: XcelsiorApi.ApiGetReputationApiReputationEntityIdGetRequest,
-        requestOptions?: ReputationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { entity_id: entityId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/reputation/${core.url.encodePathParam(entityId)}`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/reputation/{entity_id}");
-    }
-
-    /**
      * Top hosts/users by reputation score.
      *
-     * @param {XcelsiorApi.ApiReputationLeaderboardApiReputationLeaderboardGetRequest} request
+     * @param {XcelsiorApi.LeaderboardReputationRequest} request
      * @param {ReputationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.reputation.apiReputationLeaderboard()
+     *     await client.reputation.leaderboard()
      */
-    public apiReputationLeaderboard(
-        request: XcelsiorApi.ApiReputationLeaderboardApiReputationLeaderboardGetRequest = {},
+    public leaderboard(
+        request: XcelsiorApi.LeaderboardReputationRequest = {},
         requestOptions?: ReputationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiReputationLeaderboard(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__leaderboard(request, requestOptions));
     }
 
-    private async __apiReputationLeaderboard(
-        request: XcelsiorApi.ApiReputationLeaderboardApiReputationLeaderboardGetRequest = {},
+    private async __leaderboard(
+        request: XcelsiorApi.LeaderboardReputationRequest = {},
         requestOptions?: ReputationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { entity_type: entityType, limit } = request;
@@ -158,27 +93,137 @@ export class ReputationClient {
     }
 
     /**
-     * Get reputation event history.
+     * Get reputation for the currently authenticated user.
      *
-     * @param {XcelsiorApi.ApiReputationHistoryApiReputationEntityIdHistoryGetRequest} request
+     * @param {ReputationClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.reputation.me()
+     */
+    public me(requestOptions?: ReputationClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__me(requestOptions));
+    }
+
+    private async __me(requestOptions?: ReputationClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/reputation/me",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/reputation/me");
+    }
+
+    /**
+     * Get reputation score and tier for a host or user.
+     *
+     * @param {XcelsiorApi.GetReputationRequest} request
      * @param {ReputationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.reputation.apiReputationHistory({
+     *     await client.reputation.get({
      *         entity_id: "entity_id"
      *     })
      */
-    public apiReputationHistory(
-        request: XcelsiorApi.ApiReputationHistoryApiReputationEntityIdHistoryGetRequest,
+    public get(
+        request: XcelsiorApi.GetReputationRequest,
         requestOptions?: ReputationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiReputationHistory(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
-    private async __apiReputationHistory(
-        request: XcelsiorApi.ApiReputationHistoryApiReputationEntityIdHistoryGetRequest,
+    private async __get(
+        request: XcelsiorApi.GetReputationRequest,
+        requestOptions?: ReputationClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { entity_id: entityId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/reputation/${core.url.encodePathParam(entityId)}`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/reputation/{entity_id}");
+    }
+
+    /**
+     * Get reputation event history.
+     *
+     * @param {XcelsiorApi.GetHistoryReputationRequest} request
+     * @param {ReputationClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.reputation.getHistory({
+     *         entity_id: "entity_id"
+     *     })
+     */
+    public getHistory(
+        request: XcelsiorApi.GetHistoryReputationRequest,
+        requestOptions?: ReputationClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getHistory(request, requestOptions));
+    }
+
+    private async __getHistory(
+        request: XcelsiorApi.GetHistoryReputationRequest,
         requestOptions?: ReputationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { entity_id: entityId, limit } = request;
@@ -239,19 +284,19 @@ export class ReputationClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.reputation.apiGrantVerification({
+     *     await client.reputation.verify({
      *         entity_id: "entity_id",
      *         verification_type: "verification_type"
      *     })
      */
-    public apiGrantVerification(
+    public verify(
         request: XcelsiorApi.VerificationGrant,
         requestOptions?: ReputationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGrantVerification(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__verify(request, requestOptions));
     }
 
-    private async __apiGrantVerification(
+    private async __verify(
         request: XcelsiorApi.VerificationGrant,
         requestOptions?: ReputationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -303,25 +348,25 @@ export class ReputationClient {
      *
      * Returns component scores: jobs completed, uptime bonus, penalties, decay.
      *
-     * @param {XcelsiorApi.ApiReputationBreakdownApiReputationEntityIdBreakdownGetRequest} request
+     * @param {XcelsiorApi.GetBreakdownReputationRequest} request
      * @param {ReputationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.reputation.apiReputationBreakdown({
+     *     await client.reputation.getBreakdown({
      *         entity_id: "entity_id"
      *     })
      */
-    public apiReputationBreakdown(
-        request: XcelsiorApi.ApiReputationBreakdownApiReputationEntityIdBreakdownGetRequest,
+    public getBreakdown(
+        request: XcelsiorApi.GetBreakdownReputationRequest,
         requestOptions?: ReputationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiReputationBreakdown(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getBreakdown(request, requestOptions));
     }
 
-    private async __apiReputationBreakdown(
-        request: XcelsiorApi.ApiReputationBreakdownApiReputationEntityIdBreakdownGetRequest,
+    private async __getBreakdown(
+        request: XcelsiorApi.GetBreakdownReputationRequest,
         requestOptions?: ReputationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { entity_id: entityId } = request;

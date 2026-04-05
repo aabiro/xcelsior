@@ -40,7 +40,7 @@ export class HostsClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.hosts.apiRegisterHost({
+     *     await client.hosts.register({
      *         host_id: "host_id",
      *         ip: "ip",
      *         gpu_model: "gpu_model",
@@ -48,14 +48,14 @@ export class HostsClient {
      *         free_vram_gb: 1.1
      *     })
      */
-    public apiRegisterHost(
+    public register(
         request: XcelsiorApi.HostIn,
         requestOptions?: HostsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRegisterHost(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__register(request, requestOptions));
     }
 
-    private async __apiRegisterHost(
+    private async __register(
         request: XcelsiorApi.HostIn,
         requestOptions?: HostsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -103,25 +103,155 @@ export class HostsClient {
     }
 
     /**
-     * List all hosts.
+     * Get a single host by ID.
      *
-     * @param {XcelsiorApi.ApiListHostsHostsGetRequest} request
+     * @param {XcelsiorApi.GetHostsRequest} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.hosts.apiListHosts()
+     *     await client.hosts.get({
+     *         host_id: "host_id"
+     *     })
      */
-    public apiListHosts(
-        request: XcelsiorApi.ApiListHostsHostsGetRequest = {},
+    public get(
+        request: XcelsiorApi.GetHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListHosts(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
-    private async __apiListHosts(
-        request: XcelsiorApi.ApiListHostsHostsGetRequest = {},
+    private async __get(
+        request: XcelsiorApi.GetHostsRequest,
+        requestOptions?: HostsClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { host_id: hostId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `host/${core.url.encodePathParam(hostId)}`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/host/{host_id}");
+    }
+
+    /**
+     * Remove a host.
+     *
+     * @param {XcelsiorApi.RemoveHostsRequest} request
+     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.hosts.remove({
+     *         host_id: "host_id"
+     *     })
+     */
+    public remove(
+        request: XcelsiorApi.RemoveHostsRequest,
+        requestOptions?: HostsClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__remove(request, requestOptions));
+    }
+
+    private async __remove(
+        request: XcelsiorApi.RemoveHostsRequest,
+        requestOptions?: HostsClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { host_id: hostId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `host/${core.url.encodePathParam(hostId)}`,
+            ),
+            method: "DELETE",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/host/{host_id}");
+    }
+
+    /**
+     * List all hosts.
+     *
+     * @param {XcelsiorApi.ListHostsRequest} request
+     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.hosts.list()
+     */
+    public list(
+        request: XcelsiorApi.ListHostsRequest = {},
+        requestOptions?: HostsClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
+    }
+
+    private async __list(
+        request: XcelsiorApi.ListHostsRequest = {},
         requestOptions?: HostsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { active_only: activeOnly } = request;
@@ -169,83 +299,18 @@ export class HostsClient {
     }
 
     /**
-     * Remove a host.
-     *
-     * @param {XcelsiorApi.ApiRemoveHostHostHostIdDeleteRequest} request
-     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.hosts.apiRemoveHost({
-     *         host_id: "host_id"
-     *     })
-     */
-    public apiRemoveHost(
-        request: XcelsiorApi.ApiRemoveHostHostHostIdDeleteRequest,
-        requestOptions?: HostsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRemoveHost(request, requestOptions));
-    }
-
-    private async __apiRemoveHost(
-        request: XcelsiorApi.ApiRemoveHostHostHostIdDeleteRequest,
-        requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `host/${core.url.encodePathParam(hostId)}`,
-            ),
-            method: "DELETE",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/host/{host_id}");
-    }
-
-    /**
      * Ping all hosts and update status.
      *
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.hosts.apiCheckHosts()
+     *     await client.hosts.check()
      */
-    public apiCheckHosts(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiCheckHosts(requestOptions));
+    public check(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__check(requestOptions));
     }
 
-    private async __apiCheckHosts(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __check(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -281,25 +346,25 @@ export class HostsClient {
     /**
      * Get the compute score (XCU) for a host.
      *
-     * @param {XcelsiorApi.ApiGetComputeScoreComputeScoreHostIdGetRequest} request
+     * @param {XcelsiorApi.GetComputeScoreHostsRequest} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.hosts.apiGetComputeScore({
+     *     await client.hosts.getComputeScore({
      *         host_id: "host_id"
      *     })
      */
-    public apiGetComputeScore(
-        request: XcelsiorApi.ApiGetComputeScoreComputeScoreHostIdGetRequest,
+    public getComputeScore(
+        request: XcelsiorApi.GetComputeScoreHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetComputeScore(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getComputeScore(request, requestOptions));
     }
 
-    private async __apiGetComputeScore(
-        request: XcelsiorApi.ApiGetComputeScoreComputeScoreHostIdGetRequest,
+    private async __getComputeScore(
+        request: XcelsiorApi.GetComputeScoreHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -349,13 +414,13 @@ export class HostsClient {
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.hosts.apiListComputeScores()
+     *     await client.hosts.listComputeScores()
      */
-    public apiListComputeScores(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListComputeScores(requestOptions));
+    public listComputeScores(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listComputeScores(requestOptions));
     }
 
-    private async __apiListComputeScores(
+    private async __listComputeScores(
         requestOptions?: HostsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -388,5 +453,50 @@ export class HostsClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/compute-scores");
+    }
+
+    /**
+     * List only Canadian hosts.
+     *
+     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.hosts.listCanadian()
+     */
+    public listCanadian(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listCanadian(requestOptions));
+    }
+
+    private async __listCanadian(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "hosts/ca",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/hosts/ca");
     }
 }

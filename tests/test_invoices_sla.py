@@ -93,10 +93,11 @@ def clean_data():
     ):
         if os.path.exists(f):
             os.remove(f)
-    import api as api_mod
+    from routes.agent import _host_telemetry
+    from routes._deps import _RATE_BUCKETS
 
-    api_mod._host_telemetry.clear()
-    api_mod._RATE_BUCKETS.clear()
+    _host_telemetry.clear()
+    _RATE_BUCKETS.clear()
     yield
 
 

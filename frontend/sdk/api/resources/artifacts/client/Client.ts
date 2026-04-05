@@ -34,19 +34,19 @@ export class ArtifactsClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.artifacts.apiRequestUpload({
+     *     await client.artifacts.requestUpload({
      *         job_id: "job_id",
      *         filename: "filename"
      *     })
      */
-    public apiRequestUpload(
+    public requestUpload(
         request: XcelsiorApi.UploadRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRequestUpload(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__requestUpload(request, requestOptions));
     }
 
-    private async __apiRequestUpload(
+    private async __requestUpload(
         request: XcelsiorApi.UploadRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -102,19 +102,19 @@ export class ArtifactsClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.artifacts.apiRequestDownload({
+     *     await client.artifacts.requestDownload({
      *         job_id: "job_id",
      *         filename: "filename"
      *     })
      */
-    public apiRequestDownload(
+    public requestDownload(
         request: XcelsiorApi.DownloadRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRequestDownload(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__requestDownload(request, requestOptions));
     }
 
-    private async __apiRequestDownload(
+    private async __requestDownload(
         request: XcelsiorApi.DownloadRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -164,25 +164,25 @@ export class ArtifactsClient {
     /**
      * List all artifacts for a job.
      *
-     * @param {XcelsiorApi.ApiListArtifactsApiArtifactsJobIdGetRequest} request
+     * @param {XcelsiorApi.ListArtifactsRequest} request
      * @param {ArtifactsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.artifacts.apiListArtifacts({
+     *     await client.artifacts.list({
      *         job_id: "job_id"
      *     })
      */
-    public apiListArtifacts(
-        request: XcelsiorApi.ApiListArtifactsApiArtifactsJobIdGetRequest,
+    public list(
+        request: XcelsiorApi.ListArtifactsRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListArtifacts(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
     }
 
-    private async __apiListArtifacts(
-        request: XcelsiorApi.ApiListArtifactsApiArtifactsJobIdGetRequest,
+    private async __list(
+        request: XcelsiorApi.ListArtifactsRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -232,25 +232,25 @@ export class ArtifactsClient {
      * Returns each artifact with its created_at and estimated expiry date
      * based on the configured retention policy.
      *
-     * @param {XcelsiorApi.ApiArtifactExpiryApiArtifactsJobIdExpiryGetRequest} request
+     * @param {XcelsiorApi.GetExpiryArtifactsRequest} request
      * @param {ArtifactsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.artifacts.apiArtifactExpiry({
+     *     await client.artifacts.getExpiry({
      *         job_id: "job_id"
      *     })
      */
-    public apiArtifactExpiry(
-        request: XcelsiorApi.ApiArtifactExpiryApiArtifactsJobIdExpiryGetRequest,
+    public getExpiry(
+        request: XcelsiorApi.GetExpiryArtifactsRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiArtifactExpiry(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getExpiry(request, requestOptions));
     }
 
-    private async __apiArtifactExpiry(
-        request: XcelsiorApi.ApiArtifactExpiryApiArtifactsJobIdExpiryGetRequest,
+    private async __getExpiry(
+        request: XcelsiorApi.GetExpiryArtifactsRequest,
         requestOptions?: ArtifactsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -297,5 +297,50 @@ export class ArtifactsClient {
             "GET",
             "/api/artifacts/{job_id}/expiry",
         );
+    }
+
+    /**
+     * List all artifacts (no job filter).
+     *
+     * @param {ArtifactsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.artifacts.listAll()
+     */
+    public listAll(requestOptions?: ArtifactsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listAll(requestOptions));
+    }
+
+    private async __listAll(requestOptions?: ArtifactsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/artifacts",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/artifacts");
     }
 }

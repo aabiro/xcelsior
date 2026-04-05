@@ -147,15 +147,15 @@ class TestPasswordReset:
         ).json()
         token = reset["reset_token"]
         # Manually expire the token by modifying the store
-        import api
+        import routes._deps as _deps_mod
 
-        with api._user_lock:
-            for email, data in api._users_db.items():
+        with _deps_mod._user_lock:
+            for email, data in _deps_mod._users_db.items():
                 if data.get("reset_token") == token:
                     data["reset_token_expires"] = time.time() - 100  # expired
                     break
         # Also expire in persistent store if active
-        if api._USE_PERSISTENT_AUTH:
+        if _deps_mod._USE_PERSISTENT_AUTH:
             from db import UserStore
 
             UserStore.update_user(

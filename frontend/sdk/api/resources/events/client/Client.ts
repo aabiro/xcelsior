@@ -28,26 +28,26 @@ export class EventsClient {
     /**
      * Get event history for a job or host.
      *
-     * @param {XcelsiorApi.ApiGetEventsApiEventsEntityTypeEntityIdGetRequest} request
+     * @param {XcelsiorApi.GetByEntityEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.events.apiGetEvents({
+     *     await client.events.getByEntity({
      *         entity_type: "entity_type",
      *         entity_id: "entity_id"
      *     })
      */
-    public apiGetEvents(
-        request: XcelsiorApi.ApiGetEventsApiEventsEntityTypeEntityIdGetRequest,
+    public getByEntity(
+        request: XcelsiorApi.GetByEntityEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetEvents(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getByEntity(request, requestOptions));
     }
 
-    private async __apiGetEvents(
-        request: XcelsiorApi.ApiGetEventsApiEventsEntityTypeEntityIdGetRequest,
+    private async __getByEntity(
+        request: XcelsiorApi.GetByEntityEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { entity_type: entityType, entity_id: entityId, limit } = request;
@@ -102,25 +102,25 @@ export class EventsClient {
     /**
      * Get active lease for a job.
      *
-     * @param {XcelsiorApi.ApiGetLeaseApiEventsLeasesJobIdGetRequest} request
+     * @param {XcelsiorApi.GetLeaseEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.events.apiGetLease({
+     *     await client.events.getLease({
      *         job_id: "job_id"
      *     })
      */
-    public apiGetLease(
-        request: XcelsiorApi.ApiGetLeaseApiEventsLeasesJobIdGetRequest,
+    public getLease(
+        request: XcelsiorApi.GetLeaseEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetLease(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getLease(request, requestOptions));
     }
 
-    private async __apiGetLease(
-        request: XcelsiorApi.ApiGetLeaseApiEventsLeasesJobIdGetRequest,
+    private async __getLease(
+        request: XcelsiorApi.GetLeaseEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -173,15 +173,13 @@ export class EventsClient {
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.events.apiVerifyEventChain()
+     *     await client.events.verifyChain()
      */
-    public apiVerifyEventChain(requestOptions?: EventsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiVerifyEventChain(requestOptions));
+    public verifyChain(requestOptions?: EventsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__verifyChain(requestOptions));
     }
 
-    private async __apiVerifyEventChain(
-        requestOptions?: EventsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __verifyChain(requestOptions?: EventsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -220,25 +218,25 @@ export class EventsClient {
      * This is the dispute-resolution artifact: every state change,
      * lease renewal, billing event, ordered by time with tamper-evident hashes.
      *
-     * @param {XcelsiorApi.ApiJobAuditTrailApiAuditJobJobIdGetRequest} request
+     * @param {XcelsiorApi.GetAuditTrailEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.events.apiJobAuditTrail({
+     *     await client.events.getAuditTrail({
      *         job_id: "job_id"
      *     })
      */
-    public apiJobAuditTrail(
-        request: XcelsiorApi.ApiJobAuditTrailApiAuditJobJobIdGetRequest,
+    public getAuditTrail(
+        request: XcelsiorApi.GetAuditTrailEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiJobAuditTrail(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getAuditTrail(request, requestOptions));
     }
 
-    private async __apiJobAuditTrail(
-        request: XcelsiorApi.ApiJobAuditTrailApiAuditJobJobIdGetRequest,
+    private async __getAuditTrail(
+        request: XcelsiorApi.GetAuditTrailEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -248,7 +246,7 @@ export class EventsClient {
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                `api/audit/job/${core.url.encodePathParam(jobId)}`,
+                `api/audit/instance/${core.url.encodePathParam(jobId)}`,
             ),
             method: "GET",
             headers: _headers,
@@ -279,6 +277,72 @@ export class EventsClient {
             }
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/audit/job/{job_id}");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/audit/instance/{job_id}");
+    }
+
+    /**
+     * Get recent events across all entities.
+     *
+     * @param {XcelsiorApi.ListEventsRequest} request
+     * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.events.list()
+     */
+    public list(
+        request: XcelsiorApi.ListEventsRequest = {},
+        requestOptions?: EventsClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
+    }
+
+    private async __list(
+        request: XcelsiorApi.ListEventsRequest = {},
+        requestOptions?: EventsClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { limit } = request;
+        const _queryParams: Record<string, unknown> = {
+            limit,
+        };
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/events",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/events");
     }
 }

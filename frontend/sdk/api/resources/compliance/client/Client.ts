@@ -26,28 +26,22 @@ export class ComplianceClient {
     }
 
     /**
-     * Check platform-wide GST/HST small-supplier threshold status.
+     * Return high-level compliance check summary with live verification.
      *
-     * Under the Excise Tax Act, a distribution platform operator **must**
-     * register for GST/HST once total taxable revenue exceeds $30,000 CAD
-     * over any four consecutive calendar quarters.
-     *
-     * Returns:
-     * - `exceeded`: whether the $30k threshold is passed
-     * - `total_revenue_cad`: estimated revenue from all billing
-     * - `threshold_cad`: the $30,000 statutory limit
-     * - `quarters_assessed`: number of quarters with data
+     * Checks reflect actual user/platform configuration state — items require
+     * specific action before they show as passing. Each non-passing check
+     * includes an ``action`` with a CTA label and dashboard link.
      *
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.compliance.apiGstThresholdStatus()
+     *     await client.compliance.getStatus()
      */
-    public apiGstThresholdStatus(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGstThresholdStatus(requestOptions));
+    public getStatus(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getStatus(requestOptions));
     }
 
-    private async __apiGstThresholdStatus(
+    private async __getStatus(
         requestOptions?: ComplianceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -56,7 +50,7 @@ export class ComplianceClient {
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/billing/gst-threshold",
+                "api/compliance/status",
             ),
             method: "GET",
             headers: _headers,
@@ -79,82 +73,7 @@ export class ComplianceClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/billing/gst-threshold");
-    }
-
-    /**
-     * Check whether a specific provider has exceeded the $30,000 GST/HST
-     * small-supplier threshold based on their historical payouts.
-     *
-     * Used by providers to determine if they need to independently register
-     * for GST/HST. The simplified regime is recommended for non-resident
-     * providers serving Canadians.
-     *
-     * @param {XcelsiorApi.ApiProviderGstThresholdApiBillingGstThresholdProviderIdGetRequest} request
-     * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.compliance.apiProviderGstThreshold({
-     *         provider_id: "provider_id"
-     *     })
-     */
-    public apiProviderGstThreshold(
-        request: XcelsiorApi.ApiProviderGstThresholdApiBillingGstThresholdProviderIdGetRequest,
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiProviderGstThreshold(request, requestOptions));
-    }
-
-    private async __apiProviderGstThreshold(
-        request: XcelsiorApi.ApiProviderGstThresholdApiBillingGstThresholdProviderIdGetRequest,
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { provider_id: providerId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/billing/gst-threshold/${core.url.encodePathParam(providerId)}`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "GET",
-            "/api/billing/gst-threshold/{provider_id}",
-        );
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/compliance/status");
     }
 
     /**
@@ -163,13 +82,13 @@ export class ComplianceClient {
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.compliance.apiComplianceProvinces()
+     *     await client.compliance.getProvinces()
      */
-    public apiComplianceProvinces(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiComplianceProvinces(requestOptions));
+    public getProvinces(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getProvinces(requestOptions));
     }
 
-    private async __apiComplianceProvinces(
+    private async __getProvinces(
         requestOptions?: ComplianceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -210,13 +129,13 @@ export class ComplianceClient {
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.compliance.apiTaxRates()
+     *     await client.compliance.getTaxRates()
      */
-    public apiTaxRates(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiTaxRates(requestOptions));
+    public getTaxRates(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getTaxRates(requestOptions));
     }
 
-    private async __apiTaxRates(
+    private async __getTaxRates(
         requestOptions?: ComplianceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -257,15 +176,15 @@ export class ComplianceClient {
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.compliance.apiTrustTierRequirements()
+     *     await client.compliance.getTrustTierRequirements()
      */
-    public apiTrustTierRequirements(
+    public getTrustTierRequirements(
         requestOptions?: ComplianceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiTrustTierRequirements(requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getTrustTierRequirements(requestOptions));
     }
 
-    private async __apiTrustTierRequirements(
+    private async __getTrustTierRequirements(
         requestOptions?: ComplianceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -314,16 +233,16 @@ export class ComplianceClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.compliance.apiQuebecPiaCheck()
+     *     await client.compliance.quebecPiaCheck()
      */
-    public apiQuebecPiaCheck(
+    public quebecPiaCheck(
         request: XcelsiorApi.PiaCheckRequest = {},
         requestOptions?: ComplianceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiQuebecPiaCheck(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__quebecPiaCheck(request, requestOptions));
     }
 
-    private async __apiQuebecPiaCheck(
+    private async __quebecPiaCheck(
         request: XcelsiorApi.PiaCheckRequest = {},
         requestOptions?: ComplianceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {

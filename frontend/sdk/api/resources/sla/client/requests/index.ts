@@ -1,3 +1,3 @@
-export type { ApiSlaStatusApiSlaHostIdGetRequest } from "./ApiSlaStatusApiSlaHostIdGetRequest.js";
-export type { ApiSlaViolationsApiSlaViolationsHostIdGetRequest } from "./ApiSlaViolationsApiSlaViolationsHostIdGetRequest.js";
+export type { GetStatusSlaRequest } from "./GetStatusSlaRequest.js";
+export type { GetViolationsSlaRequest } from "./GetViolationsSlaRequest.js";
 export type { SlaEnforceRequest } from "./SlaEnforceRequest.js";

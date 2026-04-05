@@ -34,16 +34,16 @@ export class TransparencyClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.transparency.apiRecordLegalRequest()
+     *     await client.transparency.recordLegalRequest()
      */
-    public apiRecordLegalRequest(
+    public recordLegalRequest(
         request: XcelsiorApi.LegalRequestRecord = {},
         requestOptions?: TransparencyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRecordLegalRequest(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__recordLegalRequest(request, requestOptions));
     }
 
-    private async __apiRecordLegalRequest(
+    private async __recordLegalRequest(
         request: XcelsiorApi.LegalRequestRecord = {},
         requestOptions?: TransparencyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -98,25 +98,25 @@ export class TransparencyClient {
     /**
      * Record response to a legal request.
      *
-     * @param {XcelsiorApi.ApiRespondLegalRequestApiTransparencyLegalRequestRequestIdRespondPostRequest} request
+     * @param {XcelsiorApi.RespondToLegalRequestTransparencyRequest} request
      * @param {TransparencyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.transparency.apiRespondLegalRequest({
+     *     await client.transparency.respondToLegalRequest({
      *         request_id: "request_id"
      *     })
      */
-    public apiRespondLegalRequest(
-        request: XcelsiorApi.ApiRespondLegalRequestApiTransparencyLegalRequestRequestIdRespondPostRequest,
+    public respondToLegalRequest(
+        request: XcelsiorApi.RespondToLegalRequestTransparencyRequest,
         requestOptions?: TransparencyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRespondLegalRequest(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__respondToLegalRequest(request, requestOptions));
     }
 
-    private async __apiRespondLegalRequest(
-        request: XcelsiorApi.ApiRespondLegalRequestApiTransparencyLegalRequestRequestIdRespondPostRequest,
+    private async __respondToLegalRequest(
+        request: XcelsiorApi.RespondToLegalRequestTransparencyRequest,
         requestOptions?: TransparencyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { request_id: requestId, complied, challenged, notes } = request;
@@ -176,23 +176,23 @@ export class TransparencyClient {
      * Returns summary of all legal requests and data disclosures.
      * Monthly JSON per REPORT_FEATURE_2.md Phase B §3.
      *
-     * @param {XcelsiorApi.ApiTransparencyReportApiTransparencyReportGetRequest} request
+     * @param {XcelsiorApi.GetReportTransparencyRequest} request
      * @param {TransparencyClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.transparency.apiTransparencyReport()
+     *     await client.transparency.getReport()
      */
-    public apiTransparencyReport(
-        request: XcelsiorApi.ApiTransparencyReportApiTransparencyReportGetRequest = {},
+    public getReport(
+        request: XcelsiorApi.GetReportTransparencyRequest = {},
         requestOptions?: TransparencyClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiTransparencyReport(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getReport(request, requestOptions));
     }
 
-    private async __apiTransparencyReport(
-        request: XcelsiorApi.ApiTransparencyReportApiTransparencyReportGetRequest = {},
+    private async __getReport(
+        request: XcelsiorApi.GetReportTransparencyRequest = {},
         requestOptions?: TransparencyClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { months } = request;

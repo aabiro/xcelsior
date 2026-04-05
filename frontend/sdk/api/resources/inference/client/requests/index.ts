@@ -1,3 +1,3 @@
-export type { ApiInferencePostResultApiInferenceJobIdResultPostRequest } from "./ApiInferencePostResultApiInferenceJobIdResultPostRequest.js";
-export type { ApiInferenceResultApiInferenceJobIdGetRequest } from "./ApiInferenceResultApiInferenceJobIdGetRequest.js";
+export type { GetResultInferenceRequest } from "./GetResultInferenceRequest.js";
 export type { InferenceRequest } from "./InferenceRequest.js";
+export type { InferenceResultCallback } from "./InferenceResultCallback.js";

@@ -123,6 +123,7 @@ class TestServiceStatus:
         mock_ready.assert_called_once_with(
             bitcoin.BTC_RPC_WALLET or bitcoin.BTC_AUTO_WALLET,
             timeout=bitcoin.BTC_STATUS_RPC_TIMEOUT,
+            skip_fallback=True,
         )
 
     def test_reports_unavailable_when_rpc_is_offline(self, mock_rpc):

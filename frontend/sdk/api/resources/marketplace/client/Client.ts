@@ -28,23 +28,23 @@ export class MarketplaceClient {
     /**
      * Search marketplace listings with filters and sorting.
      *
-     * @param {XcelsiorApi.ApiMarketplaceSearchMarketplaceSearchGetRequest} request
+     * @param {XcelsiorApi.SearchMarketplaceRequest} request
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.marketplace.apiMarketplaceSearch()
+     *     await client.marketplace.search()
      */
-    public apiMarketplaceSearch(
-        request: XcelsiorApi.ApiMarketplaceSearchMarketplaceSearchGetRequest = {},
+    public search(
+        request: XcelsiorApi.SearchMarketplaceRequest = {},
         requestOptions?: MarketplaceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiMarketplaceSearch(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__search(request, requestOptions));
     }
 
-    private async __apiMarketplaceSearch(
-        request: XcelsiorApi.ApiMarketplaceSearchMarketplaceSearchGetRequest = {},
+    private async __search(
+        request: XcelsiorApi.SearchMarketplaceRequest = {},
         requestOptions?: MarketplaceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const {
@@ -116,21 +116,21 @@ export class MarketplaceClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.marketplace.apiListRig({
+     *     await client.marketplace.createListing({
      *         host_id: "host_id",
      *         gpu_model: "gpu_model",
      *         vram_gb: 1.1,
      *         price_per_hour: 1.1
      *     })
      */
-    public apiListRig(
+    public createListing(
         request: XcelsiorApi.RigListing,
         requestOptions?: MarketplaceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiListRig(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__createListing(request, requestOptions));
     }
 
-    private async __apiListRig(
+    private async __createListing(
         request: XcelsiorApi.RigListing,
         requestOptions?: MarketplaceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -180,25 +180,25 @@ export class MarketplaceClient {
     /**
      * Remove a rig from the marketplace.
      *
-     * @param {XcelsiorApi.ApiUnlistRigMarketplaceHostIdDeleteRequest} request
+     * @param {XcelsiorApi.UnlistMarketplaceRequest} request
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.marketplace.apiUnlistRig({
+     *     await client.marketplace.unlist({
      *         host_id: "host_id"
      *     })
      */
-    public apiUnlistRig(
-        request: XcelsiorApi.ApiUnlistRigMarketplaceHostIdDeleteRequest,
+    public unlist(
+        request: XcelsiorApi.UnlistMarketplaceRequest,
         requestOptions?: MarketplaceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiUnlistRig(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__unlist(request, requestOptions));
     }
 
-    private async __apiUnlistRig(
-        request: XcelsiorApi.ApiUnlistRigMarketplaceHostIdDeleteRequest,
+    private async __unlist(
+        request: XcelsiorApi.UnlistMarketplaceRequest,
         requestOptions?: MarketplaceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -245,23 +245,23 @@ export class MarketplaceClient {
     /**
      * Browse marketplace listings.
      *
-     * @param {XcelsiorApi.ApiGetMarketplaceMarketplaceGetRequest} request
+     * @param {XcelsiorApi.ListMarketplaceRequest} request
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.marketplace.apiGetMarketplace()
+     *     await client.marketplace.list()
      */
-    public apiGetMarketplace(
-        request: XcelsiorApi.ApiGetMarketplaceMarketplaceGetRequest = {},
+    public list(
+        request: XcelsiorApi.ListMarketplaceRequest = {},
         requestOptions?: MarketplaceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetMarketplace(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
     }
 
-    private async __apiGetMarketplace(
-        request: XcelsiorApi.ApiGetMarketplaceMarketplaceGetRequest = {},
+    private async __list(
+        request: XcelsiorApi.ListMarketplaceRequest = {},
         requestOptions?: MarketplaceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { active_only: activeOnly } = request;
@@ -311,25 +311,25 @@ export class MarketplaceClient {
     /**
      * Bill a marketplace job — split between host and platform.
      *
-     * @param {XcelsiorApi.ApiMarketplaceBillMarketplaceBillJobIdPostRequest} request
+     * @param {XcelsiorApi.BillJobMarketplaceRequest} request
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.marketplace.apiMarketplaceBill({
+     *     await client.marketplace.billJob({
      *         job_id: "job_id"
      *     })
      */
-    public apiMarketplaceBill(
-        request: XcelsiorApi.ApiMarketplaceBillMarketplaceBillJobIdPostRequest,
+    public billJob(
+        request: XcelsiorApi.BillJobMarketplaceRequest,
         requestOptions?: MarketplaceClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiMarketplaceBill(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__billJob(request, requestOptions));
     }
 
-    private async __apiMarketplaceBill(
-        request: XcelsiorApi.ApiMarketplaceBillMarketplaceBillJobIdPostRequest,
+    private async __billJob(
+        request: XcelsiorApi.BillJobMarketplaceRequest,
         requestOptions?: MarketplaceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { job_id: jobId } = request;
@@ -379,13 +379,13 @@ export class MarketplaceClient {
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.marketplace.apiMarketplaceStats()
+     *     await client.marketplace.getStats()
      */
-    public apiMarketplaceStats(requestOptions?: MarketplaceClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiMarketplaceStats(requestOptions));
+    public getStats(requestOptions?: MarketplaceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getStats(requestOptions));
     }
 
-    private async __apiMarketplaceStats(
+    private async __getStats(
         requestOptions?: MarketplaceClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);

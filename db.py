@@ -716,7 +716,7 @@ class UserStore:
                     user.get("password_hash", ""),
                     user.get("salt", ""),
                     user.get("role", "submitter"),
-                    user.get("is_admin", 0),
+                    int(user.get("is_admin", 0)),
                     user.get("customer_id"),
                     user.get("provider_id"),
                     user.get("country", "CA"),
@@ -732,6 +732,7 @@ class UserStore:
         allowed = {
             "name",
             "role",
+            "is_admin",
             "country",
             "province",
             "provider_id",
@@ -755,6 +756,9 @@ class UserStore:
         if "preferences" in fields and isinstance(fields["preferences"], dict):
             from psycopg.types.json import Jsonb
             fields["preferences"] = Jsonb(fields["preferences"])
+        # Cast is_admin to int for PostgreSQL INTEGER column
+        if "is_admin" in fields:
+            fields["is_admin"] = int(fields["is_admin"])
         set_clause = ", ".join(f"{k} = %s" for k in fields)
         values = list(fields.values()) + [email]
         with auth_connection() as conn:
@@ -764,7 +768,7 @@ class UserStore:
     def set_admin(email: str, is_admin: int) -> None:
         """Set user admin flag. Only callable from admin endpoints."""
         with auth_connection() as conn:
-            conn.execute("UPDATE users SET is_admin = %s WHERE email = %s", (is_admin, email))
+            conn.execute("UPDATE users SET is_admin = %s WHERE email = %s", (int(is_admin), email))
 
     @staticmethod
     def delete_user(email: str) -> None:
@@ -803,7 +807,7 @@ class UserStore:
                     session["email"],
                     session["user_id"],
                     session.get("role", "submitter"),
-                    session.get("is_admin", 0),
+                    int(session.get("is_admin", 0)),
                     session.get("name", ""),
                     session.get("created_at", time.time()),
                     session["expires_at"],
@@ -872,7 +876,7 @@ class UserStore:
                     key_data["email"],
                     key_data["user_id"],
                     key_data.get("role", "submitter"),
-                    key_data.get("is_admin", 0),
+                    int(key_data.get("is_admin", 0)),
                     key_data.get("scope", "full-access"),
                     key_data.get("created_at", time.time()),
                     key_data.get("last_used"),

@@ -1,3 +1,3 @@
-export type { ApiRespondLegalRequestApiTransparencyLegalRequestRequestIdRespondPostRequest } from "./ApiRespondLegalRequestApiTransparencyLegalRequestRequestIdRespondPostRequest.js";
-export type { ApiTransparencyReportApiTransparencyReportGetRequest } from "./ApiTransparencyReportApiTransparencyReportGetRequest.js";
+export type { GetReportTransparencyRequest } from "./GetReportTransparencyRequest.js";
 export type { LegalRequestRecord } from "./LegalRequestRecord.js";
+export type { RespondToLegalRequestTransparencyRequest } from "./RespondToLegalRequestTransparencyRequest.js";

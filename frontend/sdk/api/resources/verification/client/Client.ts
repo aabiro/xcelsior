@@ -34,19 +34,18 @@ export class VerificationClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.verification.apiVerifyHost({
-     *         host_id: "host_id",
+     *     await client.verification.verifyHost({
      *         host_id: "host_id"
      *     })
      */
-    public apiVerifyHost(
+    public verifyHost(
         request: XcelsiorApi.VerifyHostRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiVerifyHost(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__verifyHost(request, requestOptions));
     }
 
-    private async __apiVerifyHost(
+    private async __verifyHost(
         request: XcelsiorApi.VerifyHostRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -97,25 +96,25 @@ export class VerificationClient {
     /**
      * Get current verification status for a host.
      *
-     * @param {XcelsiorApi.ApiVerificationStatusApiVerifyHostIdStatusGetRequest} request
+     * @param {XcelsiorApi.GetStatusVerificationRequest} request
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.verification.apiVerificationStatus({
+     *     await client.verification.getStatus({
      *         host_id: "host_id"
      *     })
      */
-    public apiVerificationStatus(
-        request: XcelsiorApi.ApiVerificationStatusApiVerifyHostIdStatusGetRequest,
+    public getStatus(
+        request: XcelsiorApi.GetStatusVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiVerificationStatus(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getStatus(request, requestOptions));
     }
 
-    private async __apiVerificationStatus(
-        request: XcelsiorApi.ApiVerificationStatusApiVerifyHostIdStatusGetRequest,
+    private async __getStatus(
+        request: XcelsiorApi.GetStatusVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -168,13 +167,13 @@ export class VerificationClient {
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.verification.apiVerifiedHosts()
+     *     await client.verification.listVerified()
      */
-    public apiVerifiedHosts(requestOptions?: VerificationClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiVerifiedHosts(requestOptions));
+    public listVerified(requestOptions?: VerificationClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__listVerified(requestOptions));
     }
 
-    private async __apiVerifiedHosts(
+    private async __listVerified(
         requestOptions?: VerificationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -215,25 +214,25 @@ export class VerificationClient {
      * Sets host verification state to 'verified' regardless of check results.
      * Useful when an admin has physically inspected hardware or reviewed logs.
      *
-     * @param {XcelsiorApi.ApiAdminApproveHostApiVerifyHostIdApprovePostRequest} request
+     * @param {XcelsiorApi.ApproveVerificationRequest} request
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.verification.apiAdminApproveHost({
+     *     await client.verification.approve({
      *         host_id: "host_id"
      *     })
      */
-    public apiAdminApproveHost(
-        request: XcelsiorApi.ApiAdminApproveHostApiVerifyHostIdApprovePostRequest,
+    public approve(
+        request: XcelsiorApi.ApproveVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAdminApproveHost(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__approve(request, requestOptions));
     }
 
-    private async __apiAdminApproveHost(
-        request: XcelsiorApi.ApiAdminApproveHostApiVerifyHostIdApprovePostRequest,
+    private async __approve(
+        request: XcelsiorApi.ApproveVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId, notes } = request;
@@ -290,25 +289,25 @@ export class VerificationClient {
      *
      * Sets host verification state to 'deverified' so it cannot receive jobs.
      *
-     * @param {XcelsiorApi.ApiAdminRejectHostApiVerifyHostIdRejectPostRequest} request
+     * @param {XcelsiorApi.RejectVerificationRequest} request
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.verification.apiAdminRejectHost({
+     *     await client.verification.reject({
      *         host_id: "host_id"
      *     })
      */
-    public apiAdminRejectHost(
-        request: XcelsiorApi.ApiAdminRejectHostApiVerifyHostIdRejectPostRequest,
+    public reject(
+        request: XcelsiorApi.RejectVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAdminRejectHost(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__reject(request, requestOptions));
     }
 
-    private async __apiAdminRejectHost(
-        request: XcelsiorApi.ApiAdminRejectHostApiVerifyHostIdRejectPostRequest,
+    private async __reject(
+        request: XcelsiorApi.RejectVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId, reason } = request;
@@ -353,75 +352,5 @@ export class VerificationClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/verify/{host_id}/reject");
-    }
-
-    /**
-     * Receive comprehensive benchmark report and run verification checks.
-     *
-     * @param {XcelsiorApi.VerificationReportPayload} request
-     * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.verification.apiAgentVerify({
-     *         host_id: "host_id",
-     *         report: {
-     *             "key": "value"
-     *         }
-     *     })
-     */
-    public apiAgentVerify(
-        request: XcelsiorApi.VerificationReportPayload,
-        requestOptions?: VerificationClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAgentVerify(request, requestOptions));
-    }
-
-    private async __apiAgentVerify(
-        request: XcelsiorApi.VerificationReportPayload,
-        requestOptions?: VerificationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "agent/verify",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/agent/verify");
     }
 }

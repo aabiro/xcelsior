@@ -31,15 +31,13 @@ export class AutoscaleClient {
      * @param {AutoscaleClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.autoscale.apiGetPool()
+     *     await client.autoscale.getPool()
      */
-    public apiGetPool(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetPool(requestOptions));
+    public getPool(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getPool(requestOptions));
     }
 
-    private async __apiGetPool(
-        requestOptions?: AutoscaleClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getPool(requestOptions?: AutoscaleClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -81,21 +79,21 @@ export class AutoscaleClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.autoscale.apiAddToPool({
+     *     await client.autoscale.addToPool({
      *         host_id: "host_id",
      *         ip: "ip",
      *         gpu_model: "gpu_model",
      *         vram_gb: 1.1
      *     })
      */
-    public apiAddToPool(
+    public addToPool(
         request: XcelsiorApi.PoolHost,
         requestOptions?: AutoscaleClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAddToPool(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__addToPool(request, requestOptions));
     }
 
-    private async __apiAddToPool(
+    private async __addToPool(
         request: XcelsiorApi.PoolHost,
         requestOptions?: AutoscaleClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -145,25 +143,25 @@ export class AutoscaleClient {
     /**
      * Remove a host from the autoscale pool.
      *
-     * @param {XcelsiorApi.ApiRemoveFromPoolAutoscalePoolHostIdDeleteRequest} request
+     * @param {XcelsiorApi.RemoveFromPoolAutoscaleRequest} request
      * @param {AutoscaleClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.autoscale.apiRemoveFromPool({
+     *     await client.autoscale.removeFromPool({
      *         host_id: "host_id"
      *     })
      */
-    public apiRemoveFromPool(
-        request: XcelsiorApi.ApiRemoveFromPoolAutoscalePoolHostIdDeleteRequest,
+    public removeFromPool(
+        request: XcelsiorApi.RemoveFromPoolAutoscaleRequest,
         requestOptions?: AutoscaleClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRemoveFromPool(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__removeFromPool(request, requestOptions));
     }
 
-    private async __apiRemoveFromPool(
-        request: XcelsiorApi.ApiRemoveFromPoolAutoscalePoolHostIdDeleteRequest,
+    private async __removeFromPool(
+        request: XcelsiorApi.RemoveFromPoolAutoscaleRequest,
         requestOptions?: AutoscaleClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId } = request;
@@ -213,15 +211,13 @@ export class AutoscaleClient {
      * @param {AutoscaleClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.autoscale.apiAutoscaleCycle()
+     *     await client.autoscale.cycle()
      */
-    public apiAutoscaleCycle(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAutoscaleCycle(requestOptions));
+    public cycle(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__cycle(requestOptions));
     }
 
-    private async __apiAutoscaleCycle(
-        requestOptions?: AutoscaleClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __cycle(requestOptions?: AutoscaleClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -260,15 +256,13 @@ export class AutoscaleClient {
      * @param {AutoscaleClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.autoscale.apiAutoscaleUp()
+     *     await client.autoscale.scaleUp()
      */
-    public apiAutoscaleUp(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAutoscaleUp(requestOptions));
+    public scaleUp(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__scaleUp(requestOptions));
     }
 
-    private async __apiAutoscaleUp(
-        requestOptions?: AutoscaleClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __scaleUp(requestOptions?: AutoscaleClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -307,15 +301,13 @@ export class AutoscaleClient {
      * @param {AutoscaleClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.autoscale.apiAutoscaleDown()
+     *     await client.autoscale.scaleDown()
      */
-    public apiAutoscaleDown(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAutoscaleDown(requestOptions));
+    public scaleDown(requestOptions?: AutoscaleClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__scaleDown(requestOptions));
     }
 
-    private async __apiAutoscaleDown(
-        requestOptions?: AutoscaleClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __scaleDown(requestOptions?: AutoscaleClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(

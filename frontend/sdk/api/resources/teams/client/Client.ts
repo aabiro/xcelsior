@@ -31,18 +31,18 @@ export class TeamsClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.teams.apiCreateTeam({
+     *     await client.teams.create({
      *         name: "name"
      *     })
      */
-    public apiCreateTeam(
+    public create(
         request: XcelsiorApi.CreateTeamRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiCreateTeam(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__create(request, requestOptions));
     }
 
-    private async __apiCreateTeam(
+    private async __create(
         request: XcelsiorApi.CreateTeamRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -95,13 +95,13 @@ export class TeamsClient {
      * @param {TeamsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.teams.apiMyTeams()
+     *     await client.teams.list()
      */
-    public apiMyTeams(requestOptions?: TeamsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiMyTeams(requestOptions));
+    public list(requestOptions?: TeamsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__list(requestOptions));
     }
 
-    private async __apiMyTeams(requestOptions?: TeamsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __list(requestOptions?: TeamsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -137,25 +137,25 @@ export class TeamsClient {
     /**
      * Get team details including members.
      *
-     * @param {XcelsiorApi.ApiGetTeamApiTeamsTeamIdGetRequest} request
+     * @param {XcelsiorApi.GetTeamsRequest} request
      * @param {TeamsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.teams.apiGetTeam({
+     *     await client.teams.get({
      *         team_id: "team_id"
      *     })
      */
-    public apiGetTeam(
-        request: XcelsiorApi.ApiGetTeamApiTeamsTeamIdGetRequest,
+    public get(
+        request: XcelsiorApi.GetTeamsRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiGetTeam(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
-    private async __apiGetTeam(
-        request: XcelsiorApi.ApiGetTeamApiTeamsTeamIdGetRequest,
+    private async __get(
+        request: XcelsiorApi.GetTeamsRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { team_id: teamId } = request;
@@ -202,25 +202,25 @@ export class TeamsClient {
     /**
      * Delete a team. Only the team owner can delete it.
      *
-     * @param {XcelsiorApi.ApiDeleteTeamApiTeamsTeamIdDeleteRequest} request
+     * @param {XcelsiorApi.DeleteTeamsRequest} request
      * @param {TeamsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.teams.apiDeleteTeam({
+     *     await client.teams.delete({
      *         team_id: "team_id"
      *     })
      */
-    public apiDeleteTeam(
-        request: XcelsiorApi.ApiDeleteTeamApiTeamsTeamIdDeleteRequest,
+    public delete(
+        request: XcelsiorApi.DeleteTeamsRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiDeleteTeam(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__delete(request, requestOptions));
     }
 
-    private async __apiDeleteTeam(
-        request: XcelsiorApi.ApiDeleteTeamApiTeamsTeamIdDeleteRequest,
+    private async __delete(
+        request: XcelsiorApi.DeleteTeamsRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { team_id: teamId } = request;
@@ -273,19 +273,19 @@ export class TeamsClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.teams.apiAddTeamMember({
+     *     await client.teams.addMember({
      *         team_id: "team_id",
      *         email: "email"
      *     })
      */
-    public apiAddTeamMember(
+    public addMember(
         request: XcelsiorApi.AddTeamMemberRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiAddTeamMember(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__addMember(request, requestOptions));
     }
 
-    private async __apiAddTeamMember(
+    private async __addMember(
         request: XcelsiorApi.AddTeamMemberRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -336,26 +336,26 @@ export class TeamsClient {
     /**
      * Remove a member from a team. Admins can remove anyone; members can leave.
      *
-     * @param {XcelsiorApi.ApiRemoveTeamMemberApiTeamsTeamIdMembersEmailDeleteRequest} request
+     * @param {XcelsiorApi.RemoveMemberTeamsRequest} request
      * @param {TeamsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.teams.apiRemoveTeamMember({
+     *     await client.teams.removeMember({
      *         team_id: "team_id",
      *         email: "email"
      *     })
      */
-    public apiRemoveTeamMember(
-        request: XcelsiorApi.ApiRemoveTeamMemberApiTeamsTeamIdMembersEmailDeleteRequest,
+    public removeMember(
+        request: XcelsiorApi.RemoveMemberTeamsRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiRemoveTeamMember(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__removeMember(request, requestOptions));
     }
 
-    private async __apiRemoveTeamMember(
-        request: XcelsiorApi.ApiRemoveTeamMemberApiTeamsTeamIdMembersEmailDeleteRequest,
+    private async __removeMember(
+        request: XcelsiorApi.RemoveMemberTeamsRequest,
         requestOptions?: TeamsClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { team_id: teamId, email } = request;
@@ -400,6 +400,81 @@ export class TeamsClient {
             _response.error,
             _response.rawResponse,
             "DELETE",
+            "/api/teams/{team_id}/members/{email}",
+        );
+    }
+
+    /**
+     * Update a team member's role. Only admins can change roles.
+     *
+     * @param {XcelsiorApi.UpdateTeamMemberRoleRequest} request
+     * @param {TeamsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.teams.updateMemberRole({
+     *         team_id: "team_id",
+     *         email: "email",
+     *         role: "role"
+     *     })
+     */
+    public updateMemberRole(
+        request: XcelsiorApi.UpdateTeamMemberRoleRequest,
+        requestOptions?: TeamsClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__updateMemberRole(request, requestOptions));
+    }
+
+    private async __updateMemberRole(
+        request: XcelsiorApi.UpdateTeamMemberRoleRequest,
+        requestOptions?: TeamsClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { team_id: teamId, email, ..._body } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/teams/${core.url.encodePathParam(teamId)}/members/${core.url.encodePathParam(email)}`,
+            ),
+            method: "PATCH",
+            headers: _headers,
+            contentType: "application/json",
+            queryParameters: requestOptions?.queryParams,
+            requestType: "json",
+            body: _body,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "PATCH",
             "/api/teams/{team_id}/members/{email}",
         );
     }

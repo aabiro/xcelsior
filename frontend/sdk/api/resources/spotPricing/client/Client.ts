@@ -31,15 +31,13 @@ export class SpotPricingClient {
      * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.spotPricing.apiSpotPrices()
+     *     await client.spotPricing.get()
      */
-    public apiSpotPrices(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSpotPrices(requestOptions));
+    public get(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__get(requestOptions));
     }
 
-    private async __apiSpotPrices(
-        requestOptions?: SpotPricingClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __get(requestOptions?: SpotPricingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -78,15 +76,13 @@ export class SpotPricingClient {
      * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.spotPricing.apiUpdateSpotPrices()
+     *     await client.spotPricing.update()
      */
-    public apiUpdateSpotPrices(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiUpdateSpotPrices(requestOptions));
+    public update(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__update(requestOptions));
     }
 
-    private async __apiUpdateSpotPrices(
-        requestOptions?: SpotPricingClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __update(requestOptions?: SpotPricingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -128,20 +124,20 @@ export class SpotPricingClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.spotPricing.apiSubmitSpotJob({
+     *     await client.spotPricing.submitSpotInstance({
      *         name: "name",
      *         vram_needed_gb: 1.1,
      *         max_bid: 1.1
      *     })
      */
-    public apiSubmitSpotJob(
+    public submitSpotInstance(
         request: XcelsiorApi.SpotJobIn,
         requestOptions?: SpotPricingClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSubmitSpotJob(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__submitSpotInstance(request, requestOptions));
     }
 
-    private async __apiSubmitSpotJob(
+    private async __submitSpotInstance(
         request: XcelsiorApi.SpotJobIn,
         requestOptions?: SpotPricingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -151,7 +147,7 @@ export class SpotPricingClient {
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "spot/job",
+                "spot/instance",
             ),
             method: "POST",
             headers: _headers,
@@ -185,7 +181,7 @@ export class SpotPricingClient {
             }
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/spot/job");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/spot/instance");
     }
 
     /**
@@ -194,13 +190,13 @@ export class SpotPricingClient {
      * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.spotPricing.apiPreemptionCycle()
+     *     await client.spotPricing.runPreemptionCycle()
      */
-    public apiPreemptionCycle(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiPreemptionCycle(requestOptions));
+    public runPreemptionCycle(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__runPreemptionCycle(requestOptions));
     }
 
-    private async __apiPreemptionCycle(
+    private async __runPreemptionCycle(
         requestOptions?: SpotPricingClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);

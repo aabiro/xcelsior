@@ -1,5 +1,5 @@
-export type { ApiGetReputationApiReputationEntityIdGetRequest } from "./ApiGetReputationApiReputationEntityIdGetRequest.js";
-export type { ApiReputationBreakdownApiReputationEntityIdBreakdownGetRequest } from "./ApiReputationBreakdownApiReputationEntityIdBreakdownGetRequest.js";
-export type { ApiReputationHistoryApiReputationEntityIdHistoryGetRequest } from "./ApiReputationHistoryApiReputationEntityIdHistoryGetRequest.js";
-export type { ApiReputationLeaderboardApiReputationLeaderboardGetRequest } from "./ApiReputationLeaderboardApiReputationLeaderboardGetRequest.js";
+export type { GetBreakdownReputationRequest } from "./GetBreakdownReputationRequest.js";
+export type { GetHistoryReputationRequest } from "./GetHistoryReputationRequest.js";
+export type { GetReputationRequest } from "./GetReputationRequest.js";
+export type { LeaderboardReputationRequest } from "./LeaderboardReputationRequest.js";
 export type { VerificationGrant } from "./VerificationGrant.js";

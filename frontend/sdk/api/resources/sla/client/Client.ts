@@ -40,19 +40,19 @@ export class SlaClient {
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.sla.apiSlaEnforce({
+     *     await client.sla.enforce({
      *         host_id: "host_id",
      *         month: "month"
      *     })
      */
-    public apiSlaEnforce(
+    public enforce(
         request: XcelsiorApi.SlaEnforceRequest,
         requestOptions?: SlaClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlaEnforce(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__enforce(request, requestOptions));
     }
 
-    private async __apiSlaEnforce(
+    private async __enforce(
         request: XcelsiorApi.SlaEnforceRequest,
         requestOptions?: SlaClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
@@ -108,15 +108,13 @@ export class SlaClient {
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.sla.apiSlaHostsSummary()
+     *     await client.sla.getHostsSummary()
      */
-    public apiSlaHostsSummary(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlaHostsSummary(requestOptions));
+    public getHostsSummary(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getHostsSummary(requestOptions));
     }
 
-    private async __apiSlaHostsSummary(
-        requestOptions?: SlaClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getHostsSummary(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -152,25 +150,25 @@ export class SlaClient {
     /**
      * Get SLA record and rolling uptime for a host.
      *
-     * @param {XcelsiorApi.ApiSlaStatusApiSlaHostIdGetRequest} request
+     * @param {XcelsiorApi.GetStatusSlaRequest} request
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.sla.apiSlaStatus({
+     *     await client.sla.getStatus({
      *         host_id: "host_id"
      *     })
      */
-    public apiSlaStatus(
-        request: XcelsiorApi.ApiSlaStatusApiSlaHostIdGetRequest,
+    public getStatus(
+        request: XcelsiorApi.GetStatusSlaRequest,
         requestOptions?: SlaClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlaStatus(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getStatus(request, requestOptions));
     }
 
-    private async __apiSlaStatus(
-        request: XcelsiorApi.ApiSlaStatusApiSlaHostIdGetRequest,
+    private async __getStatus(
+        request: XcelsiorApi.GetStatusSlaRequest,
         requestOptions?: SlaClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId, month } = request;
@@ -220,25 +218,25 @@ export class SlaClient {
     /**
      * Get SLA violation history for a host.
      *
-     * @param {XcelsiorApi.ApiSlaViolationsApiSlaViolationsHostIdGetRequest} request
+     * @param {XcelsiorApi.GetViolationsSlaRequest} request
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
-     *     await client.sla.apiSlaViolations({
+     *     await client.sla.getViolations({
      *         host_id: "host_id"
      *     })
      */
-    public apiSlaViolations(
-        request: XcelsiorApi.ApiSlaViolationsApiSlaViolationsHostIdGetRequest,
+    public getViolations(
+        request: XcelsiorApi.GetViolationsSlaRequest,
         requestOptions?: SlaClient.RequestOptions,
     ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlaViolations(request, requestOptions));
+        return core.HttpResponsePromise.fromPromise(this.__getViolations(request, requestOptions));
     }
 
-    private async __apiSlaViolations(
-        request: XcelsiorApi.ApiSlaViolationsApiSlaViolationsHostIdGetRequest,
+    private async __getViolations(
+        request: XcelsiorApi.GetViolationsSlaRequest,
         requestOptions?: SlaClient.RequestOptions,
     ): Promise<core.WithRawResponse<unknown>> {
         const { host_id: hostId, since } = request;
@@ -291,15 +289,13 @@ export class SlaClient {
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.sla.apiSlaActiveDowntimes()
+     *     await client.sla.getDowntimes()
      */
-    public apiSlaActiveDowntimes(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlaActiveDowntimes(requestOptions));
+    public getDowntimes(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getDowntimes(requestOptions));
     }
 
-    private async __apiSlaActiveDowntimes(
-        requestOptions?: SlaClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getDowntimes(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -338,13 +334,13 @@ export class SlaClient {
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.sla.apiSlaTargets()
+     *     await client.sla.getTargets()
      */
-    public apiSlaTargets(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__apiSlaTargets(requestOptions));
+    public getTargets(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getTargets(requestOptions));
     }
 
-    private async __apiSlaTargets(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __getTargets(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
