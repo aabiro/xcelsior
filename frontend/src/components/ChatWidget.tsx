@@ -14,7 +14,6 @@ import {
   User,
   History,
   ChevronLeft,
-  Sparkles,
 } from "lucide-react";
 import { AnimatePresence, motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
@@ -193,7 +192,7 @@ function HistoryDrawer({
 }
 
 // ── Main Widget ──────────────────────────────────────────────────────
-export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPanel, aiPanelOpen }: { showFab?: boolean; externalOpen?: boolean; onClose?: () => void; onOpenAiPanel?: () => void; aiPanelOpen?: boolean }) {
+export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPanel, aiPanelOpen, embedded }: { showFab?: boolean; externalOpen?: boolean; onClose?: () => void; onOpenAiPanel?: () => void; aiPanelOpen?: boolean; embedded?: boolean }) {
   const { t } = useLocale();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -442,15 +441,18 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             // Mobile: draggable to dismiss
-            drag={typeof window !== "undefined" && window.innerWidth < 640 ? "y" : false}
+            drag={!embedded && typeof window !== "undefined" && window.innerWidth < 640 ? "y" : false}
             dragConstraints={{ top: 0 }}
             dragElastic={0.2}
             onDragEnd={handleDragEnd}
             style={{
-              y: typeof window !== "undefined" && window.innerWidth < 640 ? dragY : undefined,
-              opacity: typeof window !== "undefined" && window.innerWidth < 640 ? panelOpacity : undefined,
+              y: !embedded && typeof window !== "undefined" && window.innerWidth < 640 ? dragY : undefined,
+              opacity: !embedded && typeof window !== "undefined" && window.innerWidth < 640 ? panelOpacity : undefined,
             }}
-            className="fixed bottom-6 right-6 z-50 flex flex-col w-[360px] h-[500px] max-sm:inset-0 max-sm:w-full max-sm:h-full max-sm:bottom-0 max-sm:right-0 max-sm:rounded-none rounded-2xl border border-border bg-navy-light shadow-2xl overflow-hidden"
+            className={embedded
+              ? "flex flex-col w-full h-full rounded-xl border border-border bg-navy-light overflow-hidden"
+              : "fixed bottom-6 right-6 z-50 flex flex-col w-[360px] h-[500px] max-sm:inset-0 max-sm:w-full max-sm:h-full max-sm:bottom-0 max-sm:right-0 max-sm:rounded-none rounded-2xl border border-border bg-navy-light shadow-2xl overflow-hidden"
+            }
           >
             {/* Mobile swipe hint */}
             <div className="sm:hidden flex justify-center pt-2 pb-0">
@@ -496,16 +498,6 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
                         title={t("chat.history")}
                       >
                         <History className="h-4 w-4" />
-                      </button>
-                    )}
-                    {/* Toggle Xcel AI */}
-                    {onOpenAiPanel && (
-                      <button
-                        onClick={() => { onOpenAiPanel(); }}
-                        className={cn("rounded-lg p-1.5 transition-colors", aiPanelOpen ? "text-accent-cyan bg-accent-cyan/15 hover:bg-accent-cyan/25" : "text-text-muted hover:bg-accent-cyan/20 hover:text-accent-cyan")}
-                        title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
-                      >
-                        <Sparkles className="h-4 w-4" />
                       </button>
                     )}
                     {/* Clear */}

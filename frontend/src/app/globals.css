@@ -13,6 +13,8 @@
   --color-accent-red-hover: #b91c1c;
   --color-accent-gold: #f59e0b;
   --color-accent-gold-hover: #d97706;
+  --color-accent-orange: #f97316;
+  --color-accent-orange-hover: #ea580c;
   --color-ice-blue: #00d4ff;
   --color-accent-cyan: #00d4ff;
   --color-accent-violet: #7c3aed;
@@ -48,6 +50,8 @@ html.light {
   --color-accent-red-hover: #b91c1c;
   --color-accent-gold: #d97706;
   --color-accent-gold-hover: #b45309;
+  --color-accent-orange: #ea580c;
+  --color-accent-orange-hover: #c2410c;
   --color-ice-blue: #0284c7;
   --color-accent-cyan: #0284c7;
   --color-accent-violet: #6d28d9;

@@ -355,15 +355,13 @@ export function EmptyState({
       <p className={cn("text-text-secondary mb-5 max-w-md leading-relaxed", compact ? "text-[11px]" : "text-sm")}>{description}</p>
 
       {suggestions.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-          className="flex flex-wrap gap-2 justify-center max-w-lg"
-        >
-          {suggestions.slice(0, compact ? 4 : 6).map((s) => (
-            <button
+        <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+          {suggestions.slice(0, compact ? 4 : 6).map((s, i) => (
+            <motion.button
               key={`${s.label}-${s.prompt}`}
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.08, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
               onClick={() => onSuggestion(s.prompt)}
               className={cn(
                 "rounded-full border border-border/50 bg-surface/60 text-text-secondary backdrop-blur-sm",
@@ -373,9 +371,9 @@ export function EmptyState({
               )}
             >
               {s.label}
-            </button>
+            </motion.button>
           ))}
-        </motion.div>
+        </div>
       )}
     </div>
   );
@@ -439,11 +437,10 @@ export function ChatInput({
           onClick={onSubmit}
           disabled={isStreaming || !value.trim()}
           className={cn(
-            "shrink-0 flex items-center justify-center rounded-xl bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
+            "shrink-0 flex self-stretch aspect-square items-center justify-center rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
             "hover:bg-accent-cyan/30 hover:shadow-[0_0_16px_rgba(0,212,255,0.2)]",
             "disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none",
             "transition-all duration-200",
-            compact ? "h-8 w-8" : "h-10 w-10",
           )}
         >
           {isStreaming ? (
