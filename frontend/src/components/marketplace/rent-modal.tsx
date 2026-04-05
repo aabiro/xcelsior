@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import {
   X, Cpu, MapPin, Zap, DollarSign, Loader2, CheckCircle, TrendingDown, Activity,
+  AlertTriangle, CreditCard,
 } from "lucide-react";
 import * as api from "@/lib/api";
-import type { MarketplaceListing } from "@/lib/api";
+import type { MarketplaceListing, LaunchErrorInfo } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
@@ -50,6 +51,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [instanceId, setInstanceId] = useState("");
   const [spotPrice, setSpotPrice] = useState<number | null>(null);
+  const [launchError, setLaunchError] = useState<LaunchErrorInfo | null>(null);
 
   const pricePerHour = listing.price_per_hour_cad || listing.price_per_hour || 0;
   const spotRate = spotPrice ?? pricePerHour * 0.7;
@@ -94,7 +96,12 @@ export function RentModal({ listing, onClose }: RentModalProps) {
       setStep("success");
       toast.success("Instance launched successfully");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to launch instance");
+      const info = api.classifyLaunchError(err);
+      if (info.action) {
+        setLaunchError(info);
+      } else {
+        toast.error(info.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -264,8 +271,29 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                 <p className="text-xs text-text-muted">
                   Your wallet will be charged based on actual usage. You can stop the instance at any time.
                 </p>
+                {launchError && (
+                  <div className="rounded-lg border border-accent-red/30 bg-accent-red/10 p-3 flex items-start gap-3">
+                    <AlertTriangle className="h-4 w-4 text-accent-red mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-accent-red font-medium">{launchError.message}</p>
+                      {launchError.action && (
+                        <Button
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => router.push(launchError.action!.href)}
+                        >
+                          <CreditCard className="h-3.5 w-3.5" />
+                          {launchError.action.label}
+                        </Button>
+                      )}
+                    </div>
+                    <button onClick={() => setLaunchError(null)} className="text-text-muted hover:text-text-primary">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setStep("configure")}>
+                  <Button variant="outline" className="flex-1" onClick={() => { setLaunchError(null); setStep("configure"); }}>
                     Back
                   </Button>
                   <Button className="flex-1" onClick={handleSubmit} disabled={submitting}>

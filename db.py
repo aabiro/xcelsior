@@ -119,7 +119,11 @@ _pg_pool_lock = threading.Lock()
 
 
 def _get_pg_pool():
-    """Lazy-initialize PostgreSQL connection pool using psycopg3."""
+    """Lazy-initialize PostgreSQL connection pool using psycopg3.
+
+    Retries with exponential backoff if PG is temporarily unavailable
+    (up to 5 attempts: 1s, 2s, 4s, 8s, 16s).
+    """
     global _pg_pool
     if _pg_pool is not None:
         return _pg_pool
@@ -130,30 +134,52 @@ def _get_pg_pool():
 
         try:
             from psycopg_pool import ConnectionPool
-
-            _pg_pool = ConnectionPool(
-                POSTGRES_DSN,
-                min_size=2,
-                max_size=PG_POOL_SIZE,
-                kwargs={"autocommit": False},
-            )
-            log.info("PostgreSQL connection pool initialized (size=%d)", PG_POOL_SIZE)
-
-            # Ensure tables exist
-            with _pg_pool.connection() as conn:
-                _ensure_pg_tables(conn)
-                conn.commit()
-
-            return _pg_pool
         except ImportError:
             log.error(
                 "psycopg or psycopg_pool not installed. "
                 "Install with: pip install 'psycopg[binary]' psycopg_pool"
             )
             raise
-        except Exception as e:
-            log.error("Failed to connect to PostgreSQL: %s", e)
-            raise
+
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                pool = ConnectionPool(
+                    POSTGRES_DSN,
+                    min_size=2,
+                    max_size=PG_POOL_SIZE,
+                    max_idle=PG_MAX_OVERFLOW,
+                    kwargs={"autocommit": False},
+                )
+                # Verify the pool can actually connect
+                with pool.connection() as conn:
+                    _ensure_pg_tables(conn)
+                    conn.commit()
+
+                _pg_pool = pool
+                log.info(
+                    "PostgreSQL connection pool initialized (size=%d, max_idle=%d)",
+                    PG_POOL_SIZE,
+                    PG_MAX_OVERFLOW,
+                )
+                return _pg_pool
+            except Exception as e:
+                if attempt == max_attempts:
+                    log.error(
+                        "Failed to connect to PostgreSQL after %d attempts: %s",
+                        max_attempts,
+                        e,
+                    )
+                    raise
+                delay = 2 ** (attempt - 1)  # 1s, 2s, 4s, 8s
+                log.warning(
+                    "PostgreSQL connection attempt %d/%d failed: %s — retrying in %ds",
+                    attempt,
+                    max_attempts,
+                    e,
+                    delay,
+                )
+                time.sleep(delay)
 
 
 def _ensure_pg_tables(conn):
@@ -209,6 +235,54 @@ def _ensure_pg_tables(conn):
         "CREATE INDEX IF NOT EXISTS idx_hosts_gpu_model " "ON hosts ((payload->>'gpu_model'))"
     )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tier " "ON jobs ((payload->>'tier'))")
+
+    # ── Job logs (persistent container output) ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS job_logs (
+            id BIGSERIAL PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            ts DOUBLE PRECISION NOT NULL,
+            level TEXT NOT NULL DEFAULT 'info',
+            line TEXT NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_job_logs_job_ts "
+        "ON job_logs (job_id, ts)"
+    )
+
+    # ── Billing cycles (charge records for running instances) ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS billing_cycles (
+            cycle_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            customer_id TEXT NOT NULL,
+            host_id TEXT DEFAULT '',
+            period_start DOUBLE PRECISION NOT NULL,
+            period_end DOUBLE PRECISION NOT NULL,
+            duration_seconds DOUBLE PRECISION NOT NULL,
+            rate_per_hour DOUBLE PRECISION NOT NULL,
+            gpu_model TEXT DEFAULT '',
+            tier TEXT DEFAULT 'free',
+            tier_multiplier DOUBLE PRECISION DEFAULT 1.0,
+            amount_cad DOUBLE PRECISION NOT NULL,
+            status TEXT DEFAULT 'charged',
+            created_at DOUBLE PRECISION NOT NULL
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_job "
+        "ON billing_cycles (job_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_customer "
+        "ON billing_cycles (customer_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_created_at "
+        "ON billing_cycles (created_at)"
+    )
 
 
 @contextmanager

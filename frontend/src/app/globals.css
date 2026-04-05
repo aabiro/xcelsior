@@ -360,3 +360,125 @@ html.light .brand-top-accent::after { opacity: 0.3; }
   border-radius: 0 4px 4px 0;
   background: linear-gradient(180deg, #00d4ff, #7c3aed);
 }
+
+/* ── Analytics Dashboard ───────────────────────────────────────────── */
+
+/* Shimmer skeleton for analytics loading */
+@keyframes analytics-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.analytics-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface) 0%,
+    rgba(0, 212, 255, 0.04) 25%,
+    rgba(124, 58, 237, 0.04) 50%,
+    rgba(0, 212, 255, 0.04) 75%,
+    var(--color-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: analytics-shimmer 2s ease-in-out infinite;
+  border-radius: 0.75rem;
+}
+
+/* Live pulse indicator */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: live-pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+/* Insight card shimmer border */
+@keyframes insight-border {
+  0%, 100% { border-color: rgba(0, 212, 255, 0.15); }
+  50% { border-color: rgba(0, 212, 255, 0.35); }
+}
+.insight-card {
+  animation: insight-border 3s ease-in-out infinite;
+}
+
+/* Heatmap cell hover */
+.heatmap-cell {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.heatmap-cell:hover {
+  transform: scale(1.4);
+  z-index: 10;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+}
+
+/* Tab underline animation */
+@keyframes tab-slide {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.tab-active-indicator {
+  animation: tab-slide 0.25s ease-out forwards;
+  transform-origin: left;
+}
+
+/* Metric ring */
+@keyframes ring-fill {
+  from { stroke-dashoffset: 283; }
+}
+.metric-ring {
+  animation: ring-fill 1.5s ease-out forwards;
+}
+
+/* Data table row entrance */
+@keyframes row-slide-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.table-row-animate {
+  animation: row-slide-in 0.3s ease-out backwards;
+}
+.table-row-animate:nth-child(1) { animation-delay: 0ms; }
+.table-row-animate:nth-child(2) { animation-delay: 40ms; }
+.table-row-animate:nth-child(3) { animation-delay: 80ms; }
+.table-row-animate:nth-child(4) { animation-delay: 120ms; }
+.table-row-animate:nth-child(5) { animation-delay: 160ms; }
+.table-row-animate:nth-child(6) { animation-delay: 200ms; }
+.table-row-animate:nth-child(7) { animation-delay: 240ms; }
+.table-row-animate:nth-child(8) { animation-delay: 280ms; }
+
+/* AI Analytics Panel */
+@keyframes ai-panel-slide {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.ai-panel-enter {
+  animation: ai-panel-slide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes ai-thinking-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+.ai-thinking-dot:nth-child(1) { animation: ai-thinking-dot 1.2s infinite 0ms; }
+.ai-thinking-dot:nth-child(2) { animation: ai-thinking-dot 1.2s infinite 150ms; }
+.ai-thinking-dot:nth-child(3) { animation: ai-thinking-dot 1.2s infinite 300ms; }
+
+@keyframes ai-glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 212, 255, 0.15); }
+  50% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); }
+}
+.ai-panel-glow {
+  animation: ai-glow-pulse 3s ease-in-out infinite;
+}
+
+@keyframes ai-status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.ai-status-dot {
+  animation: ai-status-pulse 2s ease-in-out infinite;
+}

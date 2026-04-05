@@ -464,9 +464,9 @@ class SLAEngine:
             # Find the customer who used this host
             with self._conn() as conn:
                 customer = conn.execute(
-                    """SELECT DISTINCT owner FROM jobs
+                    """SELECT DISTINCT payload->>'owner' AS owner FROM jobs
                        WHERE host_id = %s AND status = 'completed'
-                       ORDER BY owner LIMIT 1""",
+                       ORDER BY payload->>'owner' LIMIT 1""",
                     (host_id,),
                 ).fetchone()
 

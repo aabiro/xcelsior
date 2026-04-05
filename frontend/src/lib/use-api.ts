@@ -25,5 +25,14 @@ export function useApi() {
     fetchSpotPrices: api.fetchSpotPrices,
     fetchLeaderboard: api.fetchLeaderboard,
     fetchAnalytics: api.fetchAnalytics,
+    fetchEnhancedAnalytics: api.fetchEnhancedAnalytics,
+    fetchWalletHistory: api.fetchWalletHistory,
+    fetchUsageSummary: api.fetchUsageSummary,
+    fetchProviderEarnings: api.fetchProviderEarnings,
+    fetchSpotPricesV2: api.fetchSpotPricesV2,
+    fetchSpotHistory: api.fetchSpotHistory,
+    fetchSlaHostsSummary: api.fetchSlaHostsSummary,
+    fetchMarketplaceStatsV2: api.fetchMarketplaceStatsV2,
+    fetchBurstStatus: api.fetchBurstStatus,
   }), []);
 }

@@ -271,3 +271,59 @@ def api_ai_suggestions(request: Request):
         raise HTTPException(401, "Not authenticated")
     return {"ok": True, "suggestions": get_suggestions(user)}
 
+
+# ── Model: AnalyticsAiRequest ──
+
+class AnalyticsAiRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: str | None = None
+    chart_context: str = ""
+    analytics_summary: str = ""
+
+
+@router.post("/api/ai/analytics", tags=["AI Assistant"])
+async def api_ai_analytics_chat(body: AnalyticsAiRequest, request: Request):
+    """Stream AI-powered analytics insight/explanation via SSE.
+
+    Injects a serialised analytics summary into the system prompt so the
+    AI has full knowledge of the user's dashboard data and can explain
+    trends, anomalies, and answer questions about every chart.
+    """
+    _require_ai_enabled()
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    user_id = user.get("user_id", user.get("email", ""))
+    if not check_ai_rate_limit(user_id):
+        raise HTTPException(429, "Rate limit exceeded. Please wait a moment.")
+
+    from ai_assistant import (
+        create_conversation as ai_create_conversation_fn,
+        get_conversation as ai_get_conversation_fn,
+        stream_ai_response as ai_stream,
+    )
+
+    conversation_id = body.conversation_id
+    if conversation_id:
+        conv = ai_get_conversation_fn(conversation_id, user_id)
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        conversation_id = ai_create_conversation_fn(user_id, title="Analytics chat")
+
+    # Build a page_context that the system prompt builder can parse
+    page_context = f"analytics-dashboard:{body.chart_context}"
+
+    return StreamingResponse(
+        ai_stream(
+            body.message,
+            conversation_id,
+            user,
+            page_context,
+            analytics_data=body.analytics_summary,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+

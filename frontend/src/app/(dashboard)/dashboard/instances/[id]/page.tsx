@@ -10,7 +10,7 @@ import { StatusBadge, Badge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
-  Copy, Globe, Container, Square, Loader2,
+  Copy, Globe, Container, Square, Loader2, AlertTriangle,
 } from "lucide-react";
 import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
 import type { Instance } from "@/lib/api";
@@ -34,6 +34,7 @@ export default function InstanceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [jobError, setJobError] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -43,13 +44,17 @@ export default function InstanceDetailPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { setJobError(null); load(); }, [id]);
 
   // Live WebSocket updates for active instances
   const isLive = instance?.status === "queued" || instance?.status === "assigned" || instance?.status === "running";
   const onWsInstance = useCallback((i: Instance) => setInstance(i), []);
+  const onWsJobError = useCallback((err: { job_id: string; error: string; message: string }) => {
+    setJobError(err.message);
+  }, []);
   const wsState = useInstanceWebSocket(id, {
     onInstance: onWsInstance,
+    onJobError: onWsJobError,
     enabled: isLive,
   });
 
@@ -194,6 +199,20 @@ export default function InstanceDetailPage() {
           </div>
         )}
       </Card>
+
+      {/* Job Error Banner */}
+      {jobError && (
+        <div className="rounded-lg border border-accent-red/30 bg-accent-red/10 p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-accent-red mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-accent-red">Error</p>
+            <p className="text-sm text-text-secondary mt-1">{jobError}</p>
+          </div>
+          <button onClick={() => setJobError(null)} className="text-text-muted hover:text-text-primary">
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Details Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

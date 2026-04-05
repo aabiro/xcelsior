@@ -17,6 +17,8 @@ export interface UseInstanceWebSocketOptions {
   onLog?: (log: { job_id: string; timestamp: number; line: string; level: string }) => void;
   /** Called when the job status changes. */
   onStatusChange?: (jobId: string, status: string) => void;
+  /** Called when a job error event arrives (e.g. no hosts, image pull failure). */
+  onJobError?: (error: { job_id: string; error: string; message: string }) => void;
   /** Disable the connection (e.g. when the job is terminal). */
   enabled?: boolean;
 }
@@ -95,6 +97,11 @@ export function useInstanceWebSocket(
               cbRef.current.onStatusChange?.(
                 (msg.data as { job_id: string }).job_id,
                 (msg.data as { status: string }).status,
+              );
+              break;
+            case "job_error":
+              cbRef.current.onJobError?.(
+                msg.data as unknown as { job_id: string; error: string; message: string },
               );
               break;
             case "ping":

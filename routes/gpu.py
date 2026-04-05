@@ -5,9 +5,6 @@ from fastapi import APIRouter, HTTPException
 from routes._deps import (
     log,
 )
-from scheduler import (
-    log,
-)
 
 router = APIRouter()
 
@@ -50,13 +47,16 @@ def api_gpu_available():
             with pool.connection() as conn:
                 conn.row_factory = dict_row
                 hosts = conn.execute(
-                    """SELECT gpu_model, total_vram_gb, region, province,
+                    """SELECT payload->>'gpu_model' AS gpu_model,
+                              (payload->>'total_vram_gb')::float AS total_vram_gb,
+                              payload->>'region' AS region,
+                              payload->>'province' AS province,
                               COUNT(*) FILTER (WHERE status = 'active') AS count_available,
-                              MIN(cost_per_hour) AS min_price
+                              MIN((payload->>'cost_per_hour')::float) AS min_price
                        FROM hosts
-                       WHERE admitted = true
-                       GROUP BY gpu_model, total_vram_gb, region, province
-                       ORDER BY gpu_model""",
+                       WHERE COALESCE(payload->>'admitted', '') IN ('true', 'True', '1', 'yes')
+                       GROUP BY payload->>'gpu_model', payload->>'total_vram_gb', payload->>'region', payload->>'province'
+                       ORDER BY payload->>'gpu_model'""",
                 ).fetchall()
             for h in hosts:
                 gpus.append({

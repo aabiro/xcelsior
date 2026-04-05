@@ -1,53 +1,317 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { Card } from "@/components/ui/card";
+import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
-import { BarChart3, RefreshCw, Download, TrendingUp, Clock, Cpu } from "lucide-react";
-import { useApi } from "@/lib/use-api";
-import { useLocale } from "@/lib/locale";
-import { toast } from "sonner";
+import { FadeIn, StaggerList, StaggerItem, CountUp, ScrollReveal } from "@/components/ui/motion";
+import { cn } from "@/lib/utils";
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  PieChart, Pie, Cell, Legend,
-} from "recharts";
+  BarChart3, RefreshCw, Download, TrendingUp, Clock, Cpu, Zap,
+  DollarSign, Gauge, Server, Globe, Wallet, ArrowUpRight,
+  Activity, Shield, ChartArea, LayoutGrid, Sparkles, AlertTriangle, Brain,
+} from "lucide-react";
+import { useApi } from "@/lib/use-api";
+import { useAuth } from "@/lib/auth";
+import { useLocale } from "@/lib/locale";
+import { useEventStream } from "@/hooks/useEventStream";
+import { toast } from "sonner";
+import type { EnhancedAnalytics } from "@/lib/api";
+import {
+  SpendTrendChart, JobsTrendChart, UtilizationChart,
+  CumulativeSpendChart, CostPerHourChart, GpuHoursChart,
+  DurationHistogramChart, SovereigntyChart, TopGpuChart,
+  ProvinceDonutChart, GpuPerformanceRadar, HourlyHeatmap,
+  ProviderRevenueTrendChart, WalletActivityChart,
+  TopEntitiesTable, GpuPerformanceTable, PeakDaysCards,
+  InsightCards, Sparkline,
+} from "./charts";
+import type { Insight } from "./charts";
+import { AnalyticsAiPanel } from "./analytics-ai-panel";
 
-const COLORS = ["#dc2626", "#f59e0b", "#38bdf8", "#10b981", "#8b5cf6", "#ec4899"];
+// ── Constants ──────────────────────────────────────────────────────────
+
 const RANGE_PRESETS = [
   { label: "7d", days: 7 },
+  { label: "14d", days: 14 },
   { label: "30d", days: 30 },
   { label: "90d", days: 90 },
   { label: "YTD", days: 0 },
 ];
 
+type Tab = "overview" | "compute" | "financial" | "provider";
+
+const TABS: { key: Tab; label: string; icon: React.ElementType; description: string; providerOnly?: boolean }[] = [
+  { key: "overview", label: "Overview", icon: LayoutGrid, description: "Key metrics at a glance" },
+  { key: "compute", label: "Compute", icon: Cpu, description: "GPU usage & performance" },
+  { key: "financial", label: "Financial", icon: DollarSign, description: "Spend, efficiency & wallet" },
+  { key: "provider", label: "Provider", icon: Server, description: "Host earnings & uptime", providerOnly: true },
+];
+
+// ── Auto-Insights Engine ───────────────────────────────────────────────
+
+function generateInsights(
+  analytics: any[],
+  summary: any,
+  previousSummary: any,
+  enhanced: EnhancedAnalytics | null,
+): Insight[] {
+  const insights: Insight[] = [];
+  if (!analytics?.length) return insights;
+
+  const totalJobs = Number(summary?.total_jobs ?? 0);
+  const prevJobs = Number(previousSummary?.total_jobs ?? 0);
+  const totalSpend = Number(summary?.total_spend_cad ?? 0);
+  const prevSpend = Number(previousSummary?.total_spend_cad ?? 0);
+  const avgUtil = Number(summary?.avg_gpu_utilization_pct ?? 0);
+  const prevUtil = Number(previousSummary?.avg_gpu_utilization_pct ?? 0);
+  const totalGpuHrs = Number(summary?.total_gpu_hours ?? 0);
+  const prevGpuHrs = Number(previousSummary?.total_gpu_hours ?? 0);
+
+  // Job trend
+  if (prevJobs > 0 && totalJobs > 0) {
+    const pct = ((totalJobs - prevJobs) / prevJobs) * 100;
+    if (Math.abs(pct) >= 10) {
+      insights.push({
+        type: pct > 0 ? "positive" : "negative",
+        title: pct > 0 ? "Job volume surging" : "Job volume declining",
+        detail: `${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "more" : "fewer"} jobs compared to the previous period.`,
+        metric: `${totalJobs} jobs (was ${prevJobs})`,
+      });
+    }
+  }
+
+  // Spend trend
+  if (prevSpend > 0 && totalSpend > 0) {
+    const pct = ((totalSpend - prevSpend) / prevSpend) * 100;
+    if (Math.abs(pct) >= 15) {
+      insights.push({
+        type: pct > 0 ? "negative" : "positive",
+        title: pct > 0 ? "Spend increasing" : "Spend optimized",
+        detail: `Your spend is ${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "higher" : "lower"} than the previous period.`,
+        metric: `$${totalSpend.toFixed(2)} (was $${prevSpend.toFixed(2)})`,
+      });
+    }
+  }
+
+  // Utilization alert
+  if (avgUtil > 0 && avgUtil < 40) {
+    insights.push({
+      type: "negative",
+      title: "Low GPU utilization",
+      detail: "Average GPU utilization is below 40%. Consider using smaller instances or optimizing your workloads.",
+      metric: `${avgUtil.toFixed(1)}% avg`,
+    });
+  } else if (avgUtil >= 85) {
+    insights.push({
+      type: "positive",
+      title: "Excellent GPU utilization",
+      detail: "You're making great use of your GPU resources with very high utilization.",
+      metric: `${avgUtil.toFixed(1)}% avg`,
+    });
+  }
+
+  // Utilization trend (compare periods)
+  if (prevUtil > 0 && avgUtil > 0) {
+    const pct = ((avgUtil - prevUtil) / prevUtil) * 100;
+    if (pct >= 15) {
+      insights.push({
+        type: "positive",
+        title: "Utilization improving",
+        detail: `GPU utilization rose ${pct.toFixed(0)}% — your workloads are using hardware more effectively.`,
+        metric: `${avgUtil.toFixed(1)}% (was ${prevUtil.toFixed(1)}%)`,
+      });
+    } else if (pct <= -15) {
+      insights.push({
+        type: "negative",
+        title: "Utilization declining",
+        detail: `GPU utilization dropped ${Math.abs(pct).toFixed(0)}% — you may be over-provisioning resources.`,
+        metric: `${avgUtil.toFixed(1)}% (was ${prevUtil.toFixed(1)}%)`,
+      });
+    }
+  }
+
+  // GPU hours trend
+  if (prevGpuHrs > 0 && totalGpuHrs > 0) {
+    const pct = ((totalGpuHrs - prevGpuHrs) / prevGpuHrs) * 100;
+    if (pct >= 25) {
+      insights.push({
+        type: "info",
+        title: "GPU hours ramping up",
+        detail: `You consumed ${pct.toFixed(0)}% more GPU hours this period — workloads are scaling up.`,
+        metric: `${totalGpuHrs.toFixed(1)}h (was ${prevGpuHrs.toFixed(1)}h)`,
+      });
+    }
+  }
+
+  // Data sovereignty
+  const caPct = enhanced?.sovereignty?.canadian_pct ?? 0;
+  if (caPct > 0 && caPct >= 90) {
+    insights.push({
+      type: "positive",
+      title: "Strong Canadian sovereignty",
+      detail: `${caPct.toFixed(0)}% of your compute runs on Canadian infrastructure.`,
+      metric: `${caPct.toFixed(0)}% Canadian`,
+    });
+  } else if (caPct > 0 && caPct < 50) {
+    insights.push({
+      type: "info",
+      title: "Mostly international compute",
+      detail: `Only ${caPct.toFixed(0)}% of jobs run on Canadian GPUs. Consider Canadian hosts for data sovereignty.`,
+      metric: `${caPct.toFixed(0)}% Canadian`,
+    });
+  }
+
+  // Peak usage pattern
+  const peakDays = enhanced?.peak_days ?? [];
+  if (peakDays.length > 0) {
+    const peak = peakDays[0];
+    insights.push({
+      type: "info",
+      title: "Peak usage detected",
+      detail: `Your busiest day had ${peak.jobs} jobs consuming ${peak.gpu_hours.toFixed(1)}h of GPU time.`,
+      metric: `$${peak.spend.toFixed(2)} on peak day`,
+    });
+  }
+
+  // Cost efficiency
+  if (totalJobs > 0 && totalSpend > 0) {
+    const costPerJob = totalSpend / totalJobs;
+    if (costPerJob < 1.0) {
+      insights.push({
+        type: "positive",
+        title: "Efficient job costs",
+        detail: `Your average cost per job is under $1, indicating efficient resource usage.`,
+        metric: `$${costPerJob.toFixed(2)}/job`,
+      });
+    } else if (costPerJob > 10.0) {
+      insights.push({
+        type: "info",
+        title: "High cost per job",
+        detail: `Average job cost is $${costPerJob.toFixed(2)} — consider shorter runs or lower-tier GPUs for test jobs.`,
+        metric: `$${costPerJob.toFixed(2)}/job`,
+      });
+    }
+  }
+
+  // GPU model efficiency (best value)
+  const gpuPerf = enhanced?.gpu_performance ?? [];
+  if (gpuPerf.length >= 2) {
+    const withEfficiency = gpuPerf
+      .filter(g => g.avg_cost_per_hour > 0 && g.avg_util > 0)
+      .map(g => ({ ...g, efficiency: g.avg_util / g.avg_cost_per_hour }))
+      .sort((a, b) => b.efficiency - a.efficiency);
+    if (withEfficiency.length >= 2) {
+      const best = withEfficiency[0];
+      insights.push({
+        type: "positive",
+        title: `${best.gpu_model} is your best value`,
+        detail: `Highest efficiency score across your GPU models — ${best.avg_util.toFixed(0)}% utilization at $${best.avg_cost_per_hour.toFixed(2)}/hr.`,
+        metric: `${best.jobs} jobs, ${best.gpu_hours.toFixed(1)}h`,
+      });
+    }
+  }
+
+  // Cost per hour trend direction
+  const cphTrend = enhanced?.cost_per_hour_trend ?? [];
+  if (cphTrend.length >= 7) {
+    const rates = cphTrend.map(d => d.cost_per_hour).filter(v => v > 0);
+    if (rates.length >= 7) {
+      const half = Math.floor(rates.length / 2);
+      const firstHalf = rates.slice(0, half).reduce((s, v) => s + v, 0) / half;
+      const secondHalf = rates.slice(half).reduce((s, v) => s + v, 0) / (rates.length - half);
+      const changePct = ((secondHalf - firstHalf) / firstHalf) * 100;
+      if (changePct <= -10) {
+        insights.push({
+          type: "positive",
+          title: "Cost per hour dropping",
+          detail: `Your cost per GPU hour decreased ${Math.abs(changePct).toFixed(0)}% over the period — good cost discipline.`,
+          metric: `$${secondHalf.toFixed(3)}/hr (was $${firstHalf.toFixed(3)}/hr)`,
+        });
+      } else if (changePct >= 15) {
+        insights.push({
+          type: "negative",
+          title: "Cost per hour rising",
+          detail: `GPU hour costs increased ${changePct.toFixed(0)}% — you may be using pricier models or shorter, less efficient jobs.`,
+          metric: `$${secondHalf.toFixed(3)}/hr (was $${firstHalf.toFixed(3)}/hr)`,
+        });
+      }
+    }
+  }
+
+  // Heatmap — busiest time slot
+  const heatmap = enhanced?.hourly_heatmap ?? [];
+  if (heatmap.length > 0) {
+    const peak = heatmap.reduce((a, b) => a.count > b.count ? a : b);
+    const dowNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    if (peak.count >= 3) {
+      insights.push({
+        type: "info",
+        title: `Most active: ${dowNames[peak.dow]}s at ${peak.hour}:00`,
+        detail: `Your peak activity slot — ${peak.count} jobs typically run at this time.`,
+        metric: `${dowNames[peak.dow]} ${peak.hour}:00`,
+      });
+    }
+  }
+
+  return insights.slice(0, 6);
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────
+
 export default function AnalyticsPage() {
   const [data, setData] = useState<any>(null);
+  const [enhanced, setEnhanced] = useState<EnhancedAnalytics | null>(null);
   const [gpuBreakdown, setGpuBreakdown] = useState<any[]>([]);
   const [provinceBreakdown, setProvinceBreakdown] = useState<any[]>([]);
   const [previousSummary, setPreviousSummary] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [range, setRange] = useState(30);
+  const [tab, setTab] = useState<Tab>("overview");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const sseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const api = useApi();
+  const { user } = useAuth();
   const { t } = useLocale();
+
+  const isProvider = !!user?.provider_id;
+  const isAdmin = !!user?.is_admin;
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     const days = range === 0
       ? Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000)
       : range;
     try {
-      const [usageRes, gpuRes, provinceRes, prevWindowRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.fetchAnalytics({ days: String(days), group_by: "day" }),
         api.fetchAnalytics({ days: String(days), group_by: "gpu_model" }),
         api.fetchAnalytics({ days: String(days), group_by: "province" }),
         api.fetchAnalytics({ days: String(days), group_by: "day", offset_days: String(days) }),
+        api.fetchEnhancedAnalytics(days),
       ]);
-      setData(usageRes);
-      setGpuBreakdown(((gpuRes as any)?.analytics ?? []) as any[]);
-      setProvinceBreakdown(((provinceRes as any)?.analytics ?? []) as any[]);
-      setPreviousSummary((prevWindowRes as any)?.summary ?? null);
-    } catch {
-      toast.error("Failed to load analytics");
+      const [usageRes, gpuRes, provinceRes, prevWindowRes, enhancedRes] = results;
+      if (usageRes.status === "fulfilled") setData(usageRes.value);
+      if (enhancedRes.status === "fulfilled") setEnhanced(enhancedRes.value as EnhancedAnalytics);
+      setGpuBreakdown(gpuRes.status === "fulfilled" ? (((gpuRes.value as any)?.analytics ?? []) as any[]) : []);
+      setProvinceBreakdown(provinceRes.status === "fulfilled" ? (((provinceRes.value as any)?.analytics ?? []) as any[]) : []);
+      setPreviousSummary(prevWindowRes.status === "fulfilled" ? ((prevWindowRes.value as any)?.summary ?? null) : null);
+      setLastUpdated(new Date());
+      // Show warning if any failed but not all
+      const failures = results.filter(r => r.status === "rejected");
+      if (failures.length > 0 && failures.length < results.length) {
+        toast.warning("Some analytics data couldn't be loaded");
+      } else if (failures.length === results.length) {
+        setLoadError("Failed to load analytics");
+        toast.error("Failed to load analytics");
+      }
+    } catch (err: any) {
+      const msg = err?.message || "Failed to load analytics";
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -55,328 +319,551 @@ export default function AnalyticsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" };
+  // Debounced SSE handler — avoid flooding on rapid events
+  const debouncedLoad = useCallback(() => {
+    if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current);
+    sseDebounceRef.current = setTimeout(() => { load(); }, 3000);
+  }, [load]);
 
-  // Derive chart data from the API response shape: {analytics: [...], summary: {...}}
+  useEventStream({
+    eventTypes: ["job_status", "job_submitted", "usage_recorded"],
+    onEvent: debouncedLoad,
+  });
+
+  // Keyboard navigation for tabs
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const idx = availableTabs.findIndex(t => t.key === tab);
+        if (e.key === "ArrowLeft" && idx > 0) setTab(availableTabs[idx - 1].key);
+        if (e.key === "ArrowRight" && idx < availableTabs.length - 1) setTab(availableTabs[idx + 1].key);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  });
+
+  // ── Derived data ──────────────────────────────────────────────────
+
   const analytics: any[] = data?.analytics || [];
   const summary = data?.summary || {};
   const hasData = analytics.length > 0 || (summary.total_jobs != null && summary.total_jobs > 0);
 
-  // Build chart-friendly arrays from the analytics time-series
-  const jobsOverTime = analytics.map((r: any) => ({ date: r.period, count: r.job_count }));
-  const spendOverTime = analytics.map((r: any) => ({ date: r.period, amount: r.total_cost_cad }));
-  const utilOverTime = analytics.map((r: any) => ({ date: r.period, util: Number(r.avg_gpu_utilization_pct ?? 0) }));
-  const sovereigntyMixOverTime = analytics.map((r: any) => ({
+  const jobsOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, count: r.job_count })), [analytics]);
+  const spendOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, spend: r.total_cost_cad })), [analytics]);
+  const utilOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, util: Number(r.avg_gpu_utilization_pct ?? 0) })), [analytics]);
+  const sovereigntyOverTime = useMemo(() => analytics.map((r: any) => ({
     date: r.period,
     canadian: Number(r.canadian_jobs ?? 0),
     international: Number(r.international_jobs ?? 0),
-  }));
+  })), [analytics]);
 
-  const topGpuSeries = gpuBreakdown
-    .map((r: any) => ({
-      name: String(r.period || "Unknown"),
-      spend: Number(r.total_cost_cad ?? 0),
-      jobs: Number(r.job_count ?? 0),
-      hours: Number(r.total_gpu_hours ?? 0),
-    }))
-    .sort((a, b) => b.spend - a.spend)
-    .slice(0, 6);
+  const topGpuSeries = useMemo(() => gpuBreakdown
+    .map((r: any) => ({ name: String(r.period || "Unknown"), spend: Number(r.total_cost_cad ?? 0), jobs: Number(r.job_count ?? 0), hours: Number(r.total_gpu_hours ?? 0) }))
+    .sort((a, b) => b.spend - a.spend).slice(0, 8), [gpuBreakdown]);
 
-  const provinceSeries = provinceBreakdown
-    .map((r: any) => ({
-      name: String(r.period || "Unknown"),
-      value: Number(r.total_cost_cad ?? 0),
-      jobs: Number(r.job_count ?? 0),
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6);
+  const provinceSeries = useMemo(() => provinceBreakdown
+    .map((r: any) => ({ name: String(r.period || "Unknown"), value: Number(r.total_cost_cad ?? 0) }))
+    .sort((a, b) => b.value - a.value).slice(0, 8), [provinceBreakdown]);
 
-  const compare = (current: number, previous: number) => {
-    if (!previous) return null;
-    return ((current - previous) / previous) * 100;
+  // Sparkline data extracted from time series
+  const jobSparkline = useMemo(() => jobsOverTime.map(d => d.count), [jobsOverTime]);
+  const spendSparkline = useMemo(() => spendOverTime.map(d => d.spend), [spendOverTime]);
+  const utilSparkline = useMemo(() => utilOverTime.map(d => d.util), [utilOverTime]);
+  const gpuHoursSparkline = useMemo(
+    () => (enhanced?.daily_gpu_hours ?? []).map((d: any) => d.hours),
+    [enhanced?.daily_gpu_hours],
+  );
+
+  // ── Auto-Insights ─────────────────────────────────────────────────
+
+  const insights = useMemo(
+    () => generateInsights(analytics, summary, previousSummary, enhanced),
+    [analytics, summary, previousSummary, enhanced],
+  );
+
+  // ── Deltas ────────────────────────────────────────────────────────
+
+  const compare = (current: number, previous: number | null | undefined) => {
+    if (previous === null || previous === undefined || previous === 0) return null;
+    return Math.round(((current - previous) / previous) * 1000) / 10;
   };
 
   const jobsDelta = compare(Number(summary.total_jobs ?? 0), Number(previousSummary?.total_jobs ?? 0));
   const spendDelta = compare(Number(summary.total_spend_cad ?? 0), Number(previousSummary?.total_spend_cad ?? 0));
   const gpuHoursDelta = compare(Number(summary.total_gpu_hours ?? 0), Number(previousSummary?.total_gpu_hours ?? 0));
+  const utilDelta = compare(Number(summary.avg_gpu_utilization_pct ?? 0), Number(previousSummary?.avg_gpu_utilization_pct ?? 0));
 
-  const renderDelta = (value: number | null) => {
-    if (value == null) return <span className="text-xs text-text-muted">No prior window</span>;
-    const positive = value >= 0;
-    return (
-      <span className={`text-xs ${positive ? "text-emerald" : "text-accent-red"}`}>
-        {positive ? "+" : ""}{value.toFixed(1)}% vs previous period
-      </span>
-    );
-  };
+  const trendDir = (pct: number | null) => pct == null || pct === 0 ? undefined : pct > 0 ? "up" as const : "down" as const;
+  const trendVal = (pct: number | null) => pct == null || pct === 0 ? undefined : `${pct > 0 ? "+" : ""}${pct}%`;
+
+  // Derived secondary KPIs
+  const totalJobs = Number(summary.total_jobs ?? 0);
+  const totalSpend = Number(summary.total_spend_cad ?? 0);
+  const totalGpuHours = Number(summary.total_gpu_hours ?? 0);
+  const avgCostPerJob = totalJobs > 0 ? totalSpend / totalJobs : 0;
+  const avgJobDuration = totalJobs > 0 ? totalGpuHours / totalJobs : 0;
+  const canadianPct = enhanced?.sovereignty?.canadian_pct ?? 0;
+  const topGpu = topGpuSeries[0]?.name ?? "—";
+
+  // CSV export of the analytics data
+  const exportCsv = useCallback(() => {
+    if (!analytics.length) { toast.error("No data to export"); return; }
+    const keys = Object.keys(analytics[0]);
+    const escapeCsvCell = (val: unknown) => {
+      const s = String(val ?? "");
+      // Prevent CSV formula injection: prefix formula characters with a single quote
+      const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+    const csv = [keys.join(","), ...analytics.map((r: Record<string, unknown>) => keys.map((k) => escapeCsvCell(r[k])).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `xcelsior-analytics-${range}d.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }, [analytics, range]);
+
+  // Available tabs based on user role
+  const availableTabs = useMemo(() =>
+    TABS.filter((t) => !t.providerOnly || isProvider || isAdmin),
+    [isProvider, isAdmin],
+  );
+
+  // Format last updated time
+  const lastUpdatedLabel = lastUpdated
+    ? lastUpdated.toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
 
   return (
     <div className="space-y-6">
+      {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold">{t("dash.analytics.title")}</h1>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{t("dash.analytics.title")}</h1>
+          <div className="flex items-center gap-3 mt-0.5">
+            <p className="text-sm text-text-secondary">
+              {isProvider ? "Your hosting & renting analytics" : "Your compute usage insights"}
+            </p>
+            {lastUpdatedLabel && !loading && (
+              <span className="inline-flex items-center gap-1.5 text-[10px] text-text-muted font-mono">
+                <span className="live-dot" />
+                Updated {lastUpdatedLabel}
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg bg-surface p-1">
             {RANGE_PRESETS.map((p) => (
               <button
                 key={p.label}
                 onClick={() => setRange(p.days)}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  range === p.days ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+                  range === p.days
+                    ? "bg-card text-text-primary shadow-sm ring-1 ring-accent-cyan/30"
+                    : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
                 }`}
               >
                 {p.label}
               </button>
             ))}
           </div>
-          <Button variant="outline" size="sm" onClick={() => {
-            if (!analytics.length) { toast.error("No data to export"); return; }
-            const keys = Object.keys(analytics[0]);
-            const csv = [keys.join(","), ...analytics.map((r: Record<string, unknown>) => keys.map((k) => `"${r[k] ?? ""}"`).join(","))].join("\n");
-            const blob = new Blob([csv], { type: "text/csv" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url; a.download = `analytics-${range}d.csv`; a.click();
-            URL.revokeObjectURL(url);
-          }}>
+          <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="h-3.5 w-3.5" /> {t("dash.analytics.csv")}
           </Button>
           <Button variant="outline" size="sm" onClick={load}>
-            <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> {t("common.refresh")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAiOpen(true)}
+            className={cn(
+              "relative gap-1.5 transition-all duration-300",
+              aiOpen
+                ? "ring-1 ring-accent-cyan/40 bg-accent-cyan/5 text-accent-cyan"
+                : "hover:border-accent-cyan/30 hover:text-accent-cyan",
+            )}
+          >
+            <Brain className="h-3.5 w-3.5" />
+            Ask AI
+            <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
           </Button>
         </div>
       </div>
 
+      {/* ── Tab Navigation ─────────────────────────────────── */}
+      <div className="relative flex items-center gap-1 border-b border-border overflow-x-auto pb-0">
+        {availableTabs.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`
+                group relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium
+                border-b-2 transition-all duration-200 whitespace-nowrap
+                ${active
+                  ? "border-accent-cyan text-text-primary"
+                  : "border-transparent text-text-muted hover:text-text-secondary hover:border-border"
+                }
+              `}
+            >
+              <Icon className={`h-4 w-4 transition-colors ${active ? "text-accent-cyan" : "text-text-muted group-hover:text-text-secondary"}`} />
+              {t.label}
+              {active && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-cyan tab-active-indicator" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Loading State (shimmer skeletons) ─────────────── */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-64 rounded-xl bg-surface skeleton-pulse" />)}
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-28 rounded-xl analytics-skeleton" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-20 rounded-xl analytics-skeleton" style={{ animationDelay: `${i * 0.15}s` }} />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-64 rounded-xl analytics-skeleton" style={{ animationDelay: `${i * 0.1}s` }} />
+            ))}
+          </div>
         </div>
+
+      /* ── Error State ───────────────────────────────────── */
+      ) : loadError ? (
+        <FadeIn>
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-accent-red/5 border border-accent-red/20 mb-6">
+              <AlertTriangle className="h-10 w-10 text-accent-red" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2">Failed to load analytics</h3>
+            <p className="text-sm text-text-secondary max-w-md text-center mb-6">{loadError}</p>
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Try Again
+            </Button>
+          </div>
+        </FadeIn>
+
+      /* ── Empty State ───────────────────────────────────── */
       ) : !hasData ? (
         <div className="flex flex-col items-center justify-center py-20">
-          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
-            <BarChart3 className="h-10 w-10 text-text-muted" />
+          <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-surface mb-6">
+            <BarChart3 className="h-12 w-12 text-text-muted" />
+            <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-accent-cyan/30 animate-pulse" />
           </div>
           <h3 className="text-xl font-semibold mb-2">{t("dash.analytics.empty")}</h3>
-          <p className="text-sm text-text-secondary max-w-md text-center mb-6">
+          <p className="text-sm text-text-secondary max-w-md text-center mb-8">
             {t("dash.analytics.empty_desc")}
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 w-full max-w-lg">
-            <Card className="p-4 text-center border-dashed">
-              <TrendingUp className="h-5 w-5 text-text-muted mx-auto mb-2" />
+            <Card className="p-5 text-center border-dashed hover:border-accent-cyan/30 transition-colors">
+              <TrendingUp className="h-6 w-6 text-accent-cyan mx-auto mb-3" />
               <p className="text-xs text-text-muted">Spend trends</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50 mt-1">—</p>
             </Card>
-            <Card className="p-4 text-center border-dashed">
-              <Cpu className="h-5 w-5 text-text-muted mx-auto mb-2" />
+            <Card className="p-5 text-center border-dashed hover:border-emerald/30 transition-colors">
+              <Cpu className="h-6 w-6 text-emerald mx-auto mb-3" />
               <p className="text-xs text-text-muted">GPU hours</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50 mt-1">—</p>
             </Card>
-            <Card className="p-4 text-center border-dashed">
-              <Clock className="h-5 w-5 text-text-muted mx-auto mb-2" />
-              <p className="text-xs text-text-muted">Avg duration</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+            <Card className="p-5 text-center border-dashed hover:border-accent-gold/30 transition-colors">
+              <Clock className="h-6 w-6 text-accent-gold mx-auto mb-3" />
+              <p className="text-xs text-text-muted">Job insights</p>
+              <p className="text-lg font-bold font-mono text-text-muted/50 mt-1">—</p>
             </Card>
           </div>
-          <p className="text-xs text-text-muted mt-6">
+          <p className="text-xs text-text-muted mt-8">
             Analytics populate automatically when you launch instances or when jobs run on your hosts
           </p>
         </div>
+
+      /* ── Dashboard Content ─────────────────────────────── */
       ) : (
         <>
-          {/* Summary Stats */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Card className="p-4">
-              <p className="text-2xl font-bold font-mono">{summary.total_jobs ?? 0}</p>
-              <p className="text-xs text-text-muted">{t("dash.analytics.total_jobs")}</p>
-              <div className="mt-1">{renderDelta(jobsDelta)}</div>
-            </Card>
-            <Card className="p-4">
-              <p className="text-2xl font-bold font-mono">${Number(summary.total_spend_cad ?? 0).toFixed(2)}</p>
-              <p className="text-xs text-text-muted">{t("dash.analytics.total_spend")}</p>
-              <div className="mt-1">{renderDelta(spendDelta)}</div>
-            </Card>
-            <Card className="p-4">
-              <p className="text-2xl font-bold font-mono">{Number(summary.total_gpu_hours ?? 0).toFixed(1)}</p>
-              <p className="text-xs text-text-muted">{t("dash.analytics.gpu_hours")}</p>
-              <div className="mt-1">{renderDelta(gpuHoursDelta)}</div>
-            </Card>
-            <Card className="p-4">
-              <p className="text-2xl font-bold font-mono">{Number(summary.avg_gpu_utilization_pct ?? 0).toFixed(1)}%</p>
-              <p className="text-xs text-text-muted">{t("dash.analytics.avg_util")}</p>
-              <p className="mt-1 text-xs text-text-muted">Real-time metering from completed usage records</p>
-            </Card>
-          </div>
+          {/* ── OVERVIEW TAB ──────────────────────────────── */}
+          {tab === "overview" && (
+            <div className="space-y-6">
+              {/* Primary KPIs with glow + sparklines */}
+              <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StaggerItem>
+                  <StatCard
+                    label="Total Jobs"
+                    value={
+                      <div className="flex items-center gap-3">
+                        <CountUp value={totalJobs} />
+                        <Sparkline data={jobSparkline} color="#00d4ff" />
+                      </div>
+                    }
+                    icon={Zap}
+                    glow="cyan"
+                    trend={trendDir(jobsDelta)}
+                    trendValue={trendVal(jobsDelta)}
+                  />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard
+                    label="Total Spend"
+                    value={
+                      <div className="flex items-center gap-3">
+                        <CountUp value={totalSpend} prefix="$" />
+                        <Sparkline data={spendSparkline} color="#f59e0b" />
+                      </div>
+                    }
+                    icon={DollarSign}
+                    glow="gold"
+                    trend={trendDir(spendDelta)}
+                    trendValue={trendVal(spendDelta)}
+                  />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard
+                    label="GPU Hours"
+                    value={
+                      <div className="flex items-center gap-3">
+                        <CountUp value={totalGpuHours} />
+                        <Sparkline data={gpuHoursSparkline} color="#10b981" />
+                      </div>
+                    }
+                    icon={Clock}
+                    glow="emerald"
+                    trend={trendDir(gpuHoursDelta)}
+                    trendValue={trendVal(gpuHoursDelta)}
+                  />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard
+                    label="Avg Utilization"
+                    value={
+                      <div className="flex items-center gap-3">
+                        <CountUp value={Number(summary.avg_gpu_utilization_pct ?? 0)} suffix="%" />
+                        <Sparkline data={utilSparkline} color="#8b5cf6" />
+                      </div>
+                    }
+                    icon={Gauge}
+                    glow="violet"
+                    trend={trendDir(utilDelta)}
+                    trendValue={trendVal(utilDelta)}
+                  />
+                </StaggerItem>
+              </StaggerList>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {/* Jobs Over Time */}
-            {jobsOverTime.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">{t("dash.analytics.chart_jobs")}</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-56 min-h-[224px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
-                      <LineChart data={jobsOverTime}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <Tooltip contentStyle={tooltipStyle} />
-                        <Line type="monotone" dataKey="count" stroke="#38bdf8" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
+              {/* Auto-Insights */}
+              {insights.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="h-4 w-4 text-accent-cyan" />
+                    <h3 className="text-sm font-semibold">Auto-Insights</h3>
+                    <span className="text-[10px] text-text-muted font-mono">{insights.length} detected</span>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Spend Over Time */}
-            {spendOverTime.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">{t("dash.analytics.chart_spend")}</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-56 min-h-[224px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
-                      <BarChart data={spendOverTime}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`$${Number(value).toFixed(2)}`, "Spend"]} />
-                        <Bar dataKey="amount" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {utilOverTime.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">GPU Utilization Trend</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-56 min-h-[224px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
-                      <LineChart data={utilOverTime}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" domain={[0, 100]} />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${Number(value).toFixed(1)}%`, "Avg Util"]} />
-                        <Line type="monotone" dataKey="util" stroke="#10b981" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {sovereigntyMixOverTime.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">Canadian vs International Jobs</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-56 min-h-[224px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
-                      <BarChart data={sovereigntyMixOverTime}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <Tooltip contentStyle={tooltipStyle} />
-                        <Legend />
-                        <Bar stackId="jobs" dataKey="canadian" name="Canadian" fill="#38bdf8" radius={[3, 3, 0, 0]} />
-                        <Bar stackId="jobs" dataKey="international" name="International" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {topGpuSeries.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">Top GPU Models by Spend</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-64 min-h-[240px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
-                      <BarChart data={topGpuSeries} layout="vertical" margin={{ left: 10, right: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis type="number" tick={{ fill: "#94a3b8", fontSize: 11 }} stroke="#475569" />
-                        <YAxis type="category" dataKey="name" tick={{ fill: "#94a3b8", fontSize: 11 }} width={100} stroke="#475569" />
-                        <Tooltip
-                          contentStyle={tooltipStyle}
-                          formatter={(value, key) => {
-                            if (key === "spend") return [`$${Number(value).toFixed(2)}`, "Spend"];
-                            if (key === "hours") return [`${Number(value).toFixed(2)}h`, "GPU Hours"];
-                            return [value, key];
-                          }}
-                        />
-                        <Bar dataKey="spend" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {provinceSeries.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">Spend by Province</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="h-64 min-h-[240px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={220} minWidth={0} debounce={1}>
-                      <PieChart>
-                        <Pie
-                          data={provinceSeries}
-                          dataKey="value"
-                          nameKey="name"
-                          outerRadius={95}
-                          innerRadius={50}
-                          paddingAngle={2}
-                        >
-                          {provinceSeries.map((entry, index) => (
-                            <Cell key={`province-${entry.name}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`$${Number(value).toFixed(2)}`, "Spend"]} />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Breakdown Table */}
-          {analytics.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-sm">{t("dash.analytics.breakdown")}</CardTitle></CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left">
-                        <th className="py-2 pr-4 font-medium">{t("dash.analytics.col_category")}</th>
-                        <th className="py-2 pr-4 font-medium text-right">{t("dash.analytics.col_jobs")}</th>
-                        <th className="py-2 pr-4 font-medium text-right">{t("dash.analytics.col_hours")}</th>
-                        <th className="py-2 font-medium text-right">{t("dash.analytics.col_spend")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {analytics.map((row: any, i: number) => (
-                        <tr key={i} className="border-b border-border/50 hover:bg-surface/50">
-                          <td className="py-2 pr-4 font-medium">{row.period || "—"}</td>
-                          <td className="py-2 pr-4 text-right font-mono text-xs">{row.job_count ?? "—"}</td>
-                          <td className="py-2 pr-4 text-right font-mono text-xs">{row.total_gpu_hours?.toFixed(1) ?? "—"}</td>
-                          <td className="py-2 text-right font-mono text-xs">{row.total_cost_cad != null ? `$${Number(row.total_cost_cad).toFixed(2)}` : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <InsightCards insights={insights} />
                 </div>
-              </CardContent>
-            </Card>
+              )}
+
+              {/* Secondary KPIs */}
+              <FadeIn delay={0.15}>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <StatCard label="Avg Cost/Job" value={<CountUp value={avgCostPerJob} prefix="$" />} icon={ArrowUpRight} />
+                  <StatCard label="Avg Job Duration" value={<CountUp value={avgJobDuration} suffix="h" />} icon={Activity} />
+                  <StatCard label="Canadian Compute" value={<CountUp value={canadianPct} suffix="%" />} icon={Shield} />
+                  <StatCard label="Top GPU" value={<span className="text-sm font-mono">{topGpu}</span>} icon={ChartArea} />
+                </div>
+              </FadeIn>
+
+              {/* Hero charts */}
+              <FadeIn delay={0.25}>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <JobsTrendChart data={jobsOverTime} />
+                  <SpendTrendChart data={spendOverTime} />
+                </div>
+              </FadeIn>
+
+              {/* Activity heatmap */}
+              <HourlyHeatmap data={enhanced?.hourly_heatmap ?? []} />
+
+              {/* Peak days */}
+              <PeakDaysCards data={enhanced?.peak_days ?? []} />
+            </div>
+          )}
+
+          {/* ── COMPUTE TAB ──────────────────────────────── */}
+          {tab === "compute" && (
+            <div className="space-y-6">
+              <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StaggerItem>
+                  <StatCard label="Total Jobs" value={<CountUp value={totalJobs} />} icon={Zap} glow="cyan" />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard label="GPU Hours" value={<CountUp value={totalGpuHours} />} icon={Clock} glow="emerald" />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard label="Avg Utilization" value={<CountUp value={Number(summary.avg_gpu_utilization_pct ?? 0)} suffix="%" />} icon={Gauge} glow="violet" />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard label="Canadian %" value={<CountUp value={canadianPct} suffix="%" />} icon={Globe} glow="gold" />
+                </StaggerItem>
+              </StaggerList>
+
+              <FadeIn delay={0.15}>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <UtilizationChart data={utilOverTime} />
+                  <GpuHoursChart data={enhanced?.daily_gpu_hours ?? []} />
+                </div>
+              </FadeIn>
+
+              <FadeIn delay={0.2}>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <DurationHistogramChart data={enhanced?.duration_histogram ?? []} />
+                  <SovereigntyChart data={sovereigntyOverTime} />
+                </div>
+              </FadeIn>
+
+              <FadeIn delay={0.25}>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <GpuPerformanceRadar data={enhanced?.gpu_performance ?? []} />
+                  <TopGpuChart data={topGpuSeries} />
+                </div>
+              </FadeIn>
+
+              <GpuPerformanceTable data={enhanced?.gpu_performance ?? []} />
+              <TopEntitiesTable data={enhanced?.top_entities ?? []} entityLabel={isAdmin ? "Customer" : "Host"} />
+            </div>
+          )}
+
+          {/* ── FINANCIAL TAB ────────────────────────────── */}
+          {tab === "financial" && (
+            <div className="space-y-6">
+              <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StaggerItem>
+                  <StatCard label="Total Spend" value={<CountUp value={totalSpend} prefix="$" />} icon={DollarSign} glow="gold" trend={trendDir(spendDelta)} trendValue={trendVal(spendDelta)} />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard label="Avg Cost/Job" value={<CountUp value={avgCostPerJob} prefix="$" />} icon={ArrowUpRight} glow="cyan" />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard
+                    label="CA Spend"
+                    value={<CountUp value={enhanced?.sovereignty?.canadian_spend ?? 0} prefix="$" />}
+                    icon={Shield}
+                    glow="emerald"
+                  />
+                </StaggerItem>
+                <StaggerItem>
+                  <StatCard
+                    label="Int'l Spend"
+                    value={<CountUp value={enhanced?.sovereignty?.international_spend ?? 0} prefix="$" />}
+                    icon={Globe}
+                    glow="violet"
+                  />
+                </StaggerItem>
+              </StaggerList>
+
+              <FadeIn delay={0.15}>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <SpendTrendChart data={spendOverTime} />
+                  <CostPerHourChart data={enhanced?.cost_per_hour_trend ?? []} />
+                </div>
+              </FadeIn>
+
+              <CumulativeSpendChart data={enhanced?.cumulative_spend ?? []} />
+
+              <FadeIn delay={0.25}>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <WalletActivityChart data={enhanced?.wallet_activity ?? []} />
+                  <ProvinceDonutChart data={provinceSeries} />
+                </div>
+              </FadeIn>
+            </div>
+          )}
+
+          {/* ── PROVIDER TAB ─────────────────────────────── */}
+          {tab === "provider" && (isProvider || isAdmin) && (
+            <div className="space-y-6">
+              {enhanced?.provider_summary ? (
+                <>
+                  <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <StaggerItem>
+                      <StatCard
+                        label="Jobs Served"
+                        value={<CountUp value={enhanced.provider_summary.total_jobs_served} />}
+                        icon={Zap}
+                        glow="cyan"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <StatCard
+                        label="Total Revenue"
+                        value={<CountUp value={enhanced.provider_summary.total_revenue} prefix="$" />}
+                        icon={DollarSign}
+                        glow="gold"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <StatCard
+                        label="GPU Hours Served"
+                        value={<CountUp value={enhanced.provider_summary.total_gpu_hours} />}
+                        icon={Clock}
+                        glow="emerald"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <StatCard
+                        label="Avg Utilization"
+                        value={<CountUp value={enhanced.provider_summary.avg_util} suffix="%" />}
+                        icon={Gauge}
+                        glow="violet"
+                      />
+                    </StaggerItem>
+                  </StaggerList>
+
+                  <FadeIn delay={0.15}>
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      <ProviderRevenueTrendChart data={enhanced.provider_daily ?? []} />
+                      <UtilizationChart data={(enhanced.provider_daily ?? []).map((d) => ({ date: d.date, util: d.avg_util }))} />
+                    </div>
+                  </FadeIn>
+                </>
+              ) : (
+                <FadeIn>
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
+                      <Server className="h-10 w-10 text-text-muted" />
+                    </div>
+                    <h3 className="text-xl font-semibold mb-2">No provider data yet</h3>
+                    <p className="text-sm text-text-secondary text-center max-w-md">
+                      {isAdmin
+                        ? "Provider analytics appear once hosts serve jobs through the platform."
+                        : "Register as a provider and start hosting GPU jobs to see your earnings analytics here."
+                      }
+                    </p>
+                  </div>
+                </FadeIn>
+              )}
+            </div>
           )}
         </>
       )}
+      {/* ── Analytics AI Panel ─────────────────────── */}
+      <AnalyticsAiPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        tab={tab}
+        summary={summary}
+        enhanced={enhanced}
+        previousSummary={previousSummary}
+        range={range === 0 ? Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000) : range}
+      />
     </div>
   );
 }

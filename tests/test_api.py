@@ -134,6 +134,9 @@ def clean_data():
 
     _host_telemetry.clear()
     _RATE_BUCKETS.clear()
+    # Seed wallet for anonymous test user so wallet pre-flight checks pass
+    from billing import get_billing_engine
+    get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
     yield
 
 
@@ -1500,3 +1503,82 @@ class TestApiKeys:
         fresh = TestClient(app, cookies={})
         r = fresh.post("/api/keys/generate", json={"name": "nope"})
         assert r.status_code == 401
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GPU Availability Endpoint
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestGpuAvailability:
+    """Tests for GET /api/v2/gpu/available."""
+
+    def test_gpu_available_empty(self):
+        """Returns empty list when no GPUs exist."""
+        r = client.get("/api/v2/gpu/available")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["gpus"] == []
+        assert data["source"] == "none"
+
+    def test_gpu_available_hosts_fallback(self):
+        """Falls back to hosts table when gpu_offers is empty."""
+        # Register an admitted host
+        _register_host("gpu-h1", ip="10.0.1.1", gpu="RTX 4090", vram=24, versions=GOOD_VERSIONS)
+        r = client.get("/api/v2/gpu/available")
+        assert r.status_code == 200
+        data = r.json()
+        # Should find GPUs from hosts table (source = "hosts")
+        assert data["ok"] is True
+        assert data["source"] == "hosts"
+        assert len(data["gpus"]) >= 1
+        gpu = data["gpus"][0]
+        assert gpu["gpu_model"] == "RTX 4090"
+        assert gpu["vram_gb"] is not None
+
+    def test_gpu_available_returns_correct_count(self):
+        """Multiple hosts with same GPU model are counted correctly."""
+        _register_host("gpu-h2", ip="10.0.1.2", gpu="A100", vram=80, versions=GOOD_VERSIONS)
+        _register_host("gpu-h3", ip="10.0.1.3", gpu="A100", vram=80, versions=GOOD_VERSIONS)
+        r = client.get("/api/v2/gpu/available")
+        assert r.status_code == 200
+        data = r.json()
+        a100s = [g for g in data["gpus"] if g["gpu_model"] == "A100"]
+        assert len(a100s) >= 1
+        assert a100s[0]["count_available"] >= 2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Log Download Endpoint
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestLogDownload:
+    """Tests for GET /instances/{job_id}/logs/download."""
+
+    def test_log_download_no_logs(self):
+        """Returns 404 when job has no logs."""
+        r = client.get("/instances/nonexistent/logs/download")
+        assert r.status_code == 404
+
+    def test_log_download_with_logs(self):
+        """Returns text/plain log file when logs exist."""
+        _register_host("log-h1", ip="10.0.2.1", gpu="RTX 4090", vram=24, versions=GOOD_VERSIONS)
+        res = _submit_job("log-test-job", vram=16)
+        assert res.status_code == 200
+        job_id = res.json()["instance"]["job_id"]
+
+        # Push some log entries manually
+        from routes.instances import push_job_log
+        push_job_log(job_id, "Starting container...", level="info")
+        push_job_log(job_id, "Training epoch 1", level="info")
+        push_job_log(job_id, "Loss: 0.5", level="debug")
+
+        r = client.get(f"/instances/{job_id}/logs/download")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "text/plain; charset=utf-8"
+        assert "attachment" in r.headers.get("content-disposition", "")
+        text = r.text
+        assert "Starting container" in text
+        assert "Training epoch 1" in text

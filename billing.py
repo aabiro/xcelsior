@@ -736,18 +736,20 @@ class BillingEngine:
                     return {"tx_id": existing["tx_id"], "balance_cad": existing["balance_after_cad"], "dedup": True}
 
         wallet = self.get_wallet(customer_id)
-        new_balance = round(wallet["balance_cad"] + amount_cad, 4)
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
 
         with self._conn() as conn:
-            conn.execute(
+            # Atomic: increment balance and get new value in one statement
+            row = conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = %s,
+                   SET balance_cad = balance_cad + %s,
                        total_deposited_cad = total_deposited_cad + %s,
                        updated_at = %s
-                   WHERE customer_id = %s""",
-                (new_balance, amount_cad, time.time(), customer_id),
-            )
+                   WHERE customer_id = %s
+                   RETURNING balance_cad""",
+                (amount_cad, amount_cad, time.time(), customer_id),
+            ).fetchone()
+            new_balance = row["balance_cad"] if row else round(wallet["balance_cad"] + amount_cad, 4)
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
@@ -795,6 +797,17 @@ class BillingEngine:
                     balance,
                     amount_cad,
                 )
+                try:
+                    from db import NotificationStore
+                    NotificationStore.create(
+                        user_email=customer_id,
+                        notif_type="billing_grace",
+                        title="Low balance — 72-hour grace period started",
+                        body=f"Your balance is ${balance:.2f} CAD. Add funds within 72 hours to avoid service interruption.",
+                        data={"balance_cad": balance, "grace_until": grace_end},
+                    )
+                except Exception:
+                    pass
                 return {
                     "charged": False,
                     "reason": "insufficient_balance",
@@ -810,6 +823,17 @@ class BillingEngine:
                         (now, customer_id),
                     )
                 log.warning("WALLET %s grace period expired — account suspended", customer_id)
+                try:
+                    from db import NotificationStore
+                    NotificationStore.create(
+                        user_email=customer_id,
+                        notif_type="billing_suspended",
+                        title="Account suspended — grace period expired",
+                        body="Your account has been suspended due to insufficient funds. All running instances will be stopped. Add funds to reactivate.",
+                        data={"balance_cad": balance},
+                    )
+                except Exception:
+                    pass
                 return {
                     "charged": False,
                     "reason": "grace_expired",
@@ -824,15 +848,18 @@ class BillingEngine:
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
 
         with self._conn() as conn:
-            conn.execute(
+            # Atomic: decrement balance with a floor check to prevent races
+            row = conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = %s,
+                   SET balance_cad = balance_cad - %s,
                        total_spent_cad = total_spent_cad + %s,
                        grace_until = 0,
                        updated_at = %s
-                   WHERE customer_id = %s""",
-                (new_balance, amount_cad, time.time(), customer_id),
-            )
+                   WHERE customer_id = %s
+                   RETURNING balance_cad""",
+                (amount_cad, amount_cad, time.time(), customer_id),
+            ).fetchone()
+            new_balance = row["balance_cad"] if row else new_balance
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
@@ -855,19 +882,19 @@ class BillingEngine:
     ):
         """Internal: credit a wallet (for refunds)."""
         self._ensure_wallet_table()
-        wallet = self.get_wallet(customer_id)
-        new_balance = round(wallet["balance_cad"] + amount_cad, 4)
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
 
         with self._conn() as conn:
-            conn.execute(
+            row = conn.execute(
                 """UPDATE wallets
-                   SET balance_cad = %s,
+                   SET balance_cad = balance_cad + %s,
                        total_refunded_cad = total_refunded_cad + %s,
                        updated_at = %s
-                   WHERE customer_id = %s""",
-                (new_balance, amount_cad, time.time(), customer_id),
-            )
+                   WHERE customer_id = %s
+                   RETURNING balance_cad""",
+                (amount_cad, amount_cad, time.time(), customer_id),
+            ).fetchone()
+            new_balance = row["balance_cad"] if row else amount_cad
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
@@ -929,12 +956,16 @@ class BillingEngine:
 
     # ── Instance Pause / Resume ───────────────────────────────────────
 
+    _VALID_PAUSE_REASONS = frozenset({"paused_low_balance", "user_paused"})
+
     def pause_instance(self, job_id: str, reason: str = "paused_low_balance") -> dict:
         """Pause a running instance: stop container, preserve volume, stop billing.
 
         Per Phase 1.3: pause_instance() stops the container but preserves
         the volume mount so the user can resume later.
         """
+        if reason not in self._VALID_PAUSE_REASONS:
+            return {"paused": False, "reason": f"invalid_reason: must be one of {sorted(self._VALID_PAUSE_REASONS)}"}
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
@@ -943,19 +974,72 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                "SELECT * FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE",
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          payload->>'name' AS name,
+                          payload->>'container_name' AS container_name
+                   FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
                 return {"paused": False, "reason": "not_running"}
 
             conn.execute(
-                "UPDATE jobs SET status = %s, completed_at = %s WHERE job_id = %s",
-                (reason, now, job_id),
+                """UPDATE jobs SET status = %s,
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{paused_at}', to_jsonb(%s::float)),
+                       '{status}', %s::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (reason, now, json.dumps(reason), job_id),
+            )
+            # Insert a zero-amount billing cycle to anchor the billing period.
+            # Without this, resume would bill for the entire paused duration.
+            owner = job.get("owner") or ""
+            cycle_id = f"BC-pause-{int(now)}-{os.urandom(3).hex()}"
+            conn.execute(
+                """INSERT INTO billing_cycles
+                   (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                    amount_cad, status, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'paused', %s)""",
+                (cycle_id, job_id, owner, job.get("host_id", ""), now, now, now),
             )
             conn.commit()
 
-        log.warning("PAUSE job=%s reason=%s owner=%s", job_id, reason, job.get("owner"))
+        # Kill the container on the host (preserve volumes)
+        owner = job.get("owner") or ""
+        host_id = job.get("host_id") or ""
+        container_name = job.get("container_name") or f"xcl-{job_id}"
+        if host_id:
+            try:
+                from scheduler import ssh_exec, list_hosts, _validate_name
+                import shlex
+                _validate_name(container_name, "container name")
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                host = hmap.get(host_id)
+                if host:
+                    ssh_exec(host["ip"], f"docker kill {shlex.quote(container_name)}")
+                    log.info("PAUSE container killed: %s on %s", container_name, host_id)
+            except Exception as e:
+                log.warning("PAUSE container kill failed for %s: %s", job_id, e)
+
+        # Send notification
+        try:
+            from db import NotificationStore
+            NotificationStore.create(
+                user_email=owner,
+                notif_type="billing_pause",
+                title=f"Instance paused: {job.get('name', job_id)}",
+                body=f"Your instance was paused due to {reason.replace('_', ' ')}. "
+                     "Add funds to resume.",
+                data={"job_id": job_id, "reason": reason},
+            )
+        except Exception:
+            pass  # non-critical
+
+        log.warning("PAUSE job=%s reason=%s owner=%s", job_id, reason, owner)
         return {"paused": True, "job_id": job_id, "reason": reason}
 
     def resume_instance(self, job_id: str) -> dict:
@@ -972,24 +1056,78 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             job = conn.execute(
-                "SELECT * FROM jobs WHERE job_id = %s AND status = 'paused_low_balance' FOR UPDATE",
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          payload->>'name' AS name,
+                          payload->>'image' AS image,
+                          payload->>'container_name' AS container_name
+                   FROM jobs
+                   WHERE job_id = %s AND status IN ('paused_low_balance', 'user_paused') FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
                 return {"resumed": False, "reason": "not_paused"}
 
             # Verify wallet has funds
-            wallet = self.get_wallet(job["owner"])
+            owner = job.get("owner") or ""
+            wallet = self.get_wallet(owner)
             if wallet["balance_cad"] <= 0:
                 return {"resumed": False, "reason": "insufficient_balance"}
 
             conn.execute(
-                "UPDATE jobs SET status = 'running', completed_at = 0, updated_at = %s WHERE job_id = %s",
-                (now, job_id),
+                """UPDATE jobs SET status = 'running',
+                   payload = jsonb_set(
+                       jsonb_set(
+                           jsonb_set(payload, '{paused_at}', '0'::jsonb),
+                           '{resumed_at}', to_jsonb(%s::float)
+                       ),
+                       '{status}', %s::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (now, json.dumps("running"), job_id),
+            )
+            # Insert a billing anchor at resume time so billing starts fresh
+            cycle_id = f"BC-resume-{int(now)}-{os.urandom(3).hex()}"
+            conn.execute(
+                """INSERT INTO billing_cycles
+                   (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                    amount_cad, status, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'resumed', %s)""",
+                (cycle_id, job_id, owner, job.get("host_id", ""), now, now, now),
             )
             conn.commit()
 
-        log.info("RESUME job=%s owner=%s", job_id, job.get("owner"))
+        # Restart the container on the host
+        host_id = job.get("host_id") or ""
+        if host_id:
+            try:
+                from scheduler import list_hosts, run_job
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                host = hmap.get(host_id)
+                if host:
+                    from scheduler import get_job
+                    full_job = get_job(job_id) or {}
+                    run_job(full_job, host, docker_image=job.get("image"))
+                    log.info("RESUME container restarted: %s on %s", job_id, host_id)
+            except Exception as e:
+                log.warning("RESUME container restart failed for %s: %s", job_id, e)
+
+        # Send notification
+        try:
+            from db import NotificationStore
+            NotificationStore.create(
+                user_email=owner,
+                notif_type="billing_resume",
+                title=f"Instance resumed: {job.get('name', job_id)}",
+                body="Your instance has been resumed after funds were added.",
+                data={"job_id": job_id},
+            )
+        except Exception:
+            pass  # non-critical
+
+        log.info("RESUME job=%s owner=%s", job_id, owner)
         return {"resumed": True, "job_id": job_id, "status": "running"}
 
     # ── Wallet Lifecycle ──────────────────────────────────────────────
@@ -1073,63 +1211,71 @@ class BillingEngine:
             try:
                 job_id = job["job_id"]
                 customer_id = job["owner"]
+                if not customer_id:
+                    log.warning("AUTO-BILLING: skipping job %s — no owner set", job_id)
+                    continue
                 host_id = job.get("host_id", "")
                 gpu_model = job.get("gpu_model", "")
                 tier = job.get("tier", "free")
 
                 # Find the last billing cycle end for this job
+                # Single transaction with row lock prevents double-billing from concurrent ticks
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
+                    # Lock the job row so a concurrent billing tick skips it
+                    locked = conn.execute(
+                        "SELECT job_id FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE SKIP LOCKED",
+                        (job_id,),
+                    ).fetchone()
+                    if not locked:
+                        continue  # Another tick already processing this job
+
                     last = conn.execute(
                         """SELECT period_end FROM billing_cycles
                            WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
                         (job_id,),
                     ).fetchone()
 
-                period_start = last["period_end"] if last else float(job["started_at"])
-                period_end = now
+                    period_start = last["period_end"] if last else float(job["started_at"])
+                    period_end = now
 
-                # Skip if less than 60 seconds since last billing
-                if period_end - period_start < 60:
-                    continue
+                    # Skip if less than 60 seconds since last billing
+                    if period_end - period_start < 60:
+                        continue
 
-                duration_sec = period_end - period_start
+                    duration_sec = period_end - period_start
 
-                # Get the host's rate
-                with pool.connection() as conn:
-                    conn.row_factory = dict_row
+                    # Get the host's rate (same transaction)
                     host = conn.execute(
-                        "SELECT cost_per_hour FROM hosts WHERE host_id = %s",
+                        "SELECT payload->>'cost_per_hour' AS cost_per_hour FROM hosts WHERE host_id = %s",
                         (host_id,),
                     ).fetchone()
 
-                rate_per_hour = float(host["cost_per_hour"]) if host else 0.20
+                    rate_per_hour = float(host["cost_per_hour"]) if host and host.get("cost_per_hour") else 0.20
 
-                # Tier multiplier
-                from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
-                try:
-                    tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
-                    tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
-                except (ValueError, KeyError):
-                    tier_multiplier = 1.0
+                    # Tier multiplier
+                    from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
+                    try:
+                        tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
+                        tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
+                    except (ValueError, KeyError):
+                        tier_multiplier = 1.0
 
-                amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
+                    amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
 
-                if amount_cad <= 0:
-                    continue
+                    if amount_cad <= 0:
+                        continue
 
-                # Charge the wallet
-                charge_result = self.charge(
-                    customer_id, amount_cad, job_id=job_id,
-                    description=f"Auto-billing: {gpu_model} ({duration_sec/60:.1f}min)",
-                )
+                    # Charge the wallet
+                    charge_result = self.charge(
+                        customer_id, amount_cad, job_id=job_id,
+                        description=f"Auto-billing: {gpu_model} ({duration_sec/60:.1f}min)",
+                    )
 
-                cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
-                status = "charged" if charge_result.get("charged") else "failed"
+                    cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
+                    status = "charged" if charge_result.get("charged") else "failed"
 
-                # Record the billing cycle
-                with pool.connection() as conn:
-                    conn.row_factory = dict_row
+                    # Record the billing cycle (inside same locked transaction)
                     conn.execute(
                         """INSERT INTO billing_cycles
                            (cycle_id, job_id, customer_id, host_id, period_start, period_end,
@@ -1149,16 +1295,26 @@ class BillingEngine:
                     suspended += 1
                     # Actually terminate the running container
                     try:
-                        from scheduler import kill_job as scheduler_kill
-                        with pool.connection() as kconn:
-                            kconn.row_factory = dict_row
-                            jrow = kconn.execute(
-                                "SELECT j.*, h.ip FROM jobs j JOIN hosts h ON j.host_id = h.host_id WHERE j.job_id = %s",
-                                (job_id,),
-                            ).fetchone()
-                        if jrow:
-                            scheduler_kill(dict(jrow), dict(jrow))
-                            log.warning("BILLING: Killed job %s for suspended account %s", job_id, customer_id)
+                        from scheduler import get_job, list_hosts, ssh_exec, _validate_name
+                        import shlex as _shlex
+                        full_job = get_job(job_id)
+                        if full_job:
+                            cname = full_job.get("container_name") or f"xcl-{job_id}"
+                            _validate_name(cname, "container name")
+                            hosts = list_hosts()
+                            hmap = {h["host_id"]: h for h in hosts}
+                            host = hmap.get(host_id)
+                            if host:
+                                ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
+                                log.warning("BILLING: Killed job %s for suspended account %s", job_id, customer_id)
+                            # Mark job stopped in DB
+                            with pool.connection() as kconn:
+                                kconn.row_factory = dict_row
+                                kconn.execute(
+                                    "UPDATE jobs SET status = 'stopped', payload = jsonb_set(payload, '{completed_at}', to_jsonb(%s::float)) WHERE job_id = %s",
+                                    (time.time(), job_id),
+                                )
+                                kconn.commit()
                         else:
                             log.warning("BILLING: Job %s not found for kill on suspension", job_id)
                     except Exception as kill_err:
@@ -1425,14 +1581,34 @@ class BillingEngine:
                         log.warning("Auto-topup DISABLED for %s after 3 failures — pausing instances", customer_id)
                         # Pause all running instances for this customer
                         running = conn.execute(
-                            "SELECT job_id FROM jobs WHERE owner = %s AND status = 'running'",
+                            """SELECT job_id, host_id,
+                                      payload->>'container_name' AS container_name
+                               FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
                             (customer_id,),
                         ).fetchall()
                         for job in running:
                             conn.execute(
-                                "UPDATE jobs SET status = 'paused_low_balance', completed_at = %s WHERE job_id = %s",
+                                "UPDATE jobs SET status = 'paused_low_balance', payload = jsonb_set(payload, '{paused_at}', to_jsonb(%s::float)) WHERE job_id = %s",
                                 (now, job["job_id"]),
                             )
+                        conn.commit()
+                        # Kill containers (best-effort, after commit)
+                        try:
+                            from scheduler import ssh_exec, list_hosts, _validate_name
+                            import shlex as _shlex
+                            hosts_list = list_hosts()
+                            hmap = {h["host_id"]: h for h in hosts_list}
+                            for job in running:
+                                host = hmap.get(job.get("host_id"))
+                                if host:
+                                    cname = job.get("container_name") or f"xcl-{job['job_id']}"
+                                    try:
+                                        _validate_name(cname, "container name")
+                                        ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
                     else:
                         conn.execute(
                             """UPDATE wallets
@@ -1546,17 +1722,49 @@ class BillingEngine:
             for w in suspended:
                 cid = w["customer_id"]
                 running = conn.execute(
-                    "SELECT job_id FROM jobs WHERE owner = %s AND status = 'running'",
+                    """SELECT job_id, host_id,
+                              payload->>'container_name' AS container_name
+                       FROM jobs WHERE payload->>'owner' = %s AND status = 'running'""",
                     (cid,),
                 ).fetchall()
                 for job in running:
                     conn.execute(
-                        "UPDATE jobs SET status = 'stopped', completed_at = %s WHERE job_id = %s AND status = 'running'",
+                        "UPDATE jobs SET status = 'stopped', payload = jsonb_set(payload, '{completed_at}', to_jsonb(%s::float)) WHERE job_id = %s AND status = 'running'",
                         (time.time(), job["job_id"]),
                     )
                     stopped += 1
                     log.warning("Stopped job %s for suspended wallet %s", job["job_id"], cid)
             conn.commit()
+
+        # Kill containers after releasing the connection (best-effort)
+        if stopped:
+            try:
+                from scheduler import ssh_exec, list_hosts, _validate_name
+                import shlex as _shlex
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                for w in suspended:
+                    cid = w["customer_id"]
+                    with pool.connection() as kconn:
+                        kconn.row_factory = dict_row
+                        just_stopped = kconn.execute(
+                            """SELECT job_id, host_id,
+                                      payload->>'container_name' AS container_name
+                               FROM jobs WHERE payload->>'owner' = %s AND status = 'stopped'
+                                 AND (payload->>'completed_at')::double precision > %s""",
+                            (cid, time.time() - 30),
+                        ).fetchall()
+                    for job in just_stopped:
+                        host = hmap.get(job.get("host_id"))
+                        if host:
+                            cname = job.get("container_name") or f"xcl-{job['job_id']}"
+                            try:
+                                _validate_name(cname, "container name")
+                                ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
+                            except Exception as ke:
+                                log.warning("Container kill failed for %s: %s", job["job_id"], ke)
+            except Exception as e:
+                log.warning("Container cleanup failed: %s", e)
 
         if stopped:
             log.info("ENFORCEMENT: Stopped %d jobs for suspended wallets", stopped)
@@ -1580,9 +1788,9 @@ class BillingEngine:
         with pool.connection() as conn:
             conn.row_factory = dict_row
             running = conn.execute(
-                """SELECT j.job_id, j.host_id, j.gpu_model, j.tier
+                """SELECT j.job_id, j.host_id, j.payload->>'gpu_model' AS gpu_model, COALESCE(j.payload->>'tier', 'free') AS tier
                    FROM jobs j
-                   WHERE j.owner = %s AND j.status = 'running'""",
+                   WHERE j.payload->>'owner' = %s AND j.status = 'running'""",
                 (customer_id,),
             ).fetchall()
 
@@ -1593,7 +1801,7 @@ class BillingEngine:
             with pool.connection() as conn:
                 conn.row_factory = dict_row
                 host = conn.execute(
-                    "SELECT cost_per_hour FROM hosts WHERE host_id = %s",
+                    "SELECT payload->>'cost_per_hour' AS cost_per_hour FROM hosts WHERE host_id = %s",
                     (host_id,),
                 ).fetchone()
             rate = float(host["cost_per_hour"]) if host else 0.20

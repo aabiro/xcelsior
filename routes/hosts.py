@@ -1,24 +1,14 @@
 """Routes: hosts."""
 
-import asyncio
 import os
 import re
 import time
 import uuid
-from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
-    _AUTH_RATE_BUCKETS,
-    _RATE_BUCKETS,
-    _USE_PERSISTENT_AUTH,
-    _check_auth_rate_limit,
-    _get_real_client_ip,
-    _otel_tracer,
-    _sse_lock,
-    _sse_subscribers,
     broadcast_sse,
     log,
 )
@@ -31,162 +21,12 @@ from scheduler import (
     register_host,
     remove_host,
 )
-from db import NotificationStore, UserStore
+from db import UserStore
 from verification import get_verification_engine
 from security import admit_node
 from reputation import VerificationType, get_reputation_engine
-import threading as _threading
 
 router = APIRouter()
-
-# Rate limits and notification events
-_AUTH_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "10"))
-_AUTH_RATE_LIMIT_WINDOW_SEC = 300
-_NOTIF_EVENT_MAP = {
-    "user_registered": ("system", "New User Registered", "{email} has joined the platform."),
-    "job_submitted": ("instance", "Instance Submitted", "Your instance {name} has been submitted."),
-    "job_status": ("instance", "Instance {status}", "Instance {job_id} is now {status}."),
-    "host_registered": ("host", "Host Registered", "A new host has been registered."),
-    "host_removed": ("host", "Host Removed", "Host {host_id} has been removed."),
-    "job_completed": ("instance", "Instance Completed", "Instance {job_id} completed successfully."),
-    "job_failed": ("instance", "Instance Failed", "Instance {job_id} has failed."),
-    "preemption_scheduled": ("instance", "Preemption Scheduled", "Instance {job_id} is being preempted."),
-}
-
-
-# ── Helper: otel_span ──
-
-def otel_span(name: str, attributes: dict | None = None):
-    """Create a custom OpenTelemetry span (context manager).
-
-    Usage:
-        with otel_span("job.submit", {"job.id": job_id}):
-            ...
-    """
-    if _otel_tracer is None:
-        from contextlib import nullcontext
-        return nullcontext()
-    span = _otel_tracer.start_as_current_span(name, attributes=attributes or {})
-    return span
-
-
-# ── Helper: _sse_message_text ──
-
-def _sse_message_text(event_type: str, data: dict) -> str:
-    """Generate a human-readable message for an SSE event."""
-    _templates = {
-        "host_update": "Host {host_id} registered with {gpu_model}",
-        "host_removed": "Host {host_id} removed",
-        "job_submitted": "Instance {name} submitted (ID: {job_id})",
-        "job_status": "Instance {job_id} is now {status}",
-        "job_cancelled": "Instance {job_id} cancelled",
-        "job_log": "Log entry for instance {job_id}",
-        "queue_processed": "{assigned_count} instance(s) assigned to hosts",
-        "user_registered": "New user registered: {email}",
-        "team_created": "Team {name} created",
-        "team_member_added": "Member {email} added to team {team_id}",
-        "team_deleted": "Team {team_id} deleted",
-        "preemption_scheduled": "Preemption scheduled on host {host_id} for instance {job_id}",
-        "spot_prices_updated": "Spot prices updated",
-    }
-    template = _templates.get(event_type)
-    if template:
-        try:
-            return template.format(**data)
-        except (KeyError, IndexError):
-            pass
-    return event_type.replace("_", " ").title()
-
-
-# ── Helper: broadcast_sse ──
-
-def broadcast_sse(event_type: str, data: dict):
-    """Push an event to all connected SSE clients."""
-    message = {
-        "event": event_type,
-        "data": data,
-        "timestamp": time.time(),
-        "message": _sse_message_text(event_type, data),
-    }
-    with _sse_lock:
-        dead = []
-        for q in _sse_subscribers:
-            try:
-                q.put_nowait(message)
-            except asyncio.QueueFull:
-                dead.append(q)
-        for q in dead:
-            _sse_subscribers.remove(q)
-    # Deliver in-app notifications for user-facing events
-    _threading.Thread(target=_deliver_notifications, args=(event_type, data), daemon=True).start()
-
-
-# ── Helper: _deliver_notifications ──
-
-def _deliver_notifications(event_type: str, data: dict):
-    """Create per-user in-app notifications for relevant events."""
-    template = _NOTIF_EVENT_MAP.get(event_type)
-    if not template:
-        return
-    try:
-        notif_type, title_tmpl, body_tmpl = template
-        title = title_tmpl.format_map(defaultdict(str, **data))
-        body = body_tmpl.format_map(defaultdict(str, **data))
-
-        # Determine which users to notify based on event type
-        if _USE_PERSISTENT_AUTH:
-            # For job events, notify the submitter; for host/admin events, notify admins
-            if event_type in ("job_submitted", "job_status", "job_completed", "job_failed",
-                              "preemption_scheduled"):
-                # Find the job owner from the jobs list
-                job_id = data.get("job_id", "")
-                jobs = list_jobs()
-                job = next((j for j in jobs if j.get("job_id") == job_id), None)
-                owner_email = job.get("owner_email", job.get("user_email", "")) if job else ""
-                if owner_email:
-                    user = UserStore.get_user(owner_email)
-                    if user and user.get("notifications_enabled", 1):
-                        NotificationStore.create(owner_email, notif_type, title, body, data)
-                # Also notify admins for failures
-                if event_type == "job_failed":
-                    for u in UserStore.list_users():
-                        if u.get("role") == "admin" and u["email"] != owner_email:
-                            if u.get("notifications_enabled", 1):
-                                NotificationStore.create(u["email"], notif_type, title, body, data)
-            else:
-                # Host/system events → notify admins
-                for u in UserStore.list_users():
-                    if u.get("role") == "admin" and u.get("notifications_enabled", 1):
-                        NotificationStore.create(u["email"], notif_type, title, body, data)
-    except Exception as e:
-        log.debug("Notification delivery error: %s", e)
-
-
-# ── Helper: _get_real_client_ip ──
-
-def _get_real_client_ip(request: Request) -> str:
-    """Extract real client IP, respecting X-Real-IP / X-Forwarded-For from trusted proxy."""
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
-# ── Helper: _check_auth_rate_limit ──
-
-def _check_auth_rate_limit(request: Request) -> None:
-    """Enforce stricter rate limiting on auth endpoints. Raises 429 if exceeded."""
-    now = time.time()
-    client_ip = _get_real_client_ip(request)
-    bucket = _AUTH_RATE_BUCKETS[client_ip]
-    while bucket and bucket[0] <= now - _AUTH_RATE_LIMIT_WINDOW_SEC:
-        bucket.popleft()
-    if len(bucket) >= _AUTH_RATE_LIMIT_REQUESTS:
-        raise HTTPException(429, "Too many attempts. Please try again later.")
-    bucket.append(now)
 
 
 # ── Model: HostIn ──

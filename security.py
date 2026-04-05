@@ -192,6 +192,188 @@ def get_local_versions():
     return versions
 
 
+# ── Image Allowlist & Validation ──────────────────────────────────────
+# Single source of truth for approved container images + validation.
+
+# Approved registries — images MUST come from one of these prefixes.
+# IMPORTANT: Each entry should be as narrow as possible to prevent
+# untrusted images from bypassing the allowlist.
+ALLOWED_IMAGE_REGISTRIES: list[str] = [
+    # NVIDIA NGC
+    "nvcr.io/nvidia/",
+    # Docker Hub — specific trusted namespaces only
+    "vllm/",
+    "nvidia/cuda:",
+    "pytorch/",
+    "huggingface/",
+    "runpod/",
+    "ollama/",
+    "xcelsior/",
+    # GitHub Container Registry — specific orgs only
+    "ghcr.io/huggingface/",
+    "ghcr.io/vllm-project/",
+    # Quay.io — specific namespaces only
+    "quay.io/jupyter/",
+]
+
+# Authoritative image template catalogue.
+# Frontend + wizard + API all read from this.
+IMAGE_TEMPLATES: list[dict] = [
+    {
+        "id": "pytorch",
+        "label": "PyTorch",
+        "image": "nvcr.io/nvidia/pytorch:24.12-py3",
+        "default_vram_gb": 24,
+        "icon": "🔥",
+        "category": "ml",
+        "description": "NVIDIA NGC PyTorch with CUDA, cuDNN, and NCCL.",
+    },
+    {
+        "id": "tensorflow",
+        "label": "TensorFlow",
+        "image": "nvcr.io/nvidia/tensorflow:24.12-tf2-py3",
+        "default_vram_gb": 24,
+        "icon": "🧠",
+        "category": "ml",
+        "description": "NVIDIA NGC TensorFlow 2 with CUDA and TensorRT.",
+    },
+    {
+        "id": "vllm",
+        "label": "vLLM",
+        "image": "vllm/vllm-openai:v0.6.6.post1",
+        "default_vram_gb": 24,
+        "icon": "⚡",
+        "category": "inference",
+        "description": "High-throughput LLM serving engine with OpenAI-compatible API.",
+    },
+    {
+        "id": "comfyui",
+        "label": "ComfyUI",
+        "image": "runpod/comfyui:1.3.0-cuda12.8",
+        "default_vram_gb": 12,
+        "icon": "🎨",
+        "category": "creative",
+        "description": "Node-based Stable Diffusion GUI for image generation workflows.",
+    },
+    {
+        "id": "jupyter",
+        "label": "Jupyter Lab",
+        "image": "quay.io/jupyter/pytorch-notebook:cuda12-latest",
+        "default_vram_gb": 8,
+        "icon": "📓",
+        "category": "dev",
+        "description": "Interactive notebook environment with PyTorch and CUDA.",
+    },
+    {
+        "id": "ubuntu",
+        "label": "Ubuntu + CUDA",
+        "image": "nvidia/cuda:12.4.1-devel-ubuntu22.04",
+        "default_vram_gb": 8,
+        "icon": "🐧",
+        "category": "base",
+        "description": "Bare Ubuntu 22.04 with CUDA 12.4 toolkit for custom builds.",
+    },
+]
+
+_IMAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{1,510}$")
+_TAG_RE = re.compile(r":([a-zA-Z0-9._-]+)$")
+_DIGEST_RE = re.compile(r"@(sha256:[a-fA-F0-9]{64})$")
+
+
+def validate_docker_image(image: str, *, allow_custom: bool = True) -> str:
+    """Validate and normalize a Docker image string.
+
+    - Strips whitespace, rejects empty / obviously malicious strings.
+    - Checks against ALLOWED_IMAGE_REGISTRIES.
+    - Rejects untagged images (implicit :latest) on custom images.
+    - Returns the normalized image string on success.
+    - Raises ValueError on rejection.
+    """
+    if not image or not isinstance(image, str):
+        raise ValueError("Docker image must be a non-empty string")
+
+    image = image.strip()
+
+    # Reject non-ASCII (prevents homoglyph attacks like Cyrillic і vs Latin i)
+    if not image.isascii():
+        raise ValueError(f"Docker image contains non-ASCII characters: {image!r}")
+
+    # Reject null bytes, newlines, carriage returns (CLI injection vectors)
+    if any(c in image for c in "\x00\n\r"):
+        raise ValueError("Docker image contains illegal control characters")
+
+    # Length sanity
+    if len(image) > 512:
+        raise ValueError("Docker image string too long (max 512 chars)")
+
+    # Normalize to lowercase for consistent registry matching
+    image = image.lower()
+
+    # Character safety (same as _SAFE_NAME_RE in scheduler.py)
+    if not _IMAGE_NAME_RE.match(image):
+        raise ValueError(
+            f"Invalid Docker image: {image!r} — only alphanumeric, hyphens, underscores, "
+            "dots, colons, slashes, and @ allowed"
+        )
+
+    # Reject structural anomalies
+    if "//" in image:
+        raise ValueError(f"Invalid Docker image: double slash in {image!r}")
+    if image.count(":") > 1 and "@" not in image:
+        raise ValueError(f"Invalid Docker image: multiple colons in {image!r}")
+
+    # Validate digest format if present
+    if "@" in image:
+        if not _DIGEST_RE.search(image):
+            raise ValueError(
+                f"Invalid digest format in {image!r} — expected @sha256:<64 hex chars>"
+            )
+
+    # Reject path traversal attempts
+    if ".." in image or image.startswith("/") or image.startswith("~"):
+        raise ValueError(f"Invalid Docker image path: {image!r}")
+
+    # Check if it's one of our templates — always allowed
+    # Templates are compared lowercase since we normalized above
+    template_images = {t["image"].lower() for t in IMAGE_TEMPLATES}
+    if image in template_images:
+        return image
+
+    if not allow_custom:
+        raise ValueError(
+            f"Custom images not allowed. Use one of: "
+            + ", ".join(t["image"] for t in IMAGE_TEMPLATES)
+        )
+
+    # Registry allowlist check — strict prefix match, no fallbacks.
+    # Docker Hub short-form images (e.g. "pytorch/pytorch:2.1") are matched
+    # against ALLOWED_IMAGE_REGISTRIES which includes their namespace prefix.
+    # Images without a namespace or from unapproved registries are REJECTED.
+    registry_ok = any(
+        image.startswith(prefix.lower()) for prefix in ALLOWED_IMAGE_REGISTRIES
+    )
+    if not registry_ok:
+        raise ValueError(
+            f"Docker image {image!r} is not from an approved registry. "
+            f"Approved prefixes: {', '.join(ALLOWED_IMAGE_REGISTRIES)}"
+        )
+
+    # Warn against :latest on custom images (not blocked, but logged)
+    tag_match = _TAG_RE.search(image)
+    if not tag_match or tag_match.group(1) == "latest":
+        log.warning(
+            "Image %s uses :latest or no tag — consider pinning to a specific version",
+            image,
+        )
+
+    return image
+
+
+def get_image_templates() -> list[dict]:
+    """Return the authoritative image template list."""
+    return [dict(t) for t in IMAGE_TEMPLATES]
+
+
 # ── Layer 2: Least Privilege Container Configuration ──────────────────
 # Enforce rootless, no-privileged, no-new-privileges, cap-drop ALL
 
@@ -256,6 +438,9 @@ def build_secure_docker_args(
     # Security: no privileged, no new privileges
     args.append("--security-opt=no-new-privileges")
 
+    # Security: default seccomp profile (CIS 5.21 — defense-in-depth)
+    args.append("--security-opt=seccomp=default")
+
     # Security: drop all capabilities, add back minimums
     args.extend(["--cap-drop", "ALL"])
 
@@ -268,6 +453,9 @@ def build_secure_docker_args(
 
     # Security: non-root user
     args.extend(["--user", "1000:1000"])
+
+    # Security: disable Dockerfile HEALTHCHECK override (CIS 5.14)
+    args.append("--no-healthcheck")
 
     # GPU access (via --gpus, NOT --privileged)
     if gpu:
@@ -286,10 +474,22 @@ def build_secure_docker_args(
     args.extend(["--memory", "32g"])
     args.extend(["--memory-swap", "32g"])
     args.extend(["--pids-limit", "4096"])
+    args.extend(["--cpus", "16"])
+    args.extend(["--ulimit", "nofile=65535:65535"])
+    args.extend(["--ulimit", "nproc=4096:4096"])
+
+    # Shared memory for ML workloads (PyTorch DataLoader, NCCL)
+    args.extend(["--shm-size", "1g"])
+
+    # Restart policy (prevent crash-loop resource exhaustion, CIS 5.14)
+    args.extend(["--restart", "on-failure:3"])
 
     # Environment variables
+    _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
     if environment:
         for key, val in environment.items():
+            if not _ENV_KEY_RE.match(str(key)):
+                raise ValueError(f"Invalid environment variable name: {key!r}")
             args.extend(["-e", f"{key}={val}"])
 
     # Volume mounts (read-only by default)

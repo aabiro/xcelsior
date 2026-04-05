@@ -54,6 +54,9 @@ def _reset_state():
     ):
         if os.path.exists(f):
             os.remove(f)
+    # Seed wallet for anonymous test user so wallet pre-flight checks pass
+    from billing import get_billing_engine
+    get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
 
 
 def _admit_host(host_id):

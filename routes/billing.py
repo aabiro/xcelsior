@@ -20,6 +20,7 @@ from routes._deps import (
     otel_span,
 )
 from scheduler import (
+    bill_all_completed,
     bill_job,
     get_total_revenue,
     load_billing,
@@ -73,7 +74,11 @@ def api_bill_instance(job_id: str, request: Request):
 def api_bill_all(request: Request):
     """Bill all unbilled completed jobs."""
     _require_auth(request)
-    bills = bill_all_completed()
+    try:
+        bills = bill_all_completed()
+    except Exception as exc:
+        log.error("bill_all_completed failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Billing run failed") from exc
     return {"billed": len(bills), "bills": bills}
 
 @router.get("/billing", tags=["Billing"])
@@ -647,9 +652,7 @@ def api_usage_analytics(
     - `days` — lookback window (default 30)
     - `group_by` — aggregation: `day`, `week`, `gpu_model`, `province`
     """
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_auth(request)
 
     # Non-admin users are scoped to their own data automatically
     is_admin = bool(user.get("is_admin"))
@@ -741,6 +744,281 @@ def api_usage_analytics(
             "avg_gpu_utilization_pct": summary_row["avg_util"] if summary_row else 0,
         },
     }
+
+
+@router.get("/api/analytics/enhanced", tags=["Billing"])
+def api_analytics_enhanced(
+    request: Request,
+    days: int = 30,
+):
+    """Enhanced analytics endpoint for the rich analytics dashboard.
+
+    Returns aggregated data including cost-per-hour trends, cumulative spend,
+    duration histograms, job status breakdowns, wallet trends, top hosts,
+    sovereignty stats, and hourly heatmap data.
+
+    Non-admin users are automatically scoped to their own data.
+    Providers get both provider and customer views.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    is_admin = bool(user.get("is_admin"))
+    email = user["email"]
+    customer_id = user.get("customer_id", email)
+    provider_id = user.get("provider_id", "")
+
+    billing = get_billing_engine()
+    now = time.time()
+    safe_days = max(1, min(days, 3650))
+    since = now - (safe_days * 86400)
+
+    # Build WHERE clause based on role
+    if is_admin:
+        where_clauses = ["started_at >= %s", "started_at < %s"]
+        params: list = [since, now]
+    else:
+        where_clauses = ["started_at >= %s", "started_at < %s", "owner = %s"]
+        params = [since, now, email]
+
+    where_sql = " AND ".join(where_clauses)
+
+    # Provider WHERE for host-side metrics
+    provider_where = " AND ".join(
+        ["started_at >= %s", "started_at < %s", "host_id = %s"]
+    ) if provider_id else ""
+    provider_params: list = [since, now, provider_id] if provider_id else []
+
+    result: dict = {
+        "ok": True,
+        "days": safe_days,
+        "role": "admin" if is_admin else ("provider" if provider_id else "customer"),
+        "customer_id": customer_id,
+        "provider_id": provider_id,
+    }
+
+    try:
+        with billing._conn() as conn:
+            # ── 1. Cost-per-hour trend (daily avg cost per GPU hour) ──
+            cph_rows = conn.execute(
+                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                "CASE WHEN SUM(gpu_seconds) > 0 "
+                "  THEN ROUND(SUM(total_cost_cad) / (SUM(gpu_seconds) / 3600.0), 4) "
+                "  ELSE 0 END AS cost_per_hour, "
+                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours, "
+                "ROUND(SUM(total_cost_cad), 2) AS spend "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY date ORDER BY date",
+                params,
+            ).fetchall()
+            result["cost_per_hour_trend"] = [
+                {"date": r["date"], "cost_per_hour": float(r["cost_per_hour"]),
+                 "gpu_hours": float(r["gpu_hours"]), "spend": float(r["spend"])}
+                for r in cph_rows
+            ]
+
+            # ── 2. Cumulative spend ──
+            running = 0.0
+            cumulative = []
+            for r in cph_rows:
+                running += float(r["spend"])
+                cumulative.append({"date": r["date"], "total": round(running, 2)})
+            result["cumulative_spend"] = cumulative
+
+            # ── 3. Duration histogram (job duration buckets) ──
+            dur_rows = conn.execute(
+                "SELECT "
+                "CASE "
+                "  WHEN duration_sec < 60 THEN '< 1 min' "
+                "  WHEN duration_sec < 300 THEN '1-5 min' "
+                "  WHEN duration_sec < 1800 THEN '5-30 min' "
+                "  WHEN duration_sec < 3600 THEN '30-60 min' "
+                "  WHEN duration_sec < 14400 THEN '1-4 hr' "
+                "  ELSE '4+ hr' "
+                "END AS bucket, "
+                "COUNT(*) AS count, "
+                "ROUND(SUM(total_cost_cad), 2) AS total_cost "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY bucket ORDER BY MIN(duration_sec)",
+                params,
+            ).fetchall()
+            result["duration_histogram"] = [
+                {"bucket": r["bucket"], "count": int(r["count"]),
+                 "total_cost": float(r["total_cost"])}
+                for r in dur_rows
+            ]
+
+            # ── 4. GPU hours by day (dedicated chart) ──
+            result["daily_gpu_hours"] = [
+                {"date": r["date"], "hours": float(r["gpu_hours"])}
+                for r in cph_rows
+            ]
+
+            # ── 5. Hourly heatmap (jobs by day-of-week + hour) ──
+            heat_rows = conn.execute(
+                "SELECT EXTRACT(DOW FROM to_timestamp(started_at)) AS dow, "
+                "EXTRACT(HOUR FROM to_timestamp(started_at)) AS hour, "
+                "COUNT(*) AS count "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY dow, hour ORDER BY dow, hour",
+                params,
+            ).fetchall()
+            result["hourly_heatmap"] = [
+                {"dow": int(r["dow"]), "hour": int(r["hour"]),
+                 "count": int(r["count"])}
+                for r in heat_rows
+            ]
+
+            # ── 6. Top hosts used (or top customers if admin) ──
+            if is_admin:
+                top_rows = conn.execute(
+                    "SELECT owner AS entity, COUNT(*) AS job_count, "
+                    "ROUND(SUM(total_cost_cad), 2) AS total_cost, "
+                    "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY owner ORDER BY total_cost DESC LIMIT 10",
+                    params,
+                ).fetchall()
+            else:
+                top_rows = conn.execute(
+                    "SELECT host_id AS entity, COUNT(*) AS job_count, "
+                    "ROUND(SUM(total_cost_cad), 2) AS total_cost, "
+                    "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY host_id ORDER BY job_count DESC LIMIT 10",
+                    params,
+                ).fetchall()
+            result["top_entities"] = [
+                {"entity": r["entity"], "job_count": int(r["job_count"]),
+                 "total_cost": float(r["total_cost"]),
+                 "gpu_hours": float(r["gpu_hours"])}
+                for r in top_rows
+            ]
+
+            # ── 7. Sovereignty summary ──
+            sov_row = conn.execute(
+                "SELECT "
+                "COUNT(*) AS total, "
+                "SUM(CASE WHEN is_canadian_compute = 1 THEN 1 ELSE 0 END) AS canadian, "
+                "ROUND(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END), 2) AS ca_spend, "
+                "ROUND(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END), 2) AS intl_spend "
+                f"FROM usage_meters WHERE {where_sql}",
+                params,
+            ).fetchone()
+            total_jobs_sov = int(sov_row["total"]) if sov_row else 0
+            result["sovereignty"] = {
+                "total_jobs": total_jobs_sov,
+                "canadian_jobs": int(sov_row["canadian"]) if sov_row else 0,
+                "canadian_pct": round(int(sov_row["canadian"]) / total_jobs_sov * 100, 1) if total_jobs_sov else 0,
+                "canadian_spend": float(sov_row["ca_spend"]) if sov_row else 0,
+                "international_spend": float(sov_row["intl_spend"]) if sov_row else 0,
+            }
+
+            # ── 8. GPU model performance breakdown ──
+            gpu_perf_rows = conn.execute(
+                "SELECT gpu_model, COUNT(*) AS jobs, "
+                "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util, "
+                "ROUND(AVG(duration_sec / 60.0), 1) AS avg_duration_min, "
+                "ROUND(SUM(total_cost_cad), 2) AS total_cost, "
+                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours, "
+                "ROUND(AVG(CASE WHEN gpu_seconds > 0 "
+                "  THEN total_cost_cad / (gpu_seconds / 3600.0) ELSE 0 END), 4) AS avg_cost_per_hour "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY gpu_model ORDER BY total_cost DESC LIMIT 12",
+                params,
+            ).fetchall()
+            result["gpu_performance"] = [
+                {
+                    "gpu_model": r["gpu_model"],
+                    "jobs": int(r["jobs"]),
+                    "avg_util": float(r["avg_util"]),
+                    "avg_duration_min": float(r["avg_duration_min"]),
+                    "total_cost": float(r["total_cost"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                    "avg_cost_per_hour": float(r["avg_cost_per_hour"]),
+                }
+                for r in gpu_perf_rows
+            ]
+
+            # ── 9. Provider earnings (if user is a provider) ──
+            if provider_id and provider_where:
+                prov_rows = conn.execute(
+                    "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                    "COUNT(*) AS jobs_served, "
+                    "ROUND(SUM(total_cost_cad), 2) AS total_revenue, "
+                    "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
+                    f"FROM usage_meters WHERE {provider_where} "
+                    "GROUP BY date ORDER BY date",
+                    provider_params,
+                ).fetchall()
+                result["provider_daily"] = [
+                    {"date": r["date"], "jobs_served": int(r["jobs_served"]),
+                     "total_revenue": float(r["total_revenue"]),
+                     "avg_util": float(r["avg_util"])}
+                    for r in prov_rows
+                ]
+
+                prov_summary = conn.execute(
+                    "SELECT COUNT(*) AS total_jobs_served, "
+                    "ROUND(SUM(total_cost_cad), 2) AS total_revenue, "
+                    "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS total_gpu_hours, "
+                    "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
+                    f"FROM usage_meters WHERE {provider_where}",
+                    provider_params,
+                ).fetchone()
+                result["provider_summary"] = {
+                    "total_jobs_served": int(prov_summary["total_jobs_served"]) if prov_summary else 0,
+                    "total_revenue": float(prov_summary["total_revenue"]) if prov_summary else 0,
+                    "total_gpu_hours": float(prov_summary["total_gpu_hours"]) if prov_summary else 0,
+                    "avg_util": float(prov_summary["avg_util"]) if prov_summary else 0,
+                }
+
+            # ── 10. Wallet balance trend (from wallet_transactions) ──
+            try:
+                wallet_rows = conn.execute(
+                    "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS date, "
+                    "tx_type, "
+                    "SUM(amount_cad) AS total_amount, "
+                    "COUNT(*) AS tx_count "
+                    "FROM wallet_transactions "
+                    "WHERE customer_id = %s AND created_at >= %s "
+                    "GROUP BY date, tx_type ORDER BY date",
+                    [customer_id, since],
+                ).fetchall()
+                result["wallet_activity"] = [
+                    {"date": r["date"], "tx_type": r["tx_type"],
+                     "total_amount": float(r["total_amount"]),
+                     "tx_count": int(r["tx_count"])}
+                    for r in wallet_rows
+                ]
+            except Exception:
+                result["wallet_activity"] = []
+
+            # ── 11. Peak usage periods ──
+            peak_rows = conn.execute(
+                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                "COUNT(*) AS jobs, "
+                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours, "
+                "ROUND(SUM(total_cost_cad), 2) AS spend, "
+                "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
+                f"FROM usage_meters WHERE {where_sql} "
+                "GROUP BY date ORDER BY jobs DESC LIMIT 5",
+                params,
+            ).fetchall()
+            result["peak_days"] = [
+                {"date": r["date"], "jobs": int(r["jobs"]),
+                 "gpu_hours": float(r["gpu_hours"]),
+                 "spend": float(r["spend"]),
+                 "avg_util": float(r["avg_util"])}
+                for r in peak_rows
+            ]
+
+    except Exception as e:
+        log.error("Enhanced analytics query failed: %s", e)
+        return {"ok": False, "error": "An error occurred while loading analytics"}
+
+    return result
 
 
 # ── Model: AutoTopupConfig ──

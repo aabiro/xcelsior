@@ -254,6 +254,22 @@ def _start_background_tasks():
             log.debug("fintrac periodic check error (expected for zero amount): %s", e)
     tasks.append(("fintrac_check", _fintrac_check, 3600))
 
+    # 11. Job log cleanup — prune old entries from job_logs (daily)
+    def _job_log_cleanup():
+        try:
+            from db import _get_pg_pool
+            cutoff = time.time() - (7 * 86400)  # 7 days
+            pool = _get_pg_pool()
+            with pool.connection() as conn:
+                cur = conn.execute("DELETE FROM job_logs WHERE ts < %s", (cutoff,))
+                deleted = cur.rowcount
+                conn.commit()
+            if deleted:
+                log.info("Job log cleanup: purged %d old log rows", deleted)
+        except Exception as e:
+            log.error("Job log cleanup error: %s", e)
+    tasks.append(("job_log_cleanup", _job_log_cleanup, 86400))
+
     for name, func, interval in tasks:
         t = _bg_threading.Thread(target=_bg_worker, args=(name, func, interval), daemon=True)
         t.start()
@@ -273,6 +289,30 @@ def _stop_background_tasks():
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan: start background tasks on startup, stop on shutdown."""
+    # ── One-time backfill: ensure owner field exists on active jobs ────
+    try:
+        from db import get_pg_pool
+        pool = get_pg_pool()
+        with pool.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE jobs
+                SET payload = jsonb_set(
+                    payload,
+                    '{owner}',
+                    to_jsonb(COALESCE(payload->>'submitted_by', ''))
+                )
+                WHERE status IN ('running', 'queued', 'assigned')
+                  AND (payload->>'owner' IS NULL OR payload->>'owner' = '')
+                  AND payload->>'submitted_by' IS NOT NULL
+                """
+            )
+            if cur.rowcount:
+                log.info("BACKFILL: set owner on %d active jobs", cur.rowcount)
+            conn.commit()
+    except Exception as e:
+        log.warning("Owner backfill skipped: %s", e)
+
     _start_background_tasks()
     yield
     _stop_background_tasks()

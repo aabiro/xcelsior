@@ -309,10 +309,10 @@ class MarketplaceEngine:
 
             # Count demand per GPU model (running + queued)
             demand_rows = conn.execute(
-                """SELECT COALESCE(j.gpu_model, 'unknown') as gpu_model, COUNT(*) as demand
+                """SELECT COALESCE(j.payload->>'gpu_model', 'unknown') as gpu_model, COUNT(*) as demand
                    FROM jobs j
                    WHERE j.status IN ('running', 'queued')
-                   GROUP BY j.gpu_model""",
+                   GROUP BY j.payload->>'gpu_model'""",
             ).fetchall()
 
         supply_map = {r["gpu_model"]: (int(r["supply"] or 0), int(r["min_ask"] or 20)) for r in supply_rows}

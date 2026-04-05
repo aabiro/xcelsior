@@ -130,6 +130,9 @@ class TestInferenceEndpoints:
         with inference_store._inference_db() as conn:
             conn.execute("DELETE FROM inference_results")
             conn.execute("DELETE FROM inference_jobs")
+        # Seed wallet for anonymous test user so wallet pre-flight checks pass
+        from billing import get_billing_engine
+        get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
 
     def test_submit_and_get_inference(self):
         from fastapi.testclient import TestClient
