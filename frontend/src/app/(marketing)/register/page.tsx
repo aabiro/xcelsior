@@ -135,7 +135,7 @@ export default function RegisterPage() {
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md p-8">
         <div className="mb-8 text-center">
-          <Image src="/xcelsior-logo-rounded.svg" alt="Xcelsior" width={48} height={48} className="mx-auto mb-4" />
+          <Image src="/xcelsior-logo.svg" alt="Xcelsior" width={48} height={48} className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold">{t("auth.register_title")}</h1>
           <p className="mt-1 text-sm text-text-secondary">
             {t("auth.register_subtitle")}

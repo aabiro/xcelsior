@@ -30,6 +30,12 @@ def _get_fernet():
     if _fernet is None:
         key = _SECRETS_KEY
         if not key:
+            env = os.environ.get("XCELSIOR_ENV", "dev").lower()
+            if env in ("production", "prod"):
+                raise RuntimeError(
+                    "XCELSIOR_SECRETS_KEY must be set in production. "
+                    "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                )
             # Deterministic fallback for dev — NOT for production use
             key = base64.urlsafe_b64encode(b"xcelsior-dev-key-32bytes!padding!" [:32]).decode()
             log.warning("XCELSIOR_SECRETS_KEY not set — using insecure dev key")
@@ -330,6 +336,10 @@ def build_egress_iptables_rules(container_id, allowlist=None, strict=True):
 
     Returns list of iptables command strings.
     """
+    # Validate container_id to prevent command injection
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.\-]*", container_id):
+        raise ValueError(f"Invalid container_id: {container_id!r}")
+
     allowlist = allowlist or DEFAULT_EGRESS_ALLOWLIST
     rules = []
 

@@ -336,7 +336,7 @@ export default function LoginPage() {
         /* ── Normal Login ── */
         <>
         <div className="mb-8 text-center">
-          <Image src="/xcelsior-logo-rounded.svg" alt="Xcelsior" width={48} height={48} className="mx-auto mb-4" />
+          <Image src="/xcelsior-logo.svg" alt="Xcelsior" width={48} height={48} className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold">{t("auth.login_title")}</h1>
           <p className="mt-1 text-sm text-text-secondary">
             {t("auth.login_subtitle")}

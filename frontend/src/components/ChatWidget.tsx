@@ -21,6 +21,7 @@ import { useChatStream, ChatMessage } from "@/hooks/useChatStream";
 import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
+import { formatMarkdown } from "@/lib/format-markdown";
 
 // ── Notification Sound (inline base64 tiny blip) ─────────────────────
 const NOTIFICATION_SOUND_URI =
@@ -34,22 +35,6 @@ function playNotificationSound() {
   } catch {
     // Audio not available
   }
-}
-
-// ── Markdown formatter ───────────────────────────────────────────────
-function formatMarkdown(text: string): string {
-  return text
-    .replace(
-      /```(\w*)\n?([\s\S]*?)```/g,
-      '<pre class="bg-navy/50 rounded p-2 my-1 text-xs overflow-x-auto"><code>$2</code></pre>'
-    )
-    .replace(/`([^`]+)`/g, '<code class="bg-navy/50 rounded px-1 py-0.5 text-xs">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener" class="text-accent-red underline">$1</a>'
-    )
-    .replace(/\n/g, "<br />");
 }
 
 // ── Message Bubble ───────────────────────────────────────────────────

@@ -8,28 +8,9 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
+import { formatMarkdown } from "@/lib/format-markdown";
 import type { AiMessage } from "@/hooks/useAiChat";
 import { useTypewriterText } from "@/hooks/useTypewriterText";
-
-// ── Markdown formatter ───────────────────────────────────────────────
-
-export function formatMarkdown(text: string): string {
-  return text
-    .replace(
-      /```(\w*)\n?([\s\S]*?)```/g,
-      '<pre class="bg-navy/60 rounded-lg p-3 my-2.5 text-xs overflow-x-auto border border-border/30 backdrop-blur-sm"><code>$2</code></pre>',
-    )
-    .replace(
-      /`([^`]+)`/g,
-      '<code class="bg-navy/40 rounded px-1.5 py-0.5 text-xs font-mono border border-border/20">$1</code>',
-    )
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-accent-cyan underline decoration-accent-cyan/30 hover:decoration-accent-cyan/80 transition-colors">$1</a>',
-    )
-    .replace(/\n/g, "<br />");
-}
 
 // ── AI Avatar ────────────────────────────────────────────────────────
 

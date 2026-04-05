@@ -732,7 +732,6 @@ class UserStore:
         allowed = {
             "name",
             "role",
-            "is_admin",
             "country",
             "province",
             "provider_id",
@@ -760,6 +759,12 @@ class UserStore:
         values = list(fields.values()) + [email]
         with auth_connection() as conn:
             conn.execute(f"UPDATE users SET {set_clause} WHERE email = %s", values)
+
+    @staticmethod
+    def set_admin(email: str, is_admin: int) -> None:
+        """Set user admin flag. Only callable from admin endpoints."""
+        with auth_connection() as conn:
+            conn.execute("UPDATE users SET is_admin = %s WHERE email = %s", (is_admin, email))
 
     @staticmethod
     def delete_user(email: str) -> None:

@@ -3,6 +3,15 @@ import type { NextRequest } from "next/server";
 
 const AUTH_COOKIE = "xcelsior_session";
 
+const CSP_HEADER =
+  "default-src 'self'; " +
+  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com 'unsafe-inline'; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data: https:; " +
+  "font-src 'self' data:; " +
+  "connect-src 'self' https://www.google-analytics.com wss://xcelsior.ca; " +
+  "frame-ancestors 'self';";
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = request.cookies.has(AUTH_COOKIE);
@@ -14,17 +23,31 @@ export function middleware(request: NextRequest) {
       loginUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set("Content-Security-Policy", CSP_HEADER);
+    return response;
   }
 
   // Allow auth pages to load (login page handles redirect if already authenticated)
   if (pathname === "/login" || pathname === "/register") {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set("Content-Security-Policy", CSP_HEADER);
+    return response;
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  response.headers.set("Content-Security-Policy", CSP_HEADER);
+  return response;
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/register"],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
 };

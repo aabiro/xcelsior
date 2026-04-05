@@ -1,65 +1,66 @@
 # Xcelsior v2.0.0 — Python dependencies
+# Versions pinned to ~= (compatible release) for reproducible builds
 
 # ── Web Framework ─────────────────────────────────────────────────────
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-gunicorn>=21.2.0
+fastapi~=0.128.6
+uvicorn[standard]~=0.40.0
+gunicorn~=25.0.3
 
 # ── Data Validation ───────────────────────────────────────────────────
-pydantic>=2.5.0
+pydantic~=2.12.5
 
 # ── HTTP Client ───────────────────────────────────────────────────────
-requests>=2.31.0
-httpx>=0.26.0
+requests~=2.32.5
+httpx~=0.28.1
 
 # ── Database — PostgreSQL (production) ────────────────────────────────
-psycopg[binary]>=3.1.0
-psycopg_pool>=3.1.0
+psycopg[binary]~=3.3.2
+psycopg_pool~=3.3.0
 
 # ── Database — Migrations ─────────────────────────────────────────────
-alembic>=1.13.0
-sqlalchemy>=2.0.0
+alembic~=1.18.4
+sqlalchemy~=2.0.46
 
 # ── Environment ───────────────────────────────────────────────────────
-python-dotenv>=1.0.0
+python-dotenv~=1.2.1
 
 # ── Testing ───────────────────────────────────────────────────────────
-pytest>=7.4.0
-pytest-cov>=4.1.0
-pytest-asyncio>=0.23.0
+pytest~=9.0.2
+pytest-cov~=7.0.0
+pytest-asyncio~=1.3.0
 
 # ── Linting ───────────────────────────────────────────────────────────
-ruff>=0.2.0
-black>=24.0.0
+ruff~=0.15.8
+black~=26.3.1
 
 # ── GPU Telemetry — NVML (optional — only needed on GPU host nodes) ──
 # nvidia-ml-py binds directly to libnvidia-ml.so, avoiding nvidia-smi subprocess overhead
 # Per REPORT_FEATURE_1.md: "use Python bindings to interact with libnvidia-ml.so directly"
-nvidia-ml-py>=12.0.0
+nvidia-ml-py~=13.590.48
 
 # ── Payments — Stripe Connect (optional — only needed for provider payouts) ──
-stripe>=8.0.0
+stripe~=15.0.0
 
 # ── CLI ───────────────────────────────────────────────────────────────
-rich>=13.7.0
+rich~=14.3.3
 
 # ── Security ──────────────────────────────────────────────────────────
-cryptography>=42.0.0
+cryptography~=46.0.6
 
 # ── Two-Factor Authentication ─────────────────────────────────────────
-pyotp>=2.9.0
-qrcode[pil]>=7.4.0
-fido2>=1.1.0
-twilio>=9.0.0
+pyotp~=2.9.0
+qrcode[pil]~=8.2
+fido2~=2.1.1
+twilio~=9.10.4
 
 # ── Observability — OpenTelemetry ─────────────────────────────────────
-opentelemetry-api>=1.25.0
-opentelemetry-sdk>=1.25.0
-opentelemetry-instrumentation-fastapi>=0.46b0
-opentelemetry-exporter-otlp>=1.25.0
+opentelemetry-api~=1.40.0
+opentelemetry-sdk~=1.40.0
+opentelemetry-instrumentation-fastapi~=0.61b0
+opentelemetry-exporter-otlp~=1.40.0
 
 # ── AI Assistant — Anthropic (Claude) ─────────────────────────────────
-anthropic>=0.39.0
+anthropic~=0.86.0
 
 # ── ML/Inference (optional — only needed if using inference.py) ───────
 # torch>=2.1.0

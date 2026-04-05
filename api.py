@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import time
+import urllib.parse
 import uuid
 from collections import defaultdict, deque
 from contextlib import contextmanager
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -340,8 +342,7 @@ def _start_background_tasks():
             be = get_billing_engine()
             be.fintrac_check_transaction(amount_cad=0, user_id="__periodic_scan__")
         except Exception as e:
-            # Expected to do nothing for zero amount
-            pass
+            log.debug("fintrac periodic check error (expected for zero amount): %s", e)
     tasks.append(("fintrac_check", _fintrac_check, 3600))
 
     for name, func, interval in tasks:
@@ -391,6 +392,43 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# ── CORS ──────────────────────────────────────────────────────────────
+_CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "XCELSIOR_CORS_ORIGINS",
+        "https://xcelsior.ca,https://www.xcelsior.ca",
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+)
+
+# ── CSRF Origin Validation ────────────────────────────────────────────
+# Reject state-changing requests whose Origin header doesn't match allowed
+# origins.  Defense-in-depth on top of SameSite=Lax cookies.
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_CSRF_ALLOWED_ORIGINS = {urllib.parse.urlparse(o).netloc for o in _CORS_ORIGINS}
+
+@app.middleware("http")
+async def csrf_origin_check(request: Request, call_next):
+    if request.method not in _CSRF_SAFE_METHODS:
+        origin = request.headers.get("origin")
+        if origin:
+            origin_host = urllib.parse.urlparse(origin).netloc
+            if origin_host and origin_host not in _CSRF_ALLOWED_ORIGINS:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-origin request rejected"},
+                )
+    return await call_next(request)
 
 # ── OpenTelemetry Instrumentation ─────────────────────────────────────
 # Auto-instruments all FastAPI routes; custom spans for job lifecycle,
@@ -846,8 +884,8 @@ class ComplianceGateMiddleware(BaseHTTPMiddleware):
                             status_code=403,
                             content={"error": "CASL consent required for billing purpose"},
                         )
-                except Exception:
-                    pass  # Consent table may not exist yet
+                except Exception as e:
+                    log.debug("Consent check skipped: %s", e)  # Consent table may not exist yet
 
         # Gate 2: Tag request with province for scheduling locality
         province = request.headers.get("x-province", "")
@@ -1050,7 +1088,7 @@ def api_register_host(h: HostIn):
         # Bootstrap reputation — email verification is implicit for registered users
         re = get_reputation_engine()
         re.add_verification(h.host_id, VerificationType.EMAIL)
-    except Exception:
+    except Exception as e:
         log.exception("Non-fatal: could not bootstrap verification/reputation for %s", h.host_id)
 
     broadcast_sse(
@@ -1557,8 +1595,8 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
                 _sse_subscribers.remove(queue)
         try:
             await websocket.close()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("WS close error: %s", e)
 
 
 # ── WebSocket Terminal Proxy ──────────────────────────────────────────
@@ -1711,7 +1749,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             pass
         except (WebSocketDisconnect, RuntimeError):
             closed = True
-        except Exception:
+        except Exception as e:
+            log.debug("Terminal stdout relay error: %s", e)
             closed = True
 
     async def _stdin_relay():
@@ -1773,15 +1812,15 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             try:
                 process.kill()
                 await process.wait()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("Terminal process cleanup error: %s", e)
         # Send exit notification
         try:
             exit_code = process.returncode if process else -1
             await websocket.send_json({"type": "exit", "code": exit_code or 0})
             await websocket.close()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Terminal exit notification error: %s", e)
 
 
 # ── Billing endpoints ────────────────────────────────────────────────
@@ -1910,7 +1949,7 @@ def _validate_ssh_public_key(key_str: str) -> str:
     # Validate base64 data
     try:
         _b64.b64decode(parts[1], validate=True)
-    except Exception:
+    except Exception as e:
         raise ValueError("Invalid base64 key data")
     return key_type
 
@@ -2444,8 +2483,8 @@ def _get_current_user(request: Request) -> dict | None:
                 last = session.get("last_active") or 0
                 if time.time() - last > 300:
                     UserStore.update_session_last_active(token)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("session last_active update failed: %s", e)
             full_user = UserStore.get_user(session["email"])
             return _merge_auth_user(dict(session), full_user)
         api_key = UserStore.get_api_key(token)
@@ -2490,7 +2529,7 @@ def _get_current_user(request: Request) -> dict | None:
 def _require_auth(request: Request) -> dict:
     """Return the current user or raise 401."""
     if not AUTH_REQUIRED:
-        return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": 1}
+        return {"email": "anonymous", "user_id": "anonymous", "role": "submitter", "is_admin": 0}
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Authentication required")
@@ -2613,16 +2652,16 @@ def api_auth_register(body: RegisterRequest, request: Request):
     try:
         be = get_billing_engine()
         be.deposit(customer_id, 0.0, "Account created")
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("initial deposit creation failed: %s", e)
 
     broadcast_sse("user_registered", {"email": email, "user_id": user_id})
 
     # Telegram alert for new signup
     try:
         alert("New Signup", f"{user['name']} ({email}) — role: {user.get('role', 'submitter')}")
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("signup alert failed: %s", e)
 
     # Welcome notification for the new user
     try:
@@ -2632,8 +2671,8 @@ def api_auth_register(body: RegisterRequest, request: Request):
             "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
             {"user_id": user_id},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("welcome notification failed: %s", e)
 
     # Send verification email
     base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
@@ -2651,8 +2690,8 @@ def api_auth_register(body: RegisterRequest, request: Request):
             cta_url=verify_url,
             cta_label="Verify Email",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("verification email send failed: %s", e)
 
     # In test mode, auto-verify and return session (no email service)
     if XCELSIOR_ENV == "test":
@@ -2750,8 +2789,8 @@ def api_auth_login(body: LoginRequest, request: Request):
                 "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("welcome notification (OAuth) failed: %s", e)
 
     body = {
         "ok": True,
@@ -2903,8 +2942,8 @@ def api_auth_oauth_callback(provider: str, request: Request):
                         if e_entry.get("primary") and e_entry.get("verified"):
                             email = e_entry["email"]
                             break
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("GitHub email extraction failed: %s", e)
     elif provider == "huggingface":
         email = profile.get("email", "")
         name = profile.get("name") or profile.get("preferred_username", "")
@@ -2968,8 +3007,8 @@ def api_auth_oauth_callback(provider: str, request: Request):
                 "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("welcome notification (OAuth) failed: %s", e)
 
     # Set httpOnly cookie and redirect to dashboard
     resp = RedirectResponse("/dashboard", status_code=302)
@@ -4248,8 +4287,8 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
             cta_url="https://xcelsior.ca/dashboard",
             cta_label="Go to Dashboard",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("email notification send failed: %s", e)
 
     body = {
         "ok": True,
@@ -4318,8 +4357,8 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
             cta_url=verify_url,
             cta_label="Verify Email",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("verification email send failed: %s", e)
 
     return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
 
@@ -5399,8 +5438,8 @@ def api_submit_spot_instance(j: SpotJobIn, request: Request):
     try:
         process_queue()
         job = _refresh_job(job["job_id"]) or job
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("process_queue failed: %s", e)
 
     broadcast_sse(
         "spot_job_submitted",
@@ -5576,8 +5615,8 @@ def metrics_prometheus():
                     f'xcelsior_gpu_memory_used_bytes{{gpu="{idx}"}} '
                     f'{gs.get("memory_used_bytes", 0)}'
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("GPU metrics collection failed: %s", e)
 
     # Webhook backlog
     try:
@@ -5596,8 +5635,8 @@ def metrics_prometheus():
             "# TYPE xcelsior_webhook_backlog gauge",
             f"xcelsior_webhook_backlog {backlog}",
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("webhook backlog metric failed: %s", e)
 
     # Scheduling latency histogram (approximated from last scheduling cycle)
     try:
@@ -5614,8 +5653,8 @@ def metrics_prometheus():
             f"xcelsior_scheduling_latency_seconds_sum 0",
             f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("scheduling latency metric failed: %s", e)
 
     # Wallet depletion events counter
     try:
@@ -5634,8 +5673,8 @@ def metrics_prometheus():
             "# TYPE xcelsior_wallet_depletion_events_total counter",
             f"xcelsior_wallet_depletion_events_total {dep_cnt}",
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("wallet depletion metric failed: %s", e)
 
     # Inference cold start rate
     try:
@@ -5657,8 +5696,8 @@ def metrics_prometheus():
             "# TYPE xcelsior_inference_cold_start_rate gauge",
             f"xcelsior_inference_cold_start_rate {cold_rate}",
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("inference cold start metric failed: %s", e)
 
     # Inference tokens per second
     try:
@@ -5681,8 +5720,8 @@ def metrics_prometheus():
             "# TYPE xcelsior_inference_tokens_per_second gauge",
             f"xcelsior_inference_tokens_per_second {tps}",
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("inference tokens/sec metric failed: %s", e)
 
     from starlette.responses import Response
     return Response(
@@ -5969,7 +6008,9 @@ def api_deposit(customer_id: str, req: DepositRequest):
 
 @app.post("/api/billing/wallet/{customer_id}/reset-testing", tags=["Billing"])
 def api_reset_wallet_testing_state(customer_id: str, request: Request):
-    """Reset wallet balance and promo state for admin testing."""
+    """Reset wallet balance and promo state for admin testing. Disabled in production."""
+    if XCELSIOR_ENV in ("production", "prod"):
+        raise HTTPException(403, "Wallet reset is disabled in production")
     _require_admin(request)
     be = get_billing_engine()
     result = be.reset_wallet_testing_state(customer_id)
@@ -6143,8 +6184,8 @@ def api_list_invoices(customer_id: str, limit: int = 12):
                         "status": "paid",
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("invoice formatting failed: %s", e)
     return {"ok": True, "invoices": invoices, "count": len(invoices)}
 
 
@@ -6628,7 +6669,7 @@ def api_gst_threshold_status():
                 (one_year_ago,),
             ).fetchone()
             quarters = qrow["q_count"] if qrow else 0
-    except Exception:
+    except Exception as e:
         total_rev = 0.0
         quarters = 0
 
@@ -6670,7 +6711,7 @@ def api_provider_gst_threshold(provider_id: str):
                 (provider_id, one_year_ago),
             ).fetchone()
             total_payouts = row["total"] if row else 0.0
-    except Exception:
+    except Exception as e:
         total_payouts = 0.0
 
     exceeded = total_payouts >= GST_SMALL_SUPPLIER_THRESHOLD_CAD
@@ -6719,12 +6760,15 @@ def api_usage_analytics(
     now = time.time()
     since = now - (days * 86400)
 
-    group_sql = {
+    _GROUP_SQL = {
         "day": "to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS period",
         "week": "to_char(to_timestamp(started_at), 'IYYY-\"W\"IW') AS period",
         "gpu_model": "gpu_model AS period",
         "province": "province AS period",
-    }.get(group_by, "to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS period")
+    }
+    if group_by not in _GROUP_SQL:
+        group_by = "day"
+    group_sql = _GROUP_SQL[group_by]
 
     where_clauses = ["started_at >= %s"]
     params: list = [since]
@@ -6989,7 +7033,8 @@ def api_compliance_status(request: Request):
             checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "warn",
                             "description": "No audit events recorded yet. Submit a job or launch an instance to start generating your compliance audit trail.",
                             "action": {"label": "Launch an instance", "href": "/dashboard/instances/new"}})
-    except Exception:
+    except Exception as e:
+        log.debug("audit trail check failed: %s", e)
         checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "fail",
                         "description": "Event store unavailable — audit logging is disabled. Contact support.",
                         "action": {"label": "View events", "href": "/dashboard/events"}})
@@ -7023,7 +7068,8 @@ def api_compliance_status(request: Request):
             checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
                             "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
                             "action": {"label": "Become a provider", "href": "/dashboard/earnings"}})
-    except Exception:
+    except Exception as e:
+        log.debug("payment rails check failed: %s", e)
         checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
                         "description": "Payment processing module unavailable. Contact support.",
                         "action": {"label": "View billing", "href": "/dashboard/billing"}})
@@ -7217,7 +7263,7 @@ def _transparency_db():
         try:
             yield conn
             conn.commit()
-        except Exception:
+        except Exception as e:
             conn.rollback()
             raise
 
@@ -7439,7 +7485,7 @@ def api_agent_verify(payload: VerificationReportPayload):
             re = get_reputation_engine()
             re.add_verification(payload.host_id, VerificationType.HARDWARE_AUDIT)
             log.info("REPUTATION HARDWARE_AUDIT granted for verified host %s", payload.host_id)
-        except Exception:
+        except Exception as e:
             log.exception("Non-fatal: could not update reputation for %s", payload.host_id)
 
     return {
@@ -7508,7 +7554,7 @@ def api_sla_hosts_summary():
     """
     try:
         engine = get_sla_engine()
-    except Exception:
+    except Exception as e:
         return {"ok": True, "hosts": [], "count": 0}
     import scheduler as _sched
 
@@ -7521,7 +7567,7 @@ def api_sla_hosts_summary():
         try:
             uptime = engine.get_host_uptime_pct(hid)
             violations = engine.get_violations(hid)
-        except Exception:
+        except Exception as e:
             uptime = 0.0
             violations = []
         tier = h.get("sla_tier", "community")
@@ -7695,8 +7741,8 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest):
     try:
         re = get_reputation_engine()
         re.add_verification(provider_id, VerificationType.INCORPORATION)
-    except Exception:
-        pass  # Non-critical
+    except Exception as e:
+        log.debug("reputation incorporation update failed: %s", e)
 
     return {"ok": True, **result}
 
@@ -7793,16 +7839,16 @@ def api_data_export(request: Request):
         try:
             be = get_billing_engine()
             billing_txns = be.get_wallet_history(customer_id, limit=500)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("billing history fetch failed: %s", e)
 
     # Gather reputation
     rep_data = {}
     try:
         re = get_reputation_engine()
         rep_data = re.store.get_score(customer_id or email) or {}
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("reputation data fetch failed: %s", e)
 
     export = {
         "exported_at": time.time(),
@@ -7829,7 +7875,7 @@ def api_artifact_expiry(job_id: str):
     try:
         am = get_artifact_manager()
         arts = am.get_job_artifacts(job_id)
-    except Exception:
+    except Exception as e:
         arts = []
 
     # Default retention: 90 days for job_output, 180 for model_checkpoint, 30 for logs
@@ -8233,7 +8279,7 @@ def api_list_all_artifacts():
         for atype in AT:
             artifacts.extend(mgr.primary.list_objects(f"{atype.value}/"))
         return {"ok": True, "artifacts": artifacts}
-    except Exception:
+    except Exception as e:
         return {"ok": True, "artifacts": []}
 
 
@@ -8273,7 +8319,7 @@ def api_get_user_preferences(request: Request):
         try:
             import json as _json
             raw_prefs = _json.loads(raw_prefs)
-        except Exception:
+        except Exception as e:
             raw_prefs = {}
     return {
         "ok": True,
@@ -8308,7 +8354,7 @@ def api_set_user_preferences(request: Request, body: dict):
                 try:
                     import json as _json
                     existing_prefs = _json.loads(existing_prefs)
-                except Exception:
+                except Exception as e:
                     existing_prefs = {}
             if not isinstance(existing_prefs, dict):
                 existing_prefs = {}
@@ -8402,7 +8448,7 @@ def api_admin_stats(request: Request):
                 (month_start,),
             ).fetchone()
             revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
-    except Exception:
+    except Exception as e:
         log.warning("admin_stats: failed to fetch revenue_mtd", exc_info=True)
 
     return {
@@ -8437,7 +8483,7 @@ def api_admin_users(request: Request):
             ).fetchall():
                 job_count_map[jr["owner"]] = jr["cnt"]
                 last_activity_map[jr["owner"]] = float(jr["last_at"]) if jr["last_at"] else 0.0
-    except Exception:
+    except Exception as e:
         log.warning("admin_users: failed to fetch wallet/job data", exc_info=True)
 
     import datetime as _dt
@@ -8529,7 +8575,7 @@ def api_admin_overview(request: Request, days: int = 30):
             ).fetchall():
                 daily_revenue.append({"date": r["day"], "revenue": float(r["revenue"])})
                 daily_jobs.append({"date": r["day"], "jobs": r["jobs"]})
-    except Exception:
+    except Exception as e:
         log.warning("admin_overview: failed to fetch billing data", exc_info=True)
 
     # 30-day signup trend
@@ -8542,7 +8588,7 @@ def api_admin_overview(request: Request, days: int = 30):
                 (thirty_days_ago,),
             ).fetchall():
                 daily_signups.append({"date": r["day"], "signups": r["signups"]})
-    except Exception:
+    except Exception as e:
         log.warning("admin_overview: failed to fetch signup data", exc_info=True)
 
     # Period-over-period trends (this period vs previous period)
@@ -8559,8 +8605,8 @@ def api_admin_overview(request: Request, days: int = 30):
                 (prev_thirty, thirty_days_ago),
             ).fetchone()
             prev_revenue = float(row["rev"]) if row else 0.0
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("previous period revenue comparison failed: %s", e)
 
     def _pct(curr: float, prev: float) -> float:
         if prev == 0:
@@ -8584,8 +8630,8 @@ def api_admin_overview(request: Request, days: int = 30):
                 (prev_thirty, thirty_days_ago),
             ).fetchone()
             prev_jobs = int(row["cnt"]) if row else 0
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("previous period jobs comparison failed: %s", e)
 
     trends = {
         "users_pct": _pct(curr_users, prev_users),
@@ -8606,8 +8652,8 @@ def api_admin_overview(request: Request, days: int = 30):
             ).fetchone()
             if row and row["total"] > 0:
                 job_failure_rate = round(row["failed"] / row["total"] * 100, 1)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("job failure rate calculation failed: %s", e)
     arpu = round(curr_revenue / len(users), 2) if users else 0.0
 
     return {
@@ -8666,7 +8712,7 @@ def api_admin_toggle_admin(email: str, request: Request):
     current = _admin_flag(user.get("is_admin")) == 1
     new_val = 0 if current else 1
     if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, {"is_admin": new_val})
+        UserStore.set_admin(email, new_val)
     else:
         _users_db[email]["is_admin"] = new_val
     emit_event("user_admin_toggled", {"email": email, "is_admin": new_val})
@@ -8684,7 +8730,7 @@ def api_admin_revenue(request: Request, days: int = 90):
 
     try:
         be = get_billing_engine()
-    except Exception:
+    except Exception as e:
         log.warning("admin_revenue: failed to get billing engine", exc_info=True)
         result.update(daily=[], by_gpu=[], by_province=[], top_customers=[], top_providers=[])
         return result
@@ -8703,7 +8749,7 @@ def api_admin_revenue(request: Request, days: int = 90):
                 {"date": r["day"], "revenue": float(r["revenue"]), "jobs": r["jobs"], "gpu_hours": float(r["gpu_hours"])}
                 for r in rows
             ]
-    except Exception:
+    except Exception as e:
         log.warning("admin_revenue: failed to fetch daily revenue", exc_info=True)
         result["daily"] = []
 
@@ -8716,7 +8762,7 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["by_gpu"] = [{"gpu_model": r["gpu_model"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows]
-    except Exception:
+    except Exception as e:
         log.warning("admin_revenue: failed to fetch revenue by GPU", exc_info=True)
         result["by_gpu"] = []
 
@@ -8729,7 +8775,7 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["by_province"] = [{"province": r["province"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows]
-    except Exception:
+    except Exception as e:
         log.warning("admin_revenue: failed to fetch revenue by province", exc_info=True)
         result["by_province"] = []
 
@@ -8742,7 +8788,7 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["top_customers"] = [{"email": r["email"], "total_spend": float(r["total_spend"]), "jobs": r["jobs"]} for r in rows]
-    except Exception:
+    except Exception as e:
         log.warning("admin_revenue: failed to fetch top customers", exc_info=True)
         result["top_customers"] = []
 
@@ -8755,7 +8801,7 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["top_providers"] = [{"provider_id": r["provider_id"], "earnings": float(r["earnings"]), "jobs": r["jobs"]} for r in rows]
-    except Exception:
+    except Exception as e:
         log.warning("admin_revenue: failed to fetch top providers", exc_info=True)
         result["top_providers"] = []
 
@@ -8790,7 +8836,7 @@ def api_admin_infrastructure(request: Request):
                 "SELECT state, COUNT(*) AS cnt FROM host_verifications GROUP BY state"
             ).fetchall():
                 verification_stats[r["state"]] = r["cnt"]
-    except Exception:
+    except Exception as e:
         log.warning("admin_infrastructure: failed to fetch verification data", exc_info=True)
 
     # Reputation tiers
@@ -8805,7 +8851,7 @@ def api_admin_infrastructure(request: Request):
                 "SELECT tier, COUNT(*) AS cnt FROM reputation_scores GROUP BY tier"
             ).fetchall():
                 reputation_tiers[r["tier"]] = r["cnt"]
-    except Exception:
+    except Exception as e:
         log.warning("admin_infrastructure: failed to fetch reputation data", exc_info=True)
 
     return {
@@ -8844,7 +8890,7 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
             }
             for e in events[-limit:]
         ]
-    except Exception:
+    except Exception as e:
         log.warning("admin_activity: failed to fetch events", exc_info=True)
         result["events"] = []
 
@@ -8857,7 +8903,7 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
                 (since,),
             ).fetchall()
             result["by_type"] = [{"event_type": r["event_type"], "count": r["cnt"]} for r in rows]
-    except Exception:
+    except Exception as e:
         log.warning("admin_activity: failed to fetch events by type", exc_info=True)
         result["by_type"] = []
 
@@ -8878,7 +8924,7 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
                 {"date": r["day"], "submitted": r["submitted"], "completed": r["completed"], "failed": r["failed"]}
                 for r in rows
             ]
-    except Exception:
+    except Exception as e:
         log.warning("admin_activity: failed to fetch daily jobs", exc_info=True)
         result["daily_jobs"] = []
 
@@ -8913,7 +8959,7 @@ def api_admin_verification_queue(request: Request):
                 "province": h.get("province") or "Unknown",
                 "cost_per_hour": float(h.get("cost_per_hour", 0)),
             })
-    except Exception:
+    except Exception as e:
         log.warning("admin_verification_queue: failed to fetch queue", exc_info=True)
         queue = []
     return {"ok": True, "queue": queue}
@@ -9452,7 +9498,7 @@ def api_inference_complete(request_id: str, request: Request):
     ie = get_inference_engine()
     try:
         body = json.loads(request._body) if hasattr(request, '_body') else {}
-    except Exception:
+    except Exception as e:
         body = {}
     ie.complete_request(
         request_id=request_id,
@@ -9590,8 +9636,8 @@ def api_volume_delete(volume_id: str, request: Request):
         # Refund prorated storage credit
         try:
             vol_data = ve.get_volume(volume_id)  # already deleted, won't find
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("volume refund data fetch failed: %s", e)
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(409, str(e))

@@ -213,8 +213,8 @@ def get_host_ip():
             ips = r.stdout.strip().split()
             if ips:
                 return ips[0]
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("hostname -I failed: %s", e)
 
     # ip route fallback
     try:
@@ -223,8 +223,8 @@ def get_host_ip():
             match = re.search(r"src (\S+)", r.stdout)
             if match:
                 return match.group(1)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("ip route fallback failed: %s", e)
 
     return "unknown"
 
@@ -270,7 +270,8 @@ try:
             capture_output=True, text=True, timeout=10,
         )
         report["driver_version"] = smi.stdout.strip().split("\\n")[0].strip() if smi.returncode == 0 else ""
-    except Exception:
+    except Exception as e:
+        log.debug("nvidia-smi driver query failed: %s", e)
         report["driver_version"] = ""
 
     # ── FP16 Matmul Benchmark (TFLOPS) ──
@@ -309,6 +310,7 @@ try:
         report["pcie_d2h_gbps"] = d2h_gbps
         del data_h, data_d
     except Exception as e:
+        log.debug("PCIe bandwidth test failed: %s", e)
         report["pcie_bandwidth_gbps"] = 0
         report["pcie_error"] = str(e)
 
@@ -327,8 +329,8 @@ try:
                 )
                 if tsmi.returncode == 0:
                     temps.append(float(tsmi.stdout.strip()))
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("nvidia-smi temp query failed: %s", e)
             time.sleep(0.5)
         if temps:
             report["gpu_temp_celsius"] = max(temps)
@@ -337,6 +339,7 @@ try:
         else:
             report["gpu_temp_celsius"] = 0
     except Exception as e:
+        log.debug("thermal stability test failed: %s", e)
         report["gpu_temp_celsius"] = 0
         report["thermal_error"] = str(e)
 
@@ -425,8 +428,8 @@ def run_network_benchmark(scheduler_url: str = None):
         total_time = sum(times)
         if total_time > 0:
             report["throughput_mbps"] = round(total_bytes * 8 / total_time / 1_000_000, 2)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("HTTP throughput test failed: %s", e)
 
     # Defaults for missing values
     report.setdefault("packet_loss_pct", 0)
@@ -1700,8 +1703,8 @@ def _monitor_container(job_id, container_name):
                         )
                         if logs.stdout:
                             log.info("Container output (last 50 lines):\n%s", logs.stdout[-2000:])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug("docker logs retrieval failed: %s", e)
                     report_job_status(job_id, "failed")
                     release_lease(job_id, "failed")
 
@@ -1838,7 +1841,8 @@ def handle_preemptions(preempt_job_ids):
                 capture_output=True,
                 timeout=20,
             )
-        except (subprocess.TimeoutExpired, Exception):
+        except Exception as e:
+            log.warning("docker stop failed during preemption: %s", e)
             _kill_container(container_name)
 
         report_job_status(job_id, "preempted")
@@ -2000,7 +2004,8 @@ def graceful_shutdown():
                     capture_output=True,
                     timeout=25,
                 )
-            except (subprocess.TimeoutExpired, Exception):
+            except Exception as e:
+                log.warning("docker stop failed during shutdown: %s", e)
                 _kill_container(container_name)
 
             # Mark job as queued so it can be rescheduled
