@@ -25,7 +25,18 @@ from chat import (
     stream_chat_response,
 )
 from privacy import redact_pii
-from ai_assistant import FEATURE_AI_ASSISTANT, get_suggestions
+from ai_assistant import (
+    FEATURE_AI_ASSISTANT,
+    check_ai_rate_limit,
+    create_conversation as ai_create_conversation,
+    delete_conversation as ai_delete_conversation,
+    execute_confirmed_action,
+    get_conversation as ai_get_conversation,
+    get_conversation_messages as ai_get_messages,
+    get_suggestions,
+    list_conversations as ai_list_conversations,
+    stream_ai_response,
+)
 
 router = APIRouter()
 

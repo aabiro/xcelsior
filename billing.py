@@ -1058,9 +1058,15 @@ class BillingEngine:
             conn.row_factory = dict_row
             # Find all running jobs
             running = conn.execute(
-                """SELECT j.job_id, j.owner, j.started_at, j.host_id, j.gpu_model, j.tier
+                """SELECT j.job_id,
+                          j.payload->>'owner' AS owner,
+                          (j.payload->>'started_at')::double precision AS started_at,
+                          j.host_id,
+                          j.payload->>'gpu_model' AS gpu_model,
+                          COALESCE(j.payload->>'tier', 'free') AS tier
                    FROM jobs j
-                   WHERE j.status = 'running' AND j.started_at > 0""",
+                   WHERE j.status = 'running'
+                     AND (j.payload->>'started_at')::double precision > 0""",
             ).fetchall()
 
         for job in running:
