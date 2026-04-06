@@ -802,7 +802,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         return
 
     host_id = instance.get("host_id", "")
-    container_id = instance.get("container_id", instance_id[:12])
+    # Prefer container_name (xcl-{job_id}) over container_id for reliability
+    container_ref = instance.get("container_name") or instance.get("container_id") or f"xcl-{instance_id}"
     if not host_id:
         await websocket.send_json({"type": "error", "message": "No host assigned"})
         await websocket.close(code=4003)
@@ -837,12 +838,14 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             "-i", SSH_KEY_PATH,
             "-tt",
             f"{SSH_USER}@{host_ip}",
-            "docker", "exec", "-it", shlex.quote(container_id), shell,
+            "docker", "exec", "-e", "TERM=xterm-256color", "-it",
+            shlex.quote(container_ref), shell,
         ]
     else:
         # Local dev: direct docker exec
         docker_cmd = [
-            "docker", "exec", "-it", container_id, shell,
+            "docker", "exec", "-e", "TERM=xterm-256color", "-it",
+            container_ref, shell,
         ]
 
     session_start = time.time()

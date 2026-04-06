@@ -168,6 +168,9 @@ export default function HostsPage() {
         <InstallWorkerSection />
       </Dialog>
 
+      {/* How It Works — expandable provider architecture overview */}
+      <ProviderArchitectureCard />
+
       {/* Filters Card */}
       <Card className="border-border/60">
         <CardContent className="py-4 px-5">
@@ -722,6 +725,78 @@ Common issues:
 - Worker not picking up jobs → Verify pricing is competitive via \`xcelsior pricing compare\`
 
 After setup, your host will appear as "active" in the Xcelsior dashboard and begin accepting compute jobs from the marketplace.`;
+
+function ProviderArchitectureCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className="border-border/60">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-5 py-4 text-left hover:bg-surface-overlay/30 transition-colors"
+      >
+        <Info className="h-4 w-4 text-accent-cyan shrink-0" />
+        <span className="text-sm font-semibold text-text-secondary">How Xcelsior Connects to Your GPU</span>
+        <ChevronRight className={cn("h-4 w-4 text-text-muted ml-auto transition-transform", open && "rotate-90")} />
+      </button>
+      {open && (
+        <CardContent className="pt-0 pb-5 px-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-cyan/10 text-accent-cyan text-xs font-bold">1</div>
+                <span className="font-medium text-text-secondary">Worker Agent</span>
+              </div>
+              <p className="text-text-muted text-xs leading-relaxed">
+                A lightweight process runs on your machine. It sends a heartbeat every 30 seconds
+                to let the platform know your GPU is online and available.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-violet/10 text-accent-violet text-xs font-bold">2</div>
+                <span className="font-medium text-text-secondary">Job Assignment</span>
+              </div>
+              <p className="text-text-muted text-xs leading-relaxed">
+                When a renter launches an instance, the scheduler matches it to the best available
+                GPU. Your agent polls for new work and claims the job via a lease.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald/10 text-emerald text-xs font-bold">3</div>
+                <span className="font-medium text-text-secondary">Secure Container</span>
+              </div>
+              <p className="text-text-muted text-xs leading-relaxed">
+                The agent pulls the Docker image, starts a sandboxed container with GPU access,
+                and injects the renter&apos;s SSH keys. Your machine stays protected.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-gold/10 text-accent-gold text-xs font-bold">4</div>
+                <span className="font-medium text-text-secondary">Earn Revenue</span>
+              </div>
+              <p className="text-text-muted text-xs leading-relaxed">
+                Billing is metered per-second while the container runs. Logs, telemetry, and
+                GPU utilization stream to the dashboard in real-time.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 rounded-lg bg-surface-overlay/50 border border-border/40 p-3">
+            <div className="flex items-start gap-2">
+              <Shield className="h-4 w-4 text-accent-cyan shrink-0 mt-0.5" />
+              <div className="text-xs text-text-muted leading-relaxed">
+                <span className="font-medium text-text-secondary">Security: </span>
+                Containers run with gVisor sandboxing, read-only filesystems, dropped capabilities,
+                and network egress rules. Your host data is never exposed to renters.
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
 
 type InstallView = "sdk" | "quickstart";
 

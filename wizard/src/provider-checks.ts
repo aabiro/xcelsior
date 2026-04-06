@@ -531,3 +531,249 @@ export function buildVerificationReport(
         versions,
     };
 }
+
+
+// ── 7. Network setup — detect and configure mesh networking ─────────
+
+export interface NetworkSetupResult {
+    method: "tailscale" | "headscale" | "public" | "none";
+    ip: string;
+    detail: string;
+}
+
+export async function setupNetworking(): Promise<NetworkSetupResult> {
+    const { execSync } = await import("child_process");
+
+    // Check if Tailscale is installed and running
+    try {
+        const tsStatus = execSync("tailscale status --json 2>/dev/null", {
+            encoding: "utf-8",
+            timeout: 10_000,
+        });
+        const status = JSON.parse(tsStatus);
+        const selfIps = status?.Self?.TailscaleIPs;
+        if (selfIps && selfIps.length > 0) {
+            // Filter for IPv4
+            const ip4 = selfIps.find((ip: string) => !ip.includes(":")) || selfIps[0];
+            // Check if this is a headscale coordination server
+            const isHeadscale = (status?.Self?.DNSName || "").includes("headscale") ||
+                (status?.CurrentTailnet?.Name || "").includes("headscale");
+            return {
+                method: isHeadscale ? "headscale" : "tailscale",
+                ip: ip4,
+                detail: `Mesh network active — IP ${ip4}`,
+            };
+        }
+    } catch {
+        // Tailscale not available or not connected
+    }
+
+    // Check for public IP (if no mesh available, use public IP with warning)
+    try {
+        const publicIp = execSync("curl -s --max-time 5 https://api.ipify.org", {
+            encoding: "utf-8",
+            timeout: 10_000,
+        }).trim();
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(publicIp)) {
+            return {
+                method: "public",
+                ip: publicIp,
+                detail: `Public IP ${publicIp} — mesh networking recommended for security`,
+            };
+        }
+    } catch {
+        // Can't determine public IP
+    }
+
+    return {
+        method: "none",
+        ip: "",
+        detail: "No network connectivity detected — please check your connection",
+    };
+}
+
+
+// ── 8. Worker agent install — set up systemd service ────────────────
+
+export interface WorkerInstallResult {
+    installed: boolean;
+    detail: string;
+}
+
+export async function installWorkerAgent(
+    apiUrl: string,
+    apiToken: string,
+    hostId: string,
+    hostIp: string,
+): Promise<WorkerInstallResult> {
+    const { execSync } = await import("child_process");
+    const { writeFileSync, existsSync, mkdirSync } = await import("fs");
+    const { join } = await import("path");
+    const { homedir } = await import("os");
+
+    // 1. Ensure config dir exists
+    const configDir = join(homedir(), ".xcelsior");
+    if (!existsSync(configDir)) {
+        mkdirSync(configDir, { recursive: true });
+    }
+
+    // 2. Write worker agent env file
+    const envContent = [
+        `XCELSIOR_HOST_ID=${hostId}`,
+        `XCELSIOR_SCHEDULER_URL=${apiUrl}`,
+        `XCELSIOR_API_TOKEN=${apiToken}`,
+        `XCELSIOR_HOST_IP=${hostIp}`,
+    ].join("\n") + "\n";
+
+    const envFile = join(configDir, "worker.env");
+    writeFileSync(envFile, envContent, { mode: 0o600 });
+
+    // 3. Download worker_agent.py if not present
+    const agentPath = join(configDir, "worker_agent.py");
+    if (!existsSync(agentPath)) {
+        try {
+            execSync(
+                `curl -fsSL "${apiUrl}/static/worker_agent.py" -o "${agentPath}"`,
+                { timeout: 30_000 },
+            );
+        } catch {
+            return {
+                installed: false,
+                detail: "Failed to download worker agent — check network connectivity",
+            };
+        }
+    }
+
+    // 4. Create systemd service unit
+    const serviceContent = `[Unit]
+Description=Xcelsior Worker Agent
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=${envFile}
+ExecStart=/usr/bin/python3 ${agentPath}
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+    try {
+        // Write service file (needs sudo)
+        const tmpService = "/tmp/xcelsior-worker.service";
+        writeFileSync(tmpService, serviceContent);
+        execSync(`sudo cp "${tmpService}" /etc/systemd/system/xcelsior-worker.service`, {
+            timeout: 10_000,
+        });
+        execSync("sudo systemctl daemon-reload", { timeout: 10_000 });
+        execSync("sudo systemctl enable xcelsior-worker", { timeout: 10_000 });
+        execSync("sudo systemctl start xcelsior-worker", { timeout: 10_000 });
+
+        return {
+            installed: true,
+            detail: "Worker agent installed and running as systemd service",
+        };
+    } catch (e) {
+        return {
+            installed: false,
+            detail: `Service install failed — run manually: python3 ${agentPath}`,
+        };
+    }
+}
+
+
+// ── 9. SSH key setup for renters ────────────────────────────────────
+
+export interface SshKeySetupResult {
+    keyFound: boolean;
+    uploaded: boolean;
+    detail: string;
+}
+
+export async function setupSshKeys(
+    apiUrl: string,
+    token: string,
+): Promise<SshKeySetupResult> {
+    const { existsSync, readFileSync } = await import("fs");
+    const { join } = await import("path");
+    const { homedir } = await import("os");
+
+    // Check for existing SSH keys
+    const keyPaths = [
+        join(homedir(), ".ssh", "id_ed25519.pub"),
+        join(homedir(), ".ssh", "id_rsa.pub"),
+        join(homedir(), ".ssh", "id_ecdsa.pub"),
+    ];
+
+    let pubKey: string | null = null;
+    let keyType = "";
+    for (const p of keyPaths) {
+        if (existsSync(p)) {
+            pubKey = readFileSync(p, "utf-8").trim();
+            keyType = p.includes("ed25519") ? "ed25519" : p.includes("ecdsa") ? "ecdsa" : "rsa";
+            break;
+        }
+    }
+
+    if (!pubKey) {
+        // Generate a new ed25519 key pair
+        try {
+            const { execSync } = await import("child_process");
+            const keyPath = join(homedir(), ".ssh", "id_ed25519");
+            execSync(
+                `ssh-keygen -t ed25519 -f "${keyPath}" -N "" -q`,
+                { timeout: 10_000 },
+            );
+            pubKey = readFileSync(keyPath + ".pub", "utf-8").trim();
+            keyType = "ed25519";
+        } catch {
+            return {
+                keyFound: false,
+                uploaded: false,
+                detail: "No SSH key found and auto-generation failed — add one manually in Settings",
+            };
+        }
+    }
+
+    // Upload to Xcelsior
+    try {
+        const resp = await fetch(`${apiUrl}/api/ssh/keys`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Cookie: `xcelsior_session=${token}`,
+            },
+            body: JSON.stringify({
+                name: `${keyType} (wizard)`,
+                public_key: pubKey,
+            }),
+        });
+        if (resp.ok || resp.status === 409) {
+            // 409 = key already exists, that's fine
+            return {
+                keyFound: true,
+                uploaded: resp.ok,
+                detail: resp.status === 409
+                    ? "SSH key already registered"
+                    : "SSH key uploaded — instances will be accessible via SSH",
+            };
+        }
+        return {
+            keyFound: true,
+            uploaded: false,
+            detail: "SSH key found but upload failed — add it manually in Settings",
+        };
+    } catch {
+        return {
+            keyFound: true,
+            uploaded: false,
+            detail: "SSH key found but upload failed — add it manually in Settings",
+        };
+    }
+}

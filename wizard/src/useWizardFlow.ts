@@ -1154,6 +1154,46 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 return checkWallet(currentAnswers);
             case "launch":
                 return launchGpuInstance(currentAnswers);
+            case "network-setup": {
+                try {
+                    const { setupNetworking } = await import("./provider-checks.js");
+                    const result = await setupNetworking();
+                    // Store the detected IP for later use
+                    currentAnswers["_host_ip"] = result.ip;
+                    currentAnswers["_network_method"] = result.method;
+                    return [
+                        { name: "Mesh Network", ok: result.method !== "none", detail: result.detail },
+                    ];
+                } catch (err) {
+                    return [{ name: "Mesh Network", ok: false, detail: err instanceof Error ? err.message : "Network setup failed" }];
+                }
+            }
+            case "worker-install": {
+                try {
+                    const { installWorkerAgent } = await import("./provider-checks.js");
+                    const token = currentAnswers["api-key"] as string;
+                    const hostId = currentAnswers["_host_id"] as string;
+                    const hostIp = currentAnswers["_host_ip"] as string || "";
+                    const result = await installWorkerAgent(API_BASE_URL, token, hostId, hostIp);
+                    return [
+                        { name: "Worker Agent", ok: result.installed, detail: result.detail },
+                    ];
+                } catch (err) {
+                    return [{ name: "Worker Agent", ok: false, detail: err instanceof Error ? err.message : "Worker install failed" }];
+                }
+            }
+            case "ssh-key-setup": {
+                try {
+                    const { setupSshKeys } = await import("./provider-checks.js");
+                    const token = currentAnswers["api-key"] as string;
+                    const result = await setupSshKeys(API_BASE_URL, token);
+                    return [
+                        { name: "SSH Keys", ok: result.keyFound, detail: result.detail },
+                    ];
+                } catch (err) {
+                    return [{ name: "SSH Keys", ok: false, detail: err instanceof Error ? err.message : "SSH key setup failed" }];
+                }
+            }
             default:
                 return [{ name: checkId, ok: false, detail: "Unknown check" }];
         }
