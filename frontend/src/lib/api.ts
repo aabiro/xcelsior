@@ -4,12 +4,12 @@ let _refreshing: Promise<boolean> | null = null;
 
 async function _tryRefresh(): Promise<boolean> {
   try {
-    await fetch("/api/auth/refresh", {
+    const res = await fetch("/api/auth/refresh", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
     });
-    return true;
+    return res.ok;
   } catch {
     return false;
   }
