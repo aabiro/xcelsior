@@ -401,7 +401,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <SessionExpiryBanner />
 
         {/* Topbar */}
-        <header className="flex h-16 items-center justify-between glass px-4 md:px-6 relative">
+        <header className="flex h-[72px] items-center justify-between glass px-4 md:px-6 relative">
           <div className="brand-line absolute bottom-0 left-0 right-0" />
           {/* Mobile menu button */}
           <button
@@ -517,14 +517,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <button
           onClick={toggleAiPanel}
           className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200",
+            "flex h-11 w-11 items-center justify-center rounded-lg transition-all duration-200",
             aiPanelOpen
               ? "bg-accent-red text-white shadow-lg shadow-accent-red/25 scale-110"
               : "text-accent-red hover:bg-accent-red/15"
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
-          <Sparkles className={cn("h-5 w-5 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+          <Sparkles className={cn("h-6 w-6 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
         </button>
       </div>
     </div>

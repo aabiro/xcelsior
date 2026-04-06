@@ -100,7 +100,7 @@ SUPPORTED_AI_PROVIDERS = {"anthropic", *TEXT_PROVIDERS.keys()}
 TOOL_CAPABLE_PROVIDERS = {"anthropic", "openai"}
 
 # Write actions that always require user confirmation
-WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key", "revoke_api_key"}
+WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key", "revoke_api_key", "add_ssh_key"}
 
 
 # ── Rate Limiter (per-user, not per-IP) ───────────────────────────────
@@ -643,6 +643,143 @@ def _build_tools() -> list[dict]:
                 "required": ["key_preview"],
             },
         },
+        # ── New comprehensive data tools ───────────────────────────
+        {
+            "name": "get_wallet_transactions",
+            "description": "Get the user's wallet transaction history: deposits, charges, refunds, and top-ups with amounts and timestamps.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max results (default 20)", "default": 20},
+                    "tx_type": {"type": "string", "description": "Filter by type: charge, deposit, refund, topup, credit"},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_invoices",
+            "description": "Get the user's invoice history with period, line items, tax, and status.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_payout_history",
+            "description": "Get the provider's payout history: earnings per job, platform fees, total earned. For GPU hosts.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max results (default 20)", "default": 20},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_notifications",
+            "description": "Get the user's notifications: billing alerts, job status changes, SLA events, system messages.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "unread_only": {"type": "boolean", "description": "Only return unread notifications", "default": False},
+                    "limit": {"type": "integer", "description": "Max results (default 20)", "default": 20},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_ssh_keys",
+            "description": "List the user's registered SSH public keys: name, fingerprint, and creation date.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "add_ssh_key",
+            "description": "Add a new SSH public key to the account. REQUIRES USER CONFIRMATION.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Friendly name for this key (e.g. 'Laptop', 'Work Desktop')"},
+                    "public_key": {"type": "string", "description": "SSH public key string (ssh-rsa ... or ssh-ed25519 ...)"},
+                },
+                "required": ["name", "public_key"],
+            },
+        },
+        {
+            "name": "get_sla_status",
+            "description": "Get SLA uptime stats and violations for the user's hosted GPUs: monthly uptime %, incidents, credits owed.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "host_id": {"type": "string", "description": "Specific host ID to check (optional — defaults to all user's hosts)"},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_inference_endpoints",
+            "description": "List the user's serverless inference endpoints: model, status, request count, cost, and health.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "get_spot_price_history",
+            "description": "Get historical spot price trend for a GPU model over recent days. Useful for timing decisions.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "gpu_model": {"type": "string", "description": "GPU model to get history for (e.g. 'RTX 4090', 'A100')"},
+                    "days": {"type": "integer", "description": "Number of days of history (default 7, max 90)", "default": 7},
+                },
+                "required": ["gpu_model"],
+            },
+        },
+        {
+            "name": "get_team_info",
+            "description": "Get the user's team details: name, plan, members, roles, and member activity.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "get_benchmarks",
+            "description": "Get benchmark results for hardware on the platform: tflops, memory bandwidth, compute score by GPU model or host.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "host_id": {"type": "string", "description": "Filter by specific host ID (optional)"},
+                    "gpu_model": {"type": "string", "description": "Filter by GPU model (optional)"},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_provider_info",
+            "description": "Get the user's provider account details: Stripe payout status, onboarding state, total earned, business info.",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": "get_crypto_deposits",
+            "description": "Get the user's Bitcoin/crypto deposit history: BTC addresses, amounts, confirmation status.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_billing_cycles",
+            "description": "Get detailed per-job billing cycle records: duration, rate, tier multiplier, and final charge.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Filter by specific job ID (optional)"},
+                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                },
+                "required": [],
+            },
+        },
     ]
 
 
@@ -754,33 +891,40 @@ def _tool_get_job_details(args: dict, user: dict) -> dict:
 
 
 def _tool_search_marketplace(args: dict, _user: dict) -> dict:
-    from marketplace import get_marketplace_engine
-    me = get_marketplace_engine()
-    if me is None:
-        return {"error": "Marketplace engine not available. Please try again later."}
-    filters = {}
-    if args.get("gpu_model"):
-        filters["gpu_model"] = args["gpu_model"]
-    if args.get("min_vram_gb"):
-        filters["min_vram_gb"] = int(args["min_vram_gb"])
-    if args.get("max_price_per_hour"):
-        filters["max_price_cents"] = int(args["max_price_per_hour"] * 100)
-    if args.get("province"):
-        filters["region"] = args["province"]
-    offers = me.search_offers(**filters)
+    from scheduler import get_marketplace
+    listings = get_marketplace(active_only=True)
+
+    gpu_model = (args.get("gpu_model") or "").strip()
+    min_vram_gb = args.get("min_vram_gb")
+    max_price = args.get("max_price_per_hour")
+    province = (args.get("province") or "").strip().upper()
+
+    if gpu_model:
+        listings = [l for l in listings if gpu_model.lower() in (l.get("gpu_model") or "").lower()]
+    if min_vram_gb is not None:
+        listings = [l for l in listings if (l.get("vram_gb") or 0) >= float(min_vram_gb)]
+    if max_price is not None:
+        listings = [l for l in listings if (l.get("price_per_hour") or 999) <= float(max_price)]
+    if province:
+        listings = [l for l in listings if (l.get("province") or "").upper() == province]
+
+    listings.sort(key=lambda l: l.get("price_per_hour") or 999)
+
     return {
         "offers": [
             {
                 "host_id": o.get("host_id", ""),
                 "gpu_model": o.get("gpu_model", ""),
-                "vram_gb": o.get("total_vram_gb", 0),
-                "price_cad_per_hour": o.get("ask_cents_per_hour", 0) / 100,
+                "vram_gb": o.get("vram_gb", 0),
+                "price_cad_per_hour": o.get("price_per_hour", 0),
                 "province": o.get("province", ""),
-                "reputation_tier": o.get("reputation_tier", ""),
+                "description": o.get("description", ""),
+                "owner": o.get("owner", ""),
+                "total_jobs": o.get("total_jobs", 0),
             }
-            for o in offers[:MAX_MARKETPLACE_RESULTS]
+            for o in listings[:MAX_MARKETPLACE_RESULTS]
         ],
-        "total": len(offers),
+        "total": len(listings),
     }
 
 
@@ -866,15 +1010,15 @@ def _classify_workload(workload: str) -> dict:
 
 
 def _aggregate_offers(live_offers: list) -> dict:
-    """Aggregate marketplace offers by GPU model."""
+    """Aggregate marketplace listings by GPU model. Accepts marketplace.json listing dicts."""
     agg: dict = {}
     for o in live_offers:
         model = o.get("gpu_model", "Unknown")
         if model not in agg:
-            agg[model] = {"min_price": o.get("ask_cents_per_hour", 0) / 100, "max_vram": o.get("total_vram_gb", 0), "count": 0, "provinces": set()}
+            agg[model] = {"min_price": o.get("price_per_hour", 0), "max_vram": o.get("vram_gb", 0), "count": 0, "provinces": set()}
         agg[model]["count"] += 1
-        agg[model]["min_price"] = min(agg[model]["min_price"], o.get("ask_cents_per_hour", 0) / 100)
-        agg[model]["max_vram"] = max(agg[model]["max_vram"], o.get("total_vram_gb", 0))
+        agg[model]["min_price"] = min(agg[model]["min_price"], o.get("price_per_hour", 0))
+        agg[model]["max_vram"] = max(agg[model]["max_vram"], o.get("vram_gb", 0))
         prov = o.get("province", "")
         if prov:
             agg[model]["provinces"].add(prov)
@@ -923,9 +1067,9 @@ def _build_gpu_recommendations(profile: dict, available_models: dict, budget: fl
     return recs[:MAX_GPU_RECOMMENDATIONS]
 
 
-def _tool_recommend_gpu(args: dict, _user: dict) -> dict:
+def _tool_recommend_gpu(args: dict, _user: dict) -> dict:  # noqa: C901
     """GPU recommendation based on workload description, real pricing, and live marketplace availability."""
-    from marketplace import get_marketplace_engine
+    from scheduler import get_marketplace
 
     workload = args.get("workload", "").lower()
     budget = args.get("budget_per_hour_cad")
@@ -934,8 +1078,8 @@ def _tool_recommend_gpu(args: dict, _user: dict) -> dict:
             return {"error": "Budget per hour must be a positive number."}
 
     profile = _classify_workload(workload)
-    me = get_marketplace_engine()
-    available = _aggregate_offers(me.search_offers(min_vram_gb=profile["min_vram"]))
+    _mkt = [l for l in get_marketplace(active_only=True) if (l.get("vram_gb") or 0) >= profile["min_vram"]]
+    available = _aggregate_offers(_mkt)
     return {"workload": args.get("workload", ""), "recommendations": _build_gpu_recommendations(profile, available, budget)}
 
 
@@ -1073,20 +1217,20 @@ def _tool_create_api_key(args: dict, user: dict) -> dict:
 
 def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
     """Real-time GPU availability across all regions."""
-    from marketplace import get_marketplace_engine
-    me = get_marketplace_engine()
-    if me is None:
-        return {"error": "Marketplace engine not available. Please try again later."}
-    filters = {}
-    if args.get("gpu_model"):
-        filters["gpu_model"] = args["gpu_model"]
-    if args.get("province"):
-        filters["region"] = args["province"]
-    offers = me.search_offers(**filters)
+    from scheduler import get_marketplace
+    listings = get_marketplace(active_only=True)
+
+    gpu_model_filter = (args.get("gpu_model") or "").strip().lower()
+    province_filter = (args.get("province") or "").strip().upper()
+
+    if gpu_model_filter:
+        listings = [l for l in listings if gpu_model_filter in (l.get("gpu_model") or "").lower()]
+    if province_filter:
+        listings = [l for l in listings if (l.get("province") or "").upper() == province_filter]
 
     # Aggregate by GPU model + province
     summary: dict[str, dict] = {}
-    for o in offers:
+    for o in listings:
         model = o.get("gpu_model", "Unknown")
         if model not in summary:
             summary[model] = {
@@ -1099,13 +1243,13 @@ def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
             }
         s = summary[model]
         s["total_available"] += 1
-        price = o.get("ask_cents_per_hour", 0) / 100
+        price = o.get("price_per_hour", 0)
         s["min_price_cad_per_hour"] = min(s["min_price_cad_per_hour"], price)
         s["max_price_cad_per_hour"] = max(s["max_price_cad_per_hour"], price)
-        vram = o.get("total_vram_gb", 0)
+        vram = o.get("vram_gb", 0)
         s["total_vram_gb"] += vram
 
-        prov = o.get("province", "Unknown")
+        prov = o.get("province") or "Unknown"
         s["provinces"][prov] = s["provinces"].get(prov, 0) + 1
 
     # Finalize averages
@@ -1225,6 +1369,400 @@ def _tool_revoke_api_key(args: dict, user: dict) -> dict:
     return {"error": f"No matching API key found for preview: {preview}."}
 
 
+# ── New comprehensive tool handlers ───────────────────────────────────
+
+def _tool_get_wallet_transactions(args: dict, user: dict) -> dict:
+    """Get user's wallet transaction history."""
+    user_id = user.get("user_id", user.get("email", ""))
+    limit = min(int(args.get("limit") or 20), 100)
+    tx_type = args.get("tx_type", "")
+    try:
+        with _ai_db() as conn:
+            if tx_type:
+                rows = conn.execute(
+                    "SELECT tx_id, tx_type, amount_cad, balance_after_cad, description, job_id, created_at "
+                    "FROM wallet_transactions WHERE customer_id = %s AND tx_type = %s "
+                    "ORDER BY created_at DESC LIMIT %s",
+                    (user_id, tx_type, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT tx_id, tx_type, amount_cad, balance_after_cad, description, job_id, created_at "
+                    "FROM wallet_transactions WHERE customer_id = %s "
+                    "ORDER BY created_at DESC LIMIT %s",
+                    (user_id, limit),
+                ).fetchall()
+        return {"transactions": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_wallet_transactions failed: %s", e)
+        return {"transactions": [], "count": 0, "error": str(e)}
+
+
+def _tool_get_invoices(args: dict, user: dict) -> dict:
+    """Get user's invoice history."""
+    user_id = user.get("user_id", user.get("email", ""))
+    limit = min(int(args.get("limit") or 10), 50)
+    try:
+        with _ai_db() as conn:
+            rows = conn.execute(
+                "SELECT invoice_id, period_start, period_end, subtotal_cad, tax_amount_cad, "
+                "total_cad, canadian_compute_total_cad, status, created_at "
+                "FROM invoices WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, limit),
+            ).fetchall()
+        return {"invoices": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_invoices failed: %s", e)
+        return {"invoices": [], "count": 0, "error": str(e)}
+
+
+def _tool_get_payout_history(args: dict, user: dict) -> dict:
+    """Get provider's payout history."""
+    user_id = user.get("user_id", user.get("email", ""))
+    limit = min(int(args.get("limit") or 20), 100)
+    try:
+        with _ai_db() as conn:
+            # Try payout_splits first (detailed), fall back to payout_ledger
+            rows = conn.execute(
+                "SELECT payout_id, job_id, amount_cad, platform_fee_cad, provider_payout_cad, status, created_at "
+                "FROM payout_ledger WHERE provider_id = %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, limit),
+            ).fetchall()
+            total_row = conn.execute(
+                "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total_earned "
+                "FROM payout_ledger WHERE provider_id = %s",
+                (user_id,),
+            ).fetchone()
+        total_earned = float(total_row["total_earned"]) if total_row else 0.0
+        return {"payouts": [dict(r) for r in rows], "count": len(rows), "total_earned_cad": round(total_earned, 2)}
+    except Exception as e:
+        log.error("get_payout_history failed: %s", e)
+        return {"payouts": [], "count": 0, "total_earned_cad": 0.0, "error": str(e)}
+
+
+def _tool_get_notifications(args: dict, user: dict) -> dict:
+    """Get user's notifications."""
+    email = user.get("email", "")
+    limit = min(int(args.get("limit") or 20), 100)
+    unread_only = bool(args.get("unread_only", False))
+    try:
+        with _ai_db() as conn:
+            if unread_only:
+                rows = conn.execute(
+                    "SELECT id, type, title, body, read, created_at "
+                    "FROM notifications WHERE user_email = %s AND read = false "
+                    "ORDER BY created_at DESC LIMIT %s",
+                    (email, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, type, title, body, read, created_at "
+                    "FROM notifications WHERE user_email = %s "
+                    "ORDER BY created_at DESC LIMIT %s",
+                    (email, limit),
+                ).fetchall()
+            unread_count_row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM notifications WHERE user_email = %s AND read = false",
+                (email,),
+            ).fetchone()
+        unread_count = int(unread_count_row["cnt"]) if unread_count_row else 0
+        return {
+            "notifications": [dict(r) for r in rows],
+            "count": len(rows),
+            "unread_count": unread_count,
+        }
+    except Exception as e:
+        log.error("get_notifications failed: %s", e)
+        return {"notifications": [], "count": 0, "unread_count": 0, "error": str(e)}
+
+
+def _tool_get_ssh_keys(_args: dict, user: dict) -> dict:
+    """List user's SSH public keys."""
+    email = user.get("email", "")
+    try:
+        with _ai_db() as conn:
+            rows = conn.execute(
+                "SELECT id, name, fingerprint, created_at FROM user_ssh_keys WHERE email = %s ORDER BY created_at DESC",
+                (email,),
+            ).fetchall()
+        return {"ssh_keys": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_ssh_keys failed: %s", e)
+        return {"ssh_keys": [], "count": 0, "error": str(e)}
+
+
+def _tool_add_ssh_key(args: dict, user: dict) -> dict:
+    """Add a new SSH key to the user's account."""
+    import hashlib
+    email = user.get("email", "")
+    user_id = user.get("user_id", email)
+    name = (args.get("name") or "").strip()
+    pub_key = (args.get("public_key") or "").strip()
+    if not name:
+        return {"error": "SSH key name is required."}
+    if not pub_key:
+        return {"error": "Public key is required."}
+    # Basic validation — must start with recognized key type
+    valid_prefixes = ("ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "sk-ssh-ed25519", "sk-ecdsa-sha2-nistp256")
+    if not any(pub_key.startswith(p) for p in valid_prefixes):
+        return {"error": "Invalid SSH public key format. Must start with 'ssh-rsa', 'ssh-ed25519', etc."}
+    # Compute fingerprint (MD5 of raw key bytes, colon-hex format)
+    try:
+        import base64
+        key_parts = pub_key.split()
+        raw = base64.b64decode(key_parts[1]) if len(key_parts) >= 2 else pub_key.encode()
+        digest = hashlib.md5(raw).hexdigest()
+        fingerprint = ":".join(digest[i:i+2] for i in range(0, len(digest), 2))
+    except Exception:
+        fingerprint = hashlib.md5(pub_key.encode()).hexdigest()
+    try:
+        with _ai_db() as conn:
+            conn.execute(
+                "INSERT INTO user_ssh_keys (email, user_id, name, public_key, fingerprint, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (email, user_id, name, pub_key, fingerprint, time.time()),
+            )
+        return {"status": "added", "name": name, "fingerprint": fingerprint, "message": "SSH key added successfully."}
+    except Exception as e:
+        log.error("add_ssh_key failed: %s", e)
+        return {"error": f"Failed to add SSH key: {str(e)}"}
+
+
+def _tool_get_sla_status(args: dict, user: dict) -> dict:
+    """Get SLA status for user's hosted GPUs."""
+    user_id = user.get("user_id", user.get("email", ""))
+    host_id_filter = args.get("host_id", "")
+    try:
+        with _ai_db() as conn:
+            # Get user's hosts
+            from scheduler import list_hosts
+            all_hosts = list_hosts(active_only=False)
+            user_host_ids = [h.get("host_id", h.get("id", "")) for h in all_hosts
+                             if h.get("owner") == user_id or h.get("user_id") == user_id]
+            if host_id_filter:
+                user_host_ids = [h for h in user_host_ids if h == host_id_filter]
+
+            if not user_host_ids:
+                return {"sla": [], "violations": [], "message": "No hosts found for this account."}
+
+            placeholders = ",".join(["%s"] * len(user_host_ids))
+            monthly_rows = conn.execute(
+                f"SELECT host_id, month, tier, total_seconds, downtime_seconds, incidents, "
+                f"credit_pct, credit_cad, enforced FROM sla_monthly "
+                f"WHERE host_id IN ({placeholders}) ORDER BY month DESC LIMIT 30",
+                user_host_ids,
+            ).fetchall()
+            violation_rows = conn.execute(
+                f"SELECT host_id, violation_type, severity, metric_value, threshold, timestamp "
+                f"FROM sla_violations WHERE host_id IN ({placeholders}) "
+                f"ORDER BY timestamp DESC LIMIT 20",
+                user_host_ids,
+            ).fetchall()
+        return {
+            "sla_monthly": [dict(r) for r in monthly_rows],
+            "violations": [dict(r) for r in violation_rows],
+            "host_ids_checked": user_host_ids,
+        }
+    except Exception as e:
+        log.error("get_sla_status failed: %s", e)
+        return {"sla_monthly": [], "violations": [], "error": str(e)}
+
+
+def _tool_get_inference_endpoints(_args: dict, user: dict) -> dict:
+    """List user's serverless inference endpoints."""
+    user_id = user.get("user_id", user.get("email", ""))
+    try:
+        with _ai_db() as conn:
+            rows = conn.execute(
+                "SELECT endpoint_id, model_id, model_revision, gpu_type, vram_required_gb, "
+                "status, total_requests, total_tokens_generated, total_cost_cad, created_at, updated_at "
+                "FROM inference_endpoints WHERE owner_id = %s ORDER BY created_at DESC",
+                (user_id,),
+            ).fetchall()
+        return {"endpoints": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_inference_endpoints failed: %s", e)
+        return {"endpoints": [], "count": 0, "error": str(e)}
+
+
+def _tool_get_spot_price_history(args: dict, _user: dict) -> dict:
+    """Get historical spot price for a GPU model."""
+    gpu_model = (args.get("gpu_model") or "").strip()
+    days = min(int(args.get("days") or 7), 90)
+    if not gpu_model:
+        return {"error": "gpu_model is required."}
+    cutoff = time.time() - (days * 86400)
+    try:
+        with _ai_db() as conn:
+            rows = conn.execute(
+                "SELECT clearing_price_cents, supply_count, demand_count, recorded_at "
+                "FROM spot_price_history WHERE gpu_model ILIKE %s AND recorded_at >= %s "
+                "ORDER BY recorded_at ASC LIMIT 200",
+                (f"%{gpu_model}%", cutoff),
+            ).fetchall()
+        data = [
+            {
+                "price_cad_per_hour": round(r["clearing_price_cents"] / 100, 4),
+                "supply_count": r["supply_count"],
+                "demand_count": r["demand_count"],
+                "recorded_at": r["recorded_at"],
+            }
+            for r in rows
+        ]
+        avg_price = round(sum(d["price_cad_per_hour"] for d in data) / len(data), 4) if data else 0
+        return {
+            "gpu_model": gpu_model,
+            "days": days,
+            "data_points": len(data),
+            "avg_price_cad_per_hour": avg_price,
+            "history": data,
+        }
+    except Exception as e:
+        log.error("get_spot_price_history failed: %s", e)
+        return {"history": [], "error": str(e)}
+
+
+def _tool_get_team_info(_args: dict, user: dict) -> dict:
+    """Get the user's team info."""
+    email = user.get("email", "")
+    try:
+        with _ai_db() as conn:
+            # Get team membership
+            member_row = conn.execute(
+                "SELECT tm.team_id, tm.role FROM team_members tm WHERE tm.email = %s",
+                (email,),
+            ).fetchone()
+            if not member_row:
+                return {"message": "Not a member of any team.", "team": None}
+            team_id = member_row["team_id"]
+            team_row = conn.execute(
+                "SELECT team_id, name, owner_email, plan, max_members, created_at FROM teams WHERE team_id = %s",
+                (team_id,),
+            ).fetchone()
+            members = conn.execute(
+                "SELECT email, role, joined_at FROM team_members WHERE team_id = %s ORDER BY joined_at ASC",
+                (team_id,),
+            ).fetchall()
+        team = dict(team_row) if team_row else {}
+        team["members"] = [dict(m) for m in members]
+        team["your_role"] = member_row["role"]
+        return {"team": team}
+    except Exception as e:
+        log.error("get_team_info failed: %s", e)
+        return {"team": None, "error": str(e)}
+
+
+def _tool_get_benchmarks(args: dict, _user: dict) -> dict:
+    """Get benchmark results for platform hardware."""
+    host_id = (args.get("host_id") or "").strip()
+    gpu_model = (args.get("gpu_model") or "").strip()
+    try:
+        with _ai_db() as conn:
+            if host_id and gpu_model:
+                rows = conn.execute(
+                    "SELECT host_id, gpu_model, score, tflops, memory_bandwidth_gbps, benchmark_type, run_at "
+                    "FROM benchmarks WHERE host_id = %s AND gpu_model ILIKE %s ORDER BY run_at DESC LIMIT 20",
+                    (host_id, f"%{gpu_model}%"),
+                ).fetchall()
+            elif host_id:
+                rows = conn.execute(
+                    "SELECT host_id, gpu_model, score, tflops, memory_bandwidth_gbps, benchmark_type, run_at "
+                    "FROM benchmarks WHERE host_id = %s ORDER BY run_at DESC LIMIT 20",
+                    (host_id,),
+                ).fetchall()
+            elif gpu_model:
+                rows = conn.execute(
+                    "SELECT host_id, gpu_model, score, tflops, memory_bandwidth_gbps, benchmark_type, run_at "
+                    "FROM benchmarks WHERE gpu_model ILIKE %s ORDER BY run_at DESC LIMIT 20",
+                    (f"%{gpu_model}%",),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT host_id, gpu_model, score, tflops, memory_bandwidth_gbps, benchmark_type, run_at "
+                    "FROM benchmarks ORDER BY run_at DESC LIMIT 50",
+                ).fetchall()
+        return {"benchmarks": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_benchmarks failed: %s", e)
+        return {"benchmarks": [], "count": 0, "error": str(e)}
+
+
+def _tool_get_provider_info(_args: dict, user: dict) -> dict:
+    """Get provider account info for GPU hosts."""
+    user_id = user.get("user_id", user.get("email", ""))
+    email = user.get("email", "")
+    try:
+        with _ai_db() as conn:
+            row = conn.execute(
+                "SELECT provider_id, provider_type, stripe_account_id, status, corporation_name, "
+                "business_number, email, legal_name, country, province, created_at, onboarded_at, "
+                "payout_schedule FROM provider_accounts WHERE provider_id = %s OR email = %s LIMIT 1",
+                (user_id, email),
+            ).fetchone()
+            if not row:
+                return {"message": "No provider account found. Register as a GPU provider to earn income.", "provider": None}
+            # Total earned from payout_ledger
+            total_row = conn.execute(
+                "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total_earned, COUNT(*) AS jobs_count "
+                "FROM payout_ledger WHERE provider_id = %s",
+                (row["provider_id"],),
+            ).fetchone()
+        provider = dict(row)
+        if total_row:
+            provider["total_earned_cad"] = round(float(total_row["total_earned"]), 2)
+            provider["total_jobs_hosted"] = int(total_row["jobs_count"])
+        return {"provider": provider}
+    except Exception as e:
+        log.error("get_provider_info failed: %s", e)
+        return {"provider": None, "error": str(e)}
+
+
+def _tool_get_crypto_deposits(args: dict, user: dict) -> dict:
+    """Get user's BTC/crypto deposit history."""
+    user_id = user.get("user_id", user.get("email", ""))
+    limit = min(int(args.get("limit") or 10), 50)
+    try:
+        with _ai_db() as conn:
+            rows = conn.execute(
+                "SELECT deposit_id, btc_address, amount_btc, amount_cad, btc_cad_rate, "
+                "status, confirmations, txid, created_at, confirmed_at, credited_at "
+                "FROM crypto_deposits WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, limit),
+            ).fetchall()
+        return {"deposits": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_crypto_deposits failed: %s", e)
+        return {"deposits": [], "count": 0, "error": str(e)}
+
+
+def _tool_get_billing_cycles(args: dict, user: dict) -> dict:
+    """Get detailed billing cycle records for the user's jobs."""
+    user_id = user.get("user_id", user.get("email", ""))
+    limit = min(int(args.get("limit") or 10), 50)
+    job_id = args.get("job_id", "")
+    try:
+        with _ai_db() as conn:
+            if job_id:
+                rows = conn.execute(
+                    "SELECT cycle_id, job_id, period_start, period_end, duration_seconds, "
+                    "rate_per_hour, gpu_model, tier, tier_multiplier, amount_cad, status, created_at "
+                    "FROM billing_cycles WHERE customer_id = %s AND job_id = %s "
+                    "ORDER BY created_at DESC LIMIT %s",
+                    (user_id, job_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT cycle_id, job_id, period_start, period_end, duration_seconds, "
+                    "rate_per_hour, gpu_model, tier, tier_multiplier, amount_cad, status, created_at "
+                    "FROM billing_cycles WHERE customer_id = %s ORDER BY created_at DESC LIMIT %s",
+                    (user_id, limit),
+                ).fetchall()
+        return {"billing_cycles": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        log.error("get_billing_cycles failed: %s", e)
+        return {"billing_cycles": [], "count": 0, "error": str(e)}
+
+
 # Handler registry
 _TOOL_HANDLERS = {
     "get_account_info": _tool_get_account_info,
@@ -1247,6 +1785,21 @@ _TOOL_HANDLERS = {
     "list_checkpoints": _tool_list_checkpoints,
     "list_api_keys": _tool_list_api_keys,
     "revoke_api_key": _tool_revoke_api_key,
+    # New comprehensive tools
+    "get_wallet_transactions": _tool_get_wallet_transactions,
+    "get_invoices": _tool_get_invoices,
+    "get_payout_history": _tool_get_payout_history,
+    "get_notifications": _tool_get_notifications,
+    "get_ssh_keys": _tool_get_ssh_keys,
+    "add_ssh_key": _tool_add_ssh_key,
+    "get_sla_status": _tool_get_sla_status,
+    "get_inference_endpoints": _tool_get_inference_endpoints,
+    "get_spot_price_history": _tool_get_spot_price_history,
+    "get_team_info": _tool_get_team_info,
+    "get_benchmarks": _tool_get_benchmarks,
+    "get_provider_info": _tool_get_provider_info,
+    "get_crypto_deposits": _tool_get_crypto_deposits,
+    "get_billing_cycles": _tool_get_billing_cycles,
 }
 
 # ── G2: Validate tool schemas ↔ handlers stay in sync at import time ──

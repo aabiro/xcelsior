@@ -24,7 +24,8 @@ export function CreditsButton() {
       const res = await fetchWallet(customerId);
       setBalance(res.wallet.balance_cad);
     } catch {
-      setBalance(null);
+      // Keep existing balance if we already have one; otherwise default to 0 for new users
+      setBalance((prev) => prev ?? 0);
     } finally {
       setLoading(false);
     }

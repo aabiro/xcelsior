@@ -57,7 +57,7 @@ def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str |
 <body style="background-color:#0f172a;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0">
 <div style="max-width:600px;margin:0 auto;padding:40px 24px">
   <div style="margin-bottom:32px">
-    <span style="display:inline-block;width:36px;height:36px;line-height:36px;text-align:center;border-radius:8px;background-color:#dc2626;color:#fff;font-weight:800;font-size:20px;vertical-align:middle">X</span>
+    <img src="https://xcelsior.ca/xcelsior-logo-rounded.svg" width="40" height="40" style="vertical-align:middle;border-radius:8px" alt="Xcelsior"/>
     <a href="https://xcelsior.ca" style="font-size:22px;font-weight:700;color:#f8fafc;text-decoration:none;vertical-align:middle;margin-left:12px">Xcelsior</a>
   </div>
   <h1 style="color:#f8fafc;font-size:24px;font-weight:700;line-height:1.3;margin:0 0 16px">{subject}</h1>
