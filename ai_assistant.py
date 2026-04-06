@@ -2222,13 +2222,13 @@ AVAILABLE IMAGES — DETAILED BREAKDOWN:
 - Best for: Stable Diffusion, FLUX, image/video generation, ComfyUI workflows
 - Ships with: ComfyUI + all common nodes, SDXL/FLUX model support, A1111 API compatibility
 - Access: the instance opens a ComfyUI web UI on port 8188, accessible via SSH tunnel
-- SSH tunnel to access UI: `ssh -L 8188:localhost:8188 -p <port> xcelsior@<host_ip>`
+- SSH tunnel to access UI: `ssh -L 8188:localhost:8188 -p <port> root@connect.xcelsior.ca`
 
 **jupyter/datascience-notebook:cuda12**
 - Best for: interactive exploration, research, data analysis, notebook-first workflows
 - Ships with: JupyterLab, PyTorch, TF, sklearn, pandas, matplotlib, RAPIDS
 - Access: Jupyter server starts on port 8888 with a token; SSH tunnel to access
-- SSH tunnel: `ssh -L 8888:localhost:8888 -p <port> xcelsior@<host_ip>` then open http://localhost:8888
+- SSH tunnel: `ssh -L 8888:localhost:8888 -p <port> root@connect.xcelsior.ca` then open http://localhost:8888
 
 **nvidia/cuda:12.4-devel-ubuntu22.04**
 - Best for: custom CUDA kernels, building from source, exotic setups
@@ -2405,7 +2405,7 @@ def _prompt_launch_instance(kv: dict) -> str:
         return f"""## WIZARD STEP: Instance Launch — COMPUTE IS SPINNING UP
 You are Hexara. The user just launched a {gpu} instance with {image}.
 {("Instance ID: " + instance_id) if instance_id else "Launch in progress..."}
-{("SSH: ssh -p " + host_port + " xcelsior@" + host_ip) if host_ip and host_port else ""}
+{("SSH: ssh root@connect.xcelsior.ca -p " + host_port) if host_port else ""}
 {"FAILED: " + failed if failed else ""}
 
 ⚠ BILLING IS NOW RUNNING. This is the most critical thing to communicate clearly.
@@ -2414,7 +2414,7 @@ WHEN LAUNCH SUCCEEDED AND SSH CREDENTIALS ARE SHOWN:
 Present these commands clearly:
 ```bash
 # Connect:
-ssh -p {host_port or "<port>"} xcelsior@{host_ip or "<host_ip>"}
+ssh root@connect.xcelsior.ca -p {host_port or "<port>"}
 # OR:
 xcelsior instance ssh {instance_id or "<instance_id>"}
 
@@ -2430,7 +2430,7 @@ SSH asks for password? Use `xcelsior instance ssh {instance_id or "<instance_id>
 WORKLOAD-SPECIFIC FIRST STEPS (pick based on image):
 - **pytorch/pytorch**: `python3 -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"` — verify GPU works
 - **vllm/vllm-openai**: `curl http://localhost:8000/v1/models` — check if vLLM server is up
-- **jupyter/datascience-notebook**: SSH tunnel → `ssh -L 8888:localhost:8888 -p {host_port or "<port>"} xcelsior@{host_ip or "<ip>"}` → open http://localhost:8888
+- **jupyter/datascience-notebook**: SSH tunnel → `ssh -L 8888:localhost:8888 root@connect.xcelsior.ca -p {host_port or "<port>"}` → open http://localhost:8888
 - **xcelsior/comfyui**: SSH tunnel on port 8188 → open http://localhost:8188
 - **nvidia/cuda**: `nvidia-smi` then build whatever you need
 
@@ -2794,11 +2794,10 @@ SDK commands after setup:
 Pre-install requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2.
 
 **Option B: Manual Setup**
-1. Install: `npx xcelsior setup --mode provide`
-   Or: `curl -sSL https://xcelsior.ca/install.sh | bash`
-2. Create `~/.xcelsior/.env` with:
+1. Install: `curl -fsSL https://xcelsior.ca/install.sh | bash`
+2. Create `~/.xcelsior/worker.env` with:
    - XCELSIOR_HOST_ID=<host-id from dashboard>
-   - XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
+   - XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
    - XCELSIOR_API_TOKEN=<api-token from Settings → API Keys>
    - XCELSIOR_COST_PER_HOUR=0.50
 3. Create systemd service at `/etc/systemd/system/xcelsior-worker.service`:
@@ -2806,12 +2805,15 @@ Pre-install requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, 
    [Unit]
    Description=Xcelsior Worker Agent
    After=network-online.target docker.service
+   Wants=network-online.target
    Requires=docker.service
    [Service]
-   EnvironmentFile=/root/.xcelsior/.env
-   ExecStart=/usr/local/bin/xcelsior-worker
+   Type=simple
+   EnvironmentFile=$HOME/.xcelsior/worker.env
+   ExecStart=/usr/bin/python3 $HOME/.xcelsior/worker_agent.py
    Restart=always
    RestartSec=10
+   StandardOutput=journal
    [Install]
    WantedBy=multi-user.target
    ```
@@ -2823,7 +2825,7 @@ Register host first at: Dashboard → Hosts → Register Host (gives you the HOS
 Troubleshooting:
 - nvidia-smi not found → `sudo apt install nvidia-driver-535`
 - Docker permission denied → `sudo usermod -aG docker $USER`
-- Can't connect → check firewall allows outbound HTTPS to api.xcelsior.ai:443
+- Can't connect → check firewall allows outbound HTTPS to xcelsior.ca:443
 - Not picking up jobs → verify pricing is competitive via `xcelsior pricing compare`
 """
 

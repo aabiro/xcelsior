@@ -1224,3 +1224,48 @@ class TestConcurrentBilling:
         records = scheduler.load_billing()
         billed = [r for r in records if r["job_id"] == job_id]
         assert len(billed) == 1, f"Expected 1 billing record, got {len(billed)}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SSH key endpoint — GET /agent/ssh-keys/{job_id}
+# ══════════════════════════════════════════════════════════════════════
+
+
+class TestAgentSshKeysEndpoint:
+    """Tests for the GET /agent/ssh-keys/{job_id} endpoint."""
+
+    def test_nonexistent_job_returns_404(self):
+        _reset_state()
+        resp = client.get("/agent/ssh-keys/nonexistent-job-id")
+        assert resp.status_code == 404
+
+    def test_job_with_no_owner_returns_empty_keys(self):
+        _reset_state()
+        _register_host("ssh-h1", vram=80)
+        _admit_host("ssh-h1")
+        _, inst = _submit_job("ssh-test", vram=8)
+        job_id = inst["job_id"]
+        client.post("/queue/process")
+
+        # The anonymous job owner may not have SSH keys
+        resp = client.get(f"/agent/ssh-keys/{job_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert isinstance(data["keys"], list)
+
+    def test_returns_keys_structure(self):
+        """Endpoint returns proper {ok, keys} structure."""
+        _reset_state()
+        _register_host("ssh-h2", vram=80)
+        _admit_host("ssh-h2")
+        _, inst = _submit_job("ssh-struct", vram=8)
+        job_id = inst["job_id"]
+        client.post("/queue/process")
+
+        resp = client.get(f"/agent/ssh-keys/{job_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "ok" in body
+        assert "keys" in body
+        assert isinstance(body["keys"], list)

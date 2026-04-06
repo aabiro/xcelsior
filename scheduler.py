@@ -3084,7 +3084,7 @@ def deprovision_host(host_id):
                 ip = p.get("ip")
                 break
         if ip:
-            rc, _, stderr = ssh_exec(ip, "docker stop xcelsior-worker && docker rm xcelsior-worker")
+            rc, _, stderr = ssh_exec(ip, "docker stop xcl-worker && docker rm xcl-worker")
             if rc != 0:
                 log.warning("AUTOSCALE SSH DEPROVISION warn host=%s: %s", host_id, stderr)
             else:

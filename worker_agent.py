@@ -2021,7 +2021,7 @@ def _inject_ssh_keys(job_id: str, container_name: str):
     Best-effort: failures are logged but don't block the job.
     """
     try:
-        resp = req.get(
+        resp = requests.get(
             _api_url(f"/agent/ssh-keys/{job_id}"),
             headers=_api_headers(),
             timeout=10,

@@ -650,32 +650,25 @@ If you prefer not to use the wizard, set up manually:
 ### 1. Install worker agent
 
 \`\`\`bash
-curl -sSL https://xcelsior.ca/install.sh | bash
-# Or: npx xcelsior setup --mode provide
+curl -fsSL https://xcelsior.ca/install.sh | bash
 \`\`\`
 
 ### 2. Create environment file
 
-Create \`~/.xcelsior/.env\` with these variables:
+Create \`~/.xcelsior/worker.env\` with these variables:
 
 \`\`\`bash
 # REQUIRED — Get your host ID from the dashboard after registering your machine
 XCELSIOR_HOST_ID=<your-host-id>
 
 # REQUIRED — Scheduler endpoint (production)
-XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
+XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
 
 # REQUIRED — API token from dashboard Settings → API Keys
 XCELSIOR_API_TOKEN=<your-api-token>
 
-# REQUIRED — Your hourly rate in CAD per GPU
-XCELSIOR_COST_PER_HOUR=0.50
-
-# OPTIONAL — Override detected GPU count
-# XCELSIOR_GPU_COUNT=2
-
-# OPTIONAL — SLA tier: community | secure | sovereign
-# XCELSIOR_SLA_TIER=community
+# REQUIRED — Your host IP (Tailscale/Headscale mesh or public)
+XCELSIOR_HOST_IP=<your-host-ip>
 \`\`\`
 
 ### 3. Enable as a systemd service
@@ -685,13 +678,17 @@ sudo tee /etc/systemd/system/xcelsior-worker.service << 'EOF'
 [Unit]
 Description=Xcelsior Worker Agent
 After=network-online.target docker.service
+Wants=network-online.target
 Requires=docker.service
 
 [Service]
-EnvironmentFile=/root/.xcelsior/.env
-ExecStart=/usr/local/bin/xcelsior-worker
+Type=simple
+EnvironmentFile=$HOME/.xcelsior/worker.env
+ExecStart=/usr/bin/python3 $HOME/.xcelsior/worker_agent.py
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -721,7 +718,7 @@ This gives you the HOST_ID needed for configuration. The wizard handles this aut
 Common issues:
 - \`nvidia-smi\` not found → Install NVIDIA drivers: \`sudo apt install nvidia-driver-535\`
 - Docker permission denied → Add user to docker group: \`sudo usermod -aG docker $USER\`
-- Agent fails to connect → Check firewall allows outbound HTTPS to api.xcelsior.ai:443
+- Agent fails to connect → Check firewall allows outbound HTTPS to xcelsior.ca:443
 - Worker not picking up jobs → Verify pricing is competitive via \`xcelsior pricing compare\`
 
 After setup, your host will appear as "active" in the Xcelsior dashboard and begin accepting compute jobs from the marketplace.`;
@@ -972,23 +969,28 @@ xcelsior earnings --period 30d`;
 /* ── Manual Quickstart View ──────────────────────────────────────── */
 
 function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const installCmd = `npx xcelsior setup --mode provide`;
+  const installCmd = `curl -fsSL https://xcelsior.ca/install.sh | bash`;
 
   const envTemplate = `XCELSIOR_HOST_ID=<your-host-id>
-XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
+XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
 XCELSIOR_API_TOKEN=<your-api-token>
-XCELSIOR_COST_PER_HOUR=0.50`;
+XCELSIOR_HOST_IP=<your-host-ip>`;
+
 
   const systemdUnit = `[Unit]
 Description=Xcelsior Worker Agent
 After=network-online.target docker.service
+Wants=network-online.target
 Requires=docker.service
 
 [Service]
-EnvironmentFile=/root/.xcelsior/.env
-ExecStart=/usr/local/bin/xcelsior-worker
+Type=simple
+EnvironmentFile=$HOME/.xcelsior/worker.env
+ExecStart=/usr/bin/python3 $HOME/.xcelsior/worker_agent.py
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target`;
@@ -1034,7 +1036,7 @@ sudo systemctl status xcelsior-worker`;
         <p className="text-sm font-medium mb-1.5">2. Configure environment</p>
         <p className="text-xs text-text-secondary mb-2">
           The wizard handles this automatically. To configure manually, create{" "}
-          <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/.env</code>:
+          <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/worker.env</code>:
         </p>
         <div className="relative">
           <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{envTemplate}</pre>

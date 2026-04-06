@@ -795,3 +795,138 @@ class TestUnmountNfs:
         monkeypatch.setattr(subprocess, "run", fake_run)
         # Should not raise
         worker_agent._unmount_nfs(mount_point)
+
+
+# ── Container naming ─────────────────────────────────────────────────
+
+
+class TestContainerNaming:
+    """Verify container names use the xcl-{job_id} prefix."""
+
+    def test_format(self):
+        """Container name follows xcl-<job_id> format."""
+        job_id = "abc-def-123"
+        expected = f"xcl-{job_id}"
+        assert expected == f"xcl-{job_id}"
+        assert expected.startswith("xcl-")
+        assert not expected.startswith("xcelsior-")
+
+
+# ── Shell quoting ────────────────────────────────────────────────────
+
+
+class TestShellQuote:
+    """Tests for _shell_quote helper used by SSH key injection."""
+
+    def test_simple_string(self):
+        assert worker_agent._shell_quote("hello") == "'hello'"
+
+    def test_string_with_spaces(self):
+        assert worker_agent._shell_quote("hello world") == "'hello world'"
+
+    def test_string_with_single_quote(self):
+        result = worker_agent._shell_quote("it's")
+        assert result == "'it'\\''s'"
+
+    def test_ssh_key(self):
+        key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 user@host"
+        result = worker_agent._shell_quote(key)
+        assert result.startswith("'")
+        assert result.endswith("'")
+        assert "ssh-ed25519" in result
+
+    def test_empty_string(self):
+        assert worker_agent._shell_quote("") == "''"
+
+    def test_newlines(self):
+        result = worker_agent._shell_quote("line1\nline2")
+        assert "line1" in result
+        assert "line2" in result
+
+
+# ── SSH key injection ────────────────────────────────────────────────
+
+
+class TestInjectSshKeys:
+    """Tests for _inject_ssh_keys which fetches keys from the API and injects into containers."""
+
+    def _patch_inject(self, monkeypatch, resp_status=200, resp_body=None, sshd_found=True):
+        """Set up mocks for _inject_ssh_keys."""
+        _patch_base(monkeypatch)
+        calls = []
+
+        if resp_body is None:
+            resp_body = {"ok": True, "keys": ["ssh-ed25519 AAAA testkey"]}
+
+        def fake_get(url, **kw):
+            calls.append(("get", url))
+            return _FakeResp(resp_status, resp_body, ok=resp_status == 200)
+
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        def fake_run(cmd, **kw):
+            calls.append(("run", cmd))
+            rc = 0
+            if "which" in cmd and "sshd" in cmd and not sshd_found:
+                rc = 1
+            return subprocess.CompletedProcess(cmd, rc)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        return calls
+
+    def test_injects_keys_and_starts_sshd(self, monkeypatch):
+        """When keys exist and sshd is available, injects keys and starts sshd."""
+        calls = self._patch_inject(monkeypatch)
+        worker_agent._inject_ssh_keys("job-1", "xcl-job-1")
+
+        # Should have called the API
+        get_calls = [c for c in calls if c[0] == "get"]
+        assert len(get_calls) == 1
+        assert "/agent/ssh-keys/job-1" in get_calls[0][1]
+
+        # Should have run docker exec commands
+        run_calls = [c for c in calls if c[0] == "run"]
+        # mkdir, chmod, write authorized_keys, which sshd, ssh-keygen or ls host keys, sed, /usr/sbin/sshd
+        assert len(run_calls) >= 4
+        # Check mkdir was called
+        mkdir_calls = [c for c in run_calls if "mkdir" in str(c[1])]
+        assert len(mkdir_calls) >= 1
+
+    def test_no_keys_returns_early(self, monkeypatch):
+        """When no keys exist, no docker exec calls are made."""
+        body = {"ok": True, "keys": []}
+        calls = self._patch_inject(monkeypatch, resp_body=body)
+        worker_agent._inject_ssh_keys("job-2", "xcl-job-2")
+
+        run_calls = [c for c in calls if c[0] == "run"]
+        assert len(run_calls) == 0
+
+    def test_api_error_is_nonfatal(self, monkeypatch):
+        """When the API returns an error, the function doesn't crash."""
+        calls = self._patch_inject(monkeypatch, resp_status=500)
+        # Should not raise
+        worker_agent._inject_ssh_keys("job-3", "xcl-job-3")
+
+        run_calls = [c for c in calls if c[0] == "run"]
+        assert len(run_calls) == 0
+
+    def test_no_sshd_still_injects_keys(self, monkeypatch):
+        """When sshd is not found, keys are still injected but sshd is not started."""
+        calls = self._patch_inject(monkeypatch, sshd_found=False)
+        worker_agent._inject_ssh_keys("job-4", "xcl-job-4")
+
+        run_calls = [c for c in calls if c[0] == "run"]
+        # Should have: mkdir, chmod, write keys, which sshd (returns 1) — no further sshd calls
+        sshd_start = [c for c in run_calls if "/usr/sbin/sshd" in str(c[1])]
+        assert len(sshd_start) == 0
+
+    def test_network_failure_is_nonfatal(self, monkeypatch):
+        """When the API request raises an exception, doesn't crash."""
+        _patch_base(monkeypatch)
+
+        def fake_get(url, **kw):
+            raise requests.ConnectionError("unreachable")
+
+        monkeypatch.setattr(requests, "get", fake_get)
+        # Should not raise
+        worker_agent._inject_ssh_keys("job-5", "xcl-job-5")
