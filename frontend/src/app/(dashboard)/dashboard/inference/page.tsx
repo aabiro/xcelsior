@@ -62,6 +62,7 @@ export default function InferencePage() {
   const [maxWorkers, setMaxWorkers] = useState(3);
   const [mode, setMode] = useState<"sync" | "async">("sync");
   const [scaledownSec, setScaledownSec] = useState(300);
+  const [healthEndpoint, setHealthEndpoint] = useState("/health");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -100,6 +101,7 @@ export default function InferencePage() {
         max_workers: maxWorkers,
         mode,
         scaledown_window_sec: scaledownSec,
+        health_endpoint: healthEndpoint || undefined,
       });
       toast.success("Endpoint deployed");
       setShowForm(false);
@@ -296,6 +298,21 @@ export default function InferencePage() {
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 </div>
               </div>
+            </div>
+
+            {/* Health Endpoint */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Health Endpoint</label>
+              <Input
+                value={healthEndpoint}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  let v = e.target.value;
+                  if (v && !v.startsWith("/")) v = "/" + v;
+                  setHealthEndpoint(v);
+                }}
+                placeholder="/health"
+              />
+              <p className="text-xs text-text-muted mt-0.5">Path the scheduler pings to verify your container is ready.</p>
             </div>
 
             {/* Cost Estimate */}

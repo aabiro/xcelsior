@@ -651,6 +651,8 @@ const en: Record<string, string> = {
   "dash.newinstance.nfs": "NFS Mount Path",
   "dash.newinstance.nfs_placeholder": "/mnt/shared/data",
   "dash.newinstance.nfs_desc": "Attach a shared NFS volume for dataset access during training.",
+  "dash.newinstance.health_endpoint": "Health Endpoint",
+  "dash.newinstance.health_endpoint_desc": "Path the scheduler pings to verify your container is ready.",
   "dash.newinstance.estimated_cost": "Estimated Cost",
   "dash.newinstance.cancel": "Cancel",
   "dash.newinstance.submit": "Launch Instance",
@@ -982,7 +984,7 @@ const en: Record<string, string> = {
   // Gear popout / onboarding
   "gear.title": "Help",
   "gear.settings": "Settings",
-  "gear.docs": "Documentation",
+  "gear.docs": "APIs & SDKs",
   "gear.onboarding": "Getting Started",
   "gear.onboarding_desc": "Complete these steps to get the most out of Xcelsior. No pressure — go at your own pace!",
   "gear.step_profile": "Set up your profile",

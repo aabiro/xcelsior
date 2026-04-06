@@ -6,12 +6,36 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-import { ArrowLeft, Rocket, DollarSign, Box, AlertTriangle, CreditCard } from "lucide-react";
+import { ArrowLeft, Rocket, DollarSign, Box, AlertTriangle, CreditCard, RefreshCw } from "lucide-react";
 import { submitInstance, fetchPricingReference, fetchProvinces, fetchImageTemplates, classifyLaunchError, ApiError } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import type { PricingReference, ImageTemplate, LaunchErrorInfo } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+/* ── Fun random name generator (adjective-noun) ──────────────────── */
+
+const ADJECTIVES = [
+  "wobbly", "chunky", "sneaky", "peppy", "grumpy", "sparkly", "fluffy",
+  "zippy", "squishy", "dizzy", "bouncy", "toasty", "wiggly", "fuzzy",
+  "jolly", "snappy", "breezy", "cheeky", "quirky", "plucky", "zappy",
+  "perky", "spunky", "nifty", "sassy", "wacky", "frisky", "goofy",
+  "turbo", "cosmic", "mighty", "sleepy", "groovy", "dapper", "zesty",
+];
+
+const NOUNS = [
+  "panda", "otter", "moose", "walrus", "narwhal", "llama", "penguin",
+  "quokka", "axolotl", "capybara", "gecko", "badger", "wombat", "sloth",
+  "toucan", "bison", "falcon", "corgi", "puffin", "mantis", "goblin",
+  "yeti", "kraken", "phoenix", "dragon", "taco", "waffle", "noodle",
+  "pickle", "muffin", "pretzel", "donut", "nugget", "dumpling", "turnip",
+];
+
+function generateFunName(): string {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  return `${adj}-${noun}`;
+}
 
 /* ── Past-values history (for native datalist suggestions) ───── */
 const LS_KEY = "xcelsior:instance-history";
@@ -63,7 +87,7 @@ export default function NewInstancePage() {
   const [launchError, setLaunchError] = useState<LaunchErrorInfo | null>(null);
 
   // Form state
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => generateFunName());
   const [image, setImage] = useState("");
   const [gpuModel, setGpuModel] = useState("");
   const [vramNeeded, setVramNeeded] = useState("24");
@@ -226,15 +250,26 @@ export default function NewInstancePage() {
 
           <div className="space-y-2">
             <Label htmlFor="name">{t("dash.newinstance.name")}</Label>
-            <Input
-              id="name"
-              name="instance-name"
-              autoComplete="on"
-              list="past-names"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("dash.newinstance.name_placeholder")}
-            />
+            <div className="flex gap-2">
+              <Input
+                id="name"
+                name="instance-name"
+                autoComplete="on"
+                list="past-names"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="chunky-narwhal"
+                className="flex-1"
+              />
+              <button
+                type="button"
+                onClick={() => setName(generateFunName())}
+                title="Generate a new name"
+                className="flex items-center justify-center h-10 w-10 rounded-lg border border-border bg-surface-hover/50 text-text-muted hover:text-accent-cyan hover:border-accent-cyan/30 transition-colors shrink-0"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            </div>
             <datalist id="past-names">
               {(pastValues.name || []).map((v) => <option key={v} value={v} />)}
             </datalist>
@@ -382,6 +417,8 @@ export default function NewInstancePage() {
               {t("dash.newinstance.nfs_desc")}
             </p>
           </div>
+
+
         </Card>
 
         {/* Cost Estimator */}

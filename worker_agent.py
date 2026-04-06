@@ -122,6 +122,7 @@ log = logging.getLogger("xcelsior-worker")
 
 _shutdown = threading.Event()
 _active_containers = {}  # job_id -> container_name
+_adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
 _active_lock = threading.Lock()
 
 
@@ -192,6 +193,12 @@ def get_gpu_info():
 
 def get_host_ip():
     """Best-effort detection of the primary host IP."""
+    # Allow explicit override via env var (useful when Tailscale and Headscale
+    # assign different IPs and the scheduler sees a different one)
+    override = os.environ.get("XCELSIOR_HOST_IP")
+    if override:
+        return override
+
     # If Tailscale is active, prefer the Tailscale IP
     if TAILSCALE_ENABLED:
         try:
@@ -2191,11 +2198,18 @@ def heartbeat_loop(host_ip, compute_score=None):
 
 
 def graceful_shutdown():
-    """Stop all active containers and deregister from scheduler."""
+    """Stop agent-started containers and deregister from scheduler.
+
+    Adopted containers (started by the scheduler via SSH) are left running
+    so they survive agent restarts.
+    """
     log.info("Graceful shutdown — stopping %d active containers", len(_active_containers))
 
     with _active_lock:
         for job_id, container_name in list(_active_containers.items()):
+            if job_id in _adopted_containers:
+                log.info("Leaving adopted container %s (job %s) running", container_name, job_id)
+                continue
             log.info("Stopping container %s (job %s)", container_name, job_id)
             try:
                 subprocess.run(
@@ -2258,6 +2272,60 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     log.info("  Admitted:       %s", "YES" if admitted else "NO (limited to heartbeats)")
     log.info("  Tailscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
     log.info("=" * 64)
+
+
+def adopt_running_containers():
+    """Discover containers started by the scheduler (via SSH) and adopt them.
+
+    The scheduler starts containers named 'xcl-{job_id}' via SSH.
+    If the worker agent wasn't running at the time, it needs to discover
+    and adopt these containers to provide log forwarding and monitoring.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return
+
+        containers = [name.strip() for name in result.stdout.strip().split("\n") if name.strip()]
+        if not containers:
+            return
+
+        for container_name in containers:
+            # Extract job_id from container name (xcl-{job_id})
+            if not container_name.startswith("xcl-"):
+                continue
+            job_id = container_name[4:]  # Remove "xcl-" prefix
+
+            with _active_lock:
+                if job_id in _active_containers:
+                    continue  # Already tracking this container
+                _active_containers[job_id] = container_name
+                _adopted_containers.add(job_id)
+
+            log.info("Adopting running container %s (job %s)", container_name, job_id)
+
+            # Start log forwarding
+            log_fwd = LogForwarder(job_id, container_name)
+            log_fwd.start()
+
+            # Start monitoring in a separate thread
+            monitor_thread = threading.Thread(
+                target=_monitor_interactive,
+                args=(job_id, container_name),
+                kwargs={"log_forwarder": log_fwd},
+                name=f"adopt-{job_id[:8]}",
+                daemon=True,
+            )
+            monitor_thread.start()
+
+        log.info("Adopted %d running container(s)", len(containers))
+    except Exception as e:
+        log.warning("Container adoption failed: %s", e)
 
 
 def main():
@@ -2373,7 +2441,10 @@ def main():
         _total_cache_size_mb(),
     )
 
-    # ── Step 7: Start background threads ──
+    # ── Step 7: Adopt containers started by scheduler (before agent was running) ──
+    adopt_running_containers()
+
+    # ── Step 8: Start background threads ──
     threads = []
 
     # Heartbeat thread
