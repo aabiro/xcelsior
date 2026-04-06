@@ -2768,6 +2768,63 @@ When a user wants to provide GPUs, guide them step-by-step:
    ```
 5. Recommend they complete their profile and jurisdiction settings for better reputation.
 6. Mention SLA tiers (community → secure → sovereign) and how higher tiers earn more.
+
+WORKER INSTALLATION GUIDE (provide this when users ask how to install the worker):
+
+**Option A: SDK + Wizard Setup (Recommended)**
+```bash
+npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+xcelsior-wizard setup --mode provide
+```
+The wizard auto-detects GPU hardware, registers the host, configures pricing, and sets up the systemd service.
+
+It will prompt for:
+- API token (from Dashboard → Settings → API Keys)
+- Pricing preference (auto-competitive or manual $/hr)
+- SLA tier selection (community, secure, sovereign)
+- Systemd service auto-install (y/n)
+
+SDK commands after setup:
+- `xcelsior status` — check worker status
+- `xcelsior jobs --watch` — view live job queue
+- `xcelsior pricing set --gpu "RTX 4090" --rate 0.45` — update pricing
+- `xcelsior diagnostics --full` — run diagnostics
+- `xcelsior earnings --period 30d` — view earnings summary
+
+Pre-install requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2.
+
+**Option B: Manual Setup**
+1. Install: `npx xcelsior setup --mode provide`
+   Or: `curl -sSL https://xcelsior.ca/install.sh | bash`
+2. Create `~/.xcelsior/.env` with:
+   - XCELSIOR_HOST_ID=<host-id from dashboard>
+   - XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
+   - XCELSIOR_API_TOKEN=<api-token from Settings → API Keys>
+   - XCELSIOR_COST_PER_HOUR=0.50
+3. Create systemd service at `/etc/systemd/system/xcelsior-worker.service`:
+   ```
+   [Unit]
+   Description=Xcelsior Worker Agent
+   After=network-online.target docker.service
+   Requires=docker.service
+   [Service]
+   EnvironmentFile=/root/.xcelsior/.env
+   ExecStart=/usr/local/bin/xcelsior-worker
+   Restart=always
+   RestartSec=10
+   [Install]
+   WantedBy=multi-user.target
+   ```
+4. Enable: `sudo systemctl daemon-reload && sudo systemctl enable --now xcelsior-worker`
+5. Verify: `sudo systemctl status xcelsior-worker`
+
+Register host first at: Dashboard → Hosts → Register Host (gives you the HOST_ID).
+
+Troubleshooting:
+- nvidia-smi not found → `sudo apt install nvidia-driver-535`
+- Docker permission denied → `sudo usermod -aG docker $USER`
+- Can't connect → check firewall allows outbound HTTPS to api.xcelsior.ai:443
+- Not picking up jobs → verify pricing is competitive via `xcelsior pricing compare`
 """
 
     # ── Renter wizard instructions ────────────────────────────────────
@@ -2950,11 +3007,11 @@ def get_suggestions(user: dict) -> list[dict]:
         suggestions.extend([
             {"label": "🖥️ I want to rent GPUs", "prompt": "I'd like to rent GPU compute for my AI/ML workloads. Help me get started."},
             {"label": "🏗️ I want to provide GPUs", "prompt": "I have GPUs and want to earn money by providing them on the marketplace. Help me get started."},
-            {"label": "🔄 Rent & provide", "prompt": "I want to both rent compute and provide my GPUs on the marketplace. Walk me through it."},
         ])
 
     # Universal suggestions
     suggestions.extend([
+        {"label": "⚙️ How to install worker", "prompt": "Walk me through the complete Xcelsior worker agent installation — SDK/wizard setup, environment configuration, systemd service, and verification steps."},
         {"label": "Search the marketplace", "prompt": "Show me available GPUs on the marketplace"},
         {"label": "Explain SLA tiers", "prompt": "What are the different SLA tiers and their guarantees?"},
     ])

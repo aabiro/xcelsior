@@ -753,6 +753,8 @@ def check_hosts():
     """
     Ping every registered host. Once.
     Dead? Mark it dead. Alive? Update last_seen.
+    If the host has a recent agent heartbeat (last_seen < 60s ago),
+    trust the heartbeat even if ping fails (Tailscale/Headscale IP mismatch).
     Returns dict of results.
     """
     hosts = load_hosts(active_only=False)
@@ -760,9 +762,15 @@ def check_hosts():
     updates = []
     alerts = []
     revivals = []
+    now = time.time()
 
     for h in hosts:
         alive = ping_host(h["ip"])
+        # Trust recent agent heartbeat even if ping fails
+        if not alive:
+            last_seen = h.get("last_seen", 0)
+            if isinstance(last_seen, (int, float)) and (now - last_seen) < 60:
+                alive = True
         updates.append((h["host_id"], h["ip"], alive))
         results[h["host_id"]] = "alive" if alive else "dead"
 
