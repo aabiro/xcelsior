@@ -438,8 +438,7 @@ def build_secure_docker_args(
     # Security: no privileged, no new privileges
     args.append("--security-opt=no-new-privileges")
 
-    # Security: default seccomp profile (CIS 5.21 — defense-in-depth)
-    args.append("--security-opt=seccomp=default")
+    # Docker applies the default seccomp profile automatically (CIS 5.21)
 
     # Security: drop all capabilities, add back minimums
     args.extend(["--cap-drop", "ALL"])
