@@ -7,7 +7,7 @@ from routes._deps import (
     _get_current_user,
 )
 from marketplace import get_marketplace_engine
-from scheduler import get_marketplace, list_rig, marketplace_stats, unlist_rig
+from scheduler import get_marketplace, list_rig, marketplace_bill, marketplace_stats, unlist_rig
 
 router = APIRouter()
 

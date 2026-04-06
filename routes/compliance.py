@@ -13,7 +13,7 @@ from db import UserStore
 from stripe_connect import get_stripe_manager
 from events import Event, get_event_store
 from billing import PROVINCE_TAX_RATES, get_billing_engine, get_tax_rate_for_province
-from jurisdiction import requires_quebec_pia
+from jurisdiction import PROVINCE_COMPLIANCE, TRUST_TIER_REQUIREMENTS, requires_quebec_pia
 
 router = APIRouter()
 

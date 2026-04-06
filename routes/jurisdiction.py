@@ -14,6 +14,7 @@ from scheduler import (
     list_hosts_filtered,
     list_jobs,
     process_queue_filtered,
+    process_queue_sovereign,
     set_canada_only,
 )
 from jurisdiction import JurisdictionConstraint, TrustTier, generate_residency_trace
