@@ -53,9 +53,9 @@ export function CreditsButton() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors bg-emerald/5 hover:bg-emerald/10 border border-emerald/20 text-emerald"
+        className="flex items-center gap-2 rounded-lg px-3 py-2 text-base transition-colors bg-emerald/5 hover:bg-emerald/10 border border-emerald/20 text-emerald"
       >
-        <Wallet className="h-4 w-4 shrink-0" />
+        <Wallet className="h-6 w-6 shrink-0" />
         <span className={cn("font-medium", isNegative && "text-accent-red")}>
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin inline" />
@@ -64,7 +64,7 @@ export function CreditsButton() {
           )}
         </span>
         <ChevronDown
-          className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
+          className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
         />
       </button>
 

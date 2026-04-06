@@ -9,9 +9,18 @@ import { createPaymentIntent, depositWallet } from "@/lib/api";
 import { toast } from "sonner";
 import { X, CreditCard, Loader2, CheckCircle, ShieldCheck } from "lucide-react";
 
-const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
-  : null;
+// Lazy — only call loadStripe when the modal actually mounts, not at module scope.
+// Calling loadStripe at module scope causes Stripe.js iframes to initialise on every
+// page that imports this file (including billing page navigations), which spams the
+// console with hundreds of harmless "Could not establish connection" chrome.runtime errors.
+let stripePromise: ReturnType<typeof loadStripe> | null = null;
+function getStripePromise() {
+  if (!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) return null;
+  if (!stripePromise) {
+    stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+  }
+  return stripePromise;
+}
 
 interface DepositModalProps {
   customerId: string;
@@ -342,12 +351,13 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
 }
 
 export function DepositModal(props: DepositModalProps) {
-  if (!stripePromise) {
+  const stripe = getStripePromise();
+  if (!stripe) {
     // Stripe not configured — direct wallet deposit only
     return <DirectDepositForm {...props} />;
   }
   return (
-    <Elements stripe={stripePromise}>
+    <Elements stripe={stripe}>
       <DepositForm {...props} />
     </Elements>
   );

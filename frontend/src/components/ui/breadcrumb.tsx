@@ -39,10 +39,10 @@ export function Breadcrumb() {
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-base">
       {crumbs.map((crumb, i) => (
         <span key={crumb.href} className="flex items-center gap-1">
-          {i > 0 && <ChevronRight className="h-3 w-3 text-text-muted" />}
+          {i > 0 && <ChevronRight className="h-4 w-4 text-text-muted" />}
           {crumb.isLast ? (
             <span className="text-text-primary font-medium">{crumb.label}</span>
           ) : (

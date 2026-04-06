@@ -147,14 +147,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const sidebarContent = (mobile: boolean) => (
     <>
       {/* Logo */}
-      <div className="flex h-14 items-center border-b border-border/60 px-4 justify-between">
+      <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className={cn("hidden dark:block", collapsed && !mobile ? "h-9 w-9 object-left object-cover overflow-hidden" : "h-11")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
+          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className={cn("hidden dark:block", collapsed && !mobile ? "h-[60px] w-[60px] object-left object-cover overflow-hidden" : "h-[64px]")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className={cn("block dark:hidden", collapsed && !mobile ? "h-9 w-9 object-left object-cover overflow-hidden" : "h-11")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
+          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className={cn("block dark:hidden", collapsed && !mobile ? "h-[60px] w-[60px] object-left object-cover overflow-hidden" : "h-[64px]")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
           {(mobile || !collapsed) && (
-            <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan">
+            <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan -ml-1">
               Beta
             </span>
           )}
@@ -178,14 +178,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
                 active
                   ? "bg-accent-cyan/8 text-accent-cyan nav-active"
                   : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
               )}
               title={!mobile && collapsed ? label : undefined}
             >
-              <item.icon className={`h-4 w-4 shrink-0 ${active ? 'drop-shadow-[0_0_4px_rgba(0,212,255,0.5)]' : ''}`} />
+              <item.icon className={`h-5 w-5 shrink-0 ${active ? 'drop-shadow-[0_0_4px_rgba(0,212,255,0.5)]' : ''}`} />
               {(mobile || !collapsed) && (
                 <div className="flex items-center gap-2">
                   <span>{label}</span>
@@ -211,14 +211,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setGearOpen(!gearOpen)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
                 gearOpen
                   ? "bg-accent-cyan/8 text-accent-cyan"
                   : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
               )}
               title={collapsed ? t("gear.title") : undefined}
             >
-              <HelpCircle className="h-4 w-4 shrink-0" />
+              <HelpCircle className="h-5 w-5 shrink-0" />
               {!collapsed && <span>{t("gear.title")}</span>}
             </button>
 
@@ -324,7 +324,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-text-muted hover:bg-surface-hover hover:text-text-primary"
             title={collapsed ? t("gear.expand") : t("gear.collapse")}
           >
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            {collapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
           </button>
         </div>
       )}
@@ -334,24 +334,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Link
             href="/dashboard/settings"
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-base transition-colors",
               pathname.startsWith("/dashboard/settings")
                 ? "bg-accent-cyan/8 text-accent-cyan nav-active"
                 : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             )}
           >
-            <Settings className="h-4 w-4 shrink-0" />
+            <Settings className="h-5 w-5 shrink-0" />
             <span>{t("gear.settings")}</span>
           </Link>
           <a
             href="https://docs.xcelsior.ca"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-base text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
           >
-            <BookOpen className="h-4 w-4 shrink-0" />
+            <BookOpen className="h-5 w-5 shrink-0" />
             <span>{t("gear.docs")}</span>
-            <ExternalLink className="h-3 w-3 ml-auto text-text-muted" />
+            <ExternalLink className="h-3.5 w-3.5 ml-auto text-text-muted" />
           </a>
         </div>
       )}
@@ -426,16 +426,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover transition-colors"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-cyan/15 text-base font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent-cyan/15 text-lg font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
                   {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || "?"}
                 </div>
                 {user && (
                   <div className="hidden sm:block text-left">
-                    <p className="text-sm font-medium leading-none">{user.name || user.email}</p>
-                    <p className="text-xs text-text-muted">{user.role || "user"}</p>
+                    <p className="text-base font-medium leading-none">{user.name || user.email}</p>
+                    <p className="text-sm text-text-muted">{user.role || "user"}</p>
                   </div>
                 )}
-                <ChevronDown className={cn("h-3.5 w-3.5 text-text-muted transition-transform hidden sm:block", profileOpen && "rotate-180")} />
+                <ChevronDown className={cn("h-4 w-4 text-text-muted transition-transform hidden sm:block", profileOpen && "rotate-180")} />
               </button>
               {/* Profile dropdown */}
               <AnimatePresence>
@@ -519,12 +519,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "flex h-11 w-11 items-center justify-center rounded-lg transition-all duration-200",
             aiPanelOpen
-              ? "bg-accent-red text-white shadow-lg shadow-accent-red/25 scale-110"
+              ? "bg-accent-red text-white shadow-lg shadow-accent-red/25"
               : "text-accent-red hover:bg-accent-red/15"
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
-          <Sparkles className={cn("h-6 w-6 transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+          <Sparkles className={cn("h-[30px] w-[30px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
         </button>
       </div>
     </div>

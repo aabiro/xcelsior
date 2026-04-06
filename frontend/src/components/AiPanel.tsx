@@ -60,36 +60,36 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
       {/* Header — glass style */}
       <div className="flex items-center justify-between border-b border-border/30 px-3 py-3 bg-surface/30 backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-accent-cyan/20 to-accent-violet/10">
-            <Sparkles className="h-4 w-4 text-accent-cyan" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-accent-cyan/20 to-accent-violet/10">
+            <Sparkles className="h-6 w-6 text-accent-cyan" />
           </div>
-          <span className="text-sm font-semibold">{t("ai.title")}</span>
-          <span className="rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-widest text-accent-cyan/70">
+          <span className="text-base font-semibold">{t("ai.title")}</span>
+          <span className="rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">
             Beta
           </span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
             onClick={newConversation}
-            className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
+            className="rounded-md p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
             title={t("ai.new_chat")}
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-6 w-6" />
           </button>
           <Link
             href="/dashboard/ai"
             onClick={onClose}
-            className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
+            className="rounded-md p-2 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
             title={t("ai.open_full")}
           >
-            <ExternalLink className="h-4 w-4" />
+            <ExternalLink className="h-6 w-6" />
           </Link>
           <button
             onClick={onClose}
-            className="rounded-md p-1.5 text-text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors"
+            className="rounded-md p-2 text-text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors"
             title={t("ai.close_panel")}
           >
-            <PanelRightClose className="h-4 w-4" />
+            <PanelRightClose className="h-6 w-6" />
           </button>
         </div>
       </div>

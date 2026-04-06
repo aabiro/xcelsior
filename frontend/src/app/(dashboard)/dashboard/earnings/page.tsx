@@ -31,7 +31,7 @@ interface ProviderInfo {
 }
 
 export default function EarningsPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { t } = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -53,6 +53,7 @@ export default function EarningsPage() {
   const [handledStripeReturn, setHandledStripeReturn] = useState(false);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [justConnected, setJustConnected] = useState(false);
+  const [pollingStatus, setPollingStatus] = useState(false);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -100,7 +101,9 @@ export default function EarningsPage() {
         setJustConnected(true);
         toast.success("Stripe account connected successfully! You're ready to receive payouts.", { duration: 10000 });
       } else {
-        toast.info("Stripe setup is still processing. Click Continue to finish connecting your account.", { duration: 8000 });
+        // Webhook may not have fired yet — poll until status becomes active.
+        toast.info("Verifying your Stripe account status…", { duration: 4000 });
+        setPollingStatus(true);
       }
     }
 
@@ -111,6 +114,37 @@ export default function EarningsPage() {
     router.replace(query ? `/dashboard/earnings?${query}` : "/dashboard/earnings", { scroll: false });
     setHandledStripeReturn(true);
   }, [searchParams, handledStripeReturn, loading, provider?.status, router]);
+
+  // Poll Stripe status after onboarding return until webhook-driven DB update lands.
+  useEffect(() => {
+    if (!pollingStatus) return;
+    const pid = providerId || customerId;
+    if (!pid) return;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 15; // 30 s at 2 s intervals
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await api.fetchProvider(pid);
+        if (res?.provider?.status === "active") {
+          setProvider(res.provider as ProviderInfo);
+          setJustConnected(true);
+          setPollingStatus(false);
+          clearInterval(interval);
+          // Refresh auth context so provider_id + role propagate immediately
+          // (analytics Provider tab unlocks without requiring a page reload).
+          await refreshUser();
+          toast.success("Stripe account connected! You're ready to receive payouts.", { duration: 10000 });
+        }
+      } catch { /* ignore transient errors */ }
+      if (attempts >= MAX_ATTEMPTS) {
+        setPollingStatus(false);
+        clearInterval(interval);
+        toast.info("Stripe setup may still be processing. Check back shortly or click Continue.", { duration: 8000 });
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [pollingStatus, providerId, customerId]);
 
   const handleStripeConnect = async () => {
     const pid = providerId || customerId;
@@ -217,7 +251,7 @@ export default function EarningsPage() {
           {/* Stripe Connect Status + GST Alert */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Stripe Connect */}
-            <Card className={justConnected && provider?.status === "active" ? "border-emerald/40 ring-1 ring-emerald/20" : ""}>
+            <Card className={provider?.status === "active" ? "border-emerald/40 ring-1 ring-emerald/20" : ""}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">{t("dash.earnings.stripe_title")}</CardTitle>
                 <CardDescription>{t("dash.earnings.stripe_desc")}</CardDescription>
@@ -225,34 +259,32 @@ export default function EarningsPage() {
               <CardContent>
                 {provider?.status === "active" ? (
                   <div className="space-y-3">
-                    {justConnected && (
-                      <div className="rounded-lg border border-emerald/30 bg-emerald/5 px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-5 w-5 text-emerald shrink-0" />
-                          <div>
-                            <p className="text-sm font-semibold text-emerald">Stripe Connected Successfully!</p>
-                            <p className="text-xs text-text-secondary mt-0.5">
-                              Your account has been connected to Stripe and is ready to receive payouts for completed GPU jobs.
-                            </p>
-                          </div>
+                    {/* Always-visible connected banner */}
+                    <div className={`rounded-lg border px-3 py-3 ${
+                      justConnected
+                        ? "border-emerald/40 bg-emerald/8"
+                        : "border-emerald/20 bg-emerald/5"
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald/15">
+                          <CheckCircle className="h-4.5 w-4.5 text-emerald" />
                         </div>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <CheckCircle className="h-4 w-4 text-emerald" />
-                            <span className="text-sm font-medium text-emerald">{t("dash.earnings.stripe_connected")}</span>
-                          </div>
-                          <p className="mt-1 text-xs text-text-secondary">
-                            Your account is connected to Stripe successfully and ready to receive payouts.
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-emerald">
+                            {justConnected ? "Stripe Connected Successfully! 🎉" : "Stripe Account Connected"}
                           </p>
+                          <p className="text-xs text-text-secondary mt-0.5">
+                            {justConnected
+                              ? "Your account is connected and ready to receive payouts for completed GPU jobs."
+                              : "Your account is connected to Stripe and ready to receive payouts."}
+                          </p>
+                          {provider.onboarded_at && (
+                            <p className="text-[11px] text-text-muted mt-1">
+                              Connected since {new Date(Number(provider.onboarded_at) * 1000).toLocaleDateString()}
+                            </p>
+                          )}
                         </div>
                       </div>
-                      <span className="text-xs text-text-muted">
-                        Since {provider.onboarded_at ? new Date(provider.onboarded_at).toLocaleDateString() : "—"}
-                      </span>
                     </div>
                   </div>
                 ) : provider ? (
@@ -268,15 +300,20 @@ export default function EarningsPage() {
                         {provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
                       </Badge>
                     </div>
-                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding}>
+                    <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus}>
                       {onboarding ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
+                      ) : pollingStatus ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying Stripe status…</>
                       ) : (
                         <><ExternalLink className="h-3.5 w-3.5" /> Continue the Stripe Process</>
                       )}
                     </Button>
                     {stripeError && (
-                      <p className="text-xs text-accent-red mt-1">{stripeError}</p>
+                      <div className="rounded-md border border-accent-red/30 bg-accent-red/5 px-3 py-2">
+                        <p className="text-xs text-accent-red font-medium">{stripeError}</p>
+                        <p className="text-[11px] text-text-muted mt-0.5">If this persists, contact support with your account email.</p>
+                      </div>
                     )}
                   </div>
                 ) : (

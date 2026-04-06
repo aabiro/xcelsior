@@ -1718,3 +1718,80 @@ export async function revokeSession(tokenPrefix: string) {
     method: "DELETE",
   });
 }
+
+// ── Admin AI Insights ─────────────────────────────────────────────────
+
+export interface AdminAiMessage {
+  role: string;
+  content: string;
+  tool_name: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  created_at: number;
+}
+
+export interface AdminAiConversation {
+  conversation_id: string;
+  source: string;
+  user: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  messages: AdminAiMessage[];
+}
+
+export interface AdminAiSourceStat {
+  source: string;
+  conversations: number;
+  messages: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface AdminAiTopUser {
+  user_id: string;
+  conversations: number;
+  total_tokens: number;
+}
+
+export interface AdminAiStats {
+  ok: boolean;
+  total_conversations: number;
+  total_messages: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_cost: number;
+  by_source: AdminAiSourceStat[];
+  daily: Record<string, string | number>[];
+  top_users: AdminAiTopUser[];
+}
+
+export async function fetchAdminAiStats(days = 30) {
+  return apiFetch<AdminAiStats>(`/api/admin/ai-stats?days=${days}`);
+}
+
+export async function fetchAdminAiConversations(
+  source = "all",
+  days = 7,
+  search = "",
+  page = 1,
+  perPage = 30,
+) {
+  const params = new URLSearchParams({
+    source,
+    days: String(days),
+    page: String(page),
+    per_page: String(perPage),
+  });
+  if (search) params.set("search", search);
+  return apiFetch<{
+    ok: boolean;
+    conversations: AdminAiConversation[];
+    total: number;
+    page: number;
+    per_page: number;
+  }>(`/api/admin/ai-conversations?${params}`);
+}

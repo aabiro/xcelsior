@@ -198,7 +198,15 @@ async def api_ai_chat(body: AiChatRequest, request: Request):
         if not conv:
             raise HTTPException(404, "Conversation not found")
     else:
-        conversation_id = ai_create_conversation(user_id)
+        # Derive source from page_context
+        pc = (body.page_context or "").lower()
+        if pc.startswith("cli-wizard:"):
+            source = "wizard"
+        elif pc.startswith("analytics-dashboard:"):
+            source = "analytics"
+        else:
+            source = "xcel"
+        conversation_id = ai_create_conversation(user_id, source=source)
 
     return StreamingResponse(
         stream_ai_response(body.message, conversation_id, user, body.page_context),
@@ -310,7 +318,7 @@ async def api_ai_analytics_chat(body: AnalyticsAiRequest, request: Request):
         if not conv:
             raise HTTPException(404, "Conversation not found")
     else:
-        conversation_id = ai_create_conversation_fn(user_id, title="Analytics chat")
+        conversation_id = ai_create_conversation_fn(user_id, title="Analytics chat", source="analytics")
 
     # Build a page_context that the system prompt builder can parse
     page_context = f"analytics-dashboard:{body.chart_context}"

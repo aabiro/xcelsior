@@ -171,6 +171,7 @@ class ReputationScore:
     days_active: int = 0
     last_activity_at: float = 0.0
     verifications: str = "[]"  # JSON list of verification types
+    uptime_pct: float = 0.0  # Raw 0.0–1.0 measured uptime
 
     # Marketplace impact
     search_boost: float = 1.0  # Higher tier = more visibility
@@ -254,8 +255,8 @@ class ReputationStore:
                     penalty_points, reliability_score, raw_score, final_score,
                     tier, jobs_completed, jobs_failed_host, jobs_failed_user,
                     days_active, last_activity_at, verifications,
-                    search_boost, pricing_premium_pct, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    search_boost, pricing_premium_pct, uptime_pct, updated_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (entity_id) DO UPDATE SET
                      entity_type = EXCLUDED.entity_type, verification_points = EXCLUDED.verification_points,
                      activity_points = EXCLUDED.activity_points, penalty_points = EXCLUDED.penalty_points,
@@ -265,7 +266,7 @@ class ReputationStore:
                      jobs_failed_user = EXCLUDED.jobs_failed_user, days_active = EXCLUDED.days_active,
                      last_activity_at = EXCLUDED.last_activity_at, verifications = EXCLUDED.verifications,
                      search_boost = EXCLUDED.search_boost, pricing_premium_pct = EXCLUDED.pricing_premium_pct,
-                     updated_at = EXCLUDED.updated_at""",
+                     uptime_pct = EXCLUDED.uptime_pct, updated_at = EXCLUDED.updated_at""",
                 (
                     score.entity_id,
                     score.entity_type,
@@ -284,6 +285,7 @@ class ReputationStore:
                     score.verifications if isinstance(score.verifications, str) else json.dumps(score.verifications),
                     score.search_boost,
                     score.pricing_premium_pct,
+                    score.uptime_pct,
                     time.time(),
                 ),
             )
@@ -376,6 +378,7 @@ class ReputationEngine:
             verifications=existing["verifications"] if isinstance(existing["verifications"], str) else json.dumps(existing["verifications"]),
             search_boost=TIER_SEARCH_BOOST.get(tier, 1.0),
             pricing_premium_pct=TIER_PRICING_PREMIUM.get(tier, 0.0),
+            uptime_pct=float(existing.get("uptime_pct", 0.0)),
         )
 
         self.store.save_score(score)
@@ -551,9 +554,9 @@ class ReputationEngine:
         with self.store._conn() as conn:
             conn.execute(
                 """UPDATE reputation_scores
-                   SET reliability_score = %s, updated_at = %s
+                   SET reliability_score = %s, uptime_pct = %s, updated_at = %s
                    WHERE entity_id = %s""",
-                (reliability, time.time(), entity_id),
+                (reliability, uptime_pct, time.time(), entity_id),
             )
 
         return self.compute_score(entity_id)

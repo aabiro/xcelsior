@@ -69,9 +69,9 @@ def api_register_provider(req: ProviderRegisterRequest):
     except Exception as e:
         log.error("Provider registration failed: %s", e)
         raise HTTPException(502, f"Provider registration failed: {e}") from e
-    # Link provider_id to user account
+    # Link provider_id to user account and promote role
     from db import UserStore
-    UserStore.update_user(req.email, {"provider_id": req.provider_id})
+    UserStore.update_user(req.email, {"provider_id": req.provider_id, "role": "provider"})
 
     # Create initial reputation record so the provider starts with a score
     try:
