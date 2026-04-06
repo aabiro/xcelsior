@@ -625,20 +625,27 @@ class ComplianceGateMiddleware:
                 except Exception as e:
                     log.debug("Consent check skipped: %s", e)
 
-        # Attach province + redact_pii to request state so route handlers can read them
+        # Attach province + redact_pii to request state so route handlers can read them.
+        # scope["state"] follows the ASGI spec — it is always a plain dict.
+        # Starlette's Request.state wraps it via State(_state=scope["state"]),
+        # so setting dict keys here is reflected in request.state.<attr>.
         province = raw_headers.get(b"x-province", b"").decode().upper()
         if "state" not in scope:
-            from starlette.datastructures import State
-            scope["state"] = State()
-        scope["state"].province = province if (province and path in self.RESIDENCY_PATHS) else ""
-        scope["state"].redact_pii = True
+            scope["state"] = {}
+        scope["state"]["province"] = province if (province and path in self.RESIDENCY_PATHS) else ""
+        scope["state"]["redact_pii"] = True
 
-        # Wrap send to inject compliance headers without buffering the body
+        # Wrap send to inject compliance headers without buffering the body.
+        # Must strip Content-Length so uvicorn doesn't reject the extra header bytes.
         async def send_with_compliance(message):
             if message["type"] == "http.response.start":
-                hdrs = list(message.get("headers", []))
+                hdrs = [
+                    (k, v) for k, v in message.get("headers", [])
+                    if k.lower() != b"content-length"
+                ]
                 hdrs.append((b"x-data-residency", b"CA"))
                 hdrs.append((b"x-compliance-version", b"PIPEDA-2024"))
+                hdrs.append((b"transfer-encoding", b"chunked"))
                 message = {**message, "headers": hdrs}
             await send(message)
 
