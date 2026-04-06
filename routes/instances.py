@@ -95,6 +95,8 @@ class StatusUpdate(BaseModel):
     host_id: str | None = None
     container_id: str | None = None
     container_name: str | None = None
+    ssh_port: int | None = None
+    interactive: bool | None = None
 
 
 # ── Image Templates ──
@@ -270,6 +272,10 @@ def api_update_instance(job_id: str, update: StatusUpdate):
             extras["container_id"] = update.container_id
         if update.container_name:
             extras["container_name"] = update.container_name
+        if update.ssh_port is not None:
+            extras["ssh_port"] = update.ssh_port
+        if update.interactive is not None:
+            extras["interactive"] = update.interactive
         if extras:
             from scheduler import _set_job_fields
             _set_job_fields(job_id, **extras)

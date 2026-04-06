@@ -601,7 +601,8 @@ def check_preemption():
         return []
 
 
-def report_job_status(job_id, status, host_id=None, container_id=None, container_name=None):
+def report_job_status(job_id, status, host_id=None, container_id=None, container_name=None,
+                      ssh_port=None, interactive=None):
     """Update job status on the scheduler.
 
     PATCH /instance/{job_id}
@@ -613,6 +614,10 @@ def report_job_status(job_id, status, host_id=None, container_id=None, container
         data["container_id"] = container_id
     if container_name:
         data["container_name"] = container_name
+    if ssh_port is not None:
+        data["ssh_port"] = ssh_port
+    if interactive is not None:
+        data["interactive"] = interactive
     try:
         resp = requests.patch(
             _api_url(f"/instance/{job_id}"),
@@ -1624,8 +1629,7 @@ def run_job(job):
 
         # For interactive jobs, report SSH connection info
         if is_interactive:
-            from scheduler import _set_job_fields
-            _set_job_fields(job_id, ssh_port=host_port, interactive=True)
+            report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
             log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
 
         # 5. Apply egress rules (best-effort)
