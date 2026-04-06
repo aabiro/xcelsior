@@ -38,7 +38,6 @@ from scheduler import (
     log,
     storage_healthcheck,
 )
-from slurm_adapter import cancel_slurm_job
 
 router = APIRouter()
 
