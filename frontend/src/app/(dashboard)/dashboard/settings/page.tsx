@@ -1767,7 +1767,7 @@ function TeamTab({
                       <div>
                         <p className="text-sm font-medium">{activeTeam.name}</p>
                         <p className="text-xs text-text-muted">
-                          {activeTeam.plan} plan &middot; {teamMembers.length}/{activeTeam.max_members} members
+                          {teamMembers.length}/{activeTeam.max_members} members
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

@@ -121,6 +121,7 @@ export default function HostsPage() {
             </Button>
             <Button
               className="h-10 bg-accent-cyan hover:bg-accent-cyan/90 text-navy"
+              data-action="register"
               onClick={() => setShowRegister(true)}
             >
               <Plus className="h-4 w-4" />
@@ -129,6 +130,7 @@ export default function HostsPage() {
             <Button
               variant="outline"
               className="h-10"
+              data-action="install"
               onClick={() => setShowInstall(true)}
             >
               <Terminal className="h-4 w-4" />
@@ -164,12 +166,13 @@ export default function HostsPage() {
         title="Install Worker Agent"
         description="Set up the Xcelsior worker agent on your GPU host to start accepting compute jobs."
         maxWidth="max-w-3xl"
+        className="border-accent-cyan/20 shadow-lg shadow-accent-cyan/5"
       >
         <InstallWorkerSection />
       </Dialog>
 
-      {/* How It Works — expandable provider architecture overview */}
-      <ProviderArchitectureCard />
+      {/* How It Works — multi-state tips & getting started */}
+      <ProviderTipsCard hosts={hosts} />
 
       {/* Filters Card */}
       <Card className="border-border/60">
@@ -723,74 +726,157 @@ Common issues:
 
 After setup, your host will appear as "active" in the Xcelsior dashboard and begin accepting compute jobs from the marketplace.`;
 
-function ProviderArchitectureCard() {
-  const [open, setOpen] = useState(false);
+function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("xcelsior_tips_dismissed") === "1";
+    return false;
+  });
+
+  if (dismissed) return null;
+
+  const dismiss = () => {
+    setDismissed(true);
+    localStorage.setItem("xcelsior_tips_dismissed", "1");
+  };
+
+  const activeHosts = hosts.filter((h) => h.status === "active");
+  const hasHosts = hosts.length > 0;
+  const hasActive = activeHosts.length > 0;
+
+  // Determine state
+  type TipState = "empty" | "registered" | "active";
+  const state: TipState = hasActive ? "active" : hasHosts ? "registered" : "empty";
+
+  const tips: Record<TipState, { icon: typeof Zap; color: string; title: string; description: string; items: string[]; cta?: { label: string; action: string } }> = {
+    empty: {
+      icon: Server,
+      color: "accent-cyan",
+      title: "Get started: register your first GPU",
+      description: "You haven't registered any hosts yet. Add your machine to the Xcelsior network to start earning revenue from GPU compute jobs.",
+      items: [
+        "Click Register Host above to add your GPU machine",
+        "You'll need: hostname, GPU model, VRAM, and a price per hour",
+        "After registering, install the worker agent to go online",
+        "Competitive pricing tip: check Spot Pricing for current market rates",
+      ],
+      cta: { label: "Register Host", action: "register" },
+    },
+    registered: {
+      icon: Terminal,
+      color: "accent-violet",
+      title: "Almost there: install the worker agent",
+      description: `You have ${hosts.length} host${hosts.length > 1 ? "s" : ""} registered but none are active. Install the worker agent to bring your GPU online and start accepting jobs.`,
+      items: [
+        "Click Install Worker above for setup instructions",
+        "The agent runs as a background process and sends heartbeats every 30s",
+        "Make sure Docker is installed and your user is in the docker group",
+        "Allow outbound HTTPS to xcelsior.ca:443 through your firewall",
+        "Once running, your host status will change to 'active' automatically",
+      ],
+      cta: { label: "Install Worker", action: "install" },
+    },
+    active: {
+      icon: Zap,
+      color: "emerald",
+      title: "You're live! Tips to maximize earnings",
+      description: `${activeHosts.length} of ${hosts.length} host${hosts.length > 1 ? "s" : ""} active. Your GPU is accepting jobs from the marketplace. Here are tips to maximize your revenue.`,
+      items: [
+        "Keep your worker agent running 24/7 for highest uptime score",
+        "Competitive pricing improves job assignment priority — check Spot Pricing",
+        "Monitor GPU utilization in your host detail page for performance insights",
+        "Complete identity verification to unlock higher trust tiers and premium jobs",
+        "Set up Stripe payouts in Earnings to receive your revenue",
+      ],
+    },
+  };
+
+  const tip = tips[state];
+  const Icon = tip.icon;
+
   return (
-    <Card className="border-border/60">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-5 py-4 text-left hover:bg-surface-overlay/30 transition-colors"
-      >
-        <Info className="h-4 w-4 text-accent-cyan shrink-0" />
-        <span className="text-sm font-semibold text-text-secondary">How Xcelsior Connects to Your GPU</span>
-        <ChevronRight className={cn("h-4 w-4 text-text-muted ml-auto transition-transform", open && "rotate-90")} />
-      </button>
-      {open && (
-        <CardContent className="pt-0 pb-5 px-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-            <div className="rounded-lg border border-border/60 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-cyan/10 text-accent-cyan text-xs font-bold">1</div>
-                <span className="font-medium text-text-secondary">Worker Agent</span>
-              </div>
-              <p className="text-text-muted text-xs leading-relaxed">
-                A lightweight process runs on your machine. It sends a heartbeat every 30 seconds
-                to let the platform know your GPU is online and available.
-              </p>
+    <Card className="border-border/60 relative overflow-hidden">
+      <div className={cn("absolute top-0 left-0 right-0 h-[2px]", {
+        "bg-accent-cyan": state === "empty",
+        "bg-accent-violet": state === "registered",
+        "bg-emerald": state === "active",
+      })} />
+      <div className="px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg shrink-0 mt-0.5", {
+              "bg-accent-cyan/10 text-accent-cyan": state === "empty",
+              "bg-accent-violet/10 text-accent-violet": state === "registered",
+              "bg-emerald/10 text-emerald": state === "active",
+            })}>
+              <Icon className="h-4 w-4" />
             </div>
-            <div className="rounded-lg border border-border/60 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-violet/10 text-accent-violet text-xs font-bold">2</div>
-                <span className="font-medium text-text-secondary">Job Assignment</span>
-              </div>
-              <p className="text-text-muted text-xs leading-relaxed">
-                When a renter launches an instance, the scheduler matches it to the best available
-                GPU. Your agent polls for new work and claims the job via a lease.
-              </p>
-            </div>
-            <div className="rounded-lg border border-border/60 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald/10 text-emerald text-xs font-bold">3</div>
-                <span className="font-medium text-text-secondary">Secure Container</span>
-              </div>
-              <p className="text-text-muted text-xs leading-relaxed">
-                The agent pulls the Docker image, starts a sandboxed container with GPU access,
-                and injects the renter&apos;s SSH keys. Your machine stays protected.
-              </p>
-            </div>
-            <div className="rounded-lg border border-border/60 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-gold/10 text-accent-gold text-xs font-bold">4</div>
-                <span className="font-medium text-text-secondary">Earn Revenue</span>
-              </div>
-              <p className="text-text-muted text-xs leading-relaxed">
-                Billing is metered per-second while the container runs. Logs, telemetry, and
-                GPU utilization stream to the dashboard in real-time.
-              </p>
+            <div>
+              <h3 className="text-sm font-semibold text-text-secondary">{tip.title}</h3>
+              <p className="text-xs text-text-muted mt-1 max-w-xl leading-relaxed">{tip.description}</p>
             </div>
           </div>
-          <div className="mt-3 rounded-lg bg-surface-overlay/50 border border-border/40 p-3">
-            <div className="flex items-start gap-2">
-              <Shield className="h-4 w-4 text-accent-cyan shrink-0 mt-0.5" />
-              <div className="text-xs text-text-muted leading-relaxed">
-                <span className="font-medium text-text-secondary">Security: </span>
-                Containers run with gVisor sandboxing, read-only filesystems, dropped capabilities,
-                and network egress rules. Your host data is never exposed to renters.
-              </div>
-            </div>
+          <button
+            onClick={dismiss}
+            className="text-text-muted hover:text-text-secondary text-xs shrink-0 mt-1 opacity-60 hover:opacity-100 transition-opacity"
+            title="Dismiss tips"
+          >
+            ✕
+          </button>
+        </div>
+
+        <ul className="mt-3 ml-11 space-y-1.5">
+          {tip.items.map((item, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-text-muted leading-relaxed">
+              <ChevronRight className="h-3 w-3 text-text-muted/60 shrink-0 mt-0.5" />
+              {item}
+            </li>
+          ))}
+        </ul>
+
+        {tip.cta && (
+          <div className="mt-4 ml-11">
+            <Button
+              variant="outline"
+              className={cn("h-8 text-xs", {
+                "border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/5": state === "empty",
+                "border-accent-violet/30 text-accent-violet hover:bg-accent-violet/5": state === "registered",
+              })}
+              onClick={() => {
+                const el = document.querySelector(`[data-action="${tip.cta!.action}"]`);
+                if (el) (el as HTMLButtonElement).click();
+              }}
+            >
+              <ArrowRight className="h-3 w-3" />
+              {tip.cta.label}
+            </Button>
           </div>
-        </CardContent>
-      )}
+        )}
+
+        {/* Architecture overview — always visible in the tips card */}
+        <div className="mt-4 ml-11 pt-3 border-t border-border/40">
+          <p className="text-xs font-medium text-text-secondary mb-2 flex items-center gap-1.5">
+            <Shield className="h-3 w-3 text-accent-cyan" /> How it works
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { n: "1", label: "Worker Agent", desc: "Lightweight process sends heartbeats every 30s", color: "accent-cyan" },
+              { n: "2", label: "Job Assignment", desc: "Scheduler matches renters to your GPU via lease", color: "accent-violet" },
+              { n: "3", label: "Secure Container", desc: "Sandboxed Docker with GPU access + SSH keys", color: "emerald" },
+              { n: "4", label: "Earn Revenue", desc: "Per-second billing, real-time telemetry", color: "accent-gold" },
+            ].map((step) => (
+              <div key={step.n} className="rounded-md border border-border/40 p-2 flex items-start gap-2">
+                <div className={cn("flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold shrink-0", `bg-${step.color}/10 text-${step.color}`)}>
+                  {step.n}
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium text-text-secondary">{step.label}</p>
+                  <p className="text-[10px] text-text-muted leading-tight">{step.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -809,14 +895,14 @@ function InstallWorkerSection() {
   }
 
   return (
-    <div className="flex flex-col">
-      {/* Content area */}
-      <div className="min-h-[380px]">
+    <div className="flex flex-col h-full">
+      {/* Content area — scrollable */}
+      <div className="min-h-[380px] flex-1 overflow-y-auto">
         {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
       </div>
 
-      {/* Bottom bar */}
-      <div className="mt-4 pt-4 border-t border-border/60">
+      {/* Sticky footer */}
+      <div className="sticky bottom-0 mt-4 pt-4 border-t border-accent-cyan/20 bg-surface/95 backdrop-blur-sm -mx-6 px-6 pb-1">
         <div className="flex items-end justify-between gap-4">
           <p className="text-xs text-text-muted max-w-sm leading-relaxed">
             Get started with a code quickstart or copy these setup steps as a prompt.
@@ -824,14 +910,14 @@ function InstallWorkerSection() {
           <div className="flex items-center gap-2.5 shrink-0">
             <button
               onClick={() => copy("llm-prompt", LLM_INSTALL_PROMPT)}
-              className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-hover/50 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/30 hover:text-accent-cyan hover:bg-accent-cyan/5 transition-all duration-200"
+              className="flex items-center gap-2 rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/40 hover:text-accent-cyan hover:bg-accent-cyan/10 transition-all duration-200"
             >
               {copied === "llm-prompt" ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Clipboard className="h-3.5 w-3.5" />}
               Copy prompt for LLM
             </button>
             <button
               onClick={() => setView(view === "sdk" ? "quickstart" : "sdk")}
-              className="flex items-center gap-2 rounded-lg bg-accent-cyan/10 border border-accent-cyan/25 px-3.5 py-2 text-xs font-medium text-accent-cyan hover:bg-accent-cyan/20 transition-all duration-200"
+              className="flex items-center gap-2 rounded-lg bg-accent-cyan text-navy px-3.5 py-2 text-xs font-semibold hover:bg-accent-cyan/90 transition-all duration-200 shadow-sm shadow-accent-cyan/25"
             >
               {view === "sdk" ? (
                 <>View Quickstart <ArrowRight className="h-3.5 w-3.5" /></>

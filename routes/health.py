@@ -478,6 +478,7 @@ async def _sse_generator(request: Request):
     with _sse_lock:
         _sse_subscribers.append(queue)
     try:
+        yield "retry: 3000\n\n"
         yield f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
 
         while True:

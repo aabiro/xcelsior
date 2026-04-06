@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _get_current_user,
     broadcast_sse,
     log,
     otel_span,
@@ -72,6 +73,15 @@ def api_register_provider(req: ProviderRegisterRequest):
     from db import UserStore
     UserStore.update_user(req.email, {"provider_id": req.provider_id})
 
+    # Create initial reputation record so the provider starts with a score
+    try:
+        rep_engine = get_reputation_engine()
+        rep_engine._ensure_entity(req.provider_id, entity_type="host")
+        rep_engine.add_verification(req.provider_id, VerificationType.EMAIL)
+        log.info("Initial reputation record created for provider %s", req.provider_id)
+    except Exception as e:
+        log.warning("Failed to create initial reputation for %s: %s", req.provider_id, e)
+
     broadcast_sse(
         "provider_registered",
         {
@@ -80,6 +90,38 @@ def api_register_provider(req: ProviderRegisterRequest):
             "corporation_name": req.corporation_name,
         },
     )
+    return {"ok": True, **result}
+
+@router.post("/api/providers/{provider_id}/resume-onboarding", tags=["Providers"])
+def api_resume_onboarding(provider_id: str, request: Request):
+    """Generate a fresh Stripe onboarding URL for a provider stuck in onboarding.
+
+    This lets users who closed the Stripe modal mid-flow resume from where
+    they left off without re-registering.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    mgr = get_stripe_manager()
+    provider = mgr.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(404, f"Provider {provider_id} not found")
+    if provider.get("status") == "active":
+        return {"ok": True, "status": "active", "message": "Provider is already fully onboarded"}
+    # Re-call create_provider_account which handles re-generating the onboarding link
+    try:
+        result = mgr.create_provider_account(
+            provider_id=provider_id,
+            email=provider.get("email", user.get("email", "")),
+            provider_type=provider.get("provider_type", "individual"),
+            corporation_name=provider.get("corporation_name", ""),
+            business_number=provider.get("business_number", ""),
+            gst_hst_number=provider.get("gst_hst_number", ""),
+            province=provider.get("province", ""),
+            legal_name=provider.get("legal_name", ""),
+        )
+    except RuntimeError as e:
+        raise HTTPException(502, str(e)) from e
     return {"ok": True, **result}
 
 @router.get("/api/providers/{provider_id}", tags=["Providers"])

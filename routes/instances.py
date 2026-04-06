@@ -473,6 +473,9 @@ async def _job_log_generator(request: Request, job_id: str):
         _sse_subscribers.append(queue)
 
     try:
+        # SSE retry hint for automatic browser reconnection
+        yield "retry: 3000\n\n"
+
         # Replay buffered log lines (PG fallback if buffer is empty)
         replay = list(_job_log_buffers.get(job_id, []))
         if not replay:
@@ -889,7 +892,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             await websocket.close(code=4003)
             return
 
-    await websocket.send_json({"type": "output", "data": f"Connected to {instance.get('name', instance_id)}\\r\\n"})
+    await websocket.send_json({"type": "output", "data": "Connected to " + instance.get('name', instance_id) + "\r\n"})
 
     bytes_this_second = 0
     last_rate_reset = time.time()

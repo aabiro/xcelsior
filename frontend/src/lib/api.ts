@@ -466,6 +466,12 @@ export async function fetchProvider(providerId: string) {
   }>(`/api/providers/${encodeURIComponent(providerId)}`);
 }
 
+export async function resumeOnboarding(providerId: string) {
+  return apiFetch<{
+    ok: boolean; provider_id: string; onboarding_url?: string; status: string; message?: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/resume-onboarding`, { method: "POST" });
+}
+
 export async function requestPayout(providerId: string, jobId: string, totalCad: number) {
   return apiFetch<{
     ok: boolean; job_id: string; total_cad: number;
