@@ -107,7 +107,7 @@ export default function SpotPricingPage() {
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{p.gpu_model}</span>
+                    <span className="font-medium">{p.gpu_model === "unknown" ? "Any GPU" : p.gpu_model}</span>
                     <Badge variant="info">SPOT</Badge>
                   </div>
                   <div className="mt-2 text-2xl font-bold">

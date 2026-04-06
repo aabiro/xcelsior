@@ -235,10 +235,21 @@ def api_list_instances(status: str | None = None):
     hosts = list_hosts()
     host_map = {h["host_id"]: h for h in hosts}
     for j in jobs:
+        # Map 'image' → 'docker_image'
+        if j.get("image") and not j.get("docker_image"):
+            j["docker_image"] = j["image"]
         hid = j.get("host_id")
         if hid and hid in host_map:
             j.setdefault("gpu_type", host_map[hid].get("gpu_model", ""))
             j.setdefault("host_gpu", host_map[hid].get("gpu_model", ""))
+        # Compute elapsed / duration
+        started = float(j.get("started_at") or 0)
+        completed = float(j.get("completed_at") or 0)
+        if started > 0:
+            if completed > started:
+                j.setdefault("duration_sec", round(completed - started, 2))
+            elif j.get("status") == "running":
+                j.setdefault("elapsed_sec", round(time.time() - started, 2))
     return {"instances": jobs}
 
 @router.get("/instance/{job_id}", tags=["Instances"])
@@ -247,7 +258,22 @@ def api_get_instance(job_id: str):
     jobs = list_jobs()
     for j in jobs:
         if j["job_id"] == job_id:
+            # Map 'image' → 'docker_image' for frontend
+            if j.get("image") and not j.get("docker_image"):
+                j["docker_image"] = j["image"]
+
+            # Compute elapsed / duration from timestamps
+            started = float(j.get("started_at") or 0)
+            completed = float(j.get("completed_at") or 0)
+            if started > 0:
+                if completed > started:
+                    j["duration_sec"] = round(completed - started, 2)
+                    j["elapsed_sec"] = j["duration_sec"]
+                elif j.get("status") == "running":
+                    j["elapsed_sec"] = round(time.time() - started, 2)
+
             # Enrich with host connection details when running
+            host = None
             if j.get("host_id") and j.get("status") in ("running", "completed", "failed"):
                 hosts = list_hosts()
                 host = next((h for h in hosts if h["host_id"] == j["host_id"]), None)
@@ -255,6 +281,16 @@ def api_get_instance(job_id: str):
                     j["host_ip"] = host.get("ip", "")
                     j["host_gpu"] = host.get("gpu_model", "")
                     j["host_vram_gb"] = host.get("total_vram_gb", 0)
+                    j.setdefault("gpu_type", host.get("gpu_model", ""))
+
+            # Compute cost_cad for running/completed jobs
+            elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
+            if elapsed > 0 and j.get("cost_cad") is None:
+                rate = 0.20  # default CAD/hr
+                if host and host.get("cost_per_hour"):
+                    rate = float(host["cost_per_hour"])
+                j["cost_cad"] = round((elapsed / 3600) * rate, 4)
+
             return {"instance": j}
     raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 

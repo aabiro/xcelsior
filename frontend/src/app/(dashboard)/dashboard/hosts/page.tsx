@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -129,7 +129,7 @@ export default function HostsPage() {
             </Button>
             <Button
               variant="outline"
-              className="h-10"
+              className="h-10 border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/10 hover:border-accent-cyan/50 shadow-sm shadow-accent-cyan/10 hover:shadow-accent-cyan/20 transition-all duration-200"
               data-action="install"
               onClick={() => setShowInstall(true)}
             >
@@ -173,6 +173,9 @@ export default function HostsPage() {
 
       {/* How It Works — multi-state tips & getting started */}
       <ProviderTipsCard hosts={hosts} />
+
+      {/* Architecture — always visible */}
+      <ArchitectureCard />
 
       {/* Filters Card */}
       <Card className="border-border/60">
@@ -607,17 +610,15 @@ Install the Xcelsior SDK and interactive setup wizard globally:
 npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
 \`\`\`
 
-Then run the interactive setup wizard, which will auto-detect your GPU hardware, register your host, configure pricing, and set up the worker agent:
+Then run the AI SDK Onboarding Wizard, which will auto-detect your GPU hardware, register your host, configure pricing, and set up the worker agent:
 
 \`\`\`bash
 xcelsior-wizard setup --mode provide
 \`\`\`
 
-The wizard will prompt for:
-- Your Xcelsior API token (from https://xcelsior.ca/dashboard/settings → API Keys)
-- Pricing preference (auto-competitive or manual $/hr)
-- SLA tier selection (community, secure, sovereign)
-- Systemd service auto-install (y/n)
+The AI SDK Onboarding Wizard will:
+- Auto-detect your GPU hardware, register your host, and configure competitive pricing
+- Set up the systemd worker service for always-on availability
 
 ### SDK Quick-Start Commands
 
@@ -732,12 +733,26 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
     return false;
   });
 
-  if (dismissed) return null;
-
   const dismiss = () => {
     setDismissed(true);
     localStorage.setItem("xcelsior_tips_dismissed", "1");
   };
+
+  const restore = () => {
+    setDismissed(false);
+    localStorage.removeItem("xcelsior_tips_dismissed");
+  };
+
+  if (dismissed) {
+    return (
+      <button
+        onClick={restore}
+        className="flex items-center gap-1.5 text-xs text-text-muted hover:text-accent-cyan transition-colors"
+      >
+        <Info className="h-3 w-3" /> Show tips
+      </button>
+    );
+  }
 
   const activeHosts = hosts.filter((h) => h.status === "active");
   const hasHosts = hosts.length > 0;
@@ -794,7 +809,7 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
   const Icon = tip.icon;
 
   return (
-    <Card className="border-border/60 relative overflow-hidden">
+    <Card className="border-border/60 relative overflow-hidden bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.03]">
       <div className={cn("absolute top-0 left-0 right-0 h-[2px]", {
         "bg-accent-cyan": state === "empty",
         "bg-accent-violet": state === "registered",
@@ -851,30 +866,38 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
             </Button>
           </div>
         )}
+      </div>
+    </Card>
+  );
+}
 
-        {/* Architecture overview — always visible in the tips card */}
-        <div className="mt-4 ml-11 pt-3 border-t border-border/40">
-          <p className="text-xs font-medium text-text-secondary mb-2 flex items-center gap-1.5">
-            <Shield className="h-3 w-3 text-accent-cyan" /> How it works
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { n: "1", label: "Worker Agent", desc: "Lightweight process sends heartbeats every 30s", color: "accent-cyan" },
-              { n: "2", label: "Job Assignment", desc: "Scheduler matches renters to your GPU via lease", color: "accent-violet" },
-              { n: "3", label: "Secure Container", desc: "Sandboxed Docker with GPU access + SSH keys", color: "emerald" },
-              { n: "4", label: "Earn Revenue", desc: "Per-second billing, real-time telemetry", color: "accent-gold" },
-            ].map((step) => (
-              <div key={step.n} className="rounded-md border border-border/40 p-2 flex items-start gap-2">
-                <div className={cn("flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold shrink-0", `bg-${step.color}/10 text-${step.color}`)}>
-                  {step.n}
-                </div>
-                <div>
-                  <p className="text-[11px] font-medium text-text-secondary">{step.label}</p>
-                  <p className="text-[10px] text-text-muted leading-tight">{step.desc}</p>
-                </div>
+/* ── Architecture Card — always visible (not dismissible) ────────── */
+
+function ArchitectureCard() {
+  return (
+    <Card className="border-border/60 relative overflow-hidden bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.03]">
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-gold" />
+      <div className="px-5 py-4">
+        <p className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+          <Shield className="h-3.5 w-3.5 text-accent-cyan" /> How it works
+        </p>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { n: "1", label: "Worker Agent", desc: "Lightweight process sends heartbeats every 30s", color: "accent-cyan" },
+            { n: "2", label: "Job Assignment", desc: "Scheduler matches renters to your GPU via lease", color: "accent-violet" },
+            { n: "3", label: "Secure Container", desc: "Sandboxed Docker with GPU access + SSH keys", color: "emerald" },
+            { n: "4", label: "Earn Revenue", desc: "Per-second billing, real-time telemetry", color: "accent-gold" },
+          ].map((step) => (
+            <div key={step.n} className={cn("rounded-lg border border-border/40 p-3 flex items-start gap-2.5 bg-gradient-to-br from-transparent", `to-${step.color}/[0.03]`)}>
+              <div className={cn("flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold shrink-0", `bg-${step.color}/10 text-${step.color} ring-1 ring-${step.color}/20`)}>
+                {step.n}
               </div>
-            ))}
-          </div>
+              <div>
+                <p className="text-xs font-medium text-text-secondary">{step.label}</p>
+                <p className="text-[11px] text-text-muted leading-tight mt-0.5">{step.desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </Card>
@@ -886,6 +909,7 @@ type InstallView = "sdk" | "quickstart";
 function InstallWorkerSection() {
   const [view, setView] = useState<InstallView>("sdk");
   const [copied, setCopied] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   function copy(label: string, text: string) {
     navigator.clipboard.writeText(text);
@@ -894,15 +918,20 @@ function InstallWorkerSection() {
     setTimeout(() => setCopied(null), 2000);
   }
 
+  function switchView() {
+    setView(view === "sdk" ? "quickstart" : "sdk");
+    contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Content area — scrollable */}
-      <div className="min-h-[380px] flex-1 overflow-y-auto">
+      {/* Content area — scrollable with faint inner border */}
+      <div ref={contentRef} className="min-h-[380px] flex-1 overflow-y-auto rounded-lg border border-border/30 p-4 -mx-1">
         {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
       </div>
 
       {/* Sticky footer */}
-      <div className="sticky bottom-0 mt-4 pt-4 border-t border-accent-cyan/20 bg-surface/95 backdrop-blur-sm -mx-6 px-6 pb-1">
+      <div className="sticky bottom-0 mt-4 pt-4 border-t border-accent-cyan/20 bg-surface/95 backdrop-blur-sm -mx-6 px-6 pb-4">
         <div className="flex items-end justify-between gap-4">
           <p className="text-xs text-text-muted max-w-sm leading-relaxed">
             Get started with a code quickstart or copy these setup steps as a prompt.
@@ -910,14 +939,14 @@ function InstallWorkerSection() {
           <div className="flex items-center gap-2.5 shrink-0">
             <button
               onClick={() => copy("llm-prompt", LLM_INSTALL_PROMPT)}
-              className="flex items-center gap-2 rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/40 hover:text-accent-cyan hover:bg-accent-cyan/10 transition-all duration-200"
+              className="flex items-center gap-2 rounded-lg border border-accent-cyan/30 bg-gradient-to-r from-accent-cyan/5 to-accent-violet/5 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/50 hover:text-accent-cyan hover:from-accent-cyan/10 hover:to-accent-violet/10 transition-all duration-200"
             >
               {copied === "llm-prompt" ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Clipboard className="h-3.5 w-3.5" />}
               Copy prompt for LLM
             </button>
             <button
-              onClick={() => setView(view === "sdk" ? "quickstart" : "sdk")}
-              className="flex items-center gap-2 rounded-lg bg-accent-cyan text-navy px-3.5 py-2 text-xs font-semibold hover:bg-accent-cyan/90 transition-all duration-200 shadow-sm shadow-accent-cyan/25"
+              onClick={switchView}
+              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-accent-cyan to-accent-cyan/90 text-navy px-3.5 py-2 text-xs font-semibold hover:from-accent-cyan/90 hover:to-accent-cyan transition-all duration-200 shadow-sm shadow-accent-cyan/25"
             >
               {view === "sdk" ? (
                 <>View Quickstart <ArrowRight className="h-3.5 w-3.5" /></>
@@ -988,7 +1017,7 @@ xcelsior earnings --period 30d`;
 
       {/* Step 2: Run wizard */}
       <div>
-        <p className="text-sm font-medium mb-1.5">2. Run the interactive setup wizard</p>
+        <p className="text-sm font-medium mb-1.5">2. Run the AI SDK Onboarding Wizard</p>
         <p className="text-xs text-text-secondary mb-2">
           The wizard auto-detects your GPU hardware, registers your host, configures pricing, and installs the systemd service.
         </p>
@@ -1000,23 +1029,15 @@ xcelsior earnings --period 30d`;
 
       {/* Wizard prompts */}
       <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3.5">
-        <p className="text-xs font-medium text-text-primary mb-2">The wizard will prompt for:</p>
+        <p className="text-xs font-medium text-text-primary mb-2">The AI SDK Onboarding Wizard will:</p>
         <ul className="text-xs text-text-secondary space-y-1.5">
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Your Xcelsior API token (from Dashboard → Settings → API Keys)
+            Auto-detect your GPU hardware, register your host, and configure competitive pricing
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Pricing preference (auto-competitive or manual $/hr)
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            SLA tier selection (community, secure, sovereign)
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Systemd service auto-install (y/n)
+            Set up the systemd worker service for always-on availability
           </li>
         </ul>
       </div>
