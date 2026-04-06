@@ -437,7 +437,8 @@ export function ChatInput({
           onClick={onSubmit}
           disabled={isStreaming || !value.trim()}
           className={cn(
-            "shrink-0 flex self-stretch aspect-square items-center justify-center rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
+            "shrink-0 flex items-center justify-center rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
+            compact ? "h-8 w-8" : "h-10 w-10",
             "hover:bg-accent-cyan/30 hover:shadow-[0_0_16px_rgba(0,212,255,0.2)]",
             "disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none",
             "transition-all duration-200",

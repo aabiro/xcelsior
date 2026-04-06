@@ -24,3 +24,6 @@ if os.path.exists(_env_test):
 else:
     # Fall back to .env if .env.test doesn't exist
     load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=True)
+
+# Exclude live E2E test scripts from pytest collection
+collect_ignore = ["test_e2e_live.py"]

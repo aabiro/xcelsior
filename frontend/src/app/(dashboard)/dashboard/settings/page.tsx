@@ -1817,7 +1817,7 @@ function TeamTab({
 
                     {/* Invite */}
                     <div className="flex gap-2">
-                      <Input type="email" placeholder="Email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="flex-1" />
+                      <Input type="email" autoComplete="email" placeholder="Email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="flex-1" />
                       <Select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-28">
                         <option value="member">Member</option>
                         <option value="admin">Admin</option>
