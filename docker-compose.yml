@@ -24,7 +24,7 @@ services:
       XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
       XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
       XCELSIOR_LOG_FILE: /data/xcelsior.log
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       XCELSIOR_DUAL_READ_FROM: ${XCELSIOR_DUAL_READ_FROM:-postgres}
       XCELSIOR_RATE_LIMIT_REQUESTS: ${XCELSIOR_RATE_LIMIT_REQUESTS:-120}
       XCELSIOR_RATE_LIMIT_WINDOW_SEC: ${XCELSIOR_RATE_LIMIT_WINDOW_SEC:-60}
@@ -51,7 +51,7 @@ services:
       XCELSIOR_STRIPE_WEBHOOK_SECRET: ${XCELSIOR_STRIPE_WEBHOOK_SECRET:-}
       # Bitcoin Deposits
       XCELSIOR_BTC_ENABLED: ${XCELSIOR_BTC_ENABLED:-false}
-      XCELSIOR_BTC_RPC_HOST: ${XCELSIOR_BTC_RPC_HOST:-host.docker.internal}
+      XCELSIOR_BTC_RPC_HOST: ${XCELSIOR_BTC_RPC_HOST:-127.0.0.1}
       XCELSIOR_BTC_RPC_PORT: ${XCELSIOR_BTC_RPC_PORT:-8332}
       XCELSIOR_BTC_RPC_USER: ${XCELSIOR_BTC_RPC_USER:-}
       XCELSIOR_BTC_RPC_PASS: ${XCELSIOR_BTC_RPC_PASS:-}
@@ -85,12 +85,13 @@ services:
       AI_ASSISTANT_OPENAI_MODEL: ${AI_ASSISTANT_OPENAI_MODEL:-gpt-4o-mini}
       AI_ASSISTANT_MAX_TOKENS: ${AI_ASSISTANT_MAX_TOKENS:-4096}
       AI_ASSISTANT_RATE_LIMIT: ${AI_ASSISTANT_RATE_LIMIT:-20}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # SSH for web terminal proxy
+      XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
+      XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
+    network_mode: host
     volumes:
       - xcelsior-data:/data
-    ports:
-      - "${XCELSIOR_API_PORT:-9500}:${XCELSIOR_API_PORT:-9500}"
+      - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
     restart: unless-stopped
 
   scheduler-worker:

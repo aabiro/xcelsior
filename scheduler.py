@@ -1943,24 +1943,28 @@ def configure_alerts(**kwargs):
     ALERT_CONFIG.update(kwargs)
 
 
-def send_email(subject, body):
-    """Send an email alert. SMTP. No dependencies."""
+def send_email(subject, body, to_email=None):
+    """Send an email alert. SMTP. No dependencies.
+    
+    If to_email is provided, sends to that address instead of the admin email.
+    """
     cfg = ALERT_CONFIG
     if not cfg["email_enabled"]:
         return False
 
     try:
+        recipient = to_email or cfg["email_to"]
         msg = MIMEText(body)
         msg["Subject"] = f"[Xcelsior] {subject}"
         msg["From"] = cfg["email_from"]
-        msg["To"] = cfg["email_to"]
+        msg["To"] = recipient
 
         with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
             server.starttls()
             server.login(cfg["smtp_user"], cfg["smtp_pass"])
             server.send_message(msg)
 
-        log.info("EMAIL SENT: %s -> %s", subject, cfg["email_to"])
+        log.info("EMAIL SENT: %s -> %s", subject, recipient)
         return True
     except Exception as e:
         log.error("EMAIL FAILED: %s | %s", subject, e)

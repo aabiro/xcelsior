@@ -355,15 +355,37 @@ deploy_docker() {
     ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration failed — may need manual attention"
     success "Migrations applied"
 
-    # Recreate containers (fast — images already built)
-    log "Restarting containers..."
-    ssh_cmd "cd /opt/xcelsior && docker compose down --remove-orphans 2>/dev/null; docker compose up -d" || error "Docker up failed"
-    success "Containers started"
+    # Rolling restart — bring up new containers one at a time to minimize downtime
+    log "Rolling restart (zero-downtime)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps api" || error "API restart failed"
+    # Wait for API health before continuing
+    local api_ok=false
+    for i in {1..20}; do
+        if ssh_cmd "curl -sf http://localhost:9500/healthz" &>/dev/null; then
+            api_ok=true
+            break
+        fi
+        sleep 2
+    done
+    if [ "$api_ok" = true ]; then
+        success "API is healthy"
+    else
+        warn "API not healthy after 40s — continuing anyway"
+    fi
 
-    # Wait for health
-    log "Waiting for API health..."
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
+    success "Scheduler-worker restarted"
+
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
+    success "Frontend restarted"
+
+    # Remove orphans quietly
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --remove-orphans 2>/dev/null" || true
+
+    # Final health check
+    log "Verifying all services..."
     local healthy=false
-    for i in {1..30}; do
+    for i in {1..10}; do
         if ssh_cmd "curl -sf http://localhost:9500/healthz" &>/dev/null; then
             healthy=true
             break

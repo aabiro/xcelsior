@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -96,6 +96,15 @@ export default function InstanceDetailPage() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
+  const prevStatusRef = useRef<string | null>(null);
+
+  // Auto-open terminal when instance starts running
+  useEffect(() => {
+    if (instance?.status === "running" && prevStatusRef.current !== "running") {
+      setShowTerminal(true);
+    }
+    prevStatusRef.current = instance?.status ?? null;
+  }, [instance?.status]);
 
   const load = () => {
     setLoading(true);

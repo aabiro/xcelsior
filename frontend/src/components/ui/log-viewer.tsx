@@ -81,7 +81,8 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
       const rawTs = typeof log.timestamp === "number" && log.timestamp < 1e12
         ? log.timestamp * 1000
         : log.timestamp;
-      const ts = rawTs ? new Date(rawTs).toISOString() : "";
+      const d = rawTs ? new Date(rawTs) : null;
+      const ts = d && !isNaN(d.getTime()) ? d.toISOString() : "";
       const level = log.level ? `[${log.level.toUpperCase()}]` : "";
       return `${ts} ${level} ${log.message}`;
     }).join("\n");
@@ -137,8 +138,9 @@ export function LogViewer({ jobId, live = false }: LogViewerProps) {
             const rawTs = typeof log.timestamp === "number" && log.timestamp < 1e12
               ? log.timestamp * 1000
               : log.timestamp;
-            const ts = rawTs
-              ? new Date(rawTs).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+            const d = rawTs ? new Date(rawTs) : null;
+            const ts = d && !isNaN(d.getTime())
+              ? d.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
               : "";
             return (
               <div key={i} className="flex gap-2 hover:bg-surface-hover -mx-1 px-1 rounded">

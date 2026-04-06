@@ -401,15 +401,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <SessionExpiryBanner />
 
         {/* Topbar */}
-        <header className="flex h-14 items-center justify-between glass px-4 md:px-6 relative">
+        <header className="flex h-16 items-center justify-between glass px-4 md:px-6 relative">
           <div className="brand-line absolute bottom-0 left-0 right-0" />
           {/* Mobile menu button */}
           <button
-            className="md:hidden flex items-center justify-center h-9 w-9 rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            className="md:hidden flex items-center justify-center h-10 w-10 rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-6 w-6" />
           </button>
           <div className="hidden md:block">
             <Breadcrumb />
@@ -417,16 +417,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             <LocaleToggle />
             <ThemeToggle />
-            <div className="h-5 w-px bg-border hidden sm:block" />
+            <div className="h-6 w-px bg-border hidden sm:block" />
             <NotificationBell />
             <CreditsButton />
-            <div className="h-6 w-px bg-border hidden sm:block" />
+            <div className="h-7 w-px bg-border hidden sm:block" />
             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover transition-colors"
               >
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-cyan/15 text-sm font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-cyan/15 text-base font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
                   {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || "?"}
                 </div>
                 {user && (
