@@ -833,9 +833,12 @@ def health_loop(interval=5, callback=None):
     Run this in a thread.
     """
     while True:
-        results = check_hosts()
-        if callback:
-            callback(results)
+        try:
+            results = check_hosts()
+            if callback:
+                callback(results)
+        except Exception as e:
+            log.error("Health monitor error: %s", e)
         time.sleep(interval)
 
 
@@ -2424,9 +2427,12 @@ def start_failover_monitor(interval=10, callback=None):
 
     def loop():
         while True:
-            requeued, assigned = failover_and_reassign()
-            if callback and (requeued or assigned):
-                callback(requeued, assigned)
+            try:
+                requeued, assigned = failover_and_reassign()
+                if callback and (requeued or assigned):
+                    callback(requeued, assigned)
+            except Exception as e:
+                log.error("Failover monitor error: %s", e)
             time.sleep(interval)
 
     t = threading.Thread(target=loop, daemon=True)
