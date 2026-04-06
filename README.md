@@ -7,6 +7,8 @@
 **Route AI workloads to admission-gated GPU hosts over a private mesh —
 with PIPEDA compliance, 4-layer container security, and CAD-native billing.**
 
+[![CI](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml)
+[![Frontend CI](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![TypeScript SDK](https://img.shields.io/badge/SDK-TypeScript-3178C6.svg)](https://docs.xcelsior.ca)
@@ -136,8 +138,13 @@ jurisdiction.py   Trust tiers, residency tracing, CLOUD Act analysis
 artifacts.py      Two-tier B2/R2 storage, residency-aware routing
 db.py             PostgreSQL ↔ SQLite dual-write, LISTEN/NOTIFY
 cli.py            Full CLI for jobs, hosts, billing, marketplace
-frontend/         Next.js marketing site + dashboard (xcelsior.ca)
+ai_assistant.py   Hexara AI assistant with tool-calling & onboarding wizards
+routes/           Modular API route handlers (agent, instances, admin, etc.)
+frontend/         Next.js 15 dashboard + marketing site (xcelsior.ca)
+wizard/           Interactive host‑setup wizard (TypeScript)
 fern/             API documentation (docs.xcelsior.ca)
+scripts/          Deployment, install, and bootstrap scripts
+tests/            1400+ backend tests (pytest) + 17 frontend tests (vitest)
 ```
 
 ---
@@ -165,10 +172,18 @@ See `.env.example` for all 50+ configuration variables.
 ## Testing
 
 ```bash
+# Backend (1400+ tests)
 python -m pytest tests/ -v              # full suite
-python -m pytest -v --cov=. --cov-report=html  # with coverage
-ruff check . && black --check .          # lint
+python -m pytest tests/ -v --cov=.      # with coverage
+
+# Frontend (17 tests)
+cd frontend && npm test                 # vitest
+
+# Linting
+ruff check . && black --check *.py routes/*.py tests/
 ```
+
+CI runs automatically on push to `main` and on PRs — see [CI](.github/workflows/ci.yml) and [Frontend CI](.github/workflows/frontend.yml).
 
 ---
 
