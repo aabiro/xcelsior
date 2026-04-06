@@ -167,6 +167,7 @@ export default function HostsPage() {
         description="Set up the Xcelsior worker agent on your GPU host to start accepting compute jobs."
         maxWidth="max-w-3xl"
         className="border-accent-cyan/20 shadow-lg shadow-accent-cyan/5"
+        bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
         <InstallWorkerSection />
       </Dialog>
@@ -924,15 +925,20 @@ function InstallWorkerSection() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Content area — scrollable with faint inner border */}
-      <div ref={contentRef} className="min-h-[380px] flex-1 overflow-y-auto rounded-lg border border-border/30 p-4 -mx-1">
-        {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Scrollable content with subtle inner border */}
+      <div
+        ref={contentRef}
+        className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-2"
+      >
+        <div className="rounded-lg border border-white/5 ring-1 ring-inset ring-border/20 p-4">
+          {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
+        </div>
       </div>
 
-      {/* Sticky footer */}
-      <div className="sticky bottom-0 mt-4 pt-4 border-t border-accent-cyan/20 bg-surface/95 backdrop-blur-sm -mx-6 px-6 pb-4">
-        <div className="flex items-end justify-between gap-4">
+      {/* Pinned footer — true flex child, always at bottom */}
+      <div className="border-t border-accent-cyan/20 bg-surface/95 backdrop-blur-sm px-6 py-4">
+        <div className="flex items-center justify-between gap-4">
           <p className="text-xs text-text-muted max-w-sm leading-relaxed">
             Get started with a code quickstart or copy these setup steps as a prompt.
           </p>

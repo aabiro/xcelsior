@@ -15,8 +15,8 @@ import { useTypewriterText } from "@/hooks/useTypewriterText";
 // ── AI Avatar ────────────────────────────────────────────────────────
 
 function AiAvatar({ compact }: { compact?: boolean }) {
-  const size = compact ? "h-5 w-5" : "h-6 w-6";
-  const icon = compact ? "h-2.5 w-2.5" : "h-3 w-3";
+  const size = compact ? "h-7 w-7" : "h-8 w-8";
+  const icon = compact ? "h-3.5 w-3.5" : "h-4 w-4";
   return (
     <div className={cn(
       "shrink-0 rounded-lg bg-gradient-to-br from-accent-cyan/20 to-accent-violet/20 flex items-center justify-center ring-1 ring-accent-cyan/20",
@@ -28,8 +28,8 @@ function AiAvatar({ compact }: { compact?: boolean }) {
 }
 
 function UserAvatar({ compact }: { compact?: boolean }) {
-  const size = compact ? "h-5 w-5" : "h-6 w-6";
-  const icon = compact ? "h-2.5 w-2.5" : "h-3 w-3";
+  const size = compact ? "h-7 w-7" : "h-8 w-8";
+  const icon = compact ? "h-3.5 w-3.5" : "h-4 w-4";
   return (
     <div className={cn(
       "shrink-0 rounded-lg bg-accent-cyan/10 flex items-center justify-center",
@@ -437,8 +437,8 @@ export function ChatInput({
           onClick={onSubmit}
           disabled={isStreaming || !value.trim()}
           className={cn(
-            "shrink-0 flex items-center justify-center rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
-            compact ? "h-8 w-8" : "h-10 w-10",
+            "shrink-0 self-stretch flex items-center justify-center rounded-lg bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/30",
+            compact ? "w-8" : "w-10",
             "hover:bg-accent-cyan/30 hover:shadow-[0_0_16px_rgba(0,212,255,0.2)]",
             "disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none",
             "transition-all duration-200",

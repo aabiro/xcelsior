@@ -250,12 +250,12 @@ export default function AiAssistantPage() {
       {/* Main chat area */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border/30 px-4 py-2.5 bg-surface/20 backdrop-blur-sm">
+        <div className="flex items-center justify-between border-b border-border/30 px-4 py-3 bg-surface/20 backdrop-blur-sm">
           <div className={cn("flex items-center gap-2.5", sidebarOpen ? "ml-0" : "ml-8")}>
-            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-gradient-to-br from-accent-cyan/20 to-accent-violet/10">
-              <Sparkles className="h-3.5 w-3.5 text-accent-cyan" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-accent-cyan/20 to-accent-violet/10">
+              <Sparkles className="h-4.5 w-4.5 text-accent-cyan" />
             </div>
-            <h1 className="text-sm font-semibold">{t("ai.title")}</h1>
+            <h1 className="text-base font-semibold">{t("ai.title")}</h1>
             <span className="rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-widest text-accent-cyan/70">
               Beta
             </span>

@@ -521,28 +521,6 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(TokenAuthMiddleware)
 
 
-class RequestLogMiddleware(BaseHTTPMiddleware):
-    """Emit structured access logs for observability."""
-
-    async def dispatch(self, request: Request, call_next):
-        started = time.time()
-        response = await call_next(request)
-        duration_ms = round((time.time() - started) * 1000, 2)
-        entry = {
-            "event": "api_request",
-            "path": request.url.path,
-            "method": request.method,
-            "status": response.status_code,
-            "duration_ms": duration_ms,
-            "client_ip": request.client.host if request.client else "unknown",
-        }
-        log.info(json.dumps(entry, sort_keys=True))
-        return response
-
-
-app.add_middleware(RequestLogMiddleware)
-
-
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Simple in-memory IP rate limiting for API safety."""
 
@@ -607,44 +585,64 @@ class ReadOnlyScopeMiddleware(BaseHTTPMiddleware):
 app.add_middleware(ReadOnlyScopeMiddleware)
 
 
-class ComplianceGateMiddleware(BaseHTTPMiddleware):
-    """Enforce Canadian compliance at the API boundary."""
+class ComplianceGateMiddleware:
+    """Enforce Canadian compliance at the API boundary.
+
+    Pure ASGI implementation — avoids BaseHTTPMiddleware's response-buffering
+    which causes "Response content longer than Content-Length" on streaming
+    endpoints (SSE, large downloads).
+    """
 
     CONSENT_REQUIRED_PATHS = {"/api/jobs", "/api/v2/marketplace/allocate"}
     RESIDENCY_PATHS = {"/api/jobs", "/api/v2/scheduler/process-binpack"}
 
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-        method = request.method
+    def __init__(self, app):
+        self.app = app
 
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        raw_headers = dict(scope.get("headers", []))
+
+        # Consent check — only blocks early, never buffers response
         if method == "POST" and path in self.CONSENT_REQUIRED_PATHS:
-            customer_id = request.headers.get("x-customer-id", "")
+            customer_id = raw_headers.get(b"x-customer-id", b"").decode()
             if customer_id:
                 try:
                     from privacy import get_consent_manager
                     cm = get_consent_manager()
                     if not cm.has_consent(customer_id, "billing"):
-                        return JSONResponse(
+                        response = JSONResponse(
                             status_code=403,
                             content={"error": "CASL consent required for billing purpose"},
                         )
+                        await response(scope, receive, send)
+                        return
                 except Exception as e:
                     log.debug("Consent check skipped: %s", e)
 
-        province = request.headers.get("x-province", "")
-        if province and path in self.RESIDENCY_PATHS:
-            request.state.province = province.upper()
-        else:
-            request.state.province = ""
+        # Attach province + redact_pii to request state so route handlers can read them
+        province = raw_headers.get(b"x-province", b"").decode().upper()
+        if "state" not in scope:
+            from starlette.datastructures import State
+            scope["state"] = State()
+        scope["state"].province = province if (province and path in self.RESIDENCY_PATHS) else ""
+        scope["state"].redact_pii = True
 
-        request.state.redact_pii = True
+        # Wrap send to inject compliance headers without buffering the body
+        async def send_with_compliance(message):
+            if message["type"] == "http.response.start":
+                hdrs = list(message.get("headers", []))
+                hdrs.append((b"x-data-residency", b"CA"))
+                hdrs.append((b"x-compliance-version", b"PIPEDA-2024"))
+                message = {**message, "headers": hdrs}
+            await send(message)
 
-        response = await call_next(request)
-
-        response.headers["X-Data-Residency"] = "CA"
-        response.headers["X-Compliance-Version"] = "PIPEDA-2024"
-
-        return response
+        await self.app(scope, receive, send_with_compliance)
 
 
 app.add_middleware(ComplianceGateMiddleware)

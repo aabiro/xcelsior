@@ -57,9 +57,9 @@ export function NotificationBell() {
         className="relative text-text-muted hover:text-text-primary transition-colors p-1"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
       >
-        <Bell className="h-6 w-6" />
+        <Bell className="h-7 w-7" />
         {unreadCount > 0 && (
-          <span className="absolute -top-2 -right-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent-red px-1 text-[9px] font-bold text-white ring-2 ring-surface">
+          <span className="absolute -top-3 -right-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-red px-1 text-[9px] font-bold text-white ring-2 ring-surface">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}

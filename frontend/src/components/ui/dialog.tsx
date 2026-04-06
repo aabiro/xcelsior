@@ -11,6 +11,7 @@ interface DialogProps {
   children: ReactNode;
   maxWidth?: string;
   className?: string;
+  bodyClassName?: string;
 }
 
 export function Dialog({
@@ -21,6 +22,7 @@ export function Dialog({
   children,
   maxWidth = "max-w-lg",
   className,
+  bodyClassName,
 }: DialogProps) {
   useEffect(() => {
     if (!open) return;
@@ -49,7 +51,7 @@ export function Dialog({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="px-6 pb-6 overflow-y-auto">{children}</div>
+        <div className={bodyClassName ?? "px-6 pb-6 overflow-y-auto"}>{children}</div>
       </div>
     </div>
   );

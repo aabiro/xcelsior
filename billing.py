@@ -1291,9 +1291,13 @@ class BillingEngine:
                 billed += 1
 
                 # Low-balance notification at $2 (dedup: once per 24h per customer)
+                # Skip notification if balance is zero AND no charge occurred (new account, never spent)
                 if charge_result.get("charged"):
                     new_balance = charge_result.get("balance_cad", 0)
-                    if new_balance < 2.0:
+                    # Only notify if the user actually spent money (charged > 0) and balance dropped low
+                    # This prevents firing for brand-new $0 wallets that have never run a job
+                    amount_charged = charge_result.get("amount_charged", 0) or charge_result.get("billed_usd", 0) or 0
+                    if new_balance < 2.0 and amount_charged > 0:
                         try:
                             from db import NotificationStore
                             # Check if we already sent a low-balance notif in the last 24h
