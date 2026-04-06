@@ -185,30 +185,48 @@ class StripeConnectManager:
                     type="account_onboarding",
                 )
                 return link.url, status_hint
-            except Exception as e:
+            except Exception as link_err:
                 log.warning(
                     "Stripe AccountLink creation failed for provider %s (acct=%s): %s",
                     provider_id,
                     account_id,
-                    e,
+                    link_err,
                 )
 
-            # Fallback: if account is already fully enabled, open Stripe Express dashboard.
+            # Verify the account still exists on Stripe before deciding next steps.
             try:
                 acct = stripe.Account.retrieve(account_id)
-                charges_enabled = bool(acct.get("charges_enabled", False))
-                payouts_enabled = bool(acct.get("payouts_enabled", False))
-                if charges_enabled and payouts_enabled:
-                    login_link = stripe.Account.create_login_link(account_id)
-                    return login_link.url, "active"
-            except Exception as e:
+            except Exception as retrieve_err:
+                # Account not found on Stripe (e.g. deleted, wrong API mode key).
+                # Signal to the caller that this is a stale reference so a fresh
+                # account can be created.
                 log.warning(
-                    "Stripe login-link fallback failed for provider %s (acct=%s): %s",
+                    "Stripe account retrieval failed for provider %s (acct=%s): %s — "
+                    "treating as stale reference",
                     provider_id,
                     account_id,
-                    e,
+                    retrieve_err,
                 )
+                raise RuntimeError("__STALE_ACCOUNT__") from retrieve_err
 
+            # Account exists on Stripe.  If it's already fully enabled, open the
+            # Express dashboard instead of the onboarding flow.
+            charges_enabled = bool(acct.get("charges_enabled", False))
+            payouts_enabled = bool(acct.get("payouts_enabled", False))
+            if charges_enabled and payouts_enabled:
+                try:
+                    login_link = stripe.Account.create_login_link(account_id)
+                    return login_link.url, "active"
+                except Exception as ll_err:
+                    log.warning(
+                        "Stripe login-link fallback failed for provider %s (acct=%s): %s",
+                        provider_id,
+                        account_id,
+                        ll_err,
+                    )
+
+            # Account exists but we cannot generate any Stripe URL right now.
+            # Do NOT clear the DB entry — preserve it so the user can retry later.
             raise RuntimeError(
                 "Unable to open Stripe onboarding right now. Please try again in a moment."
             )
@@ -234,8 +252,12 @@ class StripeConnectManager:
                     stripe_account_id,
                     existing["status"],
                 )
-            except RuntimeError:
-                # Stripe account may have been deleted/invalidated externally.
+            except RuntimeError as exc:
+                if "__STALE_ACCOUNT__" not in str(exc):
+                    # Stripe account exists but can't generate a link right now.
+                    # Preserve the DB entry so the user can retry later.
+                    raise
+                # Stripe account was deleted / belongs to a different API-key mode.
                 # Clear the stale reference so a fresh account can be created below.
                 log.warning(
                     "Clearing stale Stripe account %s for provider %s — will re-create",

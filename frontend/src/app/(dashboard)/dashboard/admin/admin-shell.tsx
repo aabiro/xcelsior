@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import {
   LayoutDashboard, Users, DollarSign, Server, Activity,
-  ShieldCheck, Bell, Shield,
+  ShieldCheck, Bell, Shield, MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ const adminNav = [
   { href: "/dashboard/admin/revenue", label: "Revenue", icon: DollarSign },
   { href: "/dashboard/admin/infrastructure", label: "Infrastructure", icon: Server },
   { href: "/dashboard/admin/activity", label: "Activity", icon: Activity },
+  { href: "/dashboard/admin/ai-insights", label: "AI Insights", icon: MessageSquare },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {

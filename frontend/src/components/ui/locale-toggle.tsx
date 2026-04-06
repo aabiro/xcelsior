@@ -10,7 +10,7 @@ export function LocaleToggle({ className }: { className?: string }) {
     <button
       onClick={toggleLocale}
       className={cn(
-        "flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors",
+        "flex h-10 items-center gap-1.5 rounded-lg px-2.5 text-base font-semibold text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors",
         className
       )}
       title={locale === "en" ? "Passer au français" : "Switch to English"}

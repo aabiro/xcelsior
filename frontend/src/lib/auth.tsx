@@ -48,6 +48,8 @@ interface AuthState {
   sessionExpiring: boolean;
   /** Call after login/register — fetches user profile via cookie. */
   login: () => Promise<void>;
+  /** Silently re-fetch /api/auth/me and update user in context. */
+  refreshUser: () => Promise<void>;
   /** POST /api/auth/logout, clear cookie + state. */
   logout: () => Promise<void>;
   /** Reset idle timer & refresh token — called from the "Continue Session" banner. */
@@ -59,6 +61,7 @@ const AuthContext = createContext<AuthState>({
   loading: true,
   sessionExpiring: false,
   login: async () => {},
+  refreshUser: async () => {},
   logout: async () => {},
   continueSession: () => {},
 });
@@ -118,6 +121,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await getMe();
+      setUser(res.user);
+    } catch {
+      // Silently ignore — stale user stays in context
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await apiLogout();
@@ -149,17 +161,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => {
       // Only refresh if user has been active recently
       if (Date.now() - lastActivity.current < IDLE_LOGOUT_MIN * 60_000) {
-        refreshToken().catch(() => {
-          setUser(null);
-        });
+        // Silently ignore refresh failures — a network hiccup should not
+        // force logout when the user is actively using the app.
+        refreshToken().catch(() => {});
       }
     }, 10 * 60 * 1000);
     return () => clearInterval(id);
   }, [user]);
 
   const value = useMemo(
-    () => ({ user, loading, sessionExpiring, login, logout, continueSession }),
-    [user, loading, sessionExpiring, login, logout, continueSession],
+    () => ({ user, loading, sessionExpiring, login, refreshUser, logout, continueSession }),
+    [user, loading, sessionExpiring, login, refreshUser, logout, continueSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

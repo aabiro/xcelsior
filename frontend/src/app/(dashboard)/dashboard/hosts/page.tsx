@@ -166,7 +166,7 @@ export default function HostsPage() {
         title="Install Worker Agent"
         description="Set up the Xcelsior worker agent on your GPU host to start accepting compute jobs."
         maxWidth="max-w-3xl"
-        className="border-accent-cyan/20 shadow-lg shadow-accent-cyan/5"
+        className="border-accent-cyan/20 shadow-lg shadow-accent-cyan/5 h-[82vh]"
         bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
         <InstallWorkerSection />
@@ -601,56 +601,31 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 /* ── Install Worker Section (renders inside Dialog) ──────────────── */
 
-const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at xcelsior.ca. Please walk me through the complete setup process step-by-step. If a value needs to be filled in (like tokens, host IDs, or pricing), mark it with a placeholder comment and provide a helpful error if the value is not present.
+const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at xcelsior.ca. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
 
-## Option A: SDK + Wizard Setup (Recommended)
-
-Install the Xcelsior SDK and interactive setup wizard globally:
+## Option A: SDK + AI Onboarding Wizard (Recommended)
 
 \`\`\`bash
 npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+xcelsior-wizard setup
 \`\`\`
 
-Then run the AI SDK Onboarding Wizard, which will auto-detect your GPU hardware, register your host, configure pricing, and set up the worker agent:
+The AI Onboarding Wizard will ask whether you want to rent GPUs, provide GPUs, or both — then handle hardware detection, host registration, pricing, and worker service setup automatically.
+
+### SDK Commands (available after setup)
 
 \`\`\`bash
-xcelsior-wizard setup --mode provide
+xcelsior status                                  # Worker status
+xcelsior jobs --watch                            # Live job queue
+xcelsior pricing set --gpu "RTX 4090" --rate 0.45  # Update pricing
+xcelsior diagnostics --full                      # Run diagnostics
+xcelsior earnings --period 30d                   # Earnings summary
 \`\`\`
 
-The AI SDK Onboarding Wizard will:
-- Auto-detect your GPU hardware, register your host, and configure competitive pricing
-- Set up the systemd worker service for always-on availability
-
-### SDK Quick-Start Commands
-
-After the wizard completes, these SDK commands are available:
-
-\`\`\`bash
-# Check worker status
-xcelsior status
-
-# View live job queue
-xcelsior jobs --watch
-
-# Update pricing dynamically
-xcelsior pricing set --gpu "RTX 4090" --rate 0.45
-
-# Run diagnostics
-xcelsior diagnostics --full
-
-# View earnings summary
-xcelsior earnings --period 30d
-\`\`\`
-
-### Pre-Install Requirements
-- Node.js >= 18 (for the SDK/wizard)
-- NVIDIA GPU with drivers >= 535
-- Docker Engine >= 24.0
-- Linux (Ubuntu 22.04+ recommended) or WSL2 on Windows
+### Requirements
+- Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2
 
 ## Option B: Manual Setup
-
-If you prefer not to use the wizard, set up manually:
 
 ### 1. Install worker agent
 
@@ -660,20 +635,13 @@ curl -fsSL https://xcelsior.ca/install.sh | bash
 
 ### 2. Create environment file
 
-Create \`~/.xcelsior/worker.env\` with these variables:
+Create \`~/.xcelsior/worker.env\`:
 
 \`\`\`bash
-# REQUIRED — Get your host ID from the dashboard after registering your machine
-XCELSIOR_HOST_ID=<your-host-id>
-
-# REQUIRED — Scheduler endpoint (production)
+XCELSIOR_HOST_ID=<your-host-id>            # From dashboard after registering
 XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
-
-# REQUIRED — API token from dashboard Settings → API Keys
-XCELSIOR_API_TOKEN=<your-api-token>
-
-# REQUIRED — Your host IP (Tailscale/Headscale mesh or public)
-XCELSIOR_HOST_IP=<your-host-ip>
+XCELSIOR_API_TOKEN=<your-api-token>        # Settings → API Keys
+XCELSIOR_HOST_IP=<your-host-ip>            # Tailscale/Headscale mesh or public
 \`\`\`
 
 ### 3. Enable as a systemd service
@@ -703,30 +671,19 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now xcelsior-worker
 \`\`\`
 
-### 4. Verify the worker is running
+### 4. Verify
 
 \`\`\`bash
 sudo systemctl status xcelsior-worker
-# Check logs:
 journalctl -u xcelsior-worker -f
 \`\`\`
 
-## Dashboard Registration
-
-Before running either setup method, register your host at:
-https://xcelsior.ca/dashboard/hosts → "Register Host"
-
-This gives you the HOST_ID needed for configuration. The wizard handles this automatically if you haven't registered yet.
-
-## Troubleshooting
-
-Common issues:
-- \`nvidia-smi\` not found → Install NVIDIA drivers: \`sudo apt install nvidia-driver-535\`
-- Docker permission denied → Add user to docker group: \`sudo usermod -aG docker $USER\`
-- Agent fails to connect → Check firewall allows outbound HTTPS to xcelsior.ca:443
-- Worker not picking up jobs → Verify pricing is competitive via \`xcelsior pricing compare\`
-
-After setup, your host will appear as "active" in the Xcelsior dashboard and begin accepting compute jobs from the marketplace.`;
+## Notes
+- Register your host first at https://xcelsior.ca/dashboard/hosts → "Register Host" (the AI Onboarding Wizard handles this automatically).
+- \`nvidia-smi\` not found → \`sudo apt install nvidia-driver-535\`
+- Docker permission denied → \`sudo usermod -aG docker $USER\`
+- Can't connect → check firewall allows outbound HTTPS to xcelsior.ca:443
+- Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
 
 function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
   const [dismissed, setDismissed] = useState(() => {
@@ -926,19 +883,21 @@ function InstallWorkerSection() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Scrollable content with subtle inner border */}
+      {/* Scrollable content with subtle inner side borders */}
       <div
         ref={contentRef}
-        className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-2"
+        className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-2 border-l border-r border-border/20"
       >
         <div className="rounded-lg border border-white/5 ring-1 ring-inset ring-border/20 p-4">
           {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
         </div>
       </div>
 
-      {/* Pinned footer — true flex child, always at bottom */}
-      <div className="border-t border-accent-cyan/20 bg-surface/95 backdrop-blur-sm px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
+      {/* Pinned footer — brand-line separator + side borders */}
+      <div className="border-l border-r border-b border-border/20 rounded-b-xl overflow-hidden">
+        <div className="brand-line" />
+        <div className="bg-surface/95 backdrop-blur-sm px-6 py-4">
+          <div className="flex items-center justify-between gap-4">
           <p className="text-xs text-text-muted max-w-sm leading-relaxed">
             Get started with a code quickstart or copy these setup steps as a prompt.
           </p>
@@ -964,14 +923,15 @@ function InstallWorkerSection() {
         </div>
       </div>
     </div>
+  </div>
   );
 }
 
-/* ── SDK / Wizard Setup View ─────────────────────────────────────── */
+/* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
 function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
   const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard`;
-  const wizardCmd = `xcelsior-wizard setup --mode provide`;
+  const wizardCmd = `xcelsior-wizard setup`;
   const quickCmds = `# Check worker status
 xcelsior status
 
@@ -1004,14 +964,14 @@ xcelsior earnings --period 30d`;
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 px-3 py-1 text-xs font-medium text-accent-cyan">
           <Package className="h-3.5 w-3.5" />
-          SDK &amp; Wizard Setup
+          SDK &amp; AI Onboarding Wizard
         </div>
         <span className="text-[11px] text-text-muted">Recommended</span>
       </div>
 
       {/* Step 1: Install */}
       <div>
-        <p className="text-sm font-medium mb-1.5">1. Install the SDK and wizard</p>
+        <p className="text-sm font-medium mb-1.5">1. Install the SDK</p>
         <p className="text-xs text-text-secondary mb-2">
           Install the Xcelsior CLI tools globally. Requires Node.js &ge; 18.
         </p>
@@ -1021,11 +981,11 @@ xcelsior earnings --period 30d`;
         </div>
       </div>
 
-      {/* Step 2: Run wizard */}
+      {/* Step 2: Run AI Onboarding Wizard */}
       <div>
-        <p className="text-sm font-medium mb-1.5">2. Run the AI SDK Onboarding Wizard</p>
+        <p className="text-sm font-medium mb-1.5">2. Run the AI Onboarding Wizard</p>
         <p className="text-xs text-text-secondary mb-2">
-          The wizard auto-detects your GPU hardware, registers your host, configures pricing, and installs the systemd service.
+          The AI Onboarding Wizard walks you through setup — it will ask whether you want to rent, provide, or both, then handle everything from there.
         </p>
         <div className="relative">
           <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{wizardCmd}</pre>
@@ -1033,17 +993,17 @@ xcelsior earnings --period 30d`;
         </div>
       </div>
 
-      {/* Wizard prompts */}
+      {/* What the wizard does */}
       <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3.5">
-        <p className="text-xs font-medium text-text-primary mb-2">The AI SDK Onboarding Wizard will:</p>
+        <p className="text-xs font-medium text-text-primary mb-2">The AI Onboarding Wizard will:</p>
         <ul className="text-xs text-text-secondary space-y-1.5">
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Auto-detect your GPU hardware, register your host, and configure competitive pricing
+            Ask your intent (rent GPUs, provide GPUs, or both) and tailor the flow accordingly
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            Set up the systemd worker service for always-on availability
+            Auto-detect hardware, register your host, configure pricing, and install the worker service
           </li>
         </ul>
       </div>
@@ -1148,7 +1108,7 @@ sudo systemctl status xcelsior-worker`;
       <div>
         <p className="text-sm font-medium mb-1.5">2. Configure environment</p>
         <p className="text-xs text-text-secondary mb-2">
-          The wizard handles this automatically. To configure manually, create{" "}
+          The AI Onboarding Wizard handles this automatically. To configure manually, create{" "}
           <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/worker.env</code>:
         </p>
         <div className="relative">

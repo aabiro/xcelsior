@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -459,7 +460,7 @@ export default function AnalyticsPage() {
               <button
                 key={p.label}
                 onClick={() => setRange(p.days)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-all duration-200 ${
                   range === p.days
                     ? "bg-card text-text-primary shadow-sm ring-1 ring-accent-cyan/30"
                     : "text-text-muted hover:text-text-primary hover:bg-surface-hover"
@@ -587,6 +588,25 @@ export default function AnalyticsPage() {
           <p className="text-xs text-text-muted mt-8">
             Analytics populate automatically when you launch instances or when jobs run on your hosts
           </p>
+          <div className="mt-6 rounded-xl border border-border/30 bg-surface/60 px-6 py-4 max-w-lg w-full">
+            <p className="text-xs font-semibold text-text-secondary mb-3 uppercase tracking-wide">How to unlock analytics</p>
+            <div className="space-y-2.5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-cyan/15 text-accent-cyan text-[10px] font-bold">1</div>
+                <p className="text-xs text-text-secondary">
+                  <span className="font-medium text-text-primary">Rent GPU compute</span> — launch an instance from the{" "}
+                  <Link href="/dashboard/instances" className="text-accent-cyan hover:underline">Instances</Link> page. Spend trends and job insights appear after your first job.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-violet/15 text-accent-violet text-[10px] font-bold">2</div>
+                <p className="text-xs text-text-secondary">
+                  <span className="font-medium text-text-primary">Become a GPU provider</span> — connect Stripe on the{" "}
+                  <Link href="/dashboard/earnings" className="text-accent-cyan hover:underline">Earnings</Link> page to unlock the <span className="font-medium">Provider</span> analytics tab with host earnings, utilization &amp; uptime.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
       /* ── Dashboard Content ─────────────────────────────── */
@@ -840,13 +860,32 @@ export default function AnalyticsPage() {
                     <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
                       <Server className="h-10 w-10 text-text-muted" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2">No provider data yet</h3>
+                    <h3 className="text-xl font-semibold mb-2">No provider activity yet</h3>
                     <p className="text-sm text-text-secondary text-center max-w-md">
                       {isAdmin
                         ? "Provider analytics appear once hosts serve jobs through the platform."
-                        : "Register as a provider and start hosting GPU jobs to see your earnings analytics here."
+                        : "Your provider account is connected — analytics will populate here once your first GPU job runs on your host."
                       }
                     </p>
+                    {!isAdmin && (
+                      <div className="mt-6 rounded-xl border border-border/30 bg-surface/60 px-5 py-4 max-w-sm w-full text-left">
+                        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Next steps</p>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-emerald/15 text-emerald text-[9px] font-bold">1</div>
+                            <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Install the worker agent</span> on your GPU host via the <Link href="/dashboard/hosts" className="text-accent-cyan hover:underline">Hosts</Link> page.</p>
+                          </div>
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-cyan/15 text-accent-cyan text-[9px] font-bold">2</div>
+                            <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Set your pricing</span> and make your GPU available to renters.</p>
+                          </div>
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-accent-violet/15 text-accent-violet text-[9px] font-bold">3</div>
+                            <p className="text-xs text-text-secondary">Earnings, uptime, and utilization charts appear automatically as jobs run.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </FadeIn>
               )}

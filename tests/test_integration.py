@@ -619,16 +619,18 @@ class TestReputationMarketplace:
     def test_penalty_reduces_score(self):
         """Failed jobs reduce reputation."""
         from reputation import ReputationEngine, ReputationStore, PenaltyType
+        import uuid
 
+        entity_id = f"pen-{uuid.uuid4().hex[:12]}"
         store = ReputationStore(os.path.join(_tmpdir, "rep_pen.db"))
         engine = ReputationEngine(store=store)
 
-        engine.record_job_completed("pen-h1")
-        engine.record_job_completed("pen-h1")
-        score_before = engine.compute_score("pen-h1").final_score
+        engine.record_job_completed(entity_id)
+        engine.record_job_completed(entity_id)
+        score_before = engine.compute_score(entity_id).final_score
 
-        engine.apply_penalty("pen-h1", PenaltyType.JOB_FAILURE_HOST, reason="test")
-        score_after = engine.compute_score("pen-h1").final_score
+        engine.apply_penalty(entity_id, PenaltyType.JOB_FAILURE_HOST, reason="test")
+        score_after = engine.compute_score(entity_id).final_score
         assert score_after < score_before
 
 

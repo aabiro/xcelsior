@@ -250,15 +250,15 @@ def _ai_db():
             raise
 
 
-def create_conversation(user_id: str, title: str = "") -> str:
+def create_conversation(user_id: str, title: str = "", source: str = "xcel") -> str:
     """Create a new AI conversation, return its ID."""
     cid = str(uuid.uuid4())
     now = time.time()
     with _ai_db() as conn:
         conn.execute(
-            "INSERT INTO ai_conversations (conversation_id, user_id, title, created_at, updated_at) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (cid, user_id, title, now, now),
+            "INSERT INTO ai_conversations (conversation_id, user_id, title, created_at, updated_at, source) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (cid, user_id, title, now, now, source),
         )
     return cid
 
@@ -892,7 +892,10 @@ def _tool_get_job_details(args: dict, user: dict) -> dict:
 
 def _tool_search_marketplace(args: dict, _user: dict) -> dict:
     from scheduler import get_marketplace
-    listings = get_marketplace(active_only=True)
+    try:
+        listings = get_marketplace(active_only=True)
+    except Exception:
+        return {"error": "Marketplace unavailable. Please try again later.", "offers": [], "total": 0}
 
     gpu_model = (args.get("gpu_model") or "").strip()
     min_vram_gb = args.get("min_vram_gb")
@@ -1218,7 +1221,10 @@ def _tool_create_api_key(args: dict, user: dict) -> dict:
 def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
     """Real-time GPU availability across all regions."""
     from scheduler import get_marketplace
-    listings = get_marketplace(active_only=True)
+    try:
+        listings = get_marketplace(active_only=True)
+    except Exception:
+        return {"error": "Marketplace unavailable. Please try again later."}
 
     gpu_model_filter = (args.get("gpu_model") or "").strip().lower()
     province_filter = (args.get("province") or "").strip().upper()
@@ -3292,7 +3298,7 @@ in the conversation, proactively offer to help them get started. Ask if they wan
 2. 🏗️ **Provide GPUs** — earn money by sharing their hardware on the marketplace
 3. 🔄 **Both** — use and provide compute
 
-Based on their choice, guide them through the appropriate onboarding wizard below.
+Based on their choice, guide them through the appropriate AI Onboarding Wizard flow below.
 """
     elif has_hosts and not has_jobs:
         onboarding_context = """
@@ -3305,30 +3311,30 @@ CONTEXT: User has submitted jobs but has no hosts. They are primarily a renter.
 
     # ── Provider wizard instructions ──────────────────────────────────
     provider_wizard = """
-PROVIDER ONBOARDING WIZARD:
+PROVIDER ONBOARDING:
 When a user wants to provide GPUs, guide them step-by-step:
-1. Ask what hardware they have (GPU model, count, VRAM). If they're unsure, ask them to
-   paste their `nvidia-smi` output and you'll parse it for them.
-2. Use `search_marketplace` to show current marketplace prices for similar GPUs so they
-   can set competitive pricing.
-3. Use `estimate_cost` in reverse — tell them their estimated monthly earnings based on
-   utilisation rates (typically 40-70% for popular GPUs).
-4. Explain the bootstrap process: install the Xcelsior worker agent, register the host
-   via API or CLI, and set pricing. Provide the command:
+1. Ask what hardware they have (GPU model, count, VRAM). If unsure, ask for `nvidia-smi` output.
+2. Use `search_marketplace` to show current prices for similar GPUs.
+3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
+4. Walk them through installation:
    ```bash
-   curl -sSL https://xcelsior.ca/install.sh | bash
+   npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+   xcelsior-wizard setup
    ```
-5. Recommend they complete their profile and jurisdiction settings for better reputation.
+   The AI Onboarding Wizard asks whether they want to rent, provide, or both — then handles
+   hardware detection, host registration, pricing, and worker service setup automatically.
+5. Recommend completing their profile and jurisdiction settings for better reputation.
 6. Mention SLA tiers (community → secure → sovereign) and how higher tiers earn more.
 
-WORKER INSTALLATION GUIDE (provide this when users ask how to install the worker):
+WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
-**Option A: SDK + Wizard Setup (Recommended)**
+**Option A: SDK + AI Onboarding Wizard (Recommended)**
 ```bash
 npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
-xcelsior-wizard setup --mode provide
+xcelsior-wizard setup
 ```
-The wizard auto-detects GPU hardware, registers the host, configures pricing, and sets up the systemd service.
+The AI Onboarding Wizard will ask your intent (rent, provide, or both), then handle
+hardware detection, host registration, pricing, and systemd service setup.
 
 It will prompt for:
 - API token (from Dashboard → Settings → API Keys)
@@ -3343,7 +3349,7 @@ SDK commands after setup:
 - `xcelsior diagnostics --full` — run diagnostics
 - `xcelsior earnings --period 30d` — view earnings summary
 
-Pre-install requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2.
+Requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2.
 
 **Option B: Manual Setup**
 1. Install: `curl -fsSL https://xcelsior.ca/install.sh | bash`
@@ -3372,13 +3378,13 @@ Pre-install requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, 
 4. Enable: `sudo systemctl daemon-reload && sudo systemctl enable --now xcelsior-worker`
 5. Verify: `sudo systemctl status xcelsior-worker`
 
-Register host first at: Dashboard → Hosts → Register Host (gives you the HOST_ID).
+Register host first at: Dashboard → Hosts → Register Host (the AI Onboarding Wizard handles this automatically).
 
 Troubleshooting:
 - nvidia-smi not found → `sudo apt install nvidia-driver-535`
 - Docker permission denied → `sudo usermod -aG docker $USER`
 - Can't connect → check firewall allows outbound HTTPS to xcelsior.ca:443
-- Not picking up jobs → verify pricing is competitive via `xcelsior pricing compare`
+- Not picking up jobs → verify pricing via `xcelsior pricing compare`
 """
 
     # ── Renter wizard instructions ────────────────────────────────────
@@ -3404,7 +3410,7 @@ When a user wants to rent GPU compute, guide them step-by-step:
             step_id, kv = _parse_wizard_context(page_context)
             step_prompt = _build_wizard_step_prompt(step_id, kv)
             wizard_identity = (
-                "\nYou are **Hexara** — the Xcelsior setup wizard AI. You live inside the terminal, not a web chat.\n\n"
+                "\nYou are **Hexara** — the Xcelsior AI Onboarding Wizard. You live inside the terminal, not a web chat.\n\n"
                 "HEXARA IDENTITY:\n"
                 "- Warm, precise, and action-oriented. Never wishy-washy. Never corporate-speak.\n"
                 "- Speak directly to the person in front of you — their exact hardware, their exact error.\n"
@@ -3565,7 +3571,7 @@ def get_suggestions(user: dict) -> list[dict]:
 
     # Universal suggestions
     suggestions.extend([
-        {"label": "⚙️ How to install worker", "prompt": "Walk me through the complete Xcelsior worker agent installation — SDK/wizard setup, environment configuration, systemd service, and verification steps."},
+        {"label": "⚙️ How to install worker", "prompt": "Walk me through installing the Xcelsior worker agent using the AI Onboarding Wizard or manual setup."},
         {"label": "Search the marketplace", "prompt": "Show me available GPUs on the marketplace"},
         {"label": "Explain SLA tiers", "prompt": "What are the different SLA tiers and their guarantees?"},
     ])

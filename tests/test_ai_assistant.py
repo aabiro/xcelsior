@@ -162,7 +162,7 @@ class TestAiRateLimit:
 class TestToolDefinitions:
     def test_tools_count(self):
         tools = _build_tools()
-        assert len(tools) == 20
+        assert len(tools) == 34
 
     def test_all_tools_have_required_fields(self):
         for tool in _build_tools():
@@ -581,12 +581,21 @@ class TestGetPricing:
 
 
 class TestSearchMarketplace:
-    """Tests for _tool_search_marketplace — mocked marketplace engine."""
+    """Tests for _tool_search_marketplace — mocked scheduler.get_marketplace."""
+
+    # Convert FAKE_OFFERS to the new marketplace listing format used by scheduler.get_marketplace
+    FAKE_LISTINGS = [
+        {"host_id": "h-1", "gpu_model": "RTX 4090", "vram_gb": 24,
+         "price_per_hour": 0.45, "province": "ON"},
+        {"host_id": "h-2", "gpu_model": "A100", "vram_gb": 80,
+         "price_per_hour": 2.00, "province": "BC"},
+        {"host_id": "h-3", "gpu_model": "RTX 4090", "vram_gb": 24,
+         "price_per_hour": 0.50, "province": "QC"},
+    ]
 
     @pytest.fixture(autouse=True)
     def _mock_deps(self):
-        me = _mock_marketplace_engine(FAKE_OFFERS)
-        with patch("marketplace.get_marketplace_engine", return_value=me):
+        with patch("scheduler.get_marketplace", return_value=self.FAKE_LISTINGS):
             yield
 
     def test_no_filters(self):
@@ -618,15 +627,14 @@ class TestSearchMarketplace:
             assert "price_cad_per_hour" in o
 
     def test_max_10_offers(self):
-        many_offers = [FAKE_OFFERS[0].copy() for _ in range(20)]
-        me = _mock_marketplace_engine(many_offers)
-        with patch("marketplace.get_marketplace_engine", return_value=me):
+        many_listings = [self.FAKE_LISTINGS[0].copy() for _ in range(20)]
+        with patch("scheduler.get_marketplace", return_value=many_listings):
             result = _TOOL_HANDLERS["search_marketplace"]({}, _user())
             assert len(result["offers"]) <= 10
             assert result["total"] == 20
 
     def test_marketplace_engine_none(self):
-        with patch("marketplace.get_marketplace_engine", return_value=None):
+        with patch("scheduler.get_marketplace", side_effect=Exception("Marketplace unavailable")):
             result = _TOOL_HANDLERS["search_marketplace"]({}, _user())
             assert "error" in result
 
@@ -932,12 +940,21 @@ class TestCreateApiKey:
 
 
 class TestGetGpuAvailability:
-    """Tests for _tool_get_gpu_availability — mocked marketplace."""
+    """Tests for _tool_get_gpu_availability — mocked scheduler.get_marketplace."""
+
+    # New-format listings used by scheduler.get_marketplace
+    FAKE_LISTINGS = [
+        {"host_id": "h-1", "gpu_model": "RTX 4090", "vram_gb": 24,
+         "price_per_hour": 0.45, "province": "ON"},
+        {"host_id": "h-2", "gpu_model": "A100", "vram_gb": 80,
+         "price_per_hour": 2.00, "province": "BC"},
+        {"host_id": "h-3", "gpu_model": "RTX 4090", "vram_gb": 24,
+         "price_per_hour": 0.50, "province": "QC"},
+    ]
 
     @pytest.fixture(autouse=True)
     def _mock_deps(self):
-        me = _mock_marketplace_engine(FAKE_OFFERS)
-        with patch("marketplace.get_marketplace_engine", return_value=me):
+        with patch("scheduler.get_marketplace", return_value=self.FAKE_LISTINGS):
             yield
 
     def test_basic(self):
@@ -981,14 +998,13 @@ class TestGetGpuAvailability:
         assert avail["A100"]["total_available"] == 1
 
     def test_empty_marketplace(self):
-        me = _mock_marketplace_engine([])
-        with patch("marketplace.get_marketplace_engine", return_value=me):
+        with patch("scheduler.get_marketplace", return_value=[]):
             result = _TOOL_HANDLERS["get_gpu_availability"]({}, _user())
             assert result["total_gpus_available"] == 0
             assert result["gpu_availability"] == {}
 
     def test_marketplace_engine_none(self):
-        with patch("marketplace.get_marketplace_engine", return_value=None):
+        with patch("scheduler.get_marketplace", side_effect=Exception("Marketplace unavailable")):
             result = _TOOL_HANDLERS["get_gpu_availability"]({}, _user())
             assert "error" in result
 
@@ -2172,9 +2188,9 @@ class TestAggregateOffers:
     def test_aggregates_by_model(self):
         from ai_assistant import _aggregate_offers
         offers = [
-            {"gpu_model": "A100", "ask_cents_per_hour": 100, "total_vram_gb": 80, "province": "ON"},
-            {"gpu_model": "A100", "ask_cents_per_hour": 90, "total_vram_gb": 80, "province": "QC"},
-            {"gpu_model": "H100", "ask_cents_per_hour": 200, "total_vram_gb": 80, "province": "ON"},
+            {"gpu_model": "A100", "price_per_hour": 1.00, "vram_gb": 80, "province": "ON"},
+            {"gpu_model": "A100", "price_per_hour": 0.90, "vram_gb": 80, "province": "QC"},
+            {"gpu_model": "H100", "price_per_hour": 2.00, "vram_gb": 80, "province": "ON"},
         ]
         result = _aggregate_offers(offers)
         assert result["A100"]["count"] == 2

@@ -39,7 +39,7 @@ export function Dialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className={`relative z-10 w-full ${maxWidth} rounded-xl border border-border bg-surface shadow-2xl mx-4 max-h-[85vh] flex flex-col ${className || ""}`}>
-        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4">
           <div>
             <h3 className="text-lg font-semibold">{title}</h3>
             {description && <p className="mt-0.5 text-sm text-text-secondary">{description}</p>}
@@ -51,6 +51,7 @@ export function Dialog({
             <X className="h-4 w-4" />
           </button>
         </div>
+        <div className="brand-line" />
         <div className={bodyClassName ?? "px-6 pb-6 overflow-y-auto"}>{children}</div>
       </div>
     </div>

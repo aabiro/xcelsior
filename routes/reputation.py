@@ -1,7 +1,5 @@
 """Routes: reputation."""
 
-import re
-
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -10,15 +8,60 @@ from routes._deps import (
     _USE_PERSISTENT_AUTH,
 )
 from db import UserStore
-from reputation import VerificationType, get_reputation_engine
+from reputation import (
+    VerificationType,
+    get_reputation_engine,
+    TIER_THRESHOLDS,
+    TIER_SEARCH_BOOST,
+    TIER_PRICING_PREMIUM,
+    TIER_PLATFORM_COMMISSION,
+    ReputationTier,
+)
 
 router = APIRouter()
+
+# ── Tier unlock requirements and descriptions ──
+
+_TIER_UNLOCK_REQUIREMENTS = {
+    ReputationTier.NEW_USER: "Create an account.",
+    ReputationTier.BRONZE: "Earn 100 reputation points (complete jobs or add verifications).",
+    ReputationTier.SILVER: "Reach 250 points — verify phone or gov ID to accelerate.",
+    ReputationTier.GOLD: "Reach 450 points — hardware audit recommended for bonus points.",
+    ReputationTier.PLATINUM: "Reach 650 points — consistent uptime & low failure rate required.",
+    ReputationTier.DIAMOND: "Reach 850 points — maintained through ongoing activity and reliability.",
+}
+
+_TIER_DESCRIPTIONS = {
+    ReputationTier.NEW_USER: "Baseline access — build your reputation to unlock perks.",
+    ReputationTier.BRONZE: "Established presence — standard marketplace visibility.",
+    ReputationTier.SILVER: "Trusted provider — priority payout status and small pricing premium.",
+    ReputationTier.GOLD: "Verified provider — verified badge, higher visibility, 20% pricing premium.",
+    ReputationTier.PLATINUM: "Elite provider — featured listing placement, 40% pricing premium.",
+    ReputationTier.DIAMOND: "Top-tier provider — maximum visibility, 50% premium, reduced commission.",
+}
+
+
+@router.get("/api/trust-tiers", tags=["Reputation"])
+def api_trust_tiers():
+    """Return all six trust tiers with thresholds, perks, and unlock requirements."""
+    tiers = []
+    for tier in ReputationTier:
+        tiers.append({
+            "tier": tier.value,
+            "threshold": TIER_THRESHOLDS[tier],
+            "search_boost": TIER_SEARCH_BOOST[tier],
+            "pricing_premium_pct": TIER_PRICING_PREMIUM[tier],
+            "platform_commission": TIER_PLATFORM_COMMISSION[tier],
+            "description": _TIER_DESCRIPTIONS[tier],
+            "unlock_requirements": _TIER_UNLOCK_REQUIREMENTS[tier],
+        })
+    return {"ok": True, "tiers": tiers}
 
 @router.get("/api/reputation/leaderboard", tags=["Reputation"])
 def api_reputation_leaderboard(entity_type: str = "host", limit: int = 20):
     """Top hosts/users by reputation score."""
-    re = get_reputation_engine()
-    board = re.get_leaderboard(entity_type, limit)
+    re_engine = get_reputation_engine()
+    board = re_engine.get_leaderboard(entity_type, limit)
     return {"ok": True, "entity_type": entity_type, "leaderboard": board}
 
 @router.get("/api/reputation/me", tags=["Reputation"])
@@ -39,23 +82,26 @@ def api_reputation_me(request: Request):
             if session:
                 user_id = session.get("user_id", "")
     if not user_id:
-        return {"ok": True, "score": 0, "tier": "bronze"}
-    re = get_reputation_engine()
-    score = re.compute_score(user_id)
+        # Fall back to provider_id if present
+        user_id = getattr(request.state, "provider_id", "")
+    if not user_id:
+        return {"ok": True, "score": 0, "tier": "new_user"}
+    re_engine = get_reputation_engine()
+    score = re_engine.compute_score(user_id)
     return {"ok": True, **score.to_dict()}
 
 @router.get("/api/reputation/{entity_id}", tags=["Reputation"])
 def api_get_reputation(entity_id: str):
     """Get reputation score and tier for a host or user."""
-    re = get_reputation_engine()
-    score = re.compute_score(entity_id)
+    re_engine = get_reputation_engine()
+    score = re_engine.compute_score(entity_id)
     return {"ok": True, "reputation": score.to_dict()}
 
 @router.get("/api/reputation/{entity_id}/history", tags=["Reputation"])
 def api_reputation_history(entity_id: str, limit: int = 50):
     """Get reputation event history."""
-    re = get_reputation_engine()
-    history = re.store.get_event_history(entity_id, limit)
+    re_engine = get_reputation_engine()
+    history = re_engine.store.get_event_history(entity_id, limit)
     return {"ok": True, "entity_id": entity_id, "events": history}
 
 
@@ -74,19 +120,16 @@ def api_grant_verification(req: VerificationGrant):
         raise HTTPException(
             status_code=400, detail=f"Invalid verification type: {req.verification_type}"
         )
-    re = get_reputation_engine()
-    score = re.add_verification(req.entity_id, vtype)
+    re_engine = get_reputation_engine()
+    score = re_engine.add_verification(req.entity_id, vtype)
     return {"ok": True, "reputation": score.to_dict()}
 
 @router.get("/api/reputation/{entity_id}/breakdown", tags=["Reputation"])
 def api_reputation_breakdown(entity_id: str):
-    """Get a detailed breakdown of how a reputation score is calculated.
-
-    Returns component scores: jobs completed, uptime bonus, penalties, decay.
-    """
-    re = get_reputation_engine()
-    score_data = re.store.get_score(entity_id) or {}
-    history = re.store.get_event_history(entity_id, limit=100)
+    """Get a detailed breakdown of how a reputation score is calculated."""
+    re_engine = get_reputation_engine()
+    score_data = re_engine.store.get_score(entity_id) or {}
+    history = re_engine.store.get_event_history(entity_id, limit=100)
 
     # Calculate component breakdown from history
     jobs_points = 0

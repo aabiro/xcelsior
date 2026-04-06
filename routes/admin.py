@@ -558,3 +558,291 @@ def api_admin_verification_queue(request: Request):
         queue = []
     return {"ok": True, "queue": queue}
 
+
+# ---------------------------------------------------------------------------
+# AI Insights
+# ---------------------------------------------------------------------------
+
+@router.get("/api/admin/ai-stats", tags=["Admin"])
+def api_admin_ai_stats(request: Request, days: int = 30):
+    """Aggregate AI conversation statistics for the admin dashboard."""
+    _require_admin(request)
+    import datetime as _dt
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+
+    cutoff = time.time() - days * 86400
+    pool = _get_pg_pool()
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+
+        # --- per-source totals from ai_conversations ---
+        source_rows = conn.execute(
+            "SELECT source, COUNT(*) AS conversations, "
+            "COALESCE(SUM(message_count), 0) AS messages, "
+            "COALESCE(SUM(total_input_tokens), 0) AS input_tokens, "
+            "COALESCE(SUM(total_output_tokens), 0) AS output_tokens "
+            "FROM ai_conversations WHERE created_at >= %s "
+            "GROUP BY source ORDER BY conversations DESC",
+            (cutoff,),
+        ).fetchall()
+
+        # --- support (public chat) totals ---
+        support_row = conn.execute(
+            "SELECT COUNT(DISTINCT c.conversation_id) AS conversations, "
+            "COUNT(m.id) AS messages "
+            "FROM chat_conversations c "
+            "LEFT JOIN chat_messages m ON m.conversation_id = c.conversation_id "
+            "WHERE c.created_at >= %s",
+            (cutoff,),
+        ).fetchone()
+
+        # --- daily breakdown for chart ---
+        daily_rows = conn.execute(
+            "SELECT FLOOR(created_at / 86400)::bigint AS day_epoch, source, COUNT(*) AS cnt "
+            "FROM ai_conversations WHERE created_at >= %s "
+            "GROUP BY day_epoch, source ORDER BY day_epoch",
+            (cutoff,),
+        ).fetchall()
+
+        daily_support = conn.execute(
+            "SELECT FLOOR(created_at / 86400)::bigint AS day_epoch, COUNT(*) AS cnt "
+            "FROM chat_conversations WHERE created_at >= %s "
+            "GROUP BY day_epoch ORDER BY day_epoch",
+            (cutoff,),
+        ).fetchall()
+
+        # --- top users ---
+        top_users = conn.execute(
+            "SELECT user_id, COUNT(*) AS conversations, "
+            "COALESCE(SUM(total_input_tokens + total_output_tokens), 0) AS total_tokens "
+            "FROM ai_conversations WHERE created_at >= %s "
+            "GROUP BY user_id ORDER BY conversations DESC LIMIT 10",
+            (cutoff,),
+        ).fetchall()
+
+    # Build per-source summary (include support)
+    by_source = {r["source"]: dict(r) for r in source_rows}
+    support_convs = int(support_row["conversations"]) if support_row else 0
+    support_msgs = int(support_row["messages"]) if support_row else 0
+    by_source["support"] = {
+        "source": "support",
+        "conversations": support_convs,
+        "messages": support_msgs,
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+
+    total_conversations = sum(s["conversations"] for s in by_source.values())
+    total_messages = sum(s["messages"] for s in by_source.values())
+    total_input = sum(s["input_tokens"] for s in by_source.values())
+    total_output = sum(s["output_tokens"] for s in by_source.values())
+    estimated_cost = round(total_input * 0.000003 + total_output * 0.000015, 2)
+
+    # Daily chart data
+    daily_map: dict[int, dict] = {}
+    for r in daily_rows:
+        d = int(r["day_epoch"])
+        if d not in daily_map:
+            daily_map[d] = {"date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime("%Y-%m-%d")}
+        daily_map[d][r["source"]] = int(r["cnt"])
+    for r in daily_support:
+        d = int(r["day_epoch"])
+        if d not in daily_map:
+            daily_map[d] = {"date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime("%Y-%m-%d")}
+        daily_map[d]["support"] = int(r["cnt"])
+    daily = sorted(daily_map.values(), key=lambda x: x["date"])
+
+    return {
+        "ok": True,
+        "total_conversations": total_conversations,
+        "total_messages": total_messages,
+        "total_input_tokens": int(total_input),
+        "total_output_tokens": int(total_output),
+        "estimated_cost": estimated_cost,
+        "by_source": list(by_source.values()),
+        "daily": daily,
+        "top_users": [dict(u) for u in top_users],
+    }
+
+
+@router.get("/api/admin/ai-conversations", tags=["Admin"])
+def api_admin_ai_conversations(
+    request: Request,
+    source: str = "all",
+    days: int = 7,
+    search: str = "",
+    page: int = 1,
+    per_page: int = 30,
+):
+    """Paginated AI conversation list with messages for admin review."""
+    _require_admin(request)
+    import datetime as _dt
+    from db import _get_pg_pool
+    from psycopg.rows import dict_row
+    from psycopg import sql as _sql
+
+    cutoff = time.time() - days * 86400
+    offset = (max(page, 1) - 1) * per_page
+    pool = _get_pg_pool()
+
+    conversations = []
+    total = 0
+
+    with pool.connection() as conn:
+        conn.row_factory = dict_row
+
+        # ---- AI assistant conversations ----
+        if source in ("all", "xcel", "analytics", "wizard"):
+            where_parts = ["c.created_at >= %s"]
+            params: list = [cutoff]
+
+            if source != "all":
+                where_parts.append("c.source = %s")
+                params.append(source)
+
+            if search:
+                where_parts.append(
+                    "EXISTS (SELECT 1 FROM ai_messages m2 "
+                    "WHERE m2.conversation_id = c.conversation_id "
+                    "AND m2.content ILIKE %s)"
+                )
+                params.append(f"%{search}%")
+
+            where_clause = " AND ".join(where_parts)
+
+            # Count
+            cnt = conn.execute(
+                f"SELECT COUNT(*) AS cnt FROM ai_conversations c WHERE {where_clause}",
+                params,
+            ).fetchone()
+            ai_total = int(cnt["cnt"]) if cnt else 0
+
+            # Fetch conversations
+            ai_convs = conn.execute(
+                f"SELECT c.conversation_id, c.user_id, c.title, c.source, "
+                f"c.created_at, c.updated_at, c.message_count, "
+                f"c.total_input_tokens, c.total_output_tokens "
+                f"FROM ai_conversations c WHERE {where_clause} "
+                f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                params + [per_page, offset],
+            ).fetchall()
+
+            cids = [r["conversation_id"] for r in ai_convs]
+            messages_map: dict[str, list] = {cid: [] for cid in cids}
+
+            if cids:
+                placeholders = ",".join(["%s"] * len(cids))
+                msgs = conn.execute(
+                    f"SELECT conversation_id, role, content, tool_name, "
+                    f"tokens_in, tokens_out, created_at "
+                    f"FROM ai_messages WHERE conversation_id IN ({placeholders}) "
+                    f"ORDER BY created_at ASC",
+                    cids,
+                ).fetchall()
+                for m in msgs:
+                    messages_map[m["conversation_id"]].append({
+                        "role": m["role"],
+                        "content": m["content"],
+                        "tool_name": m["tool_name"] or None,
+                        "tokens_in": int(m["tokens_in"]),
+                        "tokens_out": int(m["tokens_out"]),
+                        "created_at": m["created_at"],
+                    })
+
+            for c in ai_convs:
+                conversations.append({
+                    "conversation_id": c["conversation_id"],
+                    "source": c["source"],
+                    "user": c["user_id"],
+                    "title": c["title"],
+                    "created_at": c["created_at"],
+                    "updated_at": c["updated_at"],
+                    "message_count": int(c["message_count"]),
+                    "total_input_tokens": int(c["total_input_tokens"]),
+                    "total_output_tokens": int(c["total_output_tokens"]),
+                    "messages": messages_map.get(c["conversation_id"], []),
+                })
+            total += ai_total
+
+        # ---- Public support chat ----
+        if source in ("all", "support"):
+            swhere = ["c.created_at >= %s"]
+            sparams: list = [cutoff]
+
+            if search:
+                swhere.append(
+                    "EXISTS (SELECT 1 FROM chat_messages m2 "
+                    "WHERE m2.conversation_id = c.conversation_id "
+                    "AND m2.content ILIKE %s)"
+                )
+                sparams.append(f"%{search}%")
+
+            swhere_clause = " AND ".join(swhere)
+
+            scnt = conn.execute(
+                f"SELECT COUNT(*) AS cnt FROM chat_conversations c WHERE {swhere_clause}",
+                sparams,
+            ).fetchone()
+            support_total = int(scnt["cnt"]) if scnt else 0
+
+            s_offset = max(0, offset - total) if source == "all" else offset
+            s_limit = max(0, per_page - len(conversations)) if source == "all" else per_page
+
+            if s_limit > 0 and (source != "all" or len(conversations) < per_page):
+                sconvs = conn.execute(
+                    f"SELECT c.conversation_id, c.user_email, c.ip_hash, "
+                    f"c.created_at, c.updated_at "
+                    f"FROM chat_conversations c WHERE {swhere_clause} "
+                    f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                    sparams + [s_limit, s_offset],
+                ).fetchall()
+
+                scids = [r["conversation_id"] for r in sconvs]
+                smsg_map: dict[str, list] = {cid: [] for cid in scids}
+
+                if scids:
+                    splaceholders = ",".join(["%s"] * len(scids))
+                    smsgs = conn.execute(
+                        f"SELECT conversation_id, role, content, created_at "
+                        f"FROM chat_messages WHERE conversation_id IN ({splaceholders}) "
+                        f"ORDER BY created_at ASC",
+                        scids,
+                    ).fetchall()
+                    for m in smsgs:
+                        smsg_map[m["conversation_id"]].append({
+                            "role": m["role"],
+                            "content": m["content"],
+                            "tool_name": None,
+                            "tokens_in": 0,
+                            "tokens_out": 0,
+                            "created_at": m["created_at"],
+                        })
+
+                for c in sconvs:
+                    conversations.append({
+                        "conversation_id": c["conversation_id"],
+                        "source": "support",
+                        "user": c["user_email"] or c["ip_hash"] or "anonymous",
+                        "title": "",
+                        "created_at": c["created_at"],
+                        "updated_at": c["updated_at"],
+                        "message_count": len(smsg_map.get(c["conversation_id"], [])),
+                        "total_input_tokens": 0,
+                        "total_output_tokens": 0,
+                        "messages": smsg_map.get(c["conversation_id"], []),
+                    })
+            total += support_total
+
+    # Sort merged results by updated_at descending
+    conversations.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
+
+    return {
+        "ok": True,
+        "conversations": conversations[:per_page],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+

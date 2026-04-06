@@ -1244,15 +1244,29 @@ def update_job_status(job_id, status, host_id=None):
             be.meter_job(j, host_data)
             # Reputation: reward host
             if j.get("host_id"):
-                re = get_reputation_engine()
-                re.record_job_completed(j["host_id"])
+                re_engine = get_reputation_engine()
+                updated = re_engine.record_job_completed(j["host_id"])
+                total = updated.jobs_completed + updated.jobs_failed_host
+                job_sr = updated.jobs_completed / total if total > 0 else 1.0
+                re_engine.update_reliability(
+                    j["host_id"],
+                    uptime_pct=max(updated.uptime_pct, 0.5),
+                    job_success_rate=job_sr,
+                )
         except Exception as exc:
             log.debug("Billing/reputation skip: %s", exc)
 
     if status == "failed" and j.get("host_id"):
         try:
-            re = get_reputation_engine()
-            re.record_job_failure(j["host_id"], is_host_fault=True)
+            re_engine = get_reputation_engine()
+            updated = re_engine.record_job_failure(j["host_id"], is_host_fault=True)
+            total = updated.jobs_completed + updated.jobs_failed_host
+            job_sr = updated.jobs_completed / total if total > 0 else 0.5
+            re_engine.update_reliability(
+                j["host_id"],
+                uptime_pct=max(updated.uptime_pct, 0.5),
+                job_success_rate=job_sr,
+            )
         except Exception as exc:
             log.debug("Reputation penalty skip: %s", exc)
 
