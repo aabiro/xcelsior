@@ -1561,7 +1561,6 @@ def run_job(job, host, docker_image=None):
 
     # Security hardening (parity with build_secure_docker_args in security.py)
     parts.append("--security-opt=no-new-privileges")
-    parts.append("--security-opt=seccomp=default")
     parts.append("--cap-drop=ALL")
     parts.append("--pids-limit=4096")
     parts.append("--no-healthcheck")
