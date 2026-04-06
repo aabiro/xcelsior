@@ -1290,6 +1290,52 @@ class BillingEngine:
 
                 billed += 1
 
+                # Low-balance notification at $2 (dedup: once per 24h per customer)
+                if charge_result.get("charged"):
+                    new_balance = charge_result.get("balance_cad", 0)
+                    if new_balance < 2.0:
+                        try:
+                            from db import NotificationStore
+                            # Check if we already sent a low-balance notif in the last 24h
+                            recent = pool.connection()
+                            with recent as rc:
+                                rc.row_factory = dict_row
+                                existing = rc.execute(
+                                    """SELECT id FROM notifications
+                                       WHERE user_email = %s AND type = 'billing'
+                                         AND title LIKE 'Low balance%%'
+                                         AND created_at > %s LIMIT 1""",
+                                    (customer_id, now - 86400),
+                                ).fetchone()
+                            if not existing:
+                                NotificationStore.create(
+                                    user_email=customer_id,
+                                    notif_type="billing",
+                                    title=f"Low balance: ${new_balance:.2f} CAD",
+                                    body="Your balance is running low. Top up to avoid service interruption.",
+                                    data={"balance_cad": new_balance},
+                                )
+                                # Also send email to the user
+                                try:
+                                    from scheduler import send_email
+                                    import threading
+                                    threading.Thread(
+                                        target=send_email,
+                                        args=(
+                                            f"Low balance: ${new_balance:.2f} CAD",
+                                            f"Hi,\n\nYour Xcelsior balance is ${new_balance:.2f} CAD.\n\n"
+                                            "Your running instances may be suspended if your balance reaches $0.\n\n"
+                                            "Top up at https://xcelsior.ca/dashboard/billing\n\n"
+                                            "— Xcelsior",
+                                        ),
+                                        kwargs={"to_email": customer_id},
+                                        daemon=True,
+                                    ).start()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
                 # If charge failed with grace_expired → suspend and STOP the job
                 if not charge_result.get("charged") and charge_result.get("action") == "account_suspended":
                     suspended += 1

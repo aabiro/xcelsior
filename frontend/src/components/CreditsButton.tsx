@@ -2,24 +2,21 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { Wallet, ChevronDown, ArrowUpRight, CreditCard, History, Loader2, AlertTriangle } from "lucide-react";
+import { Wallet, ChevronDown, ArrowUpRight, CreditCard, History, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { fetchWallet } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
-
-const LOW_BALANCE_THRESHOLD = 10; // CAD
 
 export function CreditsButton() {
   const { user } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [alertDismissed, setAlertDismissed] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const customerId = user?.customer_id || user?.user_id || "";
-  const isLow = balance !== null && balance < LOW_BALANCE_THRESHOLD;
+  const isNegative = balance !== null && balance < 0;
 
   const loadBalance = useCallback(async () => {
     if (!customerId) return;
@@ -53,61 +50,12 @@ export function CreditsButton() {
 
   return (
     <div className="relative" ref={ref}>
-      {/* Low-balance alert banner */}
-      <AnimatePresence>
-        {isLow && !alertDismissed && !loading && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-amber-500/30 bg-amber-500/5 shadow-lg shadow-amber-500/10 z-50 p-3"
-          >
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-amber-500">Low balance</p>
-                <p className="text-xs text-text-muted mt-0.5">
-                  Your balance is {formatted}. Top up to avoid service interruption — instances may be suspended when credits run out.
-                </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <Link
-                    href="/dashboard/billing?topup=true"
-                    onClick={() => setAlertDismissed(true)}
-                    className="text-xs font-medium text-amber-500 hover:text-amber-400 underline underline-offset-2"
-                  >
-                    Top up now
-                  </Link>
-                  <button
-                    onClick={() => setAlertDismissed(true)}
-                    className="text-xs text-text-muted hover:text-text-secondary ml-auto"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <button
-        onClick={() => { setOpen(!open); if (isLow) setAlertDismissed(true); }}
-        className={cn(
-          "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
-          isLow
-            ? "bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 text-amber-500"
-            : "bg-emerald/5 hover:bg-emerald/10 border border-emerald/20 text-emerald"
-        )}
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors bg-emerald/5 hover:bg-emerald/10 border border-emerald/20 text-emerald"
       >
-        {isLow ? (
-          <>
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-          </>
-        ) : (
-          <Wallet className="h-4 w-4 shrink-0" />
-        )}
-        <span className="font-medium">
+        <Wallet className="h-4 w-4 shrink-0" />
+        <span className={cn("font-medium", isNegative && "text-accent-red")}>
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin inline" />
           ) : (
