@@ -12,7 +12,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
   Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
-  HardDrive, Globe, Shield,
+  HardDrive, Globe, Shield, Package, Code2, Clipboard, ArrowRight, ArrowLeft,
 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
@@ -163,7 +163,7 @@ export default function HostsPage() {
         onClose={() => setShowInstall(false)}
         title="Install Worker Agent"
         description="Set up the Xcelsior worker agent on your GPU host to start accepting compute jobs."
-        maxWidth="max-w-2xl"
+        maxWidth="max-w-3xl"
       >
         <InstallWorkerSection />
       </Dialog>
@@ -591,21 +591,318 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 /* ── Install Worker Section (renders inside Dialog) ──────────────── */
 
+const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at xcelsior.ca. Please walk me through the complete setup process step-by-step. If a value needs to be filled in (like tokens, host IDs, or pricing), mark it with a placeholder comment and provide a helpful error if the value is not present.
+
+## Option A: SDK + Wizard Setup (Recommended)
+
+Install the Xcelsior SDK and interactive setup wizard globally:
+
+\`\`\`bash
+npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+\`\`\`
+
+Then run the interactive setup wizard, which will auto-detect your GPU hardware, register your host, configure pricing, and set up the worker agent:
+
+\`\`\`bash
+xcelsior-wizard setup --mode provide
+\`\`\`
+
+The wizard will prompt for:
+- Your Xcelsior API token (from https://xcelsior.ca/dashboard/settings → API Keys)
+- Pricing preference (auto-competitive or manual $/hr)
+- SLA tier selection (community, secure, sovereign)
+- Systemd service auto-install (y/n)
+
+### SDK Quick-Start Commands
+
+After the wizard completes, these SDK commands are available:
+
+\`\`\`bash
+# Check worker status
+xcelsior status
+
+# View live job queue
+xcelsior jobs --watch
+
+# Update pricing dynamically
+xcelsior pricing set --gpu "RTX 4090" --rate 0.45
+
+# Run diagnostics
+xcelsior diagnostics --full
+
+# View earnings summary
+xcelsior earnings --period 30d
+\`\`\`
+
+### Pre-Install Requirements
+- Node.js >= 18 (for the SDK/wizard)
+- NVIDIA GPU with drivers >= 535
+- Docker Engine >= 24.0
+- Linux (Ubuntu 22.04+ recommended) or WSL2 on Windows
+
+## Option B: Manual Setup
+
+If you prefer not to use the wizard, set up manually:
+
+### 1. Install worker agent
+
+\`\`\`bash
+curl -sSL https://xcelsior.ca/install.sh | bash
+# Or: npx xcelsior setup --mode provide
+\`\`\`
+
+### 2. Create environment file
+
+Create \`~/.xcelsior/.env\` with these variables:
+
+\`\`\`bash
+# REQUIRED — Get your host ID from the dashboard after registering your machine
+XCELSIOR_HOST_ID=<your-host-id>
+
+# REQUIRED — Scheduler endpoint (production)
+XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
+
+# REQUIRED — API token from dashboard Settings → API Keys
+XCELSIOR_API_TOKEN=<your-api-token>
+
+# REQUIRED — Your hourly rate in CAD per GPU
+XCELSIOR_COST_PER_HOUR=0.50
+
+# OPTIONAL — Override detected GPU count
+# XCELSIOR_GPU_COUNT=2
+
+# OPTIONAL — SLA tier: community | secure | sovereign
+# XCELSIOR_SLA_TIER=community
+\`\`\`
+
+### 3. Enable as a systemd service
+
+\`\`\`bash
+sudo tee /etc/systemd/system/xcelsior-worker.service << 'EOF'
+[Unit]
+Description=Xcelsior Worker Agent
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/root/.xcelsior/.env
+ExecStart=/usr/local/bin/xcelsior-worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now xcelsior-worker
+\`\`\`
+
+### 4. Verify the worker is running
+
+\`\`\`bash
+sudo systemctl status xcelsior-worker
+# Check logs:
+journalctl -u xcelsior-worker -f
+\`\`\`
+
+## Dashboard Registration
+
+Before running either setup method, register your host at:
+https://xcelsior.ca/dashboard/hosts → "Register Host"
+
+This gives you the HOST_ID needed for configuration. The wizard handles this automatically if you haven't registered yet.
+
+## Troubleshooting
+
+Common issues:
+- \`nvidia-smi\` not found → Install NVIDIA drivers: \`sudo apt install nvidia-driver-535\`
+- Docker permission denied → Add user to docker group: \`sudo usermod -aG docker $USER\`
+- Agent fails to connect → Check firewall allows outbound HTTPS to api.xcelsior.ai:443
+- Worker not picking up jobs → Verify pricing is competitive via \`xcelsior pricing compare\`
+
+After setup, your host will appear as "active" in the Xcelsior dashboard and begin accepting compute jobs from the marketplace.`;
+
+type InstallView = "sdk" | "quickstart";
+
 function InstallWorkerSection() {
+  const [view, setView] = useState<InstallView>("sdk");
   const [copied, setCopied] = useState<string | null>(null);
 
   function copy(label: string, text: string) {
     navigator.clipboard.writeText(text);
     setCopied(label);
+    toast.success(label === "llm-prompt" ? "LLM prompt copied to clipboard" : "Copied to clipboard");
     setTimeout(() => setCopied(null), 2000);
   }
+
+  return (
+    <div className="flex flex-col">
+      {/* Content area */}
+      <div className="min-h-[380px]">
+        {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
+      </div>
+
+      {/* Bottom bar */}
+      <div className="mt-4 pt-4 border-t border-border/60">
+        <div className="flex items-end justify-between gap-4">
+          <p className="text-xs text-text-muted max-w-sm leading-relaxed">
+            Get started with a code quickstart or copy these setup steps as a prompt.
+          </p>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => copy("llm-prompt", LLM_INSTALL_PROMPT)}
+              className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-hover/50 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/30 hover:text-accent-cyan hover:bg-accent-cyan/5 transition-all duration-200"
+            >
+              {copied === "llm-prompt" ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Clipboard className="h-3.5 w-3.5" />}
+              Copy prompt for LLM
+            </button>
+            <button
+              onClick={() => setView(view === "sdk" ? "quickstart" : "sdk")}
+              className="flex items-center gap-2 rounded-lg bg-accent-cyan/10 border border-accent-cyan/25 px-3.5 py-2 text-xs font-medium text-accent-cyan hover:bg-accent-cyan/20 transition-all duration-200"
+            >
+              {view === "sdk" ? (
+                <>View Quickstart <ArrowRight className="h-3.5 w-3.5" /></>
+              ) : (
+                <><ArrowLeft className="h-3.5 w-3.5" /> View SDK Setup</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── SDK / Wizard Setup View ─────────────────────────────────────── */
+
+function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
+  const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard`;
+  const wizardCmd = `xcelsior-wizard setup --mode provide`;
+  const quickCmds = `# Check worker status
+xcelsior status
+
+# View live job queue
+xcelsior jobs --watch
+
+# Update pricing dynamically
+xcelsior pricing set --gpu "RTX 4090" --rate 0.45
+
+# Run diagnostics
+xcelsior diagnostics --full
+
+# View earnings summary
+xcelsior earnings --period 30d`;
+
+  function CopyBtn({ label, text }: { label: string; text: string }) {
+    return (
+      <button
+        onClick={() => onCopy(label, text)}
+        className="absolute top-2 right-2 flex items-center gap-1 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
+      >
+        {copied === label ? <><Check className="h-3 w-3 text-emerald" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-5 mt-2">
+      {/* Header pill */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 rounded-full bg-accent-cyan/10 border border-accent-cyan/20 px-3 py-1 text-xs font-medium text-accent-cyan">
+          <Package className="h-3.5 w-3.5" />
+          SDK &amp; Wizard Setup
+        </div>
+        <span className="text-[11px] text-text-muted">Recommended</span>
+      </div>
+
+      {/* Step 1: Install */}
+      <div>
+        <p className="text-sm font-medium mb-1.5">1. Install the SDK and wizard</p>
+        <p className="text-xs text-text-secondary mb-2">
+          Install the Xcelsior CLI tools globally. Requires Node.js &ge; 18.
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{sdkInstall}</pre>
+          <CopyBtn label="sdk-install" text={sdkInstall} />
+        </div>
+      </div>
+
+      {/* Step 2: Run wizard */}
+      <div>
+        <p className="text-sm font-medium mb-1.5">2. Run the interactive setup wizard</p>
+        <p className="text-xs text-text-secondary mb-2">
+          The wizard auto-detects your GPU hardware, registers your host, configures pricing, and installs the systemd service.
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{wizardCmd}</pre>
+          <CopyBtn label="wizard-cmd" text={wizardCmd} />
+        </div>
+      </div>
+
+      {/* Wizard prompts */}
+      <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3.5">
+        <p className="text-xs font-medium text-text-primary mb-2">The wizard will prompt for:</p>
+        <ul className="text-xs text-text-secondary space-y-1.5">
+          <li className="flex items-start gap-2">
+            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
+            Your Xcelsior API token (from Dashboard → Settings → API Keys)
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
+            Pricing preference (auto-competitive or manual $/hr)
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
+            SLA tier selection (community, secure, sovereign)
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent-cyan mt-0.5">&#x2022;</span>
+            Systemd service auto-install (y/n)
+          </li>
+        </ul>
+      </div>
+
+      {/* Step 3: Quick-start commands */}
+      <div>
+        <p className="text-sm font-medium mb-1.5">3. Quick-start commands</p>
+        <p className="text-xs text-text-secondary mb-2">
+          After setup, use these SDK commands to manage your worker:
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-[13px] font-mono overflow-x-auto leading-relaxed">{quickCmds}</pre>
+          <CopyBtn label="quick-cmds" text={quickCmds} />
+        </div>
+      </div>
+
+      {/* Pre-install requirements */}
+      <div className="rounded-lg bg-surface-hover/30 border border-border/40 p-3.5">
+        <div className="flex gap-2.5">
+          <Info className="h-4 w-4 text-accent-cyan shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-text-primary mb-1.5">Pre-install requirements</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-text-secondary">
+              <span>Node.js &ge; 18</span>
+              <span>NVIDIA drivers &ge; 535</span>
+              <span>Docker Engine &ge; 24.0</span>
+              <span>Ubuntu 22.04+ or WSL2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Manual Quickstart View ──────────────────────────────────────── */
+
+function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
+  const installCmd = `npx xcelsior setup --mode provide`;
 
   const envTemplate = `XCELSIOR_HOST_ID=<your-host-id>
 XCELSIOR_SCHEDULER_URL=https://api.xcelsior.ai
 XCELSIOR_API_TOKEN=<your-api-token>
 XCELSIOR_COST_PER_HOUR=0.50`;
-
-  const installCmd = `npx xcelsior setup --mode provide`;
 
   const systemdUnit = `[Unit]
 Description=Xcelsior Worker Agent
@@ -621,10 +918,14 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target`;
 
+  const verifyCmd = `sudo systemctl daemon-reload
+sudo systemctl enable --now xcelsior-worker
+sudo systemctl status xcelsior-worker`;
+
   function CopyBtn({ label, text }: { label: string; text: string }) {
     return (
       <button
-        onClick={() => copy(label, text)}
+        onClick={() => onCopy(label, text)}
         className="absolute top-2 right-2 flex items-center gap-1 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
       >
         {copied === label ? <><Check className="h-3 w-3 text-emerald" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
@@ -634,8 +935,17 @@ WantedBy=multi-user.target`;
 
   return (
     <div className="space-y-5 mt-2">
+      {/* Header pill */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 rounded-full bg-accent-violet/10 border border-accent-violet/20 px-3 py-1 text-xs font-medium text-accent-violet">
+          <Code2 className="h-3.5 w-3.5" />
+          Manual Setup
+        </div>
+        <span className="text-[11px] text-text-muted">Step-by-step</span>
+      </div>
+
       <div>
-        <p className="text-sm font-medium mb-1.5">1. Run the setup wizard</p>
+        <p className="text-sm font-medium mb-1.5">1. Run the setup script</p>
         <p className="text-xs text-text-secondary mb-2">
           Execute this on your GPU host to auto-detect hardware and register with Xcelsior:
         </p>
@@ -665,6 +975,17 @@ WantedBy=multi-user.target`;
         <div className="relative">
           <pre className="bg-surface-hover rounded-lg p-3 text-[13px] font-mono overflow-x-auto leading-relaxed">{systemdUnit}</pre>
           <CopyBtn label="systemd" text={systemdUnit} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-1.5">4. Start and verify</p>
+        <p className="text-xs text-text-secondary mb-2">
+          Enable the service and confirm it&apos;s running:
+        </p>
+        <div className="relative">
+          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto leading-relaxed">{verifyCmd}</pre>
+          <CopyBtn label="verify" text={verifyCmd} />
         </div>
       </div>
     </div>

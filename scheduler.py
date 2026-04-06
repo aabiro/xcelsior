@@ -1638,6 +1638,10 @@ def run_job(job, host, docker_image=None):
     if job_command:
         tokens = shlex.split(job_command)
         parts.append(" ".join(shlex.quote(t) for t in tokens))
+    elif is_interactive:
+        # Interactive containers need a long-running process to stay alive
+        # (default image entrypoints like bash exit immediately in detached mode)
+        parts.append("sleep infinity")
 
     cmd = " ".join(parts)
 
