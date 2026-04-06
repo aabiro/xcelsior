@@ -1434,7 +1434,7 @@ def scheduler_main():
 # ── Phase 5 & 6: Run Job / Kill Job ──────────────────────────────────
 
 
-def ssh_exec(ip, cmd):
+def ssh_exec(ip, cmd, timeout=30):
     """
     Run a command on a remote host via SSH.
     Key-based auth only. No passwords. No agent forwarding.
@@ -1461,7 +1461,7 @@ def ssh_exec(ip, cmd):
         f"{SSH_USER}@{ip}",
         cmd,
     ]
-    result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
@@ -1561,12 +1561,15 @@ def run_job(job, host, docker_image=None):
 
     # Security hardening (parity with build_secure_docker_args in security.py)
     parts.append("--security-opt=no-new-privileges")
-    parts.append("--cap-drop=ALL")
     parts.append("--pids-limit=4096")
     parts.append("--no-healthcheck")
 
-    # Non-root execution
-    parts.append("--user=1000:1000")
+    # Non-root execution — skip for interactive containers because GPU images
+    # (e.g. nvcr.io/nvidia/pytorch) require root for CUDA/cuDNN libraries.
+    is_interactive = job.get("interactive", False)
+    if not is_interactive:
+        parts.append("--cap-drop=ALL")
+        parts.append("--user=1000:1000")
 
     # Read-only root filesystem for batch jobs; tmpfs for temp dirs
     is_interactive = job.get("interactive", False)
@@ -1614,6 +1617,10 @@ def run_job(job, host, docker_image=None):
     # Interactive mode: keep stdin open, map SSH port
     if job.get("interactive"):
         ssh_port = int(job.get("ssh_port", 22))
+        # Avoid port 22 — it's used by the host SSH daemon
+        if ssh_port == 22:
+            # Deterministic high port from job_id to avoid collisions
+            ssh_port = 2222 + (int(job["job_id"][:4], 16) % 10000)
         parts.append(f"-p {ssh_port}:22")
         # Don't auto-remove interactive containers
     else:
@@ -1633,6 +1640,15 @@ def run_job(job, host, docker_image=None):
         parts.append(" ".join(shlex.quote(t) for t in tokens))
 
     cmd = " ".join(parts)
+
+    # Pre-pull the image (may take minutes for large images like pytorch)
+    log.info("PULLING IMAGE job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
+    pull_rc, _, pull_err = ssh_exec(host["ip"], f"docker pull {shlex.quote(image)}", timeout=600)
+    if pull_rc != 0:
+        log.error("IMAGE PULL FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], pull_err)
+        update_job_status(job["job_id"], "failed")
+        return None
+    log.info("IMAGE READY job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
 
     rc, stdout, stderr = ssh_exec(host["ip"], cmd)
     if rc != 0:
