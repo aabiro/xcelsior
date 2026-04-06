@@ -13,7 +13,7 @@ import uuid
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Callable, Optional
 
 import anthropic
 import httpx
@@ -2678,7 +2678,6 @@ _WIZARD_STEP_BUILDERS: dict[str, "Callable[[dict], str]"] = {
 
 def _build_wizard_step_prompt(step_id: str, kv: dict[str, str]) -> str:
     """Dispatch to the correct per-step builder function. Returns empty string for steps with no AI steering."""
-    from typing import Callable  # noqa: F401 — used in annotation above
     builder = _WIZARD_STEP_BUILDERS.get(step_id)
     return builder(kv) if builder else ""
 

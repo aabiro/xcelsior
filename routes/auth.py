@@ -41,6 +41,7 @@ from routes._deps import (
 )
 from scheduler import (
     API_TOKEN,
+    alert,
     list_jobs,
     log,
 )

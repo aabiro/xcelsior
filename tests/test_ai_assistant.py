@@ -695,7 +695,7 @@ class TestGetBillingSummary:
         @contextmanager
         def _broken_ai_db():
             raise Exception("DB connection failed")
-            yield  # noqa: unreachable
+            yield  # noqa: F811
         with patch("billing.get_billing_engine", return_value=mock_engine), \
              patch("ai_assistant._ai_db", _broken_ai_db):
             result = _TOOL_HANDLERS["get_billing_summary"]({}, _user())
