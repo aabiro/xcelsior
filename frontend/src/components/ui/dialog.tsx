@@ -10,6 +10,7 @@ interface DialogProps {
   description?: string;
   children: ReactNode;
   maxWidth?: string;
+  className?: string;
 }
 
 export function Dialog({
@@ -19,6 +20,7 @@ export function Dialog({
   description,
   children,
   maxWidth = "max-w-lg",
+  className,
 }: DialogProps) {
   useEffect(() => {
     if (!open) return;
@@ -34,7 +36,7 @@ export function Dialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative z-10 w-full ${maxWidth} rounded-xl border border-border bg-surface shadow-2xl mx-4 max-h-[85vh] flex flex-col`}>
+      <div className={`relative z-10 w-full ${maxWidth} rounded-xl border border-border bg-surface shadow-2xl mx-4 max-h-[85vh] flex flex-col ${className || ""}`}>
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
           <div>
             <h3 className="text-lg font-semibold">{title}</h3>

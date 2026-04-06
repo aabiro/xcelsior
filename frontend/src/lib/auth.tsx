@@ -37,9 +37,9 @@ interface User {
 }
 
 /** Minutes of inactivity before showing the warning banner. */
-const IDLE_WARN_MIN = 25;
+const IDLE_WARN_MIN = 55;
 /** Minutes of inactivity before we stop refreshing (session dies). */
-const IDLE_LOGOUT_MIN = 30;
+const IDLE_LOGOUT_MIN = 60;
 
 interface AuthState {
   user: User | null;

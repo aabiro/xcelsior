@@ -31,7 +31,7 @@ _AUTH_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
 _USE_PERSISTENT_AUTH = os.environ.get("XCELSIOR_PERSISTENT_AUTH", "true").lower() != "false"
 
 SESSION_EXPIRY = 86400 * 30  # 30 days
-MAX_SESSION_LIFETIME = 86400 * 7  # 7 days
+MAX_SESSION_LIFETIME = 86400 * 30  # 30 days (must match SESSION_EXPIRY)
 
 _AUTH_COOKIE_NAME = "xcelsior_session"
 

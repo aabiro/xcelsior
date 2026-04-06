@@ -357,102 +357,128 @@ export default function InstanceDetailPage() {
         </dl>
       </Card>
 
-      {/* Connection Info — shown when job is running or has run */}
-      {instance.host_id && (instance.status === "running" || instance.status === "completed" || instance.status === "failed") && (
-        <Card>
-          <div className="flex items-center gap-2 mb-3">
-            <Globe className="h-4 w-4 text-ice-blue" />
-            <h2 className="text-sm font-semibold text-text-secondary">Connection Details</h2>
-            {instance.status === "running" && (
-              <span className="ml-auto flex items-center gap-1 text-xs text-emerald">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald animate-pulse" /> Live
-              </span>
-            )}
-          </div>
+      {/* Connection Info — visible when running (always), completed, or failed */}
+      {(instance.status === "running" || instance.status === "completed" || instance.status === "failed") && (
+      <Card>
+        <div className="flex items-center gap-2 mb-3">
+          <Globe className="h-4 w-4 text-ice-blue" />
+          <h2 className="text-sm font-semibold text-text-secondary">Connection Details</h2>
+          {instance.status === "running" && instance.host_id ? (
+            <span className="ml-auto flex items-center gap-1 text-xs text-emerald">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald animate-pulse" /> Live
+            </span>
+          ) : instance.status === "running" && !instance.host_id ? (
+            <span className="ml-auto flex items-center gap-1 text-xs text-gold">
+              <Loader2 className="h-3 w-3 animate-spin" /> Provisioning
+            </span>
+          ) : null}
+        </div>
 
-          {/* Quick-connect commands */}
-          {instance.status === "running" && instance.host_ip && (
-            <div className="mb-4 space-y-3">
-              {/* Primary: branded SSH */}
-              <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <p className="text-xs font-medium text-text-secondary">SSH Connect</p>
-                  <div className="group relative">
-                    <Info className="h-3 w-3 text-text-muted cursor-help" />
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-56 rounded-md bg-surface-overlay border border-border p-2 text-xs text-text-muted shadow-lg">
-                      Connect via Xcelsior&apos;s SSH proxy. Your SSH keys from Settings are automatically injected into the instance.
-                    </div>
+        {/* Scheduler placement message when running but host not yet assigned */}
+        {instance.status === "running" && !instance.host_id && (
+          <div className="rounded-lg border border-gold/30 bg-gold/5 p-3 mb-4">
+            <div className="flex items-start gap-2">
+              <Clock className="h-4 w-4 text-gold shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-gold">Waiting for scheduler placement</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Your instance is running but hasn&apos;t been placed on a host yet. Connection commands will appear once the scheduler assigns a GPU host. This usually takes a few moments.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quick-connect commands */}
+        {instance.status === "running" && instance.host_ip && (
+          <div className="mb-4 space-y-3">
+            {/* Primary: branded SSH */}
+            <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <p className="text-xs font-medium text-text-secondary">SSH Connect</p>
+                <div className="group relative">
+                  <Info className="h-3 w-3 text-text-muted cursor-help" />
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-56 rounded-md bg-surface-overlay border border-border p-2 text-xs text-text-muted shadow-lg">
+                    Connect via Xcelsior&apos;s SSH proxy. Your SSH keys from Settings are automatically injected into the instance.
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
-                    ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
-                  </code>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
-                    className="text-text-muted hover:text-text-primary transition-colors shrink-0"
-                    title="Copy SSH command"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
-                </div>
               </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
+                  ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
+                </code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
+                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                  title="Copy SSH command"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
 
-              {/* Direct access (expandable) */}
-              <DirectAccessSection instance={instance} />
+            {/* Direct access (expandable) */}
+            <DirectAccessSection instance={instance} />
+          </div>
+        )}
+
+        {/* Instance details grid — show whatever info is available */}
+        <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
+          {instance.host_gpu && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">GPU</dt>
+              <dd className="font-medium">{instance.host_gpu}{instance.host_vram_gb ? ` · ${instance.host_vram_gb} GB VRAM` : ""}</dd>
             </div>
           )}
-
-          {/* Instance details grid */}
-          <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
-            {instance.host_gpu && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">GPU</dt>
-                <dd className="font-medium">{instance.host_gpu}{instance.host_vram_gb ? ` · ${instance.host_vram_gb} GB VRAM` : ""}</dd>
-              </div>
-            )}
+          {instance.host_id && (
             <div className="flex justify-between sm:block">
               <dt className="text-text-muted">Host</dt>
               <dd className="font-mono text-xs">{instance.host_id}</dd>
             </div>
-            {instance.docker_image && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Image</dt>
-                <dd className="font-mono text-xs">{instance.docker_image}</dd>
-              </div>
-            )}
-            {instance.ssh_port && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">SSH Port</dt>
-                <dd className="font-mono">{instance.ssh_port}</dd>
-              </div>
-            )}
-            {instance.container_name && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Container</dt>
-                <dd className="font-mono text-xs">{instance.container_name}</dd>
-              </div>
-            )}
-            {instance.started_at && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Started</dt>
-                <dd>{new Date(Number(instance.started_at) * 1000).toLocaleString()}</dd>
-              </div>
-            )}
-            {instance.started_at && instance.status === "running" && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Uptime</dt>
-                <dd>{formatUptime(Date.now() / 1000 - Number(instance.started_at))}</dd>
-              </div>
-            )}
-            {instance.completed_at && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Completed</dt>
-                <dd>{new Date(Number(instance.completed_at) * 1000).toLocaleString()}</dd>
-              </div>
-            )}
-          </dl>
-        </Card>
+          )}
+          {instance.docker_image && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">Image</dt>
+              <dd className="font-mono text-xs">{instance.docker_image}</dd>
+            </div>
+          )}
+          {instance.ssh_port && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">SSH Port</dt>
+              <dd className="font-mono">{instance.ssh_port}</dd>
+            </div>
+          )}
+          {instance.container_name && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">Container</dt>
+              <dd className="font-mono text-xs">{instance.container_name}</dd>
+            </div>
+          )}
+          {instance.started_at && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">Started</dt>
+              <dd>{new Date(Number(instance.started_at) * 1000).toLocaleString()}</dd>
+            </div>
+          )}
+          {instance.started_at && instance.status === "running" && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">Uptime</dt>
+              <dd>{formatUptime(Date.now() / 1000 - Number(instance.started_at))}</dd>
+            </div>
+          )}
+          {instance.completed_at && (
+            <div className="flex justify-between sm:block">
+              <dt className="text-text-muted">Completed</dt>
+              <dd>{new Date(Number(instance.completed_at) * 1000).toLocaleString()}</dd>
+            </div>
+          )}
+          {!instance.host_id && !instance.host_gpu && !instance.started_at && (
+            <div className="col-span-2 text-xs text-text-muted italic">
+              Connection details will populate once a host is assigned to this instance.
+            </div>
+          )}
+        </dl>
+      </Card>
       )}
 
       {/* Web Terminal */}
