@@ -95,6 +95,8 @@ services:
 
   scheduler-worker:
     build: .
+    # network_mode: host — scheduler must reach Tailscale IPs for ping + SSH
+    network_mode: host
     command: python -c "from scheduler import scheduler_main; scheduler_main()"
     environment:
       XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
@@ -114,7 +116,7 @@ services:
       XCELSIOR_SPOT_PRICES_FILE: /data/spot_prices.json
       XCELSIOR_COMPUTE_SCORES_FILE: /data/compute_scores.json
       XCELSIOR_LOG_FILE: /data/xcelsior.log
-      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@host.docker.internal:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@localhost:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
       XCELSIOR_CANADA_ONLY: ${XCELSIOR_CANADA_ONLY:-false}
       XCELSIOR_PLATFORM_CUT: ${XCELSIOR_PLATFORM_CUT:-0.20}
       XCELSIOR_SMTP_HOST: ${XCELSIOR_SMTP_HOST:-}
@@ -128,8 +130,6 @@ services:
       XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
       XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
       XCELSIOR_REGISTRY: ${XCELSIOR_REGISTRY:-}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - xcelsior-data:/data
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
