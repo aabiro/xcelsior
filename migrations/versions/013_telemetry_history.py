@@ -54,15 +54,7 @@ def upgrade() -> None:
         postgresql_ops={"recorded_at": "DESC"},
     )
 
-    # Partial index for recent data (last 30 days) — most AI queries are recency-oriented
-    op.execute(
-        "CREATE INDEX idx_telemetry_recent ON telemetry_snapshots (host_id, recorded_at DESC) "
-        "WHERE recorded_at > EXTRACT(EPOCH FROM NOW()) - 2592000"
-    )
-
-
 def downgrade() -> None:
-    op.drop_index("idx_telemetry_recent", table_name="telemetry_snapshots")
     op.drop_index("idx_telemetry_job_recorded", table_name="telemetry_snapshots")
     op.drop_index("idx_telemetry_host_recorded", table_name="telemetry_snapshots")
     op.drop_table("telemetry_snapshots")
