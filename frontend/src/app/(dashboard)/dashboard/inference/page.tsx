@@ -62,7 +62,7 @@ export default function InferencePage() {
   const [maxWorkers, setMaxWorkers] = useState(3);
   const [mode, setMode] = useState<"sync" | "async">("sync");
   const [scaledownSec, setScaledownSec] = useState(300);
-  const [healthEndpoint, setHealthEndpoint] = useState("/health");
+  const [healthEndpoint, setHealthEndpoint] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -101,7 +101,7 @@ export default function InferencePage() {
         max_workers: maxWorkers,
         mode,
         scaledown_window_sec: scaledownSec,
-        health_endpoint: healthEndpoint || undefined,
+        health_endpoint: healthEndpoint ? `/${healthEndpoint}` : undefined,
       });
       toast.success("Endpoint deployed");
       setShowForm(false);
@@ -303,15 +303,15 @@ export default function InferencePage() {
             {/* Health Endpoint */}
             <div>
               <label className="block text-sm font-medium mb-1">Health Endpoint</label>
-              <Input
-                value={healthEndpoint}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  let v = e.target.value;
-                  if (v && !v.startsWith("/")) v = "/" + v;
-                  setHealthEndpoint(v);
-                }}
-                placeholder="/health"
-              />
+              <div className="flex">
+                <span className="inline-flex items-center rounded-l-md border border-r-0 border-border bg-muted px-3 text-sm text-text-muted">/</span>
+                <Input
+                  className="rounded-l-none"
+                  value={healthEndpoint}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHealthEndpoint(e.target.value.replace(/^\//g, ""))}
+                  placeholder="health"
+                />
+              </div>
               <p className="text-xs text-text-muted mt-0.5">Path the scheduler pings to verify your container is ready.</p>
             </div>
 

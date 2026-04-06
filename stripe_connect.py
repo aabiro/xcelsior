@@ -229,10 +229,29 @@ class StripeConnectManager:
         if existing and existing["stripe_account_id"]:
             # Re-generate onboarding link for existing account
             stripe_account_id = existing["stripe_account_id"]
-            onboarding_url, status = _create_hosted_stripe_url(
-                stripe_account_id,
-                existing["status"],
-            )
+            try:
+                onboarding_url, status = _create_hosted_stripe_url(
+                    stripe_account_id,
+                    existing["status"],
+                )
+            except RuntimeError:
+                # Stripe account may have been deleted/invalidated externally.
+                # Clear the stale reference so a fresh account can be created below.
+                log.warning(
+                    "Clearing stale Stripe account %s for provider %s — will re-create",
+                    stripe_account_id,
+                    provider_id,
+                )
+                with self._conn() as conn:
+                    conn.execute(
+                        "UPDATE provider_accounts SET stripe_account_id='', status='pending' "
+                        "WHERE provider_id=%s",
+                        (provider_id,),
+                    )
+                existing = None  # fall through to create a new account below
+
+        if existing and existing.get("stripe_account_id"):
+            # Successfully generated a link for an existing account
             with self._conn() as conn:
                 conn.execute(
                     "UPDATE provider_accounts SET status=%s WHERE provider_id=%s",

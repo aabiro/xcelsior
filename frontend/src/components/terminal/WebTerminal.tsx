@@ -41,7 +41,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
       theme: {
         background: "#0b0f1a",
         foreground: "#e2e8f0",
