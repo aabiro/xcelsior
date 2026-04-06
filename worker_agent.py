@@ -1481,7 +1481,7 @@ def run_job(job):
         report_job_status(job_id, "failed")
         return
 
-    container_name = f"xcelsior-{job_id[:12]}"
+    container_name = f"xcl-{job_id}"
     log.info("Starting job %s (%s) — image=%s", job_id, job_name, image)
 
     # ── Lease Protocol: claim lease before starting work ──
@@ -1631,6 +1631,9 @@ def run_job(job):
         if is_interactive:
             report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
             log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
+
+        # 4b. Inject user's SSH keys into the container (best-effort)
+        _inject_ssh_keys(job_id, container_name)
 
         # 5. Apply egress rules (best-effort)
         try:
@@ -2009,6 +2012,86 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 release_lease(job_id, "cancelled")
                 return
             time.sleep(1)
+
+
+def _inject_ssh_keys(job_id: str, container_name: str):
+    """Fetch the job owner's SSH public keys from the API and inject into the container.
+
+    Sets up /root/.ssh/authorized_keys and starts sshd if available.
+    Best-effort: failures are logged but don't block the job.
+    """
+    try:
+        resp = req.get(
+            _api_url(f"/agent/ssh-keys/{job_id}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            log.debug("SSH keys endpoint returned %d for job %s", resp.status_code, job_id)
+            return
+        keys = resp.json().get("keys", [])
+        if not keys:
+            log.debug("No SSH keys found for job %s owner", job_id)
+            return
+
+        # Create .ssh directory
+        subprocess.run(
+            ["docker", "exec", container_name, "mkdir", "-p", "/root/.ssh"],
+            capture_output=True, timeout=5,
+        )
+        subprocess.run(
+            ["docker", "exec", container_name, "chmod", "700", "/root/.ssh"],
+            capture_output=True, timeout=5,
+        )
+
+        # Write authorized_keys
+        authorized_keys = "\n".join(keys) + "\n"
+        subprocess.run(
+            ["docker", "exec", container_name, "sh", "-c",
+             f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
+             "chmod 600 /root/.ssh/authorized_keys"],
+            capture_output=True, timeout=5,
+        )
+
+        log.info("Injected %d SSH key(s) into container %s for job %s", len(keys), container_name, job_id)
+
+        # Try to start sshd if available (best-effort)
+        sshd_check = subprocess.run(
+            ["docker", "exec", container_name, "which", "sshd"],
+            capture_output=True, timeout=5,
+        )
+        if sshd_check.returncode == 0:
+            # Generate host keys if missing
+            subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c",
+                 "ls /etc/ssh/ssh_host_*_key 2>/dev/null || ssh-keygen -A"],
+                capture_output=True, timeout=10,
+            )
+            # Ensure PermitRootLogin is enabled
+            subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c",
+                 "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true"],
+                capture_output=True, timeout=5,
+            )
+            # Start sshd
+            sshd_start = subprocess.run(
+                ["docker", "exec", container_name, "/usr/sbin/sshd"],
+                capture_output=True, timeout=5,
+            )
+            if sshd_start.returncode == 0:
+                log.info("sshd started in container %s", container_name)
+            else:
+                log.debug("sshd start failed: %s", sshd_start.stderr.strip())
+        else:
+            log.debug("sshd not found in container %s — SSH keys injected but no daemon", container_name)
+
+    except Exception as e:
+        log.warning("SSH key injection failed for job %s: %s", job_id, e)
+
+
+def _shell_quote(s: str) -> str:
+    """Shell-escape a string for use in sh -c."""
+    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def _kill_container(container_name):

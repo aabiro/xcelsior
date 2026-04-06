@@ -1371,8 +1371,10 @@ def process_assigned():
 
 
 def scheduler_tick():
-    """Single scheduler iteration: assign queued jobs, then start assigned ones.
+    """Single scheduler iteration: assign queued jobs to hosts.
 
+    Container lifecycle is managed by the worker agent on each host.
+    The scheduler only handles queue processing (job→host assignment).
     Uses _scheduler_lock to prevent concurrent process_queue calls from
     the failover monitor thread.
     """
@@ -1381,10 +1383,6 @@ def scheduler_tick():
             process_queue()
         except Exception as e:
             log.error("Scheduler queue error: %s", e)
-        try:
-            process_assigned()
-        except Exception as e:
-            log.error("Scheduler runner error: %s", e)
 
 
 def scheduler_main():

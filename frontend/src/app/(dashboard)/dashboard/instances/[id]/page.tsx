@@ -10,7 +10,7 @@ import { StatusBadge, Badge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
-  Copy, Globe, Container, Square, Loader2, AlertTriangle,
+  Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
 import type { Instance } from "@/lib/api";
@@ -25,6 +25,67 @@ const WebTerminal = dynamic(
 );
 
 const STATUS_STEPS = ["queued", "assigned", "running", "completed"] as const;
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function DirectAccessSection({ instance }: { instance: Instance }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = instance.container_name || `xcl-${instance.job_id}`;
+  return (
+    <div className="rounded-lg border border-border/50 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-muted hover:text-text-secondary transition-colors"
+      >
+        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        <span>Direct access (advanced)</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {instance.host_ip && (
+            <div>
+              <p className="text-xs text-text-muted mb-1">Direct SSH (requires mesh network):</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono text-text-secondary bg-background rounded px-2 py-1.5 select-all border border-border">
+                  ssh -p {instance.ssh_port || 22} root@{instance.host_ip}
+                </code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`ssh -p ${instance.ssh_port || 22} root@${instance.host_ip}`); toast.success("Copied"); }}
+                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                  title="Copy"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+          <div>
+            <p className="text-xs text-text-muted mb-1">Docker exec (on host machine):</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-xs font-mono text-text-secondary bg-background rounded px-2 py-1.5 select-all border border-border">
+                docker exec -it {containerRef} /bin/bash
+              </code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(`docker exec -it ${containerRef} /bin/bash`); toast.success("Copied"); }}
+                className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                title="Copy"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -308,30 +369,62 @@ export default function InstanceDetailPage() {
               </span>
             )}
           </div>
-          <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
-            {instance.host_ip && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Host IP (Tailscale Mesh)</dt>
-                <dd className="font-mono flex items-center gap-1.5">
-                  {instance.host_ip}
+
+          {/* Quick-connect commands */}
+          {instance.status === "running" && instance.host_ip && (
+            <div className="mb-4 space-y-3">
+              {/* Primary: branded SSH */}
+              <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <p className="text-xs font-medium text-text-secondary">SSH Connect</p>
+                  <div className="group relative">
+                    <Info className="h-3 w-3 text-text-muted cursor-help" />
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-56 rounded-md bg-surface-overlay border border-border p-2 text-xs text-text-muted shadow-lg">
+                      Connect via Xcelsior&apos;s SSH proxy. Your SSH keys from Settings are automatically injected into the instance.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
+                    ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
+                  </code>
                   <button
-                    onClick={() => { navigator.clipboard.writeText(instance.host_ip!); }}
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                    title="Copy IP"
+                    onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
+                    className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                    title="Copy SSH command"
                   >
-                    <Copy className="h-3 w-3" />
+                    <Copy className="h-3.5 w-3.5" />
                   </button>
-                </dd>
+                </div>
+              </div>
+
+              {/* Direct access (expandable) */}
+              <DirectAccessSection instance={instance} />
+            </div>
+          )}
+
+          {/* Instance details grid */}
+          <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
+            {instance.host_gpu && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">GPU</dt>
+                <dd className="font-medium">{instance.host_gpu}{instance.host_vram_gb ? ` · ${instance.host_vram_gb} GB VRAM` : ""}</dd>
               </div>
             )}
             <div className="flex justify-between sm:block">
               <dt className="text-text-muted">Host</dt>
-              <dd className="font-mono">{instance.host_id}</dd>
+              <dd className="font-mono text-xs">{instance.host_id}</dd>
             </div>
-            {instance.host_gpu && (
+            {instance.docker_image && (
               <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">GPU</dt>
-                <dd>{instance.host_gpu}{instance.host_vram_gb ? ` (${instance.host_vram_gb} GB)` : ""}</dd>
+                <dt className="text-text-muted">Image</dt>
+                <dd className="font-mono text-xs">{instance.docker_image}</dd>
+              </div>
+            )}
+            {instance.ssh_port && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">SSH Port</dt>
+                <dd className="font-mono">{instance.ssh_port}</dd>
               </div>
             )}
             {instance.container_name && (
@@ -340,25 +433,16 @@ export default function InstanceDetailPage() {
                 <dd className="font-mono text-xs">{instance.container_name}</dd>
               </div>
             )}
-            {instance.container_id && (
-              <div className="flex justify-between sm:block">
-                <dt className="text-text-muted">Container ID</dt>
-                <dd className="font-mono text-xs flex items-center gap-1.5">
-                  {instance.container_id}
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(instance.container_id!); }}
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                    title="Copy ID"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </button>
-                </dd>
-              </div>
-            )}
             {instance.started_at && (
               <div className="flex justify-between sm:block">
                 <dt className="text-text-muted">Started</dt>
                 <dd>{new Date(Number(instance.started_at) * 1000).toLocaleString()}</dd>
+              </div>
+            )}
+            {instance.started_at && instance.status === "running" && (
+              <div className="flex justify-between sm:block">
+                <dt className="text-text-muted">Uptime</dt>
+                <dd>{formatUptime(Date.now() / 1000 - Number(instance.started_at))}</dd>
               </div>
             )}
             {instance.completed_at && (
@@ -368,36 +452,6 @@ export default function InstanceDetailPage() {
               </div>
             )}
           </dl>
-          {instance.status === "running" && instance.host_ip && (
-            <div className="mt-4 rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
-              <p className="text-xs text-text-muted mb-1.5">SSH into your instance:</p>
-              <div className="flex items-center gap-2 mb-2">
-                <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
-                  ssh -p {instance.ssh_port || 22} user@{instance.host_ip}
-                </code>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(`ssh -p ${instance.ssh_port || 22} user@${instance.host_ip}`); toast.success("Copied"); }}
-                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
-                  title="Copy SSH command"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <p className="text-xs text-text-muted mb-1.5">Docker exec:</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
-                  docker exec -it {instance.container_name || `xcelsior-${instance.job_id.slice(0, 12)}`} /bin/bash
-                </code>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(`docker exec -it ${instance.container_name || `xcelsior-${instance.job_id.slice(0, 12)}`} /bin/bash`); toast.success("Copied"); }}
-                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
-                  title="Copy docker exec command"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
         </Card>
       )}
 

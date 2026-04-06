@@ -125,7 +125,16 @@ export const WIZARD_STEPS: WizardStep[] = [
         checkRequired: true,
     },
 
-    // ── Step 5c: Provider — Compute benchmark ──────────────────────────
+    // ── Step 5c: Provider — Network setup ──────────────────────────────
+    {
+        id: "network-setup",
+        type: "auto-check",
+        prompt: "Setting up secure mesh networking...",
+        checkId: "network-setup",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+    },
+
+    // ── Step 5d: Provider — Compute benchmark ──────────────────────────
     {
         id: "benchmark",
         type: "auto-check",
@@ -211,6 +220,15 @@ export const WIZARD_STEPS: WizardStep[] = [
         condition: (a) => a.mode === "provide" || a.mode === "both",
     },
 
+    // ── Step 7e: Provider — Worker agent install ───────────────────────
+    {
+        id: "worker-install",
+        type: "auto-check",
+        prompt: "Installing the worker agent as a background service...",
+        checkId: "worker-install",
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+    },
+
     // ── Step 8: Renter — Workload type ─────────────────────────────────
     {
         id: "workload",
@@ -222,6 +240,15 @@ export const WIZARD_STEPS: WizardStep[] = [
             { label: "🔬 Research — Jupyter notebooks, experiments", value: "research" },
             { label: "🎮 Other — rendering, simulation, etc.", value: "other" },
         ],
+        condition: (a) => a.mode === "rent" || a.mode === "both",
+    },
+
+    // ── Step 8b: Renter — SSH key setup ────────────────────────────────
+    {
+        id: "ssh-key-setup",
+        type: "auto-check",
+        prompt: "Setting up SSH keys for instance access...",
+        checkId: "ssh-key-setup",
         condition: (a) => a.mode === "rent" || a.mode === "both",
     },
 

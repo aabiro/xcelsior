@@ -125,6 +125,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "input", data }));
       }
+      // Reset auth idle timer — xterm captures keydown before document listeners
+      window.dispatchEvent(new Event("keydown"));
     });
 
     // Handle terminal resize

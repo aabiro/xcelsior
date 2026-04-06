@@ -489,3 +489,47 @@ async def api_agent_logs(job_id: str, request: Request):
 
     return {"ok": True, "accepted": accepted}
 
+
+@router.get("/agent/ssh-keys/{job_id}", tags=["Agent"])
+def api_agent_ssh_keys(job_id: str):
+    """Return the job owner's SSH public keys so the agent can inject them into containers."""
+    from db import UserStore
+
+    # Look up the job to find its owner
+    all_jobs = list_jobs()
+    job = None
+    for j in all_jobs:
+        if j.get("job_id") == job_id:
+            job = j
+            break
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    owner = job.get("owner", "")
+    if not owner:
+        return {"ok": True, "keys": []}
+
+    # owner is customer_id or user_id — find the user
+    user = UserStore.get_user_by_id(owner)
+    if not user:
+        # Try looking up by customer_id
+        try:
+            pool = _get_pg_pool()
+            with pool.connection() as conn:
+                row = conn.execute(
+                    "SELECT email FROM users WHERE customer_id = %s LIMIT 1", (owner,)
+                ).fetchone()
+                if row:
+                    user = {"email": row[0] if isinstance(row, tuple) else dict(row)["email"]}
+        except Exception:
+            pass
+
+    if not user or not user.get("email"):
+        return {"ok": True, "keys": []}
+
+    keys = UserStore.list_ssh_keys(user["email"])
+    return {
+        "ok": True,
+        "keys": [k["public_key"] for k in keys],
+    }
+
