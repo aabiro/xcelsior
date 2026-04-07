@@ -28,6 +28,7 @@ from routes._deps import (
 from scheduler import (
     API_TOKEN,
     failover_and_reassign,
+    get_job,
     kill_job,
     list_hosts,
     list_jobs,
@@ -81,6 +82,7 @@ class JobIn(BaseModel):
     interactive: bool = True
     command: str | None = None
     ssh_port: int = Field(default=22, ge=1, le=65535)
+    max_bid: float | None = Field(default=None, gt=0)
 
     @field_validator("image")
     @classmethod
@@ -98,6 +100,17 @@ class StatusUpdate(BaseModel):
     container_name: str | None = None
     ssh_port: int | None = None
     interactive: bool | None = None
+
+
+def _wallet_preflight(customer_id: str):
+    """Shared wallet check — raises 402 if wallet is suspended or empty."""
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    wallet = be.get_wallet(customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+    if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
+        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
 
 # ── Image Templates ──
@@ -188,35 +201,38 @@ def api_submit_instance(j: JobIn, request: Request):
 
     with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
         customer_id = user.get("customer_id", user.get("user_id", ""))
+        _wallet_preflight(customer_id)
 
-        # ── Wallet pre-flight: block launch if wallet is broke ────────
-        from billing import get_billing_engine
-        be = get_billing_engine()
-        wallet = be.get_wallet(customer_id)
-        if wallet.get("status") == "suspended":
-            raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
-        if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
-            raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+        # Spot path: max_bid present → delegate to spot submission
+        if j.max_bid is not None:
+            from scheduler import submit_spot_job
+            job = submit_spot_job(
+                j.name, vram_needed, j.max_bid, j.priority,
+                tier=j.tier, owner=customer_id, image=j.image,
+            )
+            event_name = "spot_job_submitted"
+        else:
+            job = submit_job(
+                j.name,
+                vram_needed,
+                j.priority,
+                tier=j.tier,
+                num_gpus=j.num_gpus,
+                nfs_server=j.nfs_server,
+                nfs_path=j.nfs_path,
+                nfs_mount_point=j.nfs_mount_point,
+                image=j.image,
+                interactive=j.interactive,
+                command=j.command,
+                ssh_port=j.ssh_port,
+                owner=customer_id,
+            )
+            event_name = "job_submitted"
 
-        job = submit_job(
-            j.name,
-            vram_needed,
-            j.priority,
-            tier=j.tier,
-            num_gpus=j.num_gpus,
-            nfs_server=j.nfs_server,
-            nfs_path=j.nfs_path,
-            nfs_mount_point=j.nfs_mount_point,
-            image=j.image,
-            interactive=j.interactive,
-            command=j.command,
-            ssh_port=j.ssh_port,
-            owner=customer_id,
-        )
         # Track job ownership (response-only, already persisted via owner param)
         job["submitted_by"] = user.get("email", "")
         job["customer_id"] = customer_id
-        broadcast_sse("job_submitted", {"job_id": job["job_id"], "name": job["name"]})
+        broadcast_sse(event_name, {"job_id": job["job_id"], "name": job["name"]})
 
         # Direct host assignment: assign + start immediately
         if target_host_id:
@@ -253,72 +269,71 @@ def api_submit_instance(j: JobIn, request: Request):
 
         return {"ok": True, "instance": job}
 
+def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
+    """Shared enrichment for every instance response — list and detail.
+
+    Adds docker_image mapping, host GPU info, elapsed/duration, connection
+    details, and cost computation.  Single source of truth — no drift.
+    """
+    # Map internal 'image' → frontend 'docker_image'
+    if j.get("image") is not None and not j.get("docker_image"):
+        j["docker_image"] = j["image"]
+
+    # Host GPU info
+    hid = j.get("host_id")
+    host = host_map.get(hid) if hid else None
+    if host:
+        j.setdefault("gpu_type", host.get("gpu_model", ""))
+        j.setdefault("host_gpu", host.get("gpu_model", ""))
+
+    # Elapsed / duration
+    started = float(j.get("started_at") or 0)
+    completed = float(j.get("completed_at") or 0)
+    if started > 0:
+        if completed > started:
+            j.setdefault("duration_sec", round(completed - started, 2))
+            j.setdefault("elapsed_sec", j["duration_sec"])
+        elif j.get("status") == "running":
+            j.setdefault("elapsed_sec", round(time.time() - started, 2))
+
+    # Connection details (host IP, VRAM) — available once job has run
+    if host and j.get("status") in ("running", "starting", "completed", "failed"):
+        j.setdefault("host_ip", host.get("ip", ""))
+        j.setdefault("host_gpu", host.get("gpu_model", ""))
+        j.setdefault("host_vram_gb", host.get("total_vram_gb", 0))
+        j.setdefault("gpu_type", host.get("gpu_model", ""))
+
+    # Cost
+    elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
+    if elapsed > 0 and j.get("cost_cad") is None:
+        rate = 0.20  # default CAD/hr
+        if host and host.get("cost_per_hour"):
+            rate = float(host["cost_per_hour"])
+        j["cost_cad"] = round((elapsed / 3600) * rate, 4)
+
+    return j
+
+
 @router.get("/instances", tags=["Instances"])
 def api_list_instances(status: str | None = None):
     """List jobs. Optional filter by status."""
     jobs = list_jobs(status=status)
-    # Enrich with host GPU info where available
     hosts = list_hosts()
     host_map = {h["host_id"]: h for h in hosts}
     for j in jobs:
-        # Map 'image' → 'docker_image'
-        if j.get("image") and not j.get("docker_image"):
-            j["docker_image"] = j["image"]
-        hid = j.get("host_id")
-        if hid and hid in host_map:
-            j.setdefault("gpu_type", host_map[hid].get("gpu_model", ""))
-            j.setdefault("host_gpu", host_map[hid].get("gpu_model", ""))
-        # Compute elapsed / duration
-        started = float(j.get("started_at") or 0)
-        completed = float(j.get("completed_at") or 0)
-        if started > 0:
-            if completed > started:
-                j.setdefault("duration_sec", round(completed - started, 2))
-            elif j.get("status") == "running":
-                j.setdefault("elapsed_sec", round(time.time() - started, 2))
+        _enrich_instance(j, host_map)
     return {"instances": jobs}
 
 @router.get("/instance/{job_id}", tags=["Instances"])
 def api_get_instance(job_id: str):
     """Get a specific instance by ID, enriched with connection info."""
-    jobs = list_jobs()
-    for j in jobs:
-        if j["job_id"] == job_id:
-            # Map 'image' → 'docker_image' for frontend
-            if j.get("image") and not j.get("docker_image"):
-                j["docker_image"] = j["image"]
-
-            # Compute elapsed / duration from timestamps
-            started = float(j.get("started_at") or 0)
-            completed = float(j.get("completed_at") or 0)
-            if started > 0:
-                if completed > started:
-                    j["duration_sec"] = round(completed - started, 2)
-                    j["elapsed_sec"] = j["duration_sec"]
-                elif j.get("status") == "running":
-                    j["elapsed_sec"] = round(time.time() - started, 2)
-
-            # Enrich with host connection details when running
-            host = None
-            if j.get("host_id") and j.get("status") in ("running", "completed", "failed"):
-                hosts = list_hosts()
-                host = next((h for h in hosts if h["host_id"] == j["host_id"]), None)
-                if host:
-                    j["host_ip"] = host.get("ip", "")
-                    j["host_gpu"] = host.get("gpu_model", "")
-                    j["host_vram_gb"] = host.get("total_vram_gb", 0)
-                    j.setdefault("gpu_type", host.get("gpu_model", ""))
-
-            # Compute cost_cad for running/completed jobs
-            elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
-            if elapsed > 0 and j.get("cost_cad") is None:
-                rate = 0.20  # default CAD/hr
-                if host and host.get("cost_per_hour"):
-                    rate = float(host["cost_per_hour"])
-                j["cost_cad"] = round((elapsed / 3600) * rate, 4)
-
-            return {"instance": j}
-    raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    j = get_job(job_id)
+    if not j:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    hosts = list_hosts()
+    host_map = {h["host_id"]: h for h in hosts}
+    _enrich_instance(j, host_map)
+    return {"instance": j}
 
 @router.patch("/instance/{job_id}", tags=["Instances"])
 def api_update_instance(job_id: str, update: StatusUpdate):

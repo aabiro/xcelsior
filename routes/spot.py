@@ -3,7 +3,7 @@
 import time
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from routes._deps import (
     _require_admin,
@@ -16,10 +16,8 @@ from scheduler import (
     log,
     preemption_cycle,
     process_queue,
-    submit_spot_job,
     update_spot_prices,
 )
-from routes.instances import _refresh_job
 
 router = APIRouter()
 
@@ -32,6 +30,15 @@ class SpotJobIn(BaseModel):
     max_bid: float = Field(gt=0)
     priority: int = Field(default=0, ge=0, le=10)
     tier: str | None = None
+    image: str | None = None
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        from security import validate_docker_image
+        return validate_docker_image(v)
 
 @router.get("/spot-prices", tags=["Spot Pricing"])
 def api_spot_prices():
@@ -48,39 +55,17 @@ def api_update_spot_prices(request: Request):
 
 @router.post("/spot/instance", tags=["Spot Pricing"])
 def api_submit_spot_instance(j: SpotJobIn, request: Request):
-    """Submit a spot job with a maximum bid price."""
-    user = _require_auth(request)
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-
-    # ── Wallet pre-flight: block launch if wallet is broke ────────
-    from billing import get_billing_engine
-    be = get_billing_engine()
-    wallet = be.get_wallet(customer_id)
-    if wallet.get("status") == "suspended":
-        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
-    if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
-        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
-
-    job = submit_spot_job(j.name, j.vram_needed_gb, j.max_bid, j.priority, tier=j.tier, owner=customer_id)
-    job["submitted_by"] = user.get("email", "")
-    job["customer_id"] = customer_id
-
-    # Auto-process queue
-    try:
-        process_queue()
-        job = _refresh_job(job["job_id"]) or job
-    except Exception as e:
-        log.debug("process_queue failed: %s", e)
-
-    broadcast_sse(
-        "spot_job_submitted",
-        {
-            "job_id": job["job_id"],
-            "name": job["name"],
-            "max_bid": j.max_bid,
-        },
+    """Submit a spot job — delegates to unified POST /instance."""
+    from routes.instances import JobIn, api_submit_instance
+    unified = JobIn(
+        name=j.name,
+        vram_needed_gb=j.vram_needed_gb,
+        max_bid=j.max_bid,
+        priority=j.priority,
+        tier=j.tier,
+        image=j.image,
     )
-    return {"ok": True, "instance": job}
+    return api_submit_instance(unified, request)
 
 @router.post("/spot/preemption-cycle", tags=["Spot Pricing"])
 def api_preemption_cycle(request: Request):

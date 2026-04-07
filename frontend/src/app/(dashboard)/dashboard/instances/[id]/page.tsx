@@ -28,7 +28,7 @@ const WebTerminal = dynamic(
   { ssr: false },
 );
 
-const STATUS_STEPS = ["queued", "assigned", "running", "completed"] as const;
+const STATUS_STEPS = ["queued", "assigned", "starting", "running", "completed"] as const;
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -145,7 +145,11 @@ export default function InstanceDetailPage() {
 
   // Auto-open terminal when instance starts running
   useEffect(() => {
-    if (instance?.status === "running" && prevStatusRef.current !== "running") {
+    if (
+      (instance?.status === "running" || instance?.status === "starting")
+      && prevStatusRef.current !== "running"
+      && prevStatusRef.current !== "starting"
+    ) {
       setShowTerminal(true);
     }
     prevStatusRef.current = instance?.status ?? null;
@@ -162,9 +166,14 @@ export default function InstanceDetailPage() {
   useEffect(() => { setJobError(null); load(); }, [id]);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
-    || instance?.status === "running" || instance?.status === "stopping"
+    || instance?.status === "starting" || instance?.status === "running" || instance?.status === "stopping"
     || instance?.status === "restarting";
-  const onWsInstance = useCallback((i: Instance) => setInstance(i), []);
+  const onWsInstance = useCallback((i: Instance) => {
+    if (!i.docker_image && (i as Record<string, unknown>).image) {
+      i.docker_image = (i as Record<string, unknown>).image as string;
+    }
+    setInstance(i);
+  }, []);
   const onWsJobError = useCallback((err: { job_id: string; error: string; message: string }) => {
     setJobError(err.message);
   }, []);
@@ -233,7 +242,7 @@ export default function InstanceDetailPage() {
   const isRunning = status === "running";
   const isStopped = status === "stopped" || status === "user_paused" || status === "paused_low_balance";
   const isQueued = status === "queued" || status === "assigned" || status === "leased";
-  const isTransitional = status === "stopping" || status === "restarting";
+  const isTransitional = status === "stopping" || status === "restarting" || status === "starting";
   const isFailed = status === "failed";
   const isTerminal = ["completed", "failed", "cancelled", "terminated", "preempted"].includes(status);
 
@@ -267,8 +276,8 @@ export default function InstanceDetailPage() {
               {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : ""}
             </span>
           )}
-          {/* Terminal toggle — running only */}
-          {isRunning && (
+          {/* Terminal toggle — running or starting */}
+          {(isRunning || status === "starting") && (
             <Button size="sm" variant="outline" onClick={() => setShowTerminal(!showTerminal)}>
               <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
             </Button>
@@ -277,7 +286,7 @@ export default function InstanceDetailPage() {
           {isTransitional && (
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {status === "stopping" ? "Stopping…" : "Restarting…"}
+              {status === "stopping" ? "Stopping…" : status === "starting" ? "Starting…" : "Restarting…"}
             </span>
           )}
           {/* Running actions */}
@@ -495,7 +504,7 @@ export default function InstanceDetailPage() {
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.submitted")}</dt>
-            <dd>{(instance.submitted_at || instance.created_at) ? new Date(instance.submitted_at || instance.created_at!).toLocaleString() : "—"}</dd>
+            <dd>{(instance.submitted_at || instance.created_at) ? new Date((instance.submitted_at || instance.created_at!) * 1000).toLocaleString() : "—"}</dd>
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.job_id")}</dt>
@@ -623,7 +632,7 @@ export default function InstanceDetailPage() {
       )}
 
       {/* Web Terminal */}
-      {showTerminal && isRunning && (
+      {showTerminal && (isRunning || status === "starting") && (
         <div className="h-[500px]">
           <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
         </div>
@@ -646,10 +655,16 @@ export default function InstanceDetailPage() {
               Setting up instance…
             </span>
           )}
+          {status === "starting" && (
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Pulling image &amp; starting container…
+            </span>
+          )}
         </div>
         <LogViewer
           jobId={id}
-          live={isRunning || status === "assigned" || status === "queued"}
+          live={isRunning || status === "starting" || status === "assigned" || status === "queued"}
         />
       </Card>
 

@@ -18,6 +18,7 @@ const badgeVariants = cva(
         warning: "bg-accent-gold/20 text-accent-gold",
         info: "bg-ice-blue/20 text-ice-blue",
         // Instance lifecycle states
+        starting: "bg-ice-blue/15 text-ice-blue animate-status-restarting",
         stopping: "bg-accent-gold/15 text-accent-gold animate-status-stopping",
         stopped: "bg-[#6366f1]/20 text-[#818cf8]",
         restarting: "bg-ice-blue/15 text-ice-blue animate-status-restarting",
@@ -45,6 +46,7 @@ export function StatusBadge({ status }: { status: string }) {
       maintenance: "warning",
       queued: "queued",
       assigned: "queued",
+      starting: "starting",
       running: "running",
       completed: "completed",
       failed: "failed",

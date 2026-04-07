@@ -264,7 +264,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             _conn_errors.labels(reason="unauthorized").inc()  # type: ignore[attr-defined]
             return
 
-    if instance.get("status") != "running":
+    if instance.get("status") not in ("running", "starting"):
         await _send_error(
             websocket,
             f"Instance is '{instance.get('status', 'unknown')}', not running",
@@ -273,6 +273,43 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         await websocket.close(code=4003)
         _conn_errors.labels(reason="not_running").inc()  # type: ignore[attr-defined]
         return
+
+    # ── 3b. If status is "starting" (image pull / docker run in progress),
+    #        poll until the job becomes "running" before checking container.
+    _STATUS_POLL_MAX = 90  # 3 minutes max for image pull + container start
+    _STATUS_POLL_SEC = 2.0
+    if instance.get("status") == "starting":
+        for s_attempt in range(_STATUS_POLL_MAX):
+            await _send_status(
+                websocket,
+                f"Image pulling / container starting\u2026 ({s_attempt + 1})",
+                retry=True,
+            )
+            await asyncio.sleep(_STATUS_POLL_SEC)
+            instance = next(
+                (j for j in list_jobs() if j["job_id"] == instance_id), None
+            )
+            if not instance:
+                await _send_error(websocket, "Instance disappeared", 4004)
+                await websocket.close(code=4004)
+                return
+            cur = instance.get("status", "")
+            if cur == "running":
+                break
+            if cur in ("failed", "cancelled", "terminated"):
+                await _send_error(
+                    websocket, f"Instance {cur} during startup", 4003
+                )
+                await websocket.close(code=4003)
+                return
+        else:
+            await _send_error(
+                websocket,
+                "Instance still starting after 3 min \u2014 please retry",
+                4410,
+            )
+            await websocket.close(code=4410)
+            return
 
     # ── 4. Resolve host address & container reference ────────────────
     host_id = instance.get("host_id", "")

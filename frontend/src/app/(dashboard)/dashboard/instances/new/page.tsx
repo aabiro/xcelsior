@@ -7,9 +7,9 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ArrowLeft, Rocket, DollarSign, Box, AlertTriangle, CreditCard, RefreshCw } from "lucide-react";
-import { submitInstance, fetchPricingReference, fetchProvinces, fetchImageTemplates, classifyLaunchError, ApiError } from "@/lib/api";
+import { launchInstance, fetchPricingReference, fetchProvinces, fetchImageTemplates, classifyLaunchError, ApiError } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
-import type { PricingReference, ImageTemplate, LaunchErrorInfo } from "@/lib/api";
+import type { PricingReference, ImageTemplate, LaunchErrorInfo, LaunchInstanceParams } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, generateFunName } from "@/lib/utils";
 
@@ -129,15 +129,17 @@ export default function NewInstancePage() {
     const instanceName = name.trim() || generateFunName();
     setSubmitting(true);
     try {
-      const res = await submitInstance({
+      const params: LaunchInstanceParams = {
         name: instanceName,
+        image,
         vram_needed_gb: Number(vramNeeded) || 24,
         num_gpus: Number(numGpus),
         priority,
         tier,
-        image: image || undefined,
+        gpu_model: gpuModel || undefined,
         nfs_path: nfsMount || undefined,
-      });
+      };
+      const res = await launchInstance(params);
       // Save form values for future datalist suggestions
       saveHistory({
         name: instanceName,
@@ -149,7 +151,7 @@ export default function NewInstancePage() {
         nfsMount,
       });
       toast.success("Instance submitted");
-      const jobId = (res as { instance?: { job_id?: string } })?.instance?.job_id;
+      const jobId = res.instance?.job_id;
       router.push(jobId ? `/dashboard/instances/${jobId}` : "/dashboard/instances");
     } catch (err) {
       const info = classifyLaunchError(err);

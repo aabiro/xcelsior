@@ -845,7 +845,7 @@ def _requeue_dead_host_jobs(host_id: str, ip: str):
     try:
         with _db_connection() as conn:
             jobs = conn.execute(
-                "SELECT job_id, payload->>'name' AS name FROM jobs WHERE host_id = %s AND status IN ('running', 'assigned', 'leased')",
+                "SELECT job_id, payload->>'name' AS name FROM jobs WHERE host_id = %s AND status IN ('running', 'starting', 'assigned', 'leased')",
                 (host_id,),
             ).fetchall()
         if not jobs:
@@ -937,6 +937,7 @@ VALID_STATUSES = (
     "queued",
     "assigned",
     "leased",
+    "starting",
     "running",
     "completed",
     "failed",
@@ -2165,8 +2166,8 @@ def requeue_job(job_id):
         if not j:
             return None
 
-        # Accept running, failed, leased, and assigned jobs for requeue
-        if j["status"] not in ("running", "failed", "leased", "assigned"):
+        # Accept running, starting, failed, leased, and assigned jobs for requeue
+        if j["status"] not in ("running", "starting", "failed", "leased", "assigned"):
             log.warning("REQUEUE REJECTED job=%s status=%s — not requeuable", job_id, j["status"])
             return None
 
@@ -2175,7 +2176,7 @@ def requeue_job(job_id):
 
         # Release VRAM if the job had any reserved on its host
         reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
-        if old_host_id and reserved > 0 and old_status in ("running",):
+        if old_host_id and reserved > 0 and old_status in ("running", "starting"):
             _release_host_vram(conn, old_host_id, reserved)
             log.info("REQUEUE VRAM RELEASED job=%s host=%s vram=%.2fGB", job_id, old_host_id, reserved)
 
@@ -3863,7 +3864,7 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
 # ── Spot Job Submission ───────────────────────────────────────────────
 
 
-def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner=""):
+def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner="", image=None):
     """Submit a spot/interruptible job with a maximum bid price.
 
     Spot jobs are:
@@ -3871,7 +3872,7 @@ def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner=
     - Preemptible (evicted when demand exceeds bid)
     - Automatically requeued on preemption
     """
-    job = submit_job(name, vram_needed_gb, priority, tier=tier, owner=owner)
+    job = submit_job(name, vram_needed_gb, priority, tier=tier, owner=owner, image=image)
 
     _set_job_fields(
         job["job_id"],
