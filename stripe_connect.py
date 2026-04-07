@@ -183,6 +183,24 @@ class StripeConnectManager:
         return_url = f"{_base_url}/dashboard/earnings?stripe=return&provider={provider_id}"
 
         def _create_hosted_stripe_url(account_id: str, status_hint: str) -> tuple[str, str]:
+            # Check live with Stripe first — if the account is already fully
+            # enabled, skip creating another onboarding link and return the
+            # Express dashboard login link instead.  This prevents the loop
+            # where the user completes onboarding but the webhook hasn't landed
+            # yet, then clicks "Continue" and gets sent back into the flow.
+            try:
+                acct_check = stripe.Account.retrieve(account_id)
+                if acct_check.get("charges_enabled") and acct_check.get("payouts_enabled"):
+                    login_link = stripe.Account.create_login_link(account_id)
+                    return login_link.url, "active"
+            except Exception as check_err:
+                log.warning(
+                    "Pre-flight Stripe account check failed for provider %s (acct=%s): %s",
+                    provider_id,
+                    account_id,
+                    check_err,
+                )
+
             try:
                 link = stripe.AccountLink.create(
                     account=account_id,
@@ -279,12 +297,18 @@ class StripeConnectManager:
                 existing = None  # fall through to create a new account below
 
         if existing and existing.get("stripe_account_id"):
-            # Successfully generated a link for an existing account
-            with self._conn() as conn:
-                conn.execute(
-                    "UPDATE provider_accounts SET status=%s WHERE provider_id=%s",
-                    (status, provider_id),
-                )
+            # Successfully generated a link for an existing account.
+            # If the account is now fully active, use complete_onboarding so
+            # onboarded_at and notifications are recorded (webhook may not have
+            # arrived yet or was missed entirely).
+            if status == "active":
+                self.complete_onboarding(provider_id)
+            else:
+                with self._conn() as conn:
+                    conn.execute(
+                        "UPDATE provider_accounts SET status=%s WHERE provider_id=%s",
+                        (status, provider_id),
+                    )
 
             log.info(
                 "Stripe onboarding/login link generated for existing account %s (provider %s)",
@@ -682,8 +706,13 @@ class StripeConnectManager:
             log.error("Webhook signature verification failed: %s", e)
             return {"handled": False, "error": str(e)}
 
-        event_id = event["id"]
-        event_type = event["type"]
+        # Convert StripeObject to plain dict for safe attribute access
+        # str(event) returns JSON reliably across all stripe SDK versions
+        import json as _json
+        event_dict = _json.loads(str(event))
+
+        event_id = event_dict["id"]
+        event_type = event_dict["type"]
         now = time.time()
 
         # Phase 1: Write to inbox (idempotent via PK)
@@ -705,12 +734,12 @@ class StripeConnectManager:
                 (
                     event_id,
                     event_type,
-                    event.get("account", ""),
-                    event.get("livemode", True),
-                    event.get("api_version", ""),
-                    event.get("created", 0),
+                    event_dict.get("account", ""),
+                    event_dict.get("livemode", True),
+                    event_dict.get("api_version", ""),
+                    event_dict.get("created", 0),
                     now,
-                    Jsonb(dict(event)),
+                    Jsonb(event_dict),
                     now,  # process immediately
                 ),
             )

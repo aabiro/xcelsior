@@ -392,7 +392,12 @@ class ReputationEngine:
             existing = self.store.get_score(entity_id)
 
         raw_v = existing.get("verifications", "[]")
-        verifications = raw_v if isinstance(raw_v, list) else json.loads(raw_v)
+        if isinstance(raw_v, list):
+            verifications = raw_v
+        elif isinstance(raw_v, dict):
+            verifications = []
+        else:
+            verifications = json.loads(raw_v)
         if vtype.value in verifications:
             return self.compute_score(entity_id)
 

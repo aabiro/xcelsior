@@ -41,6 +41,7 @@ PUBLIC_PATHS = {
     "/", "/docs", "/redoc", "/openapi.json", "/llms.txt",
     "/dashboard", "/legacy", "/healthz", "/readyz", "/metrics",
     "/api/stream", "/api/transparency/report",
+    "/api/providers/webhook",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
