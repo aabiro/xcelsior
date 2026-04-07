@@ -116,6 +116,7 @@ def api_admin_users(request: Request):
             "total_jobs": job_count_map.get(email, 0),
             "province": u.get("province", ""),
             "country": u.get("country", ""),
+            "team_id": u.get("team_id") or None,
         })
     return {"ok": True, "users": safe_users}
 
@@ -315,6 +316,37 @@ def api_admin_toggle_admin(email: str, request: Request):
         _users_db[email]["is_admin"] = new_val
     emit_event("user_admin_toggled", {"email": email, "is_admin": new_val})
     return {"ok": True, "email": email, "is_admin": new_val}
+
+@router.get("/api/admin/teams", tags=["Admin"])
+def api_admin_teams(request: Request):
+    """List all teams with their members. Platform admin only."""
+    _require_admin(request)
+    from db import get_db
+    teams = []
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
+        for row in rows:
+            team = dict(row)
+            members = UserStore.list_team_members(team["team_id"])
+            team["members"] = members
+            teams.append(team)
+    return {"ok": True, "teams": teams}
+
+@router.delete("/api/admin/teams/{team_id}/members/{email}", tags=["Admin"])
+def api_admin_remove_team_member(team_id: str, email: str, request: Request):
+    """Remove a member from any team. Platform admin override."""
+    _require_admin(request)
+    team = UserStore.get_team(team_id)
+    if not team:
+        raise HTTPException(404, "Team not found")
+    if email == team["owner_email"]:
+        raise HTTPException(400, "Cannot remove team owner")
+    members = UserStore.list_team_members(team_id)
+    if not any(m["email"] == email for m in members):
+        raise HTTPException(404, f"{email} is not a member of this team")
+    UserStore.remove_team_member(team_id, email)
+    emit_event("team_member_removed", {"team_id": team_id, "email": email})
+    return {"ok": True, "message": f"{email} removed from team {team_id}"}
 
 @router.get("/api/admin/revenue", tags=["Admin"])
 def api_admin_revenue(request: Request, days: int = 90):

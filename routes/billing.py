@@ -60,6 +60,11 @@ try:
 except ImportError:
     _btc_mod = None  # type: ignore[assignment]
 
+try:
+    import lightning as _ln_mod
+except ImportError:
+    _ln_mod = None  # type: ignore[assignment]
+
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
@@ -500,6 +505,62 @@ def api_crypto_enabled():
             "reason": "Bitcoin deposits are not enabled",
         }
     return {"ok": True, **_btc_mod.get_service_status()}
+
+
+# ── Lightning Network Deposits ────────────────────────────────────────
+
+
+class LnDepositRequest(BaseModel):
+    customer_id: str
+    amount_cad: float
+
+
+@router.get("/api/billing/lightning/enabled", tags=["Billing"])
+def api_ln_enabled():
+    """Check if Lightning deposits are enabled and node is reachable."""
+    if not _ln_mod:
+        return {"ok": True, "enabled": False, "available": False, "reason": "Lightning module not available"}
+    return {"ok": True, **_ln_mod.get_service_status()}
+
+
+@router.post("/api/billing/lightning/deposit", tags=["Billing"])
+def api_ln_create_deposit(req: LnDepositRequest, request: Request):
+    """Create a Lightning invoice for depositing CAD credits."""
+    _require_auth(request)
+    if not _ln_mod or not _ln_mod.LN_ENABLED:
+        raise HTTPException(503, "Lightning deposits are not enabled")
+    try:
+        result = _ln_mod.create_deposit(req.customer_id, req.amount_cad)
+        broadcast_sse("ln_deposit_created", {"deposit_id": result["deposit_id"], "customer_id": req.customer_id})
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+@router.get("/api/billing/lightning/deposit/{deposit_id}", tags=["Billing"])
+def api_ln_check_deposit(deposit_id: str, request: Request):
+    """Check the status of a Lightning deposit."""
+    _require_auth(request)
+    if not _ln_mod or not _ln_mod.LN_ENABLED:
+        raise HTTPException(503, "Lightning deposits are not enabled")
+    dep = _ln_mod.check_deposit(deposit_id)
+    if not dep:
+        raise HTTPException(404, "Deposit not found")
+    return {"ok": True, **dep}
+
+
+@router.get("/api/billing/lightning/rate", tags=["Billing"])
+def api_ln_rate():
+    """Get current BTC/CAD rate for Lightning deposits."""
+    if not _ln_mod:
+        raise HTTPException(503, "Lightning module not available")
+    try:
+        rate = _ln_mod.get_btc_cad_rate()
+        return {"ok": True, "btc_cad": rate, "currency": "CAD"}
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
 
 
 # ── Model: EstimateRequest ──

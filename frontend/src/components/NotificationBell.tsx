@@ -54,10 +54,10 @@ export function NotificationBell() {
     <div className="relative" ref={ref}>
       <button
         onClick={handleToggle}
-        className="relative text-text-muted hover:text-text-primary transition-colors p-1.5"
+        className="relative flex h-10 w-10 items-center justify-center rounded-lg text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
       >
-        <Bell className="h-5 w-5" />
+        <Bell className="h-6 w-6" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-red px-0.5 text-[9px] font-bold text-white ring-[1.5px] ring-surface">
             {unreadCount > 99 ? "99+" : unreadCount}

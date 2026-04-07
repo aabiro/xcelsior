@@ -57,6 +57,13 @@ services:
       XCELSIOR_BTC_RPC_PASS: ${XCELSIOR_BTC_RPC_PASS:-}
       XCELSIOR_BTC_CONFIRMATIONS: ${XCELSIOR_BTC_CONFIRMATIONS:-3}
       XCELSIOR_BTC_DEPOSIT_EXPIRY: ${XCELSIOR_BTC_DEPOSIT_EXPIRY:-1800}
+      # Lightning Network Deposits
+      XCELSIOR_LN_ENABLED: ${XCELSIOR_LN_ENABLED:-false}
+      XCELSIOR_LN_RPC_SOCKET: ${XCELSIOR_LN_RPC_SOCKET:-/run/lightning/lightning-rpc}
+      XCELSIOR_LN_INVOICE_EXPIRY: ${XCELSIOR_LN_INVOICE_EXPIRY:-600}
+      XCELSIOR_LN_DB_PATH: /data/xcelsior_ln.db
+      XCELSIOR_LN_MIN_CAD: ${XCELSIOR_LN_MIN_CAD:-1}
+      XCELSIOR_LN_MAX_CAD: ${XCELSIOR_LN_MAX_CAD:-1000}
       # SLA / Chat / Inference / Slurm
       XCELSIOR_SLURM_MAP: /data/slurm_jobs.json
       XCELSIOR_BASE_URL: ${XCELSIOR_BASE_URL:-https://xcelsior.ca}
@@ -92,6 +99,7 @@ services:
     volumes:
       - xcelsior-data:/data
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
+      - ${HOME}/.lightning/bitcoin/lightning-rpc:/run/lightning/lightning-rpc:ro
     restart: unless-stopped
 
   scheduler-worker:

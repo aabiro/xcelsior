@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DepositModal } from "@/components/billing/deposit-modal";
 import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
+import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
@@ -65,11 +66,19 @@ export default function BillingPage() {
   }, [searchParams]);
 
   const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
+  const [showLightningDeposit, setShowLightningDeposit] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [btcStatus, setBtcStatus] = useState({
     enabled: false,
     available: false,
     reason: "",
+  });
+  const [lnStatus, setLnStatus] = useState({
+    enabled: false,
+    available: false,
+    reason: "",
+    node_alias: "",
+    num_active_channels: 0,
   });
   const [cafLoading, setCafLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
@@ -156,6 +165,27 @@ export default function BillingPage() {
       .catch((e) => {
         console.error("Failed to check crypto status", e);
         setBtcStatus({ enabled: false, available: false, reason: "" });
+      })
+      .finally(() => clearTimeout(timer));
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, []);
+
+  // Check if Lightning deposits are enabled
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    api.checkLightningEnabled({ signal: ctrl.signal })
+      .then((r) => {
+        setLnStatus({
+          enabled: r.enabled,
+          available: r.available ?? r.enabled,
+          reason: r.reason ?? "",
+          node_alias: r.node_alias ?? "",
+          num_active_channels: r.num_active_channels ?? 0,
+        });
+      })
+      .catch(() => {
+        setLnStatus({ enabled: false, available: false, reason: "", node_alias: "", num_active_channels: 0 });
       })
       .finally(() => clearTimeout(timer));
     return () => { clearTimeout(timer); ctrl.abort(); };
@@ -656,6 +686,45 @@ export default function BillingPage() {
             </Card>
           )}
 
+          {/* Lightning Network Deposit */}
+          {lnStatus.enabled && (
+            <Card className="border-violet-500/20 bg-violet-500/5">
+              <CardContent className="flex items-center justify-between p-5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Zap className="h-4 w-4 text-violet-400" />
+                    <p className="font-medium text-violet-400">Lightning Network</p>
+                    {!lnStatus.available && (
+                      <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
+                        Unavailable
+                      </Badge>
+                    )}
+                    {lnStatus.available && (
+                      <Badge variant="active" className="border border-emerald/30 bg-emerald/10 text-emerald text-[10px]">
+                        Instant
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-text-secondary">
+                    {lnStatus.available
+                      ? "Instant deposits via Lightning — zero fees, instant settlement"
+                      : lnStatus.reason || "Lightning deposits are temporarily unavailable."}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white"
+                  onClick={() => setShowLightningDeposit(true)}
+                  disabled={!lnStatus.available}
+                  title={!lnStatus.available ? lnStatus.reason : undefined}
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  {lnStatus.available ? "Deposit via Lightning" : "Unavailable"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Reserved Plans */}
           {reservedTiers && (
             <div>
@@ -907,6 +976,17 @@ export default function BillingPage() {
           onSuccess={(newBalance) => {
             setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
             setShowCryptoDeposit(false);
+            load();
+          }}
+        />
+      )}
+      {showLightningDeposit && customerId && lnStatus.available && (
+        <LightningDepositModal
+          customerId={customerId}
+          onClose={() => setShowLightningDeposit(false)}
+          onSuccess={(newBalance) => {
+            setWallet((w) => w ? { ...w, balance_cad: newBalance } : w);
+            setShowLightningDeposit(false);
             load();
           }}
         />

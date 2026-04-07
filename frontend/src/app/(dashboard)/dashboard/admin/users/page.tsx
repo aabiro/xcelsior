@@ -10,8 +10,9 @@ import { FadeIn, ScrollReveal, StaggerList, StaggerItem, CountUp, HoverCard } fr
 import {
   Users, RefreshCw, Search, ChevronUp, ChevronDown,
   ArrowUpDown, Download, UserX, Wallet, BarChart3, UserCheck,
-  MoreHorizontal, ShieldCheck, ShieldOff, ChevronRight,
+  MoreHorizontal, ShieldCheck, ShieldOff, ChevronRight, UserMinus,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import * as api from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
@@ -45,6 +46,40 @@ export default function AdminUsersPage() {
 
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [actionMenu, setActionMenu] = useState<string | null>(null);
+  const [teams, setTeams] = useState<api.AdminTeam[]>([]);
+  const [removeFromTeam, setRemoveFromTeam] = useState<{ teamId: string; email: string; teamName: string } | null>(null);
+
+  const loadTeams = useCallback(() => {
+    api.fetchAdminTeams()
+      .then((r) => setTeams(r.teams || []))
+      .catch(() => { /* teams not available */ });
+  }, []);
+
+  useEffect(() => { loadTeams(); }, [loadTeams]);
+
+  const teamsByUser = useMemo(() => {
+    const map: Record<string, { team_id: string; name: string; role: string; owner_email: string }[]> = {};
+    for (const t of teams) {
+      for (const m of t.members) {
+        if (!map[m.email]) map[m.email] = [];
+        map[m.email].push({ team_id: t.team_id, name: t.name, role: m.role, owner_email: t.owner_email });
+      }
+    }
+    return map;
+  }, [teams]);
+
+  const handleRemoveFromTeam = async () => {
+    if (!removeFromTeam) return;
+    try {
+      await api.adminRemoveTeamMember(removeFromTeam.teamId, removeFromTeam.email);
+      toast.success(`${removeFromTeam.email} removed from ${removeFromTeam.teamName}`);
+      loadTeams();
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove member");
+    }
+    setRemoveFromTeam(null);
+  };
 
   const handleToggleAdmin = async (email: string) => {
     try {
@@ -282,6 +317,34 @@ export default function AdminUsersPage() {
                                     <p>{u.created_at ? new Date(u.created_at).toLocaleString() : "—"}</p>
                                   </div>
                                 </div>
+                                {/* Team memberships */}
+                                {teamsByUser[u.email] && teamsByUser[u.email].length > 0 && (
+                                  <div className="mt-4 pt-3 border-t border-border/50">
+                                    <p className="text-[10px] uppercase tracking-wide text-text-muted mb-2">Teams</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {teamsByUser[u.email].map((tm) => {
+                                        const isOwner = tm.owner_email === u.email;
+                                        return (
+                                          <div key={tm.team_id} className="flex items-center gap-2 rounded-lg border border-border/60 bg-navy-light/30 px-3 py-1.5 text-sm">
+                                            <Users className="h-3.5 w-3.5 text-text-muted" />
+                                            <span>{tm.name}</span>
+                                            <Badge variant="default">{tm.role}</Badge>
+                                            {isOwner && <span className="text-[10px] text-accent-gold font-medium">OWNER</span>}
+                                            {!isOwner && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRemoveFromTeam({ teamId: tm.team_id, email: u.email, teamName: tm.name }); }}
+                                                className="ml-1 p-0.5 rounded text-text-muted hover:text-accent-red transition-colors"
+                                                title={`Remove from ${tm.name}`}
+                                              >
+                                                <UserMinus className="h-3.5 w-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           )}
@@ -313,6 +376,17 @@ export default function AdminUsersPage() {
         </ScrollReveal>
         </>
       )}
+
+      <ConfirmDialog
+        open={removeFromTeam !== null}
+        title="Remove Team Member"
+        description={`Remove ${removeFromTeam?.email ?? ""} from team "${removeFromTeam?.teamName ?? ""}"? They will lose access to shared team resources.`}
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={handleRemoveFromTeam}
+        onCancel={() => setRemoveFromTeam(null)}
+      />
     </div>
   );
 }
