@@ -11,7 +11,7 @@ import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
   Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
-  Play, RefreshCw, Zap,
+  Play, RefreshCw, Zap, MoreVertical, Link2,
 } from "lucide-react";
 import {
   fetchInstance, cancelInstance, requeueInstance,
@@ -258,6 +258,19 @@ export default function InstanceDetailPage() {
     (status === "failed" || status === "cancelled") ? "running" : (status as typeof STATUS_STEPS[number]),
   );
 
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  // Close actions dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) setShowActionsMenu(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -284,12 +297,6 @@ export default function InstanceDetailPage() {
               {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : ""}
             </span>
           )}
-          {/* Terminal toggle — running or starting */}
-          {(isRunning || status === "starting") && (
-            <Button size="sm" variant="outline" onClick={() => setShowTerminal(!showTerminal)}>
-              <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
-            </Button>
-          )}
           {/* Transitional state indicator */}
           {isTransitional && (
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
@@ -297,34 +304,52 @@ export default function InstanceDetailPage() {
               {status === "stopping" ? "Stopping…" : status === "starting" ? "Starting…" : "Restarting…"}
             </span>
           )}
-          {/* Running actions */}
+          {/* Connect button — only when running */}
           {isRunning && (
-            <>
+            <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
+              <Link2 className="h-3.5 w-3.5" /> Connect
+            </Button>
+          )}
+          {/* Terminal toggle — running or starting */}
+          {(isRunning || status === "starting") && (
+            <Button size="sm" variant="outline" onClick={() => setShowTerminal(!showTerminal)}>
+              <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
+            </Button>
+          )}
+          {/* Running: actions dropdown */}
+          {isRunning && (
+            <div ref={actionsRef} className="relative">
               <Button
                 size="sm" variant="outline"
-                onClick={() => setConfirmAction("restart")}
+                onClick={() => setShowActionsMenu(!showActionsMenu)}
                 disabled={actionPending}
-                className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10"
               >
-                <RefreshCw className="h-3.5 w-3.5" /> Restart
+                <MoreVertical className="h-3.5 w-3.5" />
               </Button>
-              <Button
-                size="sm" variant="outline"
-                onClick={() => setConfirmAction("stop")}
-                disabled={actionPending}
-                className="text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10"
-              >
-                <Square className="h-3.5 w-3.5" /> Stop
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => setConfirmAction("terminate")}
-                disabled={actionPending}
-                className="bg-accent-red hover:bg-accent-red/80 text-white"
-              >
-                <Zap className="h-3.5 w-3.5" /> Terminate
-              </Button>
-            </>
+              {showActionsMenu && (
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-surface-overlay shadow-lg py-1">
+                  <button
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-ice-blue hover:bg-ice-blue/10 transition-colors"
+                    onClick={() => { setShowActionsMenu(false); setConfirmAction("restart"); }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" /> Restart
+                  </button>
+                  <button
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-accent-gold hover:bg-accent-gold/10 transition-colors"
+                    onClick={() => { setShowActionsMenu(false); setConfirmAction("stop"); }}
+                  >
+                    <Square className="h-3.5 w-3.5" /> Stop
+                  </button>
+                  <div className="my-1 border-t border-border" />
+                  <button
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-accent-red hover:bg-accent-red/10 transition-colors"
+                    onClick={() => { setShowActionsMenu(false); setConfirmAction("terminate"); }}
+                  >
+                    <Zap className="h-3.5 w-3.5" /> Terminate
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {/* Stopped actions */}
           {isStopped && (
@@ -337,22 +362,32 @@ export default function InstanceDetailPage() {
               >
                 <Play className="h-3.5 w-3.5" /> Start
               </Button>
-              <Button
-                size="sm" variant="outline"
-                onClick={() => setConfirmAction("restart")}
-                disabled={actionPending}
-                className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10"
-              >
-                <RefreshCw className="h-3.5 w-3.5" /> Restart
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => setConfirmAction("terminate")}
-                disabled={actionPending}
-                className="bg-accent-red hover:bg-accent-red/80 text-white"
-              >
-                <Zap className="h-3.5 w-3.5" /> Terminate
-              </Button>
+              <div ref={actionsRef} className="relative">
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => setShowActionsMenu(!showActionsMenu)}
+                  disabled={actionPending}
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </Button>
+                {showActionsMenu && (
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-surface-overlay shadow-lg py-1">
+                    <button
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-ice-blue hover:bg-ice-blue/10 transition-colors"
+                      onClick={() => { setShowActionsMenu(false); setConfirmAction("restart"); }}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Restart
+                    </button>
+                    <div className="my-1 border-t border-border" />
+                    <button
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-accent-red hover:bg-accent-red/10 transition-colors"
+                      onClick={() => { setShowActionsMenu(false); setConfirmAction("terminate"); }}
+                    >
+                      <Zap className="h-3.5 w-3.5" /> Terminate
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
           {/* Queued/provisioning cancel */}
@@ -439,7 +474,7 @@ export default function InstanceDetailPage() {
         </div>
       )}
 
-      {/* Details Grid */}
+      {/* Stats Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ice-blue/10">
@@ -498,7 +533,46 @@ export default function InstanceDetailPage() {
         </Card>
       </div>
 
-      {/* Metadata */}
+      {/* Logs — shown first, above terminal */}
+      <Card>
+        <div className="flex items-center gap-2 mb-3">
+          <Terminal className="h-4 w-4 text-text-muted" />
+          <h2 className="text-sm font-semibold text-text-secondary">{t("dash.instances.logs")}</h2>
+          {status === "queued" && (
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-accent-gold">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Waiting for assignment…
+            </span>
+          )}
+          {status === "assigned" && (
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Host assigned, preparing…
+            </span>
+          )}
+          {status === "starting" && (
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Pulling image &amp; starting container…
+            </span>
+          )}
+        </div>
+        <LogViewer
+          jobId={id}
+          live={isRunning || status === "starting" || status === "assigned" || status === "queued"}
+          wsLogs={wsLogs}
+          wsConnected={wsState.connected}
+        />
+      </Card>
+
+      {/* Web Terminal */}
+      {showTerminal && (isRunning || status === "starting") && (
+        <div className="h-[500px]">
+          <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
+        </div>
+      )}
+
+      {/* Details — at bottom */}
       <Card>
         <h2 className="text-sm font-semibold text-text-secondary mb-3">{t("dash.instances.details")}</h2>
         <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
@@ -518,98 +592,10 @@ export default function InstanceDetailPage() {
             <dt className="text-text-muted">{t("dash.instances.job_id")}</dt>
             <dd className="font-mono text-text-muted">{instance.job_id}</dd>
           </div>
-        </dl>
-      </Card>
-
-      {/* Connection Info — visible when running (always), completed, or failed */}
-      {(isRunning || status === "completed" || status === "failed") && (
-      <Card>
-        <div className="flex items-center gap-2 mb-3">
-          <Globe className="h-4 w-4 text-ice-blue" />
-          <h2 className="text-sm font-semibold text-text-secondary">Connection Details</h2>
-          {isRunning && instance.host_id ? (
-            <span className="ml-auto flex items-center gap-1 text-xs text-emerald">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald animate-pulse" /> Live
-            </span>
-          ) : isRunning && !instance.host_id ? (
-            <span className="ml-auto flex items-center gap-1 text-xs text-gold">
-              <Loader2 className="h-3 w-3 animate-spin" /> Provisioning
-            </span>
-          ) : null}
-        </div>
-
-        {isRunning && !instance.host_id && (
-          <div className="rounded-lg border border-gold/30 bg-gold/5 p-3 mb-4">
-            <div className="flex items-start gap-2">
-              <Clock className="h-4 w-4 text-gold shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-gold">Waiting for scheduler placement</p>
-                <p className="text-xs text-text-muted mt-0.5">
-                  Your instance is running but hasn&apos;t been placed on a host yet. Connection commands will appear once the scheduler assigns a GPU host. This usually takes a few moments.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isRunning && instance.host_ip && (
-          <div className="mb-4 space-y-3">
-            <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <p className="text-xs font-medium text-text-secondary">SSH Connect</p>
-                <div className="group relative">
-                  <Info className="h-3 w-3 text-text-muted cursor-help" />
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-56 rounded-md bg-surface-overlay border border-border p-2 text-xs text-text-muted shadow-lg">
-                    Connect via Xcelsior&apos;s SSH proxy. Your SSH keys from Settings are automatically injected into the instance.
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
-                  ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
-                </code>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
-                  className="text-text-muted hover:text-text-primary transition-colors shrink-0"
-                  title="Copy SSH command"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-            <DirectAccessSection instance={instance} />
-          </div>
-        )}
-
-        <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
           {instance.host_gpu && (
             <div className="flex justify-between sm:block">
               <dt className="text-text-muted">GPU</dt>
               <dd className="font-medium">{instance.host_gpu}{instance.host_vram_gb ? ` · ${instance.host_vram_gb} GB VRAM` : ""}</dd>
-            </div>
-          )}
-          {instance.host_id && (
-            <div className="flex justify-between sm:block">
-              <dt className="text-text-muted">Host</dt>
-              <dd className="font-mono text-xs">{instance.host_id}</dd>
-            </div>
-          )}
-          {instance.docker_image && (
-            <div className="flex justify-between sm:block">
-              <dt className="text-text-muted">Image</dt>
-              <dd className="font-mono text-xs">{instance.docker_image}</dd>
-            </div>
-          )}
-          {instance.ssh_port && (
-            <div className="flex justify-between sm:block">
-              <dt className="text-text-muted">SSH Port</dt>
-              <dd className="font-mono">{instance.ssh_port}</dd>
-            </div>
-          )}
-          {instance.container_name && (
-            <div className="flex justify-between sm:block">
-              <dt className="text-text-muted">Container</dt>
-              <dd className="font-mono text-xs">{instance.container_name}</dd>
             </div>
           )}
           {instance.started_at && (
@@ -630,53 +616,90 @@ export default function InstanceDetailPage() {
               <dd>{new Date(Number(instance.completed_at) * 1000).toLocaleString()}</dd>
             </div>
           )}
-          {!instance.host_id && !instance.host_gpu && !instance.started_at && (
-            <div className="col-span-2 text-xs text-text-muted italic">
-              Connection details will populate once a host is assigned to this instance.
-            </div>
-          )}
         </dl>
       </Card>
-      )}
 
-      {/* Web Terminal */}
-      {showTerminal && (isRunning || status === "starting") && (
-        <div className="h-[500px]">
-          <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
+      {/* Connect Modal */}
+      {showConnectModal && isRunning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowConnectModal(false)}>
+          <div className="w-full max-w-lg mx-4 rounded-xl border border-border bg-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Globe className="h-5 w-5 text-ice-blue" />
+                <h2 className="text-lg font-semibold">Connection Details</h2>
+              </div>
+              <button onClick={() => setShowConnectModal(false)} className="text-text-muted hover:text-text-primary">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+
+            {instance.host_ip ? (
+              <div className="space-y-4">
+                <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <p className="text-xs font-medium text-text-secondary">SSH Connect</p>
+                    <div className="group relative">
+                      <Info className="h-3 w-3 text-text-muted cursor-help" />
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-56 rounded-md bg-surface-overlay border border-border p-2 text-xs text-text-muted shadow-lg">
+                        Connect via Xcelsior&apos;s SSH proxy. Your SSH keys from Settings are automatically injected.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
+                      ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
+                    </code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
+                      className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                      title="Copy"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <DirectAccessSection instance={instance} />
+                <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2 pt-2 border-t border-border">
+                  {instance.host_gpu && (
+                    <div>
+                      <dt className="text-text-muted text-xs">GPU</dt>
+                      <dd className="font-medium">{instance.host_gpu}{instance.host_vram_gb ? ` · ${instance.host_vram_gb} GB` : ""}</dd>
+                    </div>
+                  )}
+                  {instance.host_id && (
+                    <div>
+                      <dt className="text-text-muted text-xs">Host</dt>
+                      <dd className="font-mono text-xs">{instance.host_id}</dd>
+                    </div>
+                  )}
+                  {instance.ssh_port && (
+                    <div>
+                      <dt className="text-text-muted text-xs">SSH Port</dt>
+                      <dd className="font-mono">{instance.ssh_port}</dd>
+                    </div>
+                  )}
+                  {instance.container_name && (
+                    <div>
+                      <dt className="text-text-muted text-xs">Container</dt>
+                      <dd className="font-mono text-xs">{instance.container_name}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 p-4">
+                <div className="flex items-start gap-2">
+                  <Clock className="h-4 w-4 text-accent-gold shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-accent-gold">Waiting for host assignment</p>
+                    <p className="text-xs text-text-muted mt-1">Connection details will appear once the scheduler assigns a GPU host.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
-
-      {/* Logs */}
-      <Card>
-        <div className="flex items-center gap-2 mb-3">
-          <Terminal className="h-4 w-4 text-text-muted" />
-          <h2 className="text-sm font-semibold text-text-secondary">{t("dash.instances.logs")}</h2>
-          {status === "queued" && (
-            <span className="ml-auto flex items-center gap-1.5 text-xs text-accent-gold">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Waiting for assignment…
-            </span>
-          )}
-          {status === "assigned" && (
-            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Setting up instance…
-            </span>
-          )}
-          {status === "starting" && (
-            <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Pulling image &amp; starting container…
-            </span>
-          )}
-        </div>
-        <LogViewer
-          jobId={id}
-          live={isRunning || status === "starting" || status === "assigned" || status === "queued"}
-          wsLogs={wsLogs}
-          wsConnected={wsState.connected}
-        />
-      </Card>
 
       {/* Confirm dialog */}
       {confirmAction && (

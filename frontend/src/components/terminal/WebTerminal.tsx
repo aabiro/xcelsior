@@ -149,11 +149,11 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       fontFamily:
         "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
       theme: {
-        background: "#0b0f1a",
-        foreground: "#e2e8f0",
-        cursor: "#38bdf8",
-        cursorAccent: "#0b0f1a",
-        selectionBackground: "#38bdf833",
+        background: "#000000",
+        foreground: "#ffffff",
+        cursor: "#ffffff",
+        cursorAccent: "#000000",
+        selectionBackground: "#ffffff33",
         black: "#1e293b",
         red: "#ef4444",
         green: "#22c55e",
@@ -455,7 +455,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       }`}
     >
       {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-[#0b0f1a]">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-black">
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono text-text-muted">Terminal</span>
 
@@ -516,7 +516,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       {/* ── Terminal canvas ── */}
       <div
         ref={containerRef}
-        className="relative flex-1 bg-[#0b0f1a] p-1"
+        className="relative flex-1 bg-black p-1"
         style={{ minHeight: 0 }}
         onClick={() => termRef.current?.focus()}
       >

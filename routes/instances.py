@@ -154,8 +154,7 @@ def api_submit_instance(j: JobIn, request: Request):
     """
     user = _require_auth(request)
 
-    # If host_id provided but no vram, look it up from the host record
-    vram_needed = j.vram_needed_gb
+    vram_needed = 0.0
     target_host_id = j.host_id
     target_host = None
     if target_host_id:
@@ -175,17 +174,12 @@ def api_submit_instance(j: JobIn, request: Request):
                 detail=f"Host {target_host_id} is {target_host.get('status', 'unavailable')} and not accepting new instances",
             )
 
-    if target_host_id and vram_needed <= 0:
-        hosts = list_hosts()
-        hmap = {h["host_id"]: h for h in hosts}
-        target = hmap.get(target_host_id)
-        if target:
-            vram_needed = float(target.get("total_vram_gb", 24) or 24)
-        else:
-            vram_needed = 24.0
-    elif vram_needed <= 0:
-        # Auto GPU: request the largest available host's total VRAM so the
-        # job gets the full GPU.  Falls back to 4 GB if no hosts registered.
+    # VRAM is always derived from the host — not user-configurable.
+    # When a target host is specified, use its total VRAM.
+    # For Auto GPU, use the largest available host's VRAM.
+    if target_host_id and target_host:
+        vram_needed = float(target_host.get("total_vram_gb", 0) or 0)
+    if vram_needed <= 0:
         hosts = list_hosts()
         if hosts:
             vram_needed = float(max(h.get("total_vram_gb", 0) for h in hosts) or 4.0)

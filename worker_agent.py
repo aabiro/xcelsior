@@ -885,12 +885,13 @@ def cache_track_pull(image_tag, size_mb=0):
             }
 
 
-def cache_evict_lru():
+def cache_evict_lru(exclude_images: set | None = None):
     """Evict least-recently-used images when cache exceeds limit.
 
     Evicts until cache is below IMAGE_CACHE_EVICT_LOW_GB.
-    Never evicts currently-running container images.
+    Never evicts currently-running container images or images in *exclude_images*.
     """
+    exclude_images = exclude_images or set()
     total_mb = _total_cache_size_mb()
     limit_mb = IMAGE_CACHE_MAX_GB * 1024
 
@@ -922,7 +923,7 @@ def cache_evict_lru():
     for image_tag, entry in sorted_images:
         if total_mb <= target_mb:
             break
-        if image_tag in running_images:
+        if image_tag in running_images or image_tag in exclude_images:
             continue
 
         # Remove image
@@ -1551,13 +1552,13 @@ def run_job(job):
                     log.warning("Encrypted volume %s attach failed — skipping", vol_id)
 
         # 1. Pull image (with cache tracking + LRU eviction)
-        cache_evict_lru()  # Evict before pulling if needed
+        cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
         log.info("Pulling image %s...", image)
         pull = subprocess.run(
             ["docker", "pull", image],
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=1800,
         )
         if pull.returncode != 0:
             log.error("Image pull failed: %s", pull.stderr.strip())
