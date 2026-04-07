@@ -335,7 +335,7 @@ export default function InstancesPage() {
                   </td>
                   <td className="py-3 px-4 text-center text-text-muted">
                     {(inst.created_at || inst.submitted_at)
-                      ? new Date(inst.created_at || inst.submitted_at).toLocaleDateString()
+                      ? new Date((inst.created_at || inst.submitted_at) * 1000).toLocaleDateString()
                       : "—"}
                   </td>
                   <td className="py-3 px-4 text-right">

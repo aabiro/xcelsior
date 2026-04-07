@@ -36,6 +36,15 @@ async function apiFetch<T = unknown>(
   };
   const res = await fetch(path, { credentials: "include", headers, ...rest });
   if (res.status === 401) {
+    // Auth endpoints return 401 for invalid credentials — don't intercept
+    if (path.startsWith("/api/auth/")) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(
+        401,
+        body?.detail || body?.error?.message || body?.message || "Authentication failed",
+        body,
+      );
+    }
     // Try refreshing the session once
     if (!_refreshing) _refreshing = _tryRefresh();
     const ok = await _refreshing;
@@ -196,10 +205,54 @@ export async function registerHost(data: Record<string, unknown>) {
 }
 
 // ── Instances ─────────────────────────────────────────────────────────
-export async function fetchInstances() {
-  return apiFetch<{ ok: boolean; instances: Instance[] }>("/instances");
+
+/** Normalize backend instance → frontend Instance (image→docker_image, etc.) */
+function normalizeInstance(inst: Instance): Instance {
+  if (!inst.docker_image && inst.image) inst.docker_image = inst.image;
+  return inst;
 }
 
+export async function fetchInstances() {
+  const res = await apiFetch<{ ok: boolean; instances: Instance[] }>("/instances");
+  res.instances?.forEach(normalizeInstance);
+  return res;
+}
+
+/** Unified instance launch payload — all launch flows use this. */
+export interface LaunchInstanceParams {
+  name: string;
+  image?: string;
+  vram_needed_gb?: number;
+  num_gpus?: number;
+  priority?: number;
+  tier?: string;
+  host_id?: string;
+  gpu_model?: string;
+  max_bid?: number;
+  nfs_path?: string;
+  nfs_server?: string;
+  nfs_mount_point?: string;
+  interactive?: boolean;
+  command?: string;
+  ssh_port?: number;
+}
+
+/** Single entry-point for launching instances — marketplace, new-instance page, spot, on-demand.
+ *  All go through POST /instance. No drift. */
+export async function launchInstance(params: LaunchInstanceParams) {
+  // Strip undefined values so Pydantic doesn't choke on explicit nulls
+  const body: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) body[k] = v;
+  }
+  const res = await apiFetch<{ ok: boolean; instance: Instance }>(
+    "/instance", { method: "POST", body: JSON.stringify(body) },
+  );
+  if (res.instance) normalizeInstance(res.instance);
+  return res;
+}
+
+/** @deprecated Use launchInstance instead */
 export async function submitInstance(data: Record<string, unknown>) {
   return apiFetch<{ ok: boolean; instance?: Record<string, unknown>; instance_id?: string; id?: string }>(
     "/instance", { method: "POST", body: JSON.stringify(data) },
@@ -594,6 +647,7 @@ export async function fetchSpotPrices() {
   return apiFetch<{ ok: boolean; spot_prices: Record<string, number>; prices?: Record<string, number> }>("/spot-prices");
 }
 
+/** @deprecated Use launchInstance with max_bid instead */
 export async function submitSpotInstance(data: {
   name: string; vram_needed_gb: number; max_bid: number;
   priority?: number; tier?: string; image?: string;
@@ -677,7 +731,9 @@ export async function fetchEnhancedAnalytics(days = 30) {
 
 // ── Instance Detail ───────────────────────────────────────────────────
 export async function fetchInstance(instanceId: string) {
-  return apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}`);
+  const res = await apiFetch<{ ok: boolean; instance: Instance }>(`/instance/${encodeURIComponent(instanceId)}`);
+  if (res.instance) normalizeInstance(res.instance);
+  return res;
 }
 
 export async function fetchInstanceLogs(instanceId: string, limit = 100) {
@@ -1351,6 +1407,7 @@ export interface Instance {
   gpu_model: string;
   gpu_type?: string;
   docker_image: string;
+  image?: string;  // raw backend field — normalizeInstance maps this to docker_image
   duration_sec?: number;
   elapsed_sec?: number;
   cost_cad?: number;

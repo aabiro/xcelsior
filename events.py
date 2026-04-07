@@ -36,6 +36,7 @@ class JobState(str, Enum):
     QUEUED = "queued"
     ASSIGNED = "assigned"  # Host selected, not yet confirmed by agent
     LEASED = "leased"  # Agent confirmed, lease clock started
+    STARTING = "starting"  # Image pull + container creation in progress
     RUNNING = "running"  # Container executing
     COMPLETED = "completed"  # Terminal: success
     FAILED = "failed"  # Terminal: error
@@ -61,6 +62,7 @@ TERMINAL_STATES = frozenset(
 # Transitional states — not terminal, not billable for compute
 TRANSITIONAL_STATES = frozenset(
     {
+        JobState.STARTING,
         JobState.STOPPING,
         JobState.RESTARTING,
     }
@@ -77,7 +79,8 @@ STORAGE_BILLED_STATES = frozenset(
 VALID_TRANSITIONS = {
     JobState.QUEUED: {JobState.ASSIGNED, JobState.CANCELLED},
     JobState.ASSIGNED: {JobState.LEASED, JobState.RUNNING, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
-    JobState.LEASED: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
+    JobState.LEASED: {JobState.STARTING, JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
+    JobState.STARTING: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
     JobState.RUNNING: {
         JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED, JobState.CANCELLED,
         JobState.STOPPING,   # User-initiated graceful stop

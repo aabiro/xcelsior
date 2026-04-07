@@ -103,29 +103,21 @@ export function RentModal({ listing, onClose }: RentModalProps) {
     if (!resolvedImage) { toast.error("Select a Docker image"); return; }
     setSubmitting(true);
     try {
+      const params: api.LaunchInstanceParams = {
+        name: instanceName.trim(),
+        image: resolvedImage,
+        vram_needed_gb: listing.vram_gb || 24,
+        tier,
+        host_id: listing.host_id,
+        gpu_model: listing.gpu_model,
+      };
       if (pricingMode === "spot") {
         const bid = maxBid ? Number(maxBid) : spotRate;
         if (bid <= 0) { toast.error("Enter a valid max bid"); setSubmitting(false); return; }
-        const res = await api.submitSpotInstance({
-          name: instanceName.trim(),
-          vram_needed_gb: listing.vram_gb || 24,
-          max_bid: bid,
-          tier: tier !== "standard" ? tier : undefined,
-          image: resolvedImage,
-        });
-        setInstanceId(res.instance?.job_id || "");
-      } else {
-        const res = await api.submitInstance({
-          host_id: listing.host_id,
-          gpu_model: listing.gpu_model,
-          vram_needed_gb: listing.vram_gb || 24,
-          tier,
-          name: instanceName.trim(),
-          image: resolvedImage,
-        });
-        const inst = res.instance as Record<string, unknown> | undefined;
-        setInstanceId((inst?.job_id as string) || "");
+        params.max_bid = bid;
       }
+      const res = await api.launchInstance(params);
+      setInstanceId(res.instance?.job_id || "");
       setStep("success");
       toast.success("Instance launched successfully");
     } catch (err) {

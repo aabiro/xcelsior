@@ -1482,6 +1482,15 @@ def run_job(job):
         return
 
     container_name = f"xcl-{job_id}"
+
+    # ── Requeue guard: stop old container if this job was already running ──
+    with _active_lock:
+        if job_id in _active_containers:
+            log.info("Job %s already has active container — stopping for requeue", job_id)
+            del _active_containers[job_id]
+    _kill_container(container_name)  # No-op if container doesn't exist
+    time.sleep(2)  # Let old monitor thread notice removal and exit
+
     log.info("Starting job %s (%s) — image=%s", job_id, job_name, image)
 
     # ── Lease Protocol: claim lease before starting work ──
@@ -1489,8 +1498,9 @@ def run_job(job):
     lease_info = claim_lease(job_id)
     lease_interval = (lease_info or {}).get("duration_sec", 300) // 2  # Renew at half-life
 
-    # Report running status (leased → running)
-    report_job_status(job_id, "running", host_id=HOST_ID)
+    # Report starting status (leased → starting); will become "running" after
+    # the container is actually created (image pull + docker run may take minutes).
+    report_job_status(job_id, "starting", host_id=HOST_ID)
 
     with _active_lock:
         _active_containers[job_id] = container_name
@@ -1607,7 +1617,8 @@ def run_job(job):
             interactive=is_interactive,
         )
 
-        # 4. Start container
+        # 4. Start container — remove stale container with same name (e.g. requeue)
+        _remove_container(container_name)
         log.info("Starting container %s", container_name)
         start = subprocess.run(
             docker_args,
@@ -1937,10 +1948,13 @@ def _monitor_container(job_id, container_name, log_forwarder=None):
             report_job_status(job_id, "failed")
             return
 
-        # Sleep in small increments to respond to shutdown quickly
+        # Sleep in small increments to respond to shutdown/requeue quickly
         for _ in range(check_interval):
             if _shutdown.is_set():
                 return
+            with _active_lock:
+                if job_id not in _active_containers:
+                    return  # Requeued or preempted — let new run_job take over
             time.sleep(1)
 
 
@@ -2003,7 +2017,7 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
             report_job_status(job_id, "failed")
             return
 
-        # Sleep in small increments to respond to shutdown/cancel quickly
+        # Sleep in small increments to respond to shutdown/cancel/requeue quickly
         for _ in range(check_interval):
             if _shutdown.is_set():
                 log.info("Shutdown signal — stopping interactive container %s", container_name)
@@ -2011,6 +2025,9 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 report_job_status(job_id, "cancelled")
                 release_lease(job_id, "cancelled")
                 return
+            with _active_lock:
+                if job_id not in _active_containers:
+                    break  # Requeued — exit sleep, handle at top of loop
             time.sleep(1)
 
 
