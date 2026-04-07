@@ -3,6 +3,8 @@
 # idempotent transitions, auditable event history.
 #
 # Job lifecycle:     queued → assigned → leased → running → completed/failed/preempted
+#                    running → stopping → stopped → restarting → running
+#                    running/stopped → terminated
 # Lease lifecycle:   lease_granted → lease_renewed → lease_expired
 #
 # Every state transition is recorded as an immutable event. Billing, SLA,
@@ -39,6 +41,11 @@ class JobState(str, Enum):
     FAILED = "failed"  # Terminal: error
     PREEMPTED = "preempted"  # Terminal: evicted (spot pricing / priority)
     CANCELLED = "cancelled"  # Terminal: user cancelled
+    # User-controlled lifecycle
+    STOPPING = "stopping"  # Transitional: graceful stop in progress
+    STOPPED = "stopped"  # Container stopped, data preserved, storage billed
+    RESTARTING = "restarting"  # Transitional: restart in progress
+    TERMINATED = "terminated"  # Terminal: hard kill, container removed
 
 
 TERMINAL_STATES = frozenset(
@@ -47,6 +54,22 @@ TERMINAL_STATES = frozenset(
         JobState.FAILED,
         JobState.PREEMPTED,
         JobState.CANCELLED,
+        JobState.TERMINATED,
+    }
+)
+
+# Transitional states — not terminal, not billable for compute
+TRANSITIONAL_STATES = frozenset(
+    {
+        JobState.STOPPING,
+        JobState.RESTARTING,
+    }
+)
+
+# States where storage billing applies (container exists, no compute billing)
+STORAGE_BILLED_STATES = frozenset(
+    {
+        JobState.STOPPED,
     }
 )
 
@@ -55,11 +78,31 @@ VALID_TRANSITIONS = {
     JobState.QUEUED: {JobState.ASSIGNED, JobState.CANCELLED},
     JobState.ASSIGNED: {JobState.LEASED, JobState.RUNNING, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
     JobState.LEASED: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
-    JobState.RUNNING: {JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED, JobState.CANCELLED},
+    JobState.RUNNING: {
+        JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED, JobState.CANCELLED,
+        JobState.STOPPING,   # User-initiated graceful stop
+        JobState.RESTARTING, # User-initiated restart
+        JobState.TERMINATED, # User-initiated hard kill
+    },
+    JobState.STOPPING: {
+        JobState.STOPPED,    # Stop succeeded
+        JobState.RUNNING,    # Stop failed, container still alive
+        JobState.TERMINATED, # User cancels during stop
+    },
+    JobState.STOPPED: {
+        JobState.RESTARTING, # User starts a stopped instance
+        JobState.TERMINATED, # User terminates a stopped instance
+    },
+    JobState.RESTARTING: {
+        JobState.RUNNING,    # Restart succeeded
+        JobState.STOPPED,    # Restart failed — container is stopped
+        JobState.FAILED,     # Restart fatally failed
+    },
     JobState.COMPLETED: set(),  # Terminal
     JobState.FAILED: {JobState.QUEUED},  # Retry
     JobState.PREEMPTED: {JobState.QUEUED},  # Re-queue
     JobState.CANCELLED: set(),  # Terminal
+    JobState.TERMINATED: set(),  # Terminal
 }
 
 
@@ -79,6 +122,12 @@ class EventType(str, Enum):
     JOB_PREEMPTED = "job.preempted"
     JOB_CANCELLED = "job.cancelled"
     JOB_REQUEUED = "job.requeued"
+    # User-controlled lifecycle
+    JOB_STOPPING = "job.stopping"
+    JOB_STOPPED = "job.stopped"
+    JOB_RESTARTING = "job.restarting"
+    JOB_STARTED = "job.started"  # Stopped → Running via user start
+    JOB_TERMINATED = "job.terminated"
 
     # Host lifecycle
     HOST_REGISTERED = "host.registered"

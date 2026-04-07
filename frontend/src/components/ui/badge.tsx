@@ -17,6 +17,11 @@ const badgeVariants = cva(
         cancelled: "bg-accent-gold/20 text-accent-gold",
         warning: "bg-accent-gold/20 text-accent-gold",
         info: "bg-ice-blue/20 text-ice-blue",
+        // Instance lifecycle states
+        stopping: "bg-accent-gold/15 text-accent-gold animate-status-stopping",
+        stopped: "bg-[#6366f1]/20 text-[#818cf8]",
+        restarting: "bg-ice-blue/15 text-ice-blue animate-status-restarting",
+        terminated: "bg-accent-red/20 text-accent-red",
       },
     },
     defaultVariants: { variant: "default" },
@@ -44,8 +49,22 @@ export function StatusBadge({ status }: { status: string }) {
       completed: "completed",
       failed: "failed",
       cancelled: "cancelled",
+      // Instance lifecycle
+      stopping: "stopping",
+      stopped: "stopped",
+      restarting: "restarting",
+      terminated: "terminated",
+      // Legacy pause states
+      user_paused: "stopped",
+      paused_low_balance: "warning",
     } as Record<string, BadgeProps["variant"]>
   )[status] || "default";
 
-  return <Badge variant={variant}>{status}</Badge>;
+  const label =
+    {
+      user_paused: "stopped",
+      paused_low_balance: "low balance",
+    }[status] ?? status;
+
+  return <Badge variant={variant}>{label}</Badge>;
 }

@@ -224,6 +224,22 @@ export async function cancelInstance(instanceId: string) {
   return apiFetch(`/instances/${encodeURIComponent(instanceId)}/cancel`, { method: "POST" });
 }
 
+export async function stopInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/stop`, { method: "POST" });
+}
+
+export async function startInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/start`, { method: "POST" });
+}
+
+export async function restartInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/restart`, { method: "POST" });
+}
+
+export async function terminateInstance(instanceId: string) {
+  return apiFetch(`/instances/${encodeURIComponent(instanceId)}/terminate`, { method: "POST" });
+}
+
 // ── Billing ───────────────────────────────────────────────────────────
 export async function fetchBilling() {
   return apiFetch<{ ok: boolean; records: BillingRecord[]; total_revenue_cad: number }>(

@@ -349,7 +349,14 @@ export default function AnalyticsPage() {
 
   const analytics: any[] = data?.analytics || [];
   const summary = data?.summary || {};
-  const hasData = analytics.length > 0 || (summary.total_jobs != null && summary.total_jobs > 0);
+  const hasCustomerData = analytics.length > 0 || (summary.total_jobs != null && summary.total_jobs > 0);
+  const hasProviderData = !!(
+    (enhanced?.provider_daily?.length ?? 0) > 0
+    || (enhanced?.provider_summary?.total_jobs_served ?? 0) > 0
+    || (enhanced?.provider_summary?.total_revenue ?? 0) > 0
+    || (enhanced?.provider_summary?.total_gpu_hours ?? 0) > 0
+  );
+  const hasData = hasCustomerData || hasProviderData;
 
   const jobsOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, count: r.job_count })), [analytics]);
   const spendOverTime = useMemo(() => analytics.map((r: any) => ({ date: r.period, spend: r.total_cost_cad })), [analytics]);
@@ -430,6 +437,12 @@ export default function AnalyticsPage() {
     TABS.filter((t) => !t.providerOnly || isProvider || isAdmin),
     [isProvider, isAdmin],
   );
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isProvider || tab !== "overview") return;
+    if (!hasCustomerData) setTab("provider");
+  }, [hasCustomerData, isProvider, loading, tab]);
 
   // Format last updated time
   const lastUpdatedLabel = lastUpdated
@@ -558,7 +571,7 @@ export default function AnalyticsPage() {
         </FadeIn>
 
       /* ── Empty State ───────────────────────────────────── */
-      ) : !hasData ? (
+      ) : !hasData && !(tab === "provider" && (isProvider || isAdmin)) ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-surface mb-6">
             <BarChart3 className="h-12 w-12 text-text-muted" />
@@ -810,7 +823,7 @@ export default function AnalyticsPage() {
           {/* ── PROVIDER TAB ─────────────────────────────── */}
           {tab === "provider" && (isProvider || isAdmin) && (
             <div className="space-y-6">
-              {enhanced?.provider_summary ? (
+              {hasProviderData && enhanced?.provider_summary ? (
                 <>
                   <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <StaggerItem>

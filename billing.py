@@ -1130,6 +1130,398 @@ class BillingEngine:
         log.info("RESUME job=%s owner=%s", job_id, owner)
         return {"resumed": True, "job_id": job_id, "status": "running"}
 
+    # ── Instance Lifecycle: Stop / Start / Restart / Terminate ───────
+
+    _VALID_STOP_REASONS = frozenset({"user_stopped", "paused_low_balance", "billing_suspended"})
+
+    def stop_instance(self, job_id: str, reason: str = "user_stopped") -> dict:
+        """Gracefully stop a running instance. Container is preserved for restart.
+
+        Stops billing for compute; storage billing begins in auto_billing_cycle.
+        The container is sent SIGTERM (docker stop -t 10) so the process can
+        flush state before exiting. Volumes are NOT removed.
+        """
+        if reason not in self._VALID_STOP_REASONS:
+            return {"stopped": False, "reason": f"invalid_reason: must be one of {sorted(self._VALID_STOP_REASONS)}"}
+
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          payload->>'name' AS name,
+                          payload->>'container_name' AS container_name
+                   FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"stopped": False, "reason": "not_running"}
+
+            # Mark transitional state
+            conn.execute(
+                """UPDATE jobs SET status = 'stopping',
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{stopping_at}', to_jsonb(%s::float)),
+                       '{status}', '"stopping"'::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (now, job_id),
+            )
+            conn.commit()
+
+        owner = job.get("owner") or ""
+        host_id = job.get("host_id") or ""
+        container_name = job.get("container_name") or f"xcl-{job_id}"
+
+        # Perform graceful stop on the host
+        stop_ok = False
+        if host_id:
+            try:
+                from scheduler import stop_container_graceful, list_hosts, _validate_name
+                _validate_name(container_name, "container name")
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                host = hmap.get(host_id)
+                if host:
+                    stop_ok = stop_container_graceful({"job_id": job_id, "container_name": container_name}, host)
+            except Exception as e:
+                log.warning("STOP container stop failed for %s: %s", job_id, e)
+
+        # Update final status
+        final_status = "stopped" if stop_ok else "running"
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            conn.execute(
+                """UPDATE jobs SET status = %s,
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{stopped_at}', to_jsonb(%s::float)),
+                       '{status}', %s::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (final_status, now, json.dumps(final_status), job_id),
+            )
+            # Billing anchor: closes the current compute billing period
+            if stop_ok:
+                owner_id = owner
+                cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
+                conn.execute(
+                    """INSERT INTO billing_cycles
+                       (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                        duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                        amount_cad, status, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'stopped', %s)""",
+                    (cycle_id, job_id, owner_id, host_id, now, now, now),
+                )
+            conn.commit()
+
+        if not stop_ok:
+            log.error("STOP failed for job=%s — container still running", job_id)
+            return {"stopped": False, "reason": "container_stop_failed", "job_id": job_id}
+
+        try:
+            from db import NotificationStore
+            NotificationStore.create(
+                user_email=owner,
+                notif_type="instance_stopped",
+                title=f"Instance stopped: {job.get('name', job_id)}",
+                body="Your instance has been stopped. Storage continues to be billed. Start it again anytime.",
+                data={"job_id": job_id},
+            )
+        except Exception:
+            pass
+
+        log.info("STOP job=%s reason=%s owner=%s", job_id, reason, owner)
+        return {"stopped": True, "job_id": job_id, "status": "stopped"}
+
+    def start_instance(self, job_id: str) -> dict:
+        """Start a stopped instance. Restores the container from its exited state.
+
+        Requires a positive wallet balance. Billing resumes at the compute rate
+        from the moment the container is running again.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          payload->>'name' AS name,
+                          payload->>'container_name' AS container_name
+                   FROM jobs
+                   WHERE job_id = %s AND status IN ('stopped', 'user_paused', 'paused_low_balance') FOR UPDATE""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"started": False, "reason": "not_stopped"}
+
+            owner = job.get("owner") or ""
+            wallet = self.get_wallet(owner)
+            if wallet["balance_cad"] <= 0:
+                return {"started": False, "reason": "insufficient_balance"}
+
+            # Mark transitional state
+            conn.execute(
+                """UPDATE jobs SET status = 'restarting',
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{restarting_at}', to_jsonb(%s::float)),
+                       '{status}', '"restarting"'::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (now, job_id),
+            )
+            conn.commit()
+
+        host_id = job.get("host_id") or ""
+        container_name = job.get("container_name") or f"xcl-{job_id}"
+
+        start_ok = False
+        if host_id:
+            try:
+                from scheduler import start_stopped_container, list_hosts, _validate_name
+                _validate_name(container_name, "container name")
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                host = hmap.get(host_id)
+                if host:
+                    start_ok = start_stopped_container(
+                        {"job_id": job_id, "container_name": container_name}, host
+                    )
+            except Exception as e:
+                log.warning("START container start failed for %s: %s", job_id, e)
+
+        final_status = "running" if start_ok else "stopped"
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            conn.execute(
+                """UPDATE jobs SET status = %s,
+                   payload = jsonb_set(
+                       jsonb_set(
+                           jsonb_set(payload, '{started_at}', to_jsonb(%s::float)),
+                           '{stopped_at}', '0'::jsonb
+                       ),
+                       '{status}', %s::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (final_status, now, json.dumps(final_status), job_id),
+            )
+            if start_ok:
+                # Billing anchor: compute billing resumes from now
+                cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
+                conn.execute(
+                    """INSERT INTO billing_cycles
+                       (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                        duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                        amount_cad, status, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
+                    (cycle_id, job_id, owner, host_id, now, now, now),
+                )
+            conn.commit()
+
+        if not start_ok:
+            log.error("START failed for job=%s", job_id)
+            return {"started": False, "reason": "container_start_failed", "job_id": job_id}
+
+        try:
+            from db import NotificationStore
+            NotificationStore.create(
+                user_email=owner,
+                notif_type="instance_started",
+                title=f"Instance started: {job.get('name', job_id)}",
+                body="Your instance is running again.",
+                data={"job_id": job_id},
+            )
+        except Exception:
+            pass
+
+        log.info("START job=%s owner=%s", job_id, owner)
+        return {"started": True, "job_id": job_id, "status": "running"}
+
+    def restart_instance(self, job_id: str) -> dict:
+        """Restart a running or stopped instance. Container data is preserved.
+
+        For a running instance: stop gracefully then start.
+        For a stopped instance: same as start_instance.
+        Billing is continuous — no gap anchor is inserted. The compute billing
+        period simply picks up again from when the container is running.
+        Requires a positive wallet balance.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          payload->>'name' AS name,
+                          payload->>'container_name' AS container_name
+                   FROM jobs
+                   WHERE job_id = %s AND status IN ('running', 'stopped') FOR UPDATE""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"restarted": False, "reason": "not_restartable"}
+
+            owner = job.get("owner") or ""
+            wallet = self.get_wallet(owner)
+            if wallet["balance_cad"] <= 0:
+                return {"restarted": False, "reason": "insufficient_balance"}
+
+            was_running = job["status"] == "running"
+
+            conn.execute(
+                """UPDATE jobs SET status = 'restarting',
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{restarting_at}', to_jsonb(%s::float)),
+                       '{status}', '"restarting"'::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (now, job_id),
+            )
+            conn.commit()
+
+        host_id = job.get("host_id") or ""
+        container_name = job.get("container_name") or f"xcl-{job_id}"
+
+        restart_ok = False
+        if host_id:
+            try:
+                from scheduler import stop_container_graceful, start_stopped_container, list_hosts, _validate_name
+                _validate_name(container_name, "container name")
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                host = hmap.get(host_id)
+                if host:
+                    job_obj = {"job_id": job_id, "container_name": container_name}
+                    if was_running:
+                        stop_container_graceful(job_obj, host)
+                    restart_ok = start_stopped_container(job_obj, host)
+            except Exception as e:
+                log.warning("RESTART container restart failed for %s: %s", job_id, e)
+
+        final_status = "running" if restart_ok else "stopped"
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            conn.execute(
+                """UPDATE jobs SET status = %s,
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{restarted_at}', to_jsonb(%s::float)),
+                       '{status}', %s::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (final_status, now, json.dumps(final_status), job_id),
+            )
+            conn.commit()
+
+        if not restart_ok:
+            log.error("RESTART failed for job=%s — marking stopped", job_id)
+            return {"restarted": False, "reason": "container_restart_failed", "job_id": job_id}
+
+        try:
+            from db import NotificationStore
+            NotificationStore.create(
+                user_email=owner,
+                notif_type="instance_restarted",
+                title=f"Instance restarted: {job.get('name', job_id)}",
+                body="Your instance has been restarted successfully.",
+                data={"job_id": job_id},
+            )
+        except Exception:
+            pass
+
+        log.info("RESTART job=%s owner=%s", job_id, owner)
+        return {"restarted": True, "job_id": job_id, "status": "running"}
+
+    def terminate_instance(self, job_id: str) -> dict:
+        """Hard-kill and remove a container. This is irreversible.
+
+        The container and its anonymous volumes are permanently destroyed.
+        Named/NFS volumes are preserved. No restart is possible after termination.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        now = time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          payload->>'name' AS name,
+                          payload->>'container_name' AS container_name
+                   FROM jobs
+                   WHERE job_id = %s
+                     AND status NOT IN ('terminated', 'completed', 'failed', 'preempted', 'cancelled')
+                   FOR UPDATE""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"terminated": False, "reason": "already_terminal_or_not_found"}
+
+            conn.execute(
+                """UPDATE jobs SET status = 'terminated',
+                   payload = jsonb_set(
+                       jsonb_set(payload, '{terminated_at}', to_jsonb(%s::float)),
+                       '{status}', '"terminated"'::jsonb
+                   )
+                   WHERE job_id = %s""",
+                (now, job_id),
+            )
+            # Final billing anchor
+            owner = job.get("owner") or ""
+            host_id = job.get("host_id") or ""
+            cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
+            conn.execute(
+                """INSERT INTO billing_cycles
+                   (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                    amount_cad, status, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'terminated', %s)""",
+                (cycle_id, job_id, owner, host_id, now, now, now),
+            )
+            conn.commit()
+
+        owner = job.get("owner") or ""
+        container_name = job.get("container_name") or f"xcl-{job_id}"
+        if host_id:
+            try:
+                from scheduler import terminate_job as _terminate_job, list_hosts, _validate_name
+                _validate_name(container_name, "container name")
+                hosts = list_hosts()
+                hmap = {h["host_id"]: h for h in hosts}
+                host = hmap.get(host_id)
+                if host:
+                    _terminate_job({"job_id": job_id, "container_name": container_name}, host)
+            except Exception as e:
+                log.warning("TERMINATE container removal failed for %s: %s — already gone?", job_id, e)
+
+        try:
+            from db import NotificationStore
+            NotificationStore.create(
+                user_email=owner,
+                notif_type="instance_terminated",
+                title=f"Instance terminated: {job.get('name', job_id)}",
+                body="Your instance has been permanently terminated.",
+                data={"job_id": job_id},
+            )
+        except Exception:
+            pass
+
+        log.info("TERMINATE job=%s owner=%s", job_id, owner)
+        return {"terminated": True, "job_id": job_id, "status": "terminated"}
+
     # ── Wallet Lifecycle ──────────────────────────────────────────────
 
     def reactivate_wallet(self, customer_id: str) -> dict:
@@ -1534,12 +1926,125 @@ class BillingEngine:
         except Exception as e:
             log.error("Inference billing scan error: %s", e)
 
-        if billed or suspended or errors or volume_billed or inference_billed:
-            log.info("AUTO-BILLING: %d jobs, %d volumes, %d inference, %d suspended, %d errors",
-                     billed, volume_billed, inference_billed, suspended, errors)
+        # ── Bill stopped instances for storage ───────────────────────
+        # Charges per GB per hour based on storage_type. Requires the
+        # storage_billing_rates table from migration 019. Gracefully
+        # skips if the table doesn't exist yet.
+        storage_billed = 0
+        try:
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                stopped_jobs = conn.execute(
+                    """SELECT j.job_id,
+                              j.host_id,
+                              j.payload->>'owner' AS owner,
+                              COALESCE((j.payload->>'storage_gb')::double precision, 0) AS storage_gb,
+                              COALESCE(j.payload->>'storage_type', 'hdd') AS storage_type,
+                              COALESCE((j.payload->>'storage_rate_cad_per_gb_hr')::double precision, 0) AS cached_rate,
+                              (j.payload->>'stopped_at')::double precision AS stopped_at
+                       FROM jobs j
+                       WHERE j.status = 'stopped'
+                         AND COALESCE((j.payload->>'storage_gb')::double precision, 0) > 0""",
+                ).fetchall()
 
-        return {"billed": billed, "volume_billed": volume_billed,
-                "inference_billed": inference_billed, "suspended": suspended, "errors": errors}
+            for sjob in stopped_jobs:
+                try:
+                    sjob_id = sjob["job_id"]
+                    sowner = sjob["owner"]
+                    storage_gb = float(sjob["storage_gb"] or 0)
+                    storage_type = sjob["storage_type"] or "hdd"
+                    cached_rate = float(sjob["cached_rate"] or 0)
+
+                    if not sowner or storage_gb <= 0:
+                        continue
+
+                    # Look up current rate from storage_billing_rates table
+                    try:
+                        with pool.connection() as conn:
+                            conn.row_factory = dict_row
+                            rate_row = conn.execute(
+                                "SELECT rate_cad_per_gb_hr FROM storage_billing_rates WHERE storage_type = %s",
+                                (storage_type,),
+                            ).fetchone()
+                        rate = float(rate_row["rate_cad_per_gb_hr"]) if rate_row else cached_rate
+                    except Exception:
+                        rate = cached_rate  # table not yet created
+
+                    if rate <= 0:
+                        continue
+
+                    # Find last storage billing cycle for this job
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        last_sc = conn.execute(
+                            """SELECT period_end FROM billing_cycles
+                               WHERE job_id = %s AND status IN ('storage', 'stopped', 'started')
+                               ORDER BY period_end DESC LIMIT 1""",
+                            (sjob_id,),
+                        ).fetchone()
+
+                    stopped_at = float(sjob["stopped_at"] or 0)
+                    speriod_start = last_sc["period_end"] if last_sc else (stopped_at if stopped_at > 0 else now)
+                    speriod_end = now
+
+                    if speriod_end - speriod_start < 60:
+                        continue
+
+                    sduration_sec = speriod_end - speriod_start
+                    samount = round((sduration_sec / 3600) * rate * storage_gb, 6)
+
+                    if samount <= 0:
+                        continue
+
+                    with pool.connection() as conn:
+                        conn.row_factory = dict_row
+                        slocked = conn.execute(
+                            "SELECT job_id FROM jobs WHERE job_id = %s AND status = 'stopped' FOR UPDATE SKIP LOCKED",
+                            (sjob_id,),
+                        ).fetchone()
+                        if not slocked:
+                            continue
+
+                        scharge = self.charge(
+                            sowner, samount, job_id=sjob_id,
+                            description=f"Storage: {storage_gb:.0f}GB {storage_type} ({sduration_sec/60:.1f}min)",
+                        )
+                        scycle_id = f"SC-{int(now)}-{os.urandom(3).hex()}"
+                        sstatus = "storage" if scharge.get("charged") else "storage_failed"
+                        conn.execute(
+                            """INSERT INTO billing_cycles
+                               (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                                amount_cad, status, created_at)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            (scycle_id, sjob_id, sowner, sjob.get("host_id", ""),
+                             speriod_start, speriod_end, sduration_sec,
+                             rate * storage_gb, storage_type, "storage", 1.0,
+                             samount, sstatus, now),
+                        )
+                        conn.commit()
+
+                    storage_billed += 1
+                except Exception as e:
+                    errors += 1
+                    log.error("Storage billing error for job %s: %s", sjob.get("job_id", "?"), e)
+        except Exception as e:
+            log.error("Storage billing scan error: %s", e)
+
+        if billed or suspended or errors or volume_billed or inference_billed or storage_billed:
+            log.info(
+                "AUTO-BILLING: %d compute, %d storage, %d volumes, %d inference, %d suspended, %d errors",
+                billed, storage_billed, volume_billed, inference_billed, suspended, errors,
+            )
+
+        return {
+            "billed": billed,
+            "storage_billed": storage_billed,
+            "volume_billed": volume_billed,
+            "inference_billed": inference_billed,
+            "suspended": suspended,
+            "errors": errors,
+        }
 
     def check_low_balance_and_topup(self) -> dict:
         """Check all wallets for low balance and trigger auto-top-up if configured.

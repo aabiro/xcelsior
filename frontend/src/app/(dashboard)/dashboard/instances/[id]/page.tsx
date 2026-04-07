@@ -11,8 +11,12 @@ import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
   Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
+  Play, RefreshCw, Zap,
 } from "lucide-react";
-import { fetchInstance, cancelInstance, requeueInstance } from "@/lib/api";
+import {
+  fetchInstance, cancelInstance, requeueInstance,
+  stopInstance, startInstance, restartInstance, terminateInstance,
+} from "@/lib/api";
 import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
@@ -87,13 +91,54 @@ function DirectAccessSection({ instance }: { instance: Instance }) {
   );
 }
 
+type ConfirmAction = "stop" | "start" | "restart" | "terminate" | "cancel" | null;
+
+const CONFIRM_CONFIGS: Record<NonNullable<ConfirmAction>, {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  variant: "danger" | "default";
+}> = {
+  stop: {
+    title: "Stop instance?",
+    description: "The container will be gracefully stopped (SIGTERM). Your data and volumes are preserved. Storage billing continues. You can start it again at any time.",
+    confirmLabel: "Stop",
+    variant: "default",
+  },
+  start: {
+    title: "Start instance?",
+    description: "The container will be restored from its stopped state. Compute billing resumes immediately.",
+    confirmLabel: "Start",
+    variant: "default",
+  },
+  restart: {
+    title: "Restart instance?",
+    description: "The container will be stopped and immediately restarted. All data is preserved. Billing is continuous — no gap.",
+    confirmLabel: "Restart",
+    variant: "default",
+  },
+  terminate: {
+    title: "Terminate instance?",
+    description: "This will hard-kill and permanently destroy the container. This action cannot be undone. Named volumes are preserved, but all other container data will be lost.",
+    confirmLabel: "Terminate",
+    variant: "danger",
+  },
+  cancel: {
+    title: "Cancel instance?",
+    description: "The queued or provisioning instance will be cancelled and removed from the queue.",
+    confirmLabel: "Cancel",
+    variant: "danger",
+  },
+};
+
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { t } = useLocale();
   const [instance, setInstance] = useState<Instance | null>(null);
   const [loading, setLoading] = useState(true);
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [showTerminal, setShowTerminal] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const prevStatusRef = useRef<string | null>(null);
@@ -116,8 +161,9 @@ export default function InstanceDetailPage() {
 
   useEffect(() => { setJobError(null); load(); }, [id]);
 
-  // Live WebSocket updates for active instances
-  const isLive = instance?.status === "queued" || instance?.status === "assigned" || instance?.status === "running";
+  const isLive = instance?.status === "queued" || instance?.status === "assigned"
+    || instance?.status === "running" || instance?.status === "stopping"
+    || instance?.status === "restarting";
   const onWsInstance = useCallback((i: Instance) => setInstance(i), []);
   const onWsJobError = useCallback((err: { job_id: string; error: string; message: string }) => {
     setJobError(err.message);
@@ -128,14 +174,23 @@ export default function InstanceDetailPage() {
     enabled: isLive,
   });
 
-  async function handleCancel() {
-    setConfirmCancel(false);
+  async function executeAction(action: ConfirmAction) {
+    if (!action) return;
+    setConfirmAction(null);
+    setActionPending(true);
     try {
-      await cancelInstance(id);
-      toast.success("Instance cancelled");
+      switch (action) {
+        case "stop":      await stopInstance(id);      toast.success("Instance stopping…"); break;
+        case "start":     await startInstance(id);     toast.success("Instance starting…"); break;
+        case "restart":   await restartInstance(id);   toast.success("Instance restarting…"); break;
+        case "terminate": await terminateInstance(id); toast.success("Instance terminated"); break;
+        case "cancel":    await cancelInstance(id);    toast.success("Instance cancelled"); break;
+      }
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Cancel failed");
+      toast.error(err instanceof Error ? err.message : `${action} failed`);
+    } finally {
+      setActionPending(false);
     }
   }
 
@@ -174,11 +229,16 @@ export default function InstanceDetailPage() {
     );
   }
 
-  const isActive = instance.status === "queued" || instance.status === "running" || instance.status === "assigned";
-  const isFailed = instance.status === "failed";
-  // Status timeline step
+  const status = instance.status;
+  const isRunning = status === "running";
+  const isStopped = status === "stopped" || status === "user_paused" || status === "paused_low_balance";
+  const isQueued = status === "queued" || status === "assigned" || status === "leased";
+  const isTransitional = status === "stopping" || status === "restarting";
+  const isFailed = status === "failed";
+  const isTerminal = ["completed", "failed", "cancelled", "terminated", "preempted"].includes(status);
+
   const currentStepIdx = STATUS_STEPS.indexOf(
-    (instance.status === "failed" || instance.status === "cancelled") ? "running" : (instance.status as typeof STATUS_STEPS[number]),
+    (status === "failed" || status === "cancelled") ? "running" : (status as typeof STATUS_STEPS[number]),
   );
 
   return (
@@ -196,8 +256,8 @@ export default function InstanceDetailPage() {
             <p className="text-sm font-mono text-text-muted">{instance.job_id}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge status={instance.status} />
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <StatusBadge status={status} />
           {isLive && (
             <span
               className={`flex items-center gap-1 text-xs ${wsState.connected ? "text-emerald" : "text-text-muted"}`}
@@ -207,23 +267,91 @@ export default function InstanceDetailPage() {
               {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : ""}
             </span>
           )}
-          {isActive && instance.status === "running" && (
+          {/* Terminal toggle — running only */}
+          {isRunning && (
             <Button size="sm" variant="outline" onClick={() => setShowTerminal(!showTerminal)}>
               <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
             </Button>
           )}
-          {isActive && instance.status === "running" && (
-            <Button size="sm" onClick={() => setConfirmCancel(true)} className="bg-accent-red hover:bg-accent-red/80 text-white">
-              <Square className="h-3.5 w-3.5" /> Stop
-            </Button>
+          {/* Transitional state indicator */}
+          {isTransitional && (
+            <span className="flex items-center gap-1.5 text-xs text-text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {status === "stopping" ? "Stopping…" : "Restarting…"}
+            </span>
           )}
-          {isActive && instance.status !== "running" && (
-            <Button variant="outline" size="sm" onClick={() => setConfirmCancel(true)} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+          {/* Running actions */}
+          {isRunning && (
+            <>
+              <Button
+                size="sm" variant="outline"
+                onClick={() => setConfirmAction("restart")}
+                disabled={actionPending}
+                className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Restart
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                onClick={() => setConfirmAction("stop")}
+                disabled={actionPending}
+                className="text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10"
+              >
+                <Square className="h-3.5 w-3.5" /> Stop
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setConfirmAction("terminate")}
+                disabled={actionPending}
+                className="bg-accent-red hover:bg-accent-red/80 text-white"
+              >
+                <Zap className="h-3.5 w-3.5" /> Terminate
+              </Button>
+            </>
+          )}
+          {/* Stopped actions */}
+          {isStopped && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => setConfirmAction("start")}
+                disabled={actionPending}
+                className="bg-emerald hover:bg-emerald/80 text-white"
+              >
+                <Play className="h-3.5 w-3.5" /> Start
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                onClick={() => setConfirmAction("restart")}
+                disabled={actionPending}
+                className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Restart
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setConfirmAction("terminate")}
+                disabled={actionPending}
+                className="bg-accent-red hover:bg-accent-red/80 text-white"
+              >
+                <Zap className="h-3.5 w-3.5" /> Terminate
+              </Button>
+            </>
+          )}
+          {/* Queued/provisioning cancel */}
+          {isQueued && (
+            <Button
+              variant="outline" size="sm"
+              onClick={() => setConfirmAction("cancel")}
+              disabled={actionPending}
+              className="text-accent-red border-accent-red/30 hover:bg-accent-red/10"
+            >
               <XCircle className="h-3.5 w-3.5" /> {t("dash.instances.cancel")}
             </Button>
           )}
+          {/* Failed requeue */}
           {isFailed && (
-            <Button variant="outline" size="sm" onClick={handleRequeue}>
+            <Button variant="outline" size="sm" onClick={handleRequeue} disabled={actionPending}>
               <RotateCcw className="h-3.5 w-3.5" /> {t("dash.instances.requeue")}
             </Button>
           )}
@@ -243,7 +371,7 @@ export default function InstanceDetailPage() {
                   <div
                     className={`h-3 w-3 rounded-full border-2 ${
                       reached
-                        ? isCurrent && (instance.status === "failed" || instance.status === "cancelled")
+                        ? isCurrent && (status === "failed" || status === "cancelled")
                           ? "border-accent-red bg-accent-red"
                           : "border-emerald bg-emerald"
                         : "border-text-muted/50 bg-text-muted/20"
@@ -260,12 +388,22 @@ export default function InstanceDetailPage() {
             );
           })}
         </div>
-        {(instance.status === "failed" || instance.status === "cancelled") && (
+        {(status === "failed" || status === "cancelled" || status === "terminated") && (
           <div className="mt-3 flex items-center gap-2">
-            <Badge variant={instance.status === "failed" ? "failed" : "cancelled"}>
-              {instance.status}
+            <Badge variant={status === "failed" ? "failed" : status === "terminated" ? "terminated" : "cancelled"}>
+              {status}
             </Badge>
-            <span className="text-xs text-text-muted">{t("dash.instances.during_exec", { status: instance.status })}</span>
+            <span className="text-xs text-text-muted">{t("dash.instances.during_exec", { status })}</span>
+          </div>
+        )}
+        {(isStopped || isTransitional) && (
+          <div className="mt-3 flex items-center gap-2">
+            <StatusBadge status={status} />
+            <span className="text-xs text-text-muted">
+              {isStopped ? "Instance is stopped. Storage billing continues." : ""}
+              {status === "stopping" ? "Gracefully stopping container…" : ""}
+              {status === "restarting" ? "Restarting container, data preserved…" : ""}
+            </span>
           </div>
         )}
       </Card>
@@ -367,24 +505,23 @@ export default function InstanceDetailPage() {
       </Card>
 
       {/* Connection Info — visible when running (always), completed, or failed */}
-      {(instance.status === "running" || instance.status === "completed" || instance.status === "failed") && (
+      {(isRunning || status === "completed" || status === "failed") && (
       <Card>
         <div className="flex items-center gap-2 mb-3">
           <Globe className="h-4 w-4 text-ice-blue" />
           <h2 className="text-sm font-semibold text-text-secondary">Connection Details</h2>
-          {instance.status === "running" && instance.host_id ? (
+          {isRunning && instance.host_id ? (
             <span className="ml-auto flex items-center gap-1 text-xs text-emerald">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald animate-pulse" /> Live
             </span>
-          ) : instance.status === "running" && !instance.host_id ? (
+          ) : isRunning && !instance.host_id ? (
             <span className="ml-auto flex items-center gap-1 text-xs text-gold">
               <Loader2 className="h-3 w-3 animate-spin" /> Provisioning
             </span>
           ) : null}
         </div>
 
-        {/* Scheduler placement message when running but host not yet assigned */}
-        {instance.status === "running" && !instance.host_id && (
+        {isRunning && !instance.host_id && (
           <div className="rounded-lg border border-gold/30 bg-gold/5 p-3 mb-4">
             <div className="flex items-start gap-2">
               <Clock className="h-4 w-4 text-gold shrink-0 mt-0.5" />
@@ -398,10 +535,8 @@ export default function InstanceDetailPage() {
           </div>
         )}
 
-        {/* Quick-connect commands */}
-        {instance.status === "running" && instance.host_ip && (
+        {isRunning && instance.host_ip && (
           <div className="mb-4 space-y-3">
-            {/* Primary: branded SSH */}
             <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <p className="text-xs font-medium text-text-secondary">SSH Connect</p>
@@ -425,13 +560,10 @@ export default function InstanceDetailPage() {
                 </button>
               </div>
             </div>
-
-            {/* Direct access (expandable) */}
             <DirectAccessSection instance={instance} />
           </div>
         )}
 
-        {/* Instance details grid — show whatever info is available */}
         <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2">
           {instance.host_gpu && (
             <div className="flex justify-between sm:block">
@@ -469,7 +601,7 @@ export default function InstanceDetailPage() {
               <dd>{new Date(Number(instance.started_at) * 1000).toLocaleString()}</dd>
             </div>
           )}
-          {instance.started_at && instance.status === "running" && (
+          {instance.started_at && isRunning && (
             <div className="flex justify-between sm:block">
               <dt className="text-text-muted">Uptime</dt>
               <dd>{formatUptime(Date.now() / 1000 - Number(instance.started_at))}</dd>
@@ -491,7 +623,7 @@ export default function InstanceDetailPage() {
       )}
 
       {/* Web Terminal */}
-      {showTerminal && instance.status === "running" && (
+      {showTerminal && isRunning && (
         <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
       )}
 
@@ -500,13 +632,13 @@ export default function InstanceDetailPage() {
         <div className="flex items-center gap-2 mb-3">
           <Terminal className="h-4 w-4 text-text-muted" />
           <h2 className="text-sm font-semibold text-text-secondary">{t("dash.instances.logs")}</h2>
-          {instance.status === "queued" && (
+          {status === "queued" && (
             <span className="ml-auto flex items-center gap-1.5 text-xs text-accent-gold">
               <Loader2 className="h-3 w-3 animate-spin" />
               Waiting for assignment…
             </span>
           )}
-          {instance.status === "assigned" && (
+          {status === "assigned" && (
             <span className="ml-auto flex items-center gap-1.5 text-xs text-ice-blue">
               <Loader2 className="h-3 w-3 animate-spin" />
               Setting up instance…
@@ -515,20 +647,24 @@ export default function InstanceDetailPage() {
         </div>
         <LogViewer
           jobId={id}
-          live={instance.status === "running" || instance.status === "assigned" || instance.status === "queued"}
+          live={isRunning || status === "assigned" || status === "queued"}
         />
       </Card>
 
-      <ConfirmDialog
-        open={confirmCancel}
-        title={t("dash.instances.cancel_title")}
-        description={t("dash.instances.cancel_desc")}
-        confirmLabel={t("dash.instances.cancel")}
-        cancelLabel={t("common.cancel")}
-        variant="danger"
-        onConfirm={handleCancel}
-        onCancel={() => setConfirmCancel(false)}
-      />
+      {/* Confirm dialog */}
+      {confirmAction && (
+        <ConfirmDialog
+          open
+          title={CONFIRM_CONFIGS[confirmAction].title}
+          description={CONFIRM_CONFIGS[confirmAction].description}
+          confirmLabel={CONFIRM_CONFIGS[confirmAction].confirmLabel}
+          cancelLabel={t("common.cancel")}
+          variant={CONFIRM_CONFIGS[confirmAction].variant}
+          onConfirm={() => executeAction(confirmAction)}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   );
 }
+

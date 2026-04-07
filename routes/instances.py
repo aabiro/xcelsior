@@ -487,6 +487,164 @@ def api_resume_instance(job_id: str, request: Request):
     return {"ok": True, "instance": result}
 
 
+# ── Stop / Start / Restart / Terminate ──────────────────────────────
+
+@router.post("/instances/{job_id}/stop", tags=["Instances"])
+def api_stop_instance(job_id: str, request: Request):
+    """Gracefully stop a running instance.
+
+    Sends SIGTERM to the container (docker stop -t 10). The container is
+    preserved — data, volumes and configuration are intact. Storage billing
+    continues at the per-GB rate. The instance can be started again at any time.
+    """
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    role = user.get("role", "")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    job_owner = job.get("owner", "")
+    if role != "admin" and job_owner != customer_id:
+        raise HTTPException(status_code=403, detail="Not authorized to stop this instance")
+
+    if job.get("status") != "running":
+        raise HTTPException(status_code=400, detail=f"Instance is '{job.get('status')}', must be running to stop")
+
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    result = be.stop_instance(job_id, reason="user_stopped")
+    if not result.get("stopped"):
+        raise HTTPException(status_code=500, detail=result.get("reason", "stop failed"))
+
+    broadcast_sse("instance_stopped", {"job_id": job_id})
+    return {"ok": True, "instance": result}
+
+
+@router.post("/instances/{job_id}/start", tags=["Instances"])
+def api_start_instance(job_id: str, request: Request):
+    """Start a stopped instance.
+
+    Restores the exited container via docker start. Container data is
+    preserved. Requires a positive wallet balance. Compute billing resumes
+    immediately.
+    """
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    role = user.get("role", "")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    job_owner = job.get("owner", "")
+    if role != "admin" and job_owner != customer_id:
+        raise HTTPException(status_code=403, detail="Not authorized to start this instance")
+
+    allowed_statuses = {"stopped", "user_paused", "paused_low_balance"}
+    if job.get("status") not in allowed_statuses:
+        raise HTTPException(status_code=400, detail=f"Instance is '{job.get('status')}', must be stopped to start")
+
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    wallet = be.get_wallet(job_owner or customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
+    if wallet["balance_cad"] <= 0:
+        raise HTTPException(status_code=402, detail="Insufficient wallet balance to start instance")
+
+    result = be.start_instance(job_id)
+    if not result.get("started"):
+        detail = result.get("reason", "start failed")
+        code = 402 if detail == "insufficient_balance" else 500
+        raise HTTPException(status_code=code, detail=detail)
+
+    broadcast_sse("instance_started", {"job_id": job_id})
+    return {"ok": True, "instance": result}
+
+
+@router.post("/instances/{job_id}/restart", tags=["Instances"])
+def api_restart_instance(job_id: str, request: Request):
+    """Restart an instance. Container data is fully preserved.
+
+    Works from both running and stopped states:
+    - Running → graceful stop → start (docker stop + docker start)
+    - Stopped → start (docker start only)
+
+    Billing is continuous — no gap. Requires a positive wallet balance.
+    """
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    role = user.get("role", "")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    job_owner = job.get("owner", "")
+    if role != "admin" and job_owner != customer_id:
+        raise HTTPException(status_code=403, detail="Not authorized to restart this instance")
+
+    if job.get("status") not in ("running", "stopped"):
+        raise HTTPException(status_code=400, detail=f"Instance is '{job.get('status')}', must be running or stopped to restart")
+
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    wallet = be.get_wallet(job_owner or customer_id)
+    if wallet.get("status") == "suspended":
+        raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
+    if wallet["balance_cad"] <= 0:
+        raise HTTPException(status_code=402, detail="Insufficient wallet balance to restart instance")
+
+    result = be.restart_instance(job_id)
+    if not result.get("restarted"):
+        detail = result.get("reason", "restart failed")
+        code = 402 if detail == "insufficient_balance" else 500
+        raise HTTPException(status_code=code, detail=detail)
+
+    broadcast_sse("instance_restarted", {"job_id": job_id})
+    return {"ok": True, "instance": result}
+
+
+@router.post("/instances/{job_id}/terminate", tags=["Instances"])
+def api_terminate_instance(job_id: str, request: Request):
+    """Permanently terminate an instance. This action is irreversible.
+
+    The container and its anonymous volumes are hard-killed and removed.
+    Named/NFS volumes are preserved. The instance cannot be restarted
+    after termination.
+    """
+    user = _require_auth(request)
+    customer_id = user.get("customer_id", user.get("user_id", ""))
+    role = user.get("role", "")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+
+    job_owner = job.get("owner", "")
+    if role != "admin" and job_owner != customer_id:
+        raise HTTPException(status_code=403, detail="Not authorized to terminate this instance")
+
+    terminal_statuses = {"terminated", "completed", "failed", "preempted", "cancelled"}
+    if job.get("status") in terminal_statuses:
+        raise HTTPException(status_code=400, detail=f"Instance already {job.get('status')}")
+
+    from billing import get_billing_engine
+    be = get_billing_engine()
+    result = be.terminate_instance(job_id)
+    if not result.get("terminated"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "terminate failed"))
+
+    broadcast_sse("instance_terminated", {"job_id": job_id})
+    return {"ok": True, "instance": result}
+
+
 # ── Helper: push_job_log ──
 
 def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float | None = None):
