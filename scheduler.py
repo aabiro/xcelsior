@@ -364,6 +364,29 @@ def _set_host_fields(host_id, **updates):
         return host
 
 
+def set_host_draining(host_id, draining=True):
+    """Mark a host as draining or restore it to its schedulable state."""
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        host = _get_host_by_id_conn(conn, host_id)
+        if not host:
+            return None
+
+        if draining:
+            host["status"] = "draining"
+            host["draining_since"] = time.time()
+        else:
+            host.pop("draining_since", None)
+            host["status"] = "active" if host.get("admitted", False) else "pending"
+
+        _upsert_host_row(conn, host)
+
+    engine = get_engine()
+    engine.mirror_to_secondary(DatabaseOps.upsert_host, host)
+    emit_event("host_update", {"host_id": host_id, "status": host["status"]})
+    return host
+
+
 def _load_json(path):
     """Load persisted list data from SQLite, with one-time migration from JSON files."""
     namespace = _namespace_key(path)
@@ -425,7 +448,11 @@ def allocate(job, hosts):
     num_gpus_needed = job.get("num_gpus", 1) or 1
 
     # Step 1: VRAM filter
-    candidates = [h for h in hosts if h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)]
+    candidates = [
+        h for h in hosts
+        if h.get("status", "active") == "active"
+        and h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)
+    ]
     if not candidates:
         return None
 
@@ -532,7 +559,8 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
     # Filter: VRAM + admission
     candidates = [
         h for h in hosts
-        if h.get("admitted", False)
+        if h.get("status", "active") == "active"
+        and h.get("admitted", False)
         and h.get("free_vram_gb", 0) >= vram_needed
     ]
     if not candidates:
@@ -692,6 +720,10 @@ def register_host(
             for field in ("country", "province", "autoscaled", "compute_score", "admitted"):
                 if field in existing and field not in entry:
                     entry[field] = existing[field]
+            if existing.get("status") == "draining":
+                entry["status"] = "draining"
+                if "draining_since" in existing:
+                    entry["draining_since"] = existing["draining_since"]
         _upsert_host_row(conn, entry)
 
     # Mirror to secondary DB in dual-write mode
@@ -784,7 +816,8 @@ def check_hosts():
                 current["last_seen"] = time.time()
                 if current.get("status") == "dead":
                     revivals.append((host_id, ip))
-                current["status"] = "active"
+                if current.get("status") != "draining":
+                    current["status"] = "active"
             else:
                 if current.get("status") != "dead":
                     alerts.append((host_id, ip))

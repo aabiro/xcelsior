@@ -190,7 +190,8 @@ class StripeConnectManager:
             # yet, then clicks "Continue" and gets sent back into the flow.
             try:
                 acct_check = stripe.Account.retrieve(account_id)
-                if acct_check.get("charges_enabled") and acct_check.get("payouts_enabled"):
+                acct_check_dict = json.loads(str(acct_check))
+                if acct_check_dict.get("charges_enabled") and acct_check_dict.get("payouts_enabled"):
                     login_link = stripe.Account.create_login_link(account_id)
                     return login_link.url, "active"
             except Exception as check_err:
@@ -235,8 +236,9 @@ class StripeConnectManager:
 
             # Account exists on Stripe.  If it's already fully enabled, open the
             # Express dashboard instead of the onboarding flow.
-            charges_enabled = bool(acct.get("charges_enabled", False))
-            payouts_enabled = bool(acct.get("payouts_enabled", False))
+            acct_dict = json.loads(str(acct))
+            charges_enabled = bool(acct_dict.get("charges_enabled", False))
+            payouts_enabled = bool(acct_dict.get("payouts_enabled", False))
             if charges_enabled and payouts_enabled:
                 try:
                     login_link = stripe.Account.create_login_link(account_id)
@@ -425,9 +427,10 @@ class StripeConnectManager:
             if STRIPE_ENABLED and stripe and stripe_account_id:
                 try:
                     acct = stripe.Account.retrieve(stripe_account_id)
-                    charges_enabled = bool(acct.get("charges_enabled", False))
-                    payouts_enabled = bool(acct.get("payouts_enabled", False))
-                    disabled_reason = (acct.get("requirements") or {}).get("disabled_reason")
+                    acct_dict = json.loads(str(acct))
+                    charges_enabled = bool(acct_dict.get("charges_enabled", False))
+                    payouts_enabled = bool(acct_dict.get("payouts_enabled", False))
+                    disabled_reason = (acct_dict.get("requirements") or {}).get("disabled_reason")
 
                     if charges_enabled and payouts_enabled:
                         new_status = "active"
@@ -818,20 +821,23 @@ class StripeConnectManager:
                 "SELECT provider_id FROM provider_accounts WHERE stripe_account_id=%s",
                 (acct_id,),
             ).fetchone()
-            if row:
-                charges_enabled = data.get("charges_enabled", False)
-                payouts_enabled = data.get("payouts_enabled", False)
-                if charges_enabled and payouts_enabled:
-                    self.complete_onboarding(row["provider_id"])
-                elif not charges_enabled or not payouts_enabled:
-                    # Stripe disabled capabilities — mark restricted
-                    reqs = data.get("requirements", {})
-                    if reqs.get("disabled_reason"):
-                        conn.execute(
-                            "UPDATE provider_accounts SET status='restricted' WHERE provider_id=%s",
-                            (row["provider_id"],),
-                        )
-                        log.warning("Provider %s restricted: %s", row["provider_id"], reqs.get("disabled_reason"))
+            if not row:
+                log.debug("account.updated for %s — no matching provider_accounts row, skipping", acct_id)
+                return
+            charges_enabled = data.get("charges_enabled", False)
+            payouts_enabled = data.get("payouts_enabled", False)
+            log.info("account.updated for provider %s: charges=%s payouts=%s", row["provider_id"], charges_enabled, payouts_enabled)
+            if charges_enabled and payouts_enabled:
+                self.complete_onboarding(row["provider_id"])
+            else:
+                # Stripe disabled capabilities — mark restricted if there's a reason
+                reqs = data.get("requirements", {})
+                if reqs.get("disabled_reason"):
+                    conn.execute(
+                        "UPDATE provider_accounts SET status='restricted' WHERE provider_id=%s",
+                        (row["provider_id"],),
+                    )
+                    log.warning("Provider %s restricted: %s", row["provider_id"], reqs.get("disabled_reason"))
 
     def _handle_payment_succeeded(self, data: dict, event_id: str):
         si_id = data["id"]

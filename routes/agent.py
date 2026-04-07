@@ -125,7 +125,7 @@ def api_agent_versions(report: VersionReport):
             h["recommended_runtime"] = details.get("recommended_runtime", "runc")
             h["admission_details"] = details
             if details["admitted"]:
-                h["status"] = "active"
+                h["status"] = "draining" if h.get("status") == "draining" else "active"
                 log.info(
                     "HOST %s ADMITTED — status set to active, runtime=%s",
                     report.host_id,
@@ -532,4 +532,3 @@ def api_agent_ssh_keys(job_id: str):
         "ok": True,
         "keys": [k["public_key"] for k in keys],
     }
-

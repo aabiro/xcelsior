@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
+    _require_admin,
     broadcast_sse,
     log,
 )
@@ -20,6 +21,7 @@ from scheduler import (
     log,
     register_host,
     remove_host,
+    set_host_draining,
 )
 from db import UserStore
 from verification import get_verification_engine
@@ -27,6 +29,21 @@ from security import admit_node
 from reputation import VerificationType, get_reputation_engine
 
 router = APIRouter()
+
+
+def _interactive_host_jobs(host_id: str) -> list[dict]:
+    """Interactive jobs that should block worker maintenance."""
+    blocking_statuses = {"assigned", "leased", "running"}
+    jobs = []
+    for job in list_jobs():
+        if job.get("host_id") != host_id:
+            continue
+        if not job.get("interactive", False):
+            continue
+        if job.get("status") not in blocking_statuses:
+            continue
+        jobs.append(job)
+    return jobs
 
 
 # ── Model: HostIn ──
@@ -196,6 +213,75 @@ def api_list_hosts(active_only: bool = True):
     """List all hosts."""
     return {"hosts": list_hosts(active_only=active_only)}
 
+
+@router.get("/host/{host_id}/maintenance", tags=["Hosts"])
+def api_host_maintenance(host_id: str, request: Request):
+    """Return maintenance readiness for a host."""
+    _require_admin(request)
+    hosts = list_hosts(active_only=False)
+    host = next((h for h in hosts if h["host_id"] == host_id), None)
+    if not host:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+
+    interactive_jobs = _interactive_host_jobs(host_id)
+    summary = [
+        {
+            "job_id": job.get("job_id"),
+            "name": job.get("name"),
+            "status": job.get("status"),
+            "owner": job.get("owner"),
+        }
+        for job in interactive_jobs
+    ]
+    safe_to_maintain = host.get("status") == "draining" and len(summary) == 0
+
+    return {
+        "ok": True,
+        "host_id": host_id,
+        "status": host.get("status"),
+        "draining": host.get("status") == "draining",
+        "admitted": host.get("admitted", False),
+        "active_interactive_instances": len(summary),
+        "interactive_instances": summary,
+        "safe_to_maintain": safe_to_maintain,
+    }
+
+
+@router.post("/host/{host_id}/drain", tags=["Hosts"])
+def api_drain_host(host_id: str, request: Request):
+    """Stop new placements on a host without evicting active instances."""
+    _require_admin(request)
+    hosts = list_hosts(active_only=False)
+    host = next((h for h in hosts if h["host_id"] == host_id), None)
+    if not host:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    if host.get("status") == "dead":
+        raise HTTPException(status_code=409, detail="Cannot drain a dead host")
+
+    updated = set_host_draining(host_id, draining=True)
+    broadcast_sse("host_update", {"host_id": host_id, "status": "draining"})
+    return {
+        "ok": True,
+        "host": updated,
+        "maintenance": api_host_maintenance(host_id, request),
+    }
+
+
+@router.post("/host/{host_id}/undrain", tags=["Hosts"])
+def api_undrain_host(host_id: str, request: Request):
+    """Restore a drained host to active or pending status."""
+    _require_admin(request)
+    hosts = list_hosts(active_only=False)
+    host = next((h for h in hosts if h["host_id"] == host_id), None)
+    if not host:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    if host.get("status") == "dead":
+        raise HTTPException(status_code=409, detail="Cannot undrain a dead host")
+
+    updated = set_host_draining(host_id, draining=False)
+    broadcast_sse("host_update", {"host_id": host_id, "status": updated.get("status", "pending")})
+    return {"ok": True, "host": updated}
+
 @router.delete("/host/{host_id}", tags=["Hosts"])
 def api_remove_host(host_id: str):
     """Remove a host."""
@@ -233,4 +319,3 @@ def api_list_compute_scores():
                 "gpu_model": h.get("gpu_model", "unknown"),
             }
     return {"ok": True, "scores": scores}
-

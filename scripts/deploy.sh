@@ -70,6 +70,121 @@ scp_file() {
     scp -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
 }
 
+get_env_value() {
+    local key="$1"
+    python3 - "$ENV_FILE" "$key" <<'PY'
+import sys
+
+path, key = sys.argv[1], sys.argv[2]
+value = ""
+with open(path, "r", encoding="utf-8") as fh:
+    for raw in fh:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip() != key:
+            continue
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        value = v
+        break
+print(value, end="")
+PY
+}
+
+resolve_api_base_url() {
+    local base
+    base=$(get_env_value "XCELSIOR_BASE_URL")
+    if [[ -z "$base" ]]; then
+        base=$(get_env_value "NEXT_PUBLIC_API_URL")
+    fi
+    if [[ -z "$base" ]]; then
+        base="https://$DOMAIN"
+    fi
+    printf '%s' "${base%/}"
+}
+
+resolve_api_token() {
+    local token
+    token=$(get_env_value "XCELSIOR_API_TOKEN")
+    [[ -n "$token" ]] || error "XCELSIOR_API_TOKEN missing from $ENV_FILE"
+    printf '%s' "$token"
+}
+
+api_request() {
+    local method="$1" path="$2" body="${3:-}"
+    local base token
+    base=$(resolve_api_base_url)
+    token=$(resolve_api_token)
+
+    if [[ -n "$body" ]]; then
+        curl -fsS -X "$method" \
+            -H "Authorization: Bearer $token" \
+            -H "Content-Type: application/json" \
+            -d "$body" \
+            "$base$path"
+    else
+        curl -fsS -X "$method" \
+            -H "Authorization: Bearer $token" \
+            "$base$path"
+    fi
+}
+
+host_maintenance_summary() {
+    local host_id="$1"
+    api_request GET "/host/$host_id/maintenance"
+}
+
+drain_worker_host() {
+    local host_id="$1"
+    log "Draining worker host $host_id..."
+    api_request POST "/host/$host_id/drain" >/dev/null
+    success "Host $host_id marked draining"
+}
+
+undrain_worker_host() {
+    local host_id="$1"
+    log "Undraining worker host $host_id..."
+    api_request POST "/host/$host_id/undrain" >/dev/null
+    success "Host $host_id restored to schedulable state"
+}
+
+guard_worker_host() {
+    local host_id="$1"
+    local summary
+    summary=$(host_maintenance_summary "$host_id") || error "Failed to fetch maintenance status for $host_id"
+
+    python3 - "$host_id" "$summary" <<'PY'
+import json
+import sys
+
+host_id = sys.argv[1]
+summary = json.loads(sys.argv[2])
+status = summary.get("status", "unknown")
+count = int(summary.get("active_interactive_instances", 0) or 0)
+
+print(f"Host: {host_id}")
+print(f"Status: {status}")
+print(f"Active interactive instances: {count}")
+for item in summary.get("interactive_instances", []):
+    print(f"- {item.get('job_id')} {item.get('status')} {item.get('name')}")
+
+if status != "draining":
+    print("Unsafe: host is not drained", file=sys.stderr)
+    raise SystemExit(2)
+if count > 0:
+    print("Unsafe: interactive instances are still active", file=sys.stderr)
+    raise SystemExit(3)
+PY
+    success "Host $host_id is safe for maintenance"
+}
+
 install_nginx_configs() {
     log "Installing nginx site configs..."
 
@@ -553,6 +668,9 @@ ${CYAN}Usage:${NC}
   $0 --rollback         Rollback to previous backup
   $0 --health           Run health checks
   $0 --systemd          Deploy using systemd instead of Docker
+  $0 --drain-host ID    Mark a worker host as draining
+  $0 --undrain-host ID  Restore a drained worker host
+  $0 --guard-host ID    Fail unless a drained worker host has no active interactive instances
   $0 --help             Show this help
 
 ${CYAN}Environment files:${NC}
@@ -581,6 +699,11 @@ ${CYAN}Examples:${NC}
 
   # Stop test environment
   ./scripts/deploy.sh --test-stop
+
+  # Worker maintenance
+  ./scripts/deploy.sh --drain-host gpu-worker-01
+  ./scripts/deploy.sh --guard-host gpu-worker-01
+  ./scripts/deploy.sh --undrain-host gpu-worker-01
 EOF
 }
 
@@ -648,6 +771,24 @@ main() {
             install_nginx_configs
             deploy_systemd
             health_check
+            ;;
+        --drain-host)
+            TARGET_ENV="prod"
+            resolve_env
+            [[ -n "${2:-}" ]] || error "Missing host ID for --drain-host"
+            drain_worker_host "$2"
+            ;;
+        --undrain-host)
+            TARGET_ENV="prod"
+            resolve_env
+            [[ -n "${2:-}" ]] || error "Missing host ID for --undrain-host"
+            undrain_worker_host "$2"
+            ;;
+        --guard-host)
+            TARGET_ENV="prod"
+            resolve_env
+            [[ -n "${2:-}" ]] || error "Missing host ID for --guard-host"
+            guard_worker_host "$2"
             ;;
         ""|--docker)
             TARGET_ENV="prod"

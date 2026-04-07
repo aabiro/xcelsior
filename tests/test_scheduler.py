@@ -189,6 +189,14 @@ class TestHostRegistry:
         assert len(scheduler.list_hosts(active_only=True)) == 0
         assert len(scheduler.list_hosts(active_only=False)) == 1
 
+    def test_draining_host_excluded_from_active_only(self):
+        scheduler.register_host("h1", "10.0.0.1", "RTX 4090", 24, 24)
+        scheduler.set_host_draining("h1", draining=True)
+        assert len(scheduler.list_hosts(active_only=True)) == 0
+        all_hosts = scheduler.list_hosts(active_only=False)
+        assert len(all_hosts) == 1
+        assert all_hosts[0]["status"] == "draining"
+
 
 # ── Phase 3: Job Queue ──────────────────────────────────────────────
 
