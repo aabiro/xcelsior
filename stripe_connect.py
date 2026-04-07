@@ -437,7 +437,14 @@ class StripeConnectManager:
                     elif disabled_reason:
                         new_status = "restricted"
                     else:
-                        new_status = "onboarding"
+                        # Not complete — mark abandoned so the UI can show a
+                        # distinct "Resume Setup" CTA. Only downgrade from
+                        # onboarding→abandoned, never touch active/restricted.
+                        current = provider.get("status", "pending")
+                        if current in ("onboarding", "pending", "abandoned"):
+                            new_status = "abandoned"
+                        else:
+                            new_status = current
 
                     updates: dict[str, float | str] = {}
                     if provider.get("status") != new_status:
@@ -496,6 +503,25 @@ class StripeConnectManager:
                     "SELECT * FROM provider_accounts ORDER BY created_at DESC"
                 ).fetchall()
             return [dict(r) for r in rows]
+
+    def mark_abandoned(self, provider_id: str) -> dict:
+        """Mark a provider's onboarding as abandoned (user left Stripe mid-flow)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT status FROM provider_accounts WHERE provider_id=%s",
+                (provider_id,),
+            ).fetchone()
+            if not row:
+                return {"provider_id": provider_id, "status": "not_found"}
+            # Never downgrade an active or restricted account
+            if row["status"] in ("active", "restricted", "suspended"):
+                return {"provider_id": provider_id, "status": row["status"]}
+            conn.execute(
+                "UPDATE provider_accounts SET status='abandoned' WHERE provider_id=%s",
+                (provider_id,),
+            )
+        log.info("Provider %s onboarding ABANDONED", provider_id)
+        return {"provider_id": provider_id, "status": "abandoned"}
 
     def complete_onboarding(self, provider_id: str) -> dict:
         """Mark a provider's onboarding as complete (webhook callback)."""
