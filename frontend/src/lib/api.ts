@@ -522,6 +522,12 @@ export async function resumeOnboarding(providerId: string) {
   }>(`/api/providers/${encodeURIComponent(providerId)}/resume-onboarding`, { method: "POST" });
 }
 
+export async function abandonOnboarding(providerId: string) {
+  return apiFetch<{
+    ok: boolean; provider_id: string; status: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/abandon-onboarding`, { method: "POST" });
+}
+
 export async function requestPayout(providerId: string, jobId: string, totalCad: number) {
   return apiFetch<{
     ok: boolean; job_id: string; total_cad: number;
@@ -574,7 +580,7 @@ export async function fetchSpotPrices() {
 
 export async function submitSpotInstance(data: {
   name: string; vram_needed_gb: number; max_bid: number;
-  priority?: number; tier?: string;
+  priority?: number; tier?: string; image?: string;
 }) {
   return apiFetch<{ ok: boolean; instance: { job_id: string; name: string } }>(
     "/spot/instance", { method: "POST", body: JSON.stringify(data) },

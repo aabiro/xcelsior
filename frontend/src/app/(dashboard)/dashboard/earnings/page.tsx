@@ -95,7 +95,14 @@ export default function EarningsPage() {
     if (!stripeState || handledStripeReturn || loading) return;
 
     if (stripeState === "refresh") {
-      toast.info("Stripe setup wasn't finished yet. Click Continue to resume onboarding.", { duration: 8000 });
+      // Link expired — user never completed onboarding. Mark abandoned immediately.
+      toast.info("Stripe setup wasn't completed. Click \"Resume Setup\" to try again.", { duration: 8000 });
+      const pid = providerId || customerId;
+      if (pid) {
+        api.abandonOnboarding(pid)
+          .then((res) => { if (res?.provider) setProvider(res.provider as ProviderInfo); })
+          .catch(() => {/* non-critical */});
+      }
     } else if (stripeState === "return") {
       if (provider?.status === "active") {
         setJustConnected(true);
@@ -140,7 +147,15 @@ export default function EarningsPage() {
       if (attempts >= MAX_ATTEMPTS) {
         setPollingStatus(false);
         clearInterval(interval);
-        toast.info("Stripe setup may still be processing. Check back shortly or click Continue.", { duration: 8000 });
+        // Poll timed out — either Stripe is slow or the user didn't finish.
+        // Mark abandoned so they see a clear "Resume Setup" CTA.
+        const pid = providerId || customerId;
+        if (pid) {
+          api.abandonOnboarding(pid)
+            .then((res) => { if (res?.provider) setProvider(res.provider as ProviderInfo); })
+            .catch(() => {/* non-critical */});
+        }
+        toast.info("Stripe verification timed out. If you completed setup, click \"Resume Setup\" to check again.", { duration: 10000 });
       }
     }, 2000);
     return () => clearInterval(interval);
@@ -160,8 +175,10 @@ export default function EarningsPage() {
         email: user.email,
       });
       if (res.onboarding_url) {
-        // Redirect to Stripe onboarding
+        // Redirect to Stripe onboarding/dashboard
         window.location.href = res.onboarding_url;
+        // Reset spinner after 5s in case user returns via back button
+        setTimeout(() => setOnboarding(false), 5000);
       } else if (provider) {
         const msg = "Unable to generate Stripe onboarding link. Please try again or contact support.";
         setStripeError(msg);
@@ -200,6 +217,7 @@ export default function EarningsPage() {
     active: "text-emerald",
     onboarding: "text-gold",
     pending: "text-text-muted",
+    abandoned: "text-accent-orange",
     restricted: "text-accent-red",
     suspended: "text-accent-red",
   };
@@ -291,13 +309,21 @@ export default function EarningsPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium">Provider Onboarding In Progress</p>
+                        <p className="text-sm font-medium">
+                          {provider.status === "abandoned"
+                            ? "Stripe Setup Incomplete"
+                            : provider.status === "pending"
+                            ? "Set Up Stripe Payouts"
+                            : "Provider Onboarding In Progress"}
+                        </p>
                         <p className="text-xs text-text-muted">
-                          Complete your Stripe Connect setup to start receiving payouts from GPU jobs
+                          {provider.status === "abandoned"
+                            ? "You left Stripe setup before finishing. Click Resume to pick up where you left off."
+                            : "Complete your Stripe Connect setup to start receiving payouts from GPU jobs"}
                         </p>
                       </div>
                       <Badge className={`${statusColor[provider.status] || "text-text-muted"} border-current/20 bg-current/5`}>
-                        {provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
+                        {provider.status === "abandoned" ? "Incomplete" : provider.status.charAt(0).toUpperCase() + provider.status.slice(1)}
                       </Badge>
                     </div>
                     <Button variant="gold" size="sm" className="w-full" onClick={handleStripeConnect} disabled={onboarding || pollingStatus}>
@@ -305,8 +331,12 @@ export default function EarningsPage() {
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Redirecting to Stripe…</>
                       ) : pollingStatus ? (
                         <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Verifying Stripe status…</>
+                      ) : provider.status === "abandoned" ? (
+                        <><ExternalLink className="h-3.5 w-3.5" /> Resume Stripe Setup</>
+                      ) : provider.status === "pending" ? (
+                        <><LinkIcon className="h-3.5 w-3.5" /> Set Up Stripe Payouts</>
                       ) : (
-                        <><ExternalLink className="h-3.5 w-3.5" /> Continue the Stripe Process</>
+                        <><ExternalLink className="h-3.5 w-3.5" /> Continue Stripe Setup</>
                       )}
                     </Button>
                     {stripeError && (

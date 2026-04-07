@@ -92,6 +92,22 @@ def api_register_provider(req: ProviderRegisterRequest):
     )
     return {"ok": True, **result}
 
+@router.post("/api/providers/{provider_id}/abandon-onboarding", tags=["Providers"])
+def api_abandon_onboarding(provider_id: str, request: Request):
+    """Mark a provider's onboarding as abandoned.
+
+    Called when the user returns via the Stripe refresh URL (link expired)
+    or when the frontend poll times out after a return URL visit.
+    Idempotent — safe to call multiple times.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    mgr = get_stripe_manager()
+    result = mgr.mark_abandoned(provider_id)
+    return {"ok": True, **result}
+
+
 @router.post("/api/providers/{provider_id}/resume-onboarding", tags=["Providers"])
 def api_resume_onboarding(provider_id: str, request: Request):
     """Generate a fresh Stripe onboarding URL for a provider stuck in onboarding.
