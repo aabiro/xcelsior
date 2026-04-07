@@ -343,6 +343,56 @@ export async function refreshCryptoDeposit(depositId: string) {
   });
 }
 
+// ── Lightning Network Deposits ────────────────────────────────────────
+export async function checkLightningEnabled(opts?: RequestInit) {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    available?: boolean;
+    reason?: string;
+    node_alias?: string;
+    node_id?: string;
+    num_active_channels?: number;
+    blockheight?: number;
+    network?: string;
+  }>("/api/billing/lightning/enabled", opts);
+}
+
+export async function createLightningDeposit(customerId: string, amountCad: number) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    bolt11: string;
+    payment_hash: string;
+    amount_sats: number;
+    amount_btc: number;
+    amount_cad: number;
+    btc_cad_rate: number;
+    expires_at: number;
+  }>("/api/billing/lightning/deposit", {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad }),
+  });
+}
+
+export async function checkLightningDeposit(depositId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deposit_id: string;
+    status: string;
+    amount_cad: number;
+    amount_sats: number;
+    amount_btc: number;
+    payment_preimage?: string;
+    paid_at?: number;
+    credited_at?: number;
+  }>(`/api/billing/lightning/deposit/${encodeURIComponent(depositId)}`);
+}
+
+export async function getLightningRate() {
+  return apiFetch<{ ok: boolean; btc_cad: number; currency: string }>("/api/billing/lightning/rate");
+}
+
 export async function fetchWalletHistory(customerId: string, limit = 50) {
   return apiFetch<{ ok: boolean; customer_id: string; transactions: WalletTransaction[] }>(
     `/api/billing/wallet/${encodeURIComponent(customerId)}/history?limit=${limit}`,
@@ -1050,7 +1100,7 @@ export async function fetchAdminUsers() {
     users: {
       email: string; role: string; is_admin?: boolean; is_active: boolean;
       created_at: string; wallet_balance_cad: number; total_jobs: number;
-      province: string; country: string;
+      province: string; country: string; team_id?: string | null;
     }[];
   }>("/api/admin/users");
 }
@@ -1149,6 +1199,28 @@ export async function adminToggleAdmin(email: string) {
   return apiFetch<{ ok: boolean; email: string; is_admin: number }>(
     `/api/admin/users/${encodeURIComponent(email)}/toggle-admin`,
     { method: "POST" },
+  );
+}
+
+// ── Admin: Teams ─────────────────────────────────────────────────────
+export interface AdminTeam {
+  team_id: string;
+  name: string;
+  owner_email: string;
+  plan: string;
+  max_members: number;
+  created_at: number;
+  members: TeamMember[];
+}
+
+export async function fetchAdminTeams() {
+  return apiFetch<{ ok: boolean; teams: AdminTeam[] }>("/api/admin/teams");
+}
+
+export async function adminRemoveTeamMember(teamId: string, email: string) {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/admin/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(email)}`,
+    { method: "DELETE" },
   );
 }
 

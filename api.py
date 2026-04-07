@@ -270,6 +270,25 @@ def _start_background_tasks():
             log.error("Job log cleanup error: %s", e)
     tasks.append(("job_log_cleanup", _job_log_cleanup, 86400))
 
+    # 12. Lightning Network deposit watcher — runs its own thread (every 5s)
+    try:
+        import lightning as _ln
+        if _ln.LN_ENABLED:
+            def _ln_credit_callback(customer_id, amount_cad, deposit_id):
+                from billing import get_billing_engine
+                be = get_billing_engine()
+                be.deposit(
+                    customer_id,
+                    amount_cad,
+                    f"Lightning deposit {deposit_id}",
+                )
+            _ln.start_ln_watcher(interval=5, credit_callback=_ln_credit_callback)
+            log.info("Lightning deposit watcher started")
+        else:
+            log.debug("Lightning disabled — watcher not started")
+    except Exception as e:
+        log.warning("Lightning watcher startup failed (non-fatal): %s", e)
+
     for name, func, interval in tasks:
         t = _bg_threading.Thread(target=_bg_worker, args=(name, func, interval), daemon=True)
         t.start()

@@ -322,16 +322,17 @@ export default function ReputationPage() {
   const activityPoints: number = myRep?.activity_points ?? 0;
   const penaltyPoints: number = myRep?.penalty_points ?? 0;
 
-  const rawVerifications: string | string[] = myRep?.verifications ?? "[]";
-  const earnedVerifications: string[] = Array.isArray(rawVerifications)
-    ? rawVerifications
-    : (() => {
-        try {
-          return JSON.parse(rawVerifications as string);
-        } catch {
-          return [];
-        }
-      })();
+  const earnedVerifications: string[] = (() => {
+    const raw = myRep?.verifications;
+    if (Array.isArray(raw)) return raw as string[];
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as string[];
+      } catch { /* ignore */ }
+    }
+    return [] as string[];
+  })();
 
   return (
     <div className="space-y-6">

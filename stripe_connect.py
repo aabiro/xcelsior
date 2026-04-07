@@ -25,8 +25,14 @@ log = logging.getLogger("xcelsior.stripe")
 
 # ── Configuration ─────────────────────────────────────────────────────
 
-STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
+# When XCELSIOR_STRIPE_MODE=sandbox, use the *_SANDBOX_* keys instead of live keys.
+_STRIPE_MODE = os.environ.get("XCELSIOR_STRIPE_MODE", "live").lower()
+if _STRIPE_MODE == "sandbox":
+    STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "") or os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET", "") or os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
+else:
+    STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
 _raw_cut = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 PLATFORM_CUT_FRAC = _raw_cut if _raw_cut <= 1.0 else _raw_cut / 100.0
 STRIPE_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SECRET_KEY.startswith("sk_"))
@@ -41,7 +47,7 @@ if STRIPE_ENABLED:
 
         _stripe.api_key = STRIPE_SECRET_KEY
         stripe = _stripe
-        log.info("Stripe Connect ENABLED (key prefix: %s...)", STRIPE_SECRET_KEY[:7])
+        log.info("Stripe Connect ENABLED (mode=%s, key prefix: %s...)", _STRIPE_MODE, STRIPE_SECRET_KEY[:7])
     except ImportError:
         log.warning("stripe package not installed — pip install stripe")
         STRIPE_ENABLED = False
@@ -320,15 +326,13 @@ class StripeConnectManager:
         except Exception as e:
             log.error("Stripe account creation failed for %s: %s", provider_id, e)
             err_msg = str(e)
-            if "signed up for Connect" in err_msg:
+            if "signed up for Connect" in err_msg or "platform" in err_msg.lower():
                 raise RuntimeError(
                     "Stripe Connect is not yet activated on the platform account. "
                     "The platform administrator needs to enable Connect at "
                     "https://dashboard.stripe.com/connect before providers can onboard."
                 ) from e
-            raise RuntimeError(
-                "Failed to start Stripe onboarding. Please try again in a moment."
-            ) from e
+            raise RuntimeError(f"Failed to start Stripe onboarding: {err_msg}") from e
 
         # Persist locally
         with self._conn() as conn:

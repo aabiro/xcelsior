@@ -205,6 +205,7 @@ ALLOWED_IMAGE_REGISTRIES: list[str] = [
     "vllm/",
     "nvidia/cuda:",
     "pytorch/",
+    "tensorflow/",
     "huggingface/",
     "runpod/",
     "ollama/",
