@@ -1412,8 +1412,8 @@ export interface Instance {
   elapsed_sec?: number;
   cost_cad?: number;
   tier?: string;
-  submitted_at: string;
-  created_at?: string;
+  submitted_at: number;
+  created_at?: number;
   // Connection info (enriched by API when running/completed)
   host_ip?: string;
   host_gpu?: string;

@@ -169,8 +169,11 @@ export default function InstanceDetailPage() {
     || instance?.status === "starting" || instance?.status === "running" || instance?.status === "stopping"
     || instance?.status === "restarting";
   const onWsInstance = useCallback((i: Instance) => {
-    if (!i.docker_image && (i as Record<string, unknown>).image) {
-      i.docker_image = (i as Record<string, unknown>).image as string;
+    // WS payloads may have 'image' instead of 'docker_image'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = i as any;
+    if (!i.docker_image && raw.image) {
+      i.docker_image = raw.image as string;
     }
     setInstance(i);
   }, []);
