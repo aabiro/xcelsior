@@ -66,7 +66,6 @@ export default function NewInstancePage() {
   const [name, setName] = useState(() => generateFunName());
   const [image, setImage] = useState("");
   const [gpuModel, setGpuModel] = useState("");
-  const [vramNeeded, setVramNeeded] = useState("24");
   const [numGpus, setNumGpus] = useState("1");
   const [tier, setTier] = useState<(typeof TIERS)[number]>("on-demand");
   const [priority, setPriority] = useState(1);
@@ -132,7 +131,7 @@ export default function NewInstancePage() {
       const params: LaunchInstanceParams = {
         name: instanceName,
         image,
-        vram_needed_gb: Number(vramNeeded) || 24,
+
         num_gpus: Number(numGpus),
         priority,
         tier,
@@ -145,7 +144,6 @@ export default function NewInstancePage() {
         name: instanceName,
         image,
         gpuModel,
-        vramNeeded,
         numGpus,
         durationHrs,
         nfsMount,
@@ -193,7 +191,7 @@ export default function NewInstancePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <button
               type="button"
-              onClick={() => { setImage(""); setVramNeeded("24"); }}
+              onClick={() => { setImage(""); }}
               className={cn(
                 "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
                 !templates.some((t) => t.image === image)
@@ -208,7 +206,7 @@ export default function NewInstancePage() {
               <button
                 key={tpl.id}
                 type="button"
-                onClick={() => { setImage(tpl.image); setVramNeeded(tpl.vram); }}
+                onClick={() => { setImage(tpl.image); }}
                 className={cn(
                   "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
                   image === tpl.image
@@ -270,33 +268,14 @@ export default function NewInstancePage() {
             </datalist>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="gpu">{t("dash.newinstance.gpu_model")}</Label>
-              <Select id="gpu" name="gpu-model" autoComplete="on" value={gpuModel} onChange={(e) => setGpuModel(e.target.value)}>
-                <option value="">{t("dash.newinstance.gpu_auto")}</option>
-                {gpuModels.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="vram">{t("dash.newinstance.vram")}</Label>
-              <Input
-                id="vram"
-                name="vram-gb"
-                autoComplete="on"
-                list="past-vram"
-                type="number"
-                min="1"
-                value={vramNeeded}
-                onChange={(e) => setVramNeeded(e.target.value)}
-              />
-              <datalist id="past-vram">
-                {(pastValues.vramNeeded || []).map((v) => <option key={v} value={v} />)}
-              </datalist>
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="gpu">{t("dash.newinstance.gpu_model")}</Label>
+            <Select id="gpu" name="gpu-model" autoComplete="on" value={gpuModel} onChange={(e) => setGpuModel(e.target.value)}>
+              <option value="">{t("dash.newinstance.gpu_auto")}</option>
+              {gpuModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </Select>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">

@@ -226,6 +226,19 @@ export default function InstanceDetailPage() {
     }
   }
 
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  // Close actions dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) setShowActionsMenu(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -257,19 +270,6 @@ export default function InstanceDetailPage() {
   const currentStepIdx = STATUS_STEPS.indexOf(
     (status === "failed" || status === "cancelled") ? "running" : (status as typeof STATUS_STEPS[number]),
   );
-
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const actionsRef = useRef<HTMLDivElement>(null);
-
-  // Close actions dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) setShowActionsMenu(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
 
   return (
     <div className="space-y-6">

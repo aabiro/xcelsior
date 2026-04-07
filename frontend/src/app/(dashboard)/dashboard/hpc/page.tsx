@@ -107,7 +107,7 @@ function HpcContent() {
     try {
       const res = await api.submitSlurmInstance({
         name: jobName.trim(),
-        vram_needed_gb: Number(gpus) * 24,
+
         priority: "normal",
         profile: selectedProfile,
         num_gpus: Number(gpus) * Number(nodes),

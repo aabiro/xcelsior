@@ -106,7 +106,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
       const params: api.LaunchInstanceParams = {
         name: instanceName.trim(),
         image: resolvedImage,
-        vram_needed_gb: listing.vram_gb || 24,
+
         tier,
         host_id: listing.host_id,
         gpu_model: listing.gpu_model,

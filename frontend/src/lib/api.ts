@@ -1310,7 +1310,7 @@ export async function fetchSlurmProfiles() {
 }
 
 export async function submitSlurmInstance(data: {
-  name: string; vram_needed_gb: number; priority: string;
+  name: string; vram_needed_gb?: number; priority: string;
   tier?: string; num_gpus?: number; image?: string; profile?: string; dry_run?: boolean;
 }) {
   return apiFetch<{ ok: boolean; slurm_job_id: string; instance_id?: string }>(
