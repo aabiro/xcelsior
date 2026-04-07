@@ -453,6 +453,53 @@ class TestMarketplace:
         assert listing["host_id"] == "h1"
         assert listing["active"]
 
+    def test_list_rig_applies_reputation_platform_cut(self, monkeypatch):
+        class _FakeScore:
+            final_score = 900
+            raw_score = 900
+
+        class _FakeReputationEngine:
+            def compute_score(self, entity_id):
+                return _FakeScore()
+
+        monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
+
+        listing = scheduler.list_rig("h1", "RTX 4090", 24, 0.30, owner="alice")
+        assert listing["platform_cut"] == 0.08
+        assert listing["platform_cut_source"] == "reputation"
+
+    def test_marketplace_preserves_manual_platform_cut(self, monkeypatch):
+        class _FakeScore:
+            final_score = 900
+            raw_score = 900
+
+        class _FakeReputationEngine:
+            def compute_score(self, entity_id):
+                return _FakeScore()
+
+        monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
+
+        scheduler.save_marketplace([
+            {
+                "host_id": "h1",
+                "gpu_model": "RTX 4090",
+                "vram_gb": 24,
+                "price_per_hour": 0.30,
+                "description": "",
+                "owner": "alice",
+                "platform_cut": 0.30,
+                "listed_at": time.time(),
+                "updated_at": time.time(),
+                "active": True,
+                "total_jobs": 0,
+                "total_earned": 0.0,
+            }
+        ])
+
+        listing = scheduler.get_marketplace(active_only=False)[0]
+        assert listing["platform_cut"] == 0.30
+        assert listing["platform_cut_source"] == "manual"
+
     def test_unlist_rig(self):
         scheduler.list_rig("h1", "RTX 4090", 24, 0.30)
         assert scheduler.unlist_rig("h1")
@@ -464,6 +511,47 @@ class TestMarketplace:
         stats = scheduler.marketplace_stats()
         assert "platform_revenue" in stats
         assert stats["default_platform_cut_pct"] == scheduler.PLATFORM_CUT
+
+    def test_marketplace_bill_syncs_legacy_default_cut_to_reputation(self, monkeypatch):
+        class _FakeScore:
+            final_score = 700
+            raw_score = 700
+
+        class _FakeReputationEngine:
+            def compute_score(self, entity_id):
+                return _FakeScore()
+
+        monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
+
+        scheduler.save_marketplace([
+            {
+                "host_id": "h1",
+                "gpu_model": "RTX 4090",
+                "vram_gb": 24,
+                "price_per_hour": 1.0,
+                "description": "",
+                "owner": "alice",
+                "platform_cut": scheduler.PLATFORM_CUT,
+                "listed_at": time.time(),
+                "updated_at": time.time(),
+                "active": True,
+                "total_jobs": 0,
+                "total_earned": 0.0,
+            }
+        ])
+
+        job = scheduler.submit_job("mk-job", 8)
+        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        time.sleep(1.1)
+        scheduler.update_job_status(job["job_id"], "completed")
+
+        bill = scheduler.marketplace_bill(job["job_id"])
+        assert bill["platform_cut_pct"] == 0.10
+
+        listing = scheduler.load_marketplace()[0]
+        assert listing["platform_cut"] == 0.10
+        assert listing["platform_cut_source"] == "reputation"
+        assert listing["total_platform_fees"] == bill["platform_fee"]
 
 
 # ── Phase 18: Canada-Only Toggle ────────────────────────────────────

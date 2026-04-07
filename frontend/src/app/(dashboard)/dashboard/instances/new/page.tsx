@@ -11,31 +11,7 @@ import { submitInstance, fetchPricingReference, fetchProvinces, fetchImageTempla
 import { useLocale } from "@/lib/locale";
 import type { PricingReference, ImageTemplate, LaunchErrorInfo } from "@/lib/api";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-
-/* ── Fun random name generator (adjective-noun) ──────────────────── */
-
-const ADJECTIVES = [
-  "wobbly", "chunky", "sneaky", "peppy", "grumpy", "sparkly", "fluffy",
-  "zippy", "squishy", "dizzy", "bouncy", "toasty", "wiggly", "fuzzy",
-  "jolly", "snappy", "breezy", "cheeky", "quirky", "plucky", "zappy",
-  "perky", "spunky", "nifty", "sassy", "wacky", "frisky", "goofy",
-  "turbo", "cosmic", "mighty", "sleepy", "groovy", "dapper", "zesty",
-];
-
-const NOUNS = [
-  "panda", "otter", "moose", "walrus", "narwhal", "llama", "penguin",
-  "quokka", "axolotl", "capybara", "gecko", "badger", "wombat", "sloth",
-  "toucan", "bison", "falcon", "corgi", "puffin", "mantis", "goblin",
-  "yeti", "kraken", "phoenix", "dragon", "taco", "waffle", "noodle",
-  "pickle", "muffin", "pretzel", "donut", "nugget", "dumpling", "turnip",
-];
-
-function generateFunName(): string {
-  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-  return `${adj}-${noun}`;
-}
+import { cn, generateFunName } from "@/lib/utils";
 
 /* ── Past-values history (for native datalist suggestions) ───── */
 const LS_KEY = "xcelsior:instance-history";
@@ -149,7 +125,8 @@ export default function NewInstancePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const instanceName = name.trim() || `instance-${Date.now().toString(36)}`;
+    if (!image) { toast.error("Select a Docker image"); return; }
+    const instanceName = name.trim() || generateFunName();
     setSubmitting(true);
     try {
       const res = await submitInstance({
@@ -482,7 +459,7 @@ export default function NewInstancePage() {
           <Link href="/dashboard/instances">
             <Button variant="outline" type="button">{t("dash.newinstance.cancel")}</Button>
           </Link>
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || !image}>
             <Rocket className="h-4 w-4" />
             {submitting ? "Submitting..." : t("dash.newinstance.submit")}
           </Button>

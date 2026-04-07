@@ -170,7 +170,7 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 | Bronze | 0-299 | Baseline access |
 | Silver | 300-599 | Priority payouts, 1.1x visibility |
 | Gold | 600-899 | Verified badge, 1.25x visibility |
-| Platinum | 900+ | Reduced commission, 1.5x visibility |
+| Platinum | 900+ | Reduced platform fee, 1.5x visibility |
 
 ## Canadian Tax Rates (GST/HST)
 

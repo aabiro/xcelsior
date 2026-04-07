@@ -44,6 +44,7 @@ from jurisdiction import (
 )
 from billing import get_billing_engine
 from reputation import get_reputation_engine, score_to_tier
+from reputation import TIER_PLATFORM_COMMISSION
 
 HOSTS_FILE = os.environ.get("XCELSIOR_HOSTS_FILE", os.path.join(os.path.dirname(__file__), "hosts.json"))
 JOBS_FILE = os.environ.get("XCELSIOR_JOBS_FILE", os.path.join(os.path.dirname(__file__), "jobs.json"))
@@ -2707,7 +2708,7 @@ def list_builds():
 # ── Phase 17: Marketplace ────────────────────────────────────────────
 
 MARKETPLACE_FILE = os.environ.get("XCELSIOR_MARKETPLACE_FILE", os.path.join(os.path.dirname(__file__), "marketplace.json"))
-PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.20"))  # 20%
+PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))  # 15%
 
 
 def load_marketplace():
@@ -2718,6 +2719,74 @@ def load_marketplace():
 def save_marketplace(listings):
     """Write marketplace listings."""
     _save_json(MARKETPLACE_FILE, listings)
+
+
+def _infer_platform_fees_from_payout(payout: float, cut: float) -> float:
+    """Infer platform revenue from accumulated provider payout and fee cut."""
+    if payout <= 0 or not (0 < cut < 1):
+        return 0.0
+    return round(payout * cut / (1 - cut), 4)
+
+
+def _platform_cut_for_host(host_id: str) -> float:
+    """Resolve the platform cut for a host from its current reputation tier."""
+    if not host_id:
+        return PLATFORM_CUT
+    try:
+        re_engine = get_reputation_engine()
+        score = re_engine.compute_score(host_id)
+        final_score = float(getattr(score, "final_score", 0) or getattr(score, "raw_score", 0) or 0)
+        tier = score_to_tier(final_score)
+        return float(TIER_PLATFORM_COMMISSION.get(tier, PLATFORM_CUT))
+    except Exception as e:
+        log.debug("platform cut lookup failed for host=%s: %s", host_id, e)
+        return PLATFORM_CUT
+
+
+def _sync_marketplace_listing(listing: dict) -> bool:
+    """Upgrade legacy listing fee metadata and apply reputation-managed cuts."""
+    if not isinstance(listing, dict):
+        return False
+
+    changed = False
+    current_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
+
+    if "total_platform_fees" not in listing:
+        listing["total_platform_fees"] = _infer_platform_fees_from_payout(
+            float(listing.get("total_earned", 0.0) or 0.0),
+            current_cut,
+        )
+        changed = True
+
+    source = listing.get("platform_cut_source")
+    if source == "manual":
+        return changed
+
+    if source is None and "platform_cut" in listing and not math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9):
+        listing["platform_cut_source"] = "manual"
+        return True
+
+    desired_cut = _platform_cut_for_host(str(listing.get("host_id", "")).strip())
+    if source == "reputation" or "platform_cut" not in listing or math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9):
+        if not math.isclose(current_cut, desired_cut, rel_tol=0, abs_tol=1e-9):
+            listing["platform_cut"] = desired_cut
+            changed = True
+        if listing.get("platform_cut_source") != "reputation":
+            listing["platform_cut_source"] = "reputation"
+            changed = True
+
+    return changed
+
+
+def _sync_marketplace_listings(listings: list[dict], persist: bool = False) -> list[dict]:
+    """Apply marketplace listing fee upgrades in-memory and optionally persist."""
+    changed = False
+    for listing in listings:
+        if _sync_marketplace_listing(listing):
+            changed = True
+    if changed and persist:
+        save_marketplace(listings)
+    return listings
 
 
 def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner="anonymous"):
@@ -2741,12 +2810,14 @@ def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner=
                     "active": True,
                 }
             )
+            _sync_marketplace_listing(listings[i])
             save_marketplace(listings)
             log.info(
                 "MARKETPLACE UPDATED listing=%s | %s | $%s/hr", host_id, gpu_model, price_per_hour
             )
             return listings[i]
 
+    platform_cut = _platform_cut_for_host(host_id)
     listing = {
         "host_id": host_id,
         "gpu_model": gpu_model,
@@ -2754,12 +2825,14 @@ def list_rig(host_id, gpu_model, vram_gb, price_per_hour, description="", owner=
         "price_per_hour": price_per_hour,
         "description": description,
         "owner": owner,
-        "platform_cut": PLATFORM_CUT,
+        "platform_cut": platform_cut,
+        "platform_cut_source": "reputation",
         "listed_at": time.time(),
         "updated_at": time.time(),
         "active": True,
         "total_jobs": 0,
         "total_earned": 0.0,
+        "total_platform_fees": 0.0,
     }
 
     listings.append(listing)
@@ -2789,7 +2862,7 @@ def unlist_rig(host_id):
 
 def get_marketplace(active_only=True):
     """Get all marketplace listings."""
-    listings = load_marketplace()
+    listings = _sync_marketplace_listings(load_marketplace(), persist=True)
     if active_only:
         return [l for l in listings if l.get("active", True)]
     return listings
@@ -2814,7 +2887,7 @@ def marketplace_bill(job_id):
         return None
 
     # Find marketplace listing for this host
-    listings = load_marketplace()
+    listings = _sync_marketplace_listings(load_marketplace(), persist=True)
     listing = None
     for l in listings:
         if l["host_id"] == job["host_id"]:
@@ -2833,12 +2906,14 @@ def marketplace_bill(job_id):
     tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
     total_cost = round(total_cost * tier_info["multiplier"], 4)
 
-    platform_fee = round(total_cost * listing.get("platform_cut", PLATFORM_CUT), 4)
+    platform_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
+    platform_fee = round(total_cost * platform_cut, 4)
     host_payout = round(total_cost - platform_fee, 4)
 
     # Update listing stats
     listing["total_jobs"] = listing.get("total_jobs", 0) + 1
     listing["total_earned"] = round(listing.get("total_earned", 0) + host_payout, 4)
+    listing["total_platform_fees"] = round(listing.get("total_platform_fees", 0) + platform_fee, 4)
     save_marketplace(listings)
 
     log.info(
@@ -2855,7 +2930,7 @@ def marketplace_bill(job_id):
         "total_cost": total_cost,
         "platform_fee": platform_fee,
         "host_payout": host_payout,
-        "platform_cut_pct": listing.get("platform_cut", PLATFORM_CUT),
+        "platform_cut_pct": platform_cut,
         "duration_sec": round(duration_sec, 2),
         "tier": tier,
     }
@@ -2863,18 +2938,18 @@ def marketplace_bill(job_id):
 
 def marketplace_stats():
     """Aggregate marketplace stats."""
-    listings = load_marketplace()
+    listings = _sync_marketplace_listings(load_marketplace(), persist=True)
     active = [l for l in listings if l.get("active", True)]
     total_earned = sum(l.get("total_earned", 0) for l in listings)
     total_jobs = sum(l.get("total_jobs", 0) for l in listings)
-    # Compute platform revenue per listing using each listing's own cut.
-    # host_payout = total_cost * (1 - cut), so platform_revenue = payout * cut / (1 - cut)
     platform_revenue = 0.0
     for l in listings:
-        payout = l.get("total_earned", 0)
-        cut = l.get("platform_cut", PLATFORM_CUT)
-        if payout > 0 and 0 < cut < 1:
-            platform_revenue += payout * cut / (1 - cut)
+        if "total_platform_fees" in l:
+            platform_revenue += float(l.get("total_platform_fees", 0) or 0)
+            continue
+        payout = float(l.get("total_earned", 0) or 0)
+        cut = float(l.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
+        platform_revenue += _infer_platform_fees_from_payout(payout, cut)
     platform_revenue = round(platform_revenue, 4)
 
     return {

@@ -154,7 +154,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className={cn("block dark:hidden", collapsed && !mobile ? "h-[60px] w-[60px] object-left object-cover overflow-hidden" : "h-[64px]")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
           {(mobile || !collapsed) && (
-            <span className="rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan -ml-1">
+            <span className={cn(
+              "shrink-0 rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan",
+              mobile ? "-ml-1" : "-ml-4",
+            )}>
               Beta
             </span>
           )}

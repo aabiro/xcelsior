@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import {
   X, Cpu, MapPin, Zap, DollarSign, Loader2, CheckCircle, TrendingDown, Activity,
-  AlertTriangle, CreditCard,
+  AlertTriangle, CreditCard, Box, RefreshCw,
 } from "lucide-react";
 import * as api from "@/lib/api";
-import type { MarketplaceListing, LaunchErrorInfo } from "@/lib/api";
+import type { MarketplaceListing, LaunchErrorInfo, ImageTemplate } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { cn, generateFunName } from "@/lib/utils";
 
 interface RentModalProps {
   listing: MarketplaceListing;
@@ -41,17 +42,32 @@ const TIERS = [
   { value: "reserved", label: "Reserved", desc: "Dedicated allocation, priority support" },
 ];
 
+const FALLBACK_TEMPLATES: { id: string; label: string; image: string; icon: string }[] = [
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", icon: "🔥" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", icon: "🧠" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", icon: "⚡" },
+  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", icon: "🎨" },
+  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", icon: "📓" },
+  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", icon: "🐧" },
+];
+
 export function RentModal({ listing, onClose }: RentModalProps) {
   const router = useRouter();
   const [step, setStep] = useState<"configure" | "confirm" | "success">("configure");
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
   const [maxBid, setMaxBid] = useState("");
   const [tier, setTier] = useState("standard");
-  const [instanceName, setInstanceName] = useState("");
+  const [instanceName, setInstanceName] = useState(() => generateFunName());
   const [submitting, setSubmitting] = useState(false);
   const [instanceId, setInstanceId] = useState("");
   const [spotPrice, setSpotPrice] = useState<number | null>(null);
   const [launchError, setLaunchError] = useState<LaunchErrorInfo | null>(null);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+  const [selectedImage, setSelectedImage] = useState("");
+  const [customImage, setCustomImage] = useState("");
+  const [isCustom, setIsCustom] = useState(false);
+
+  const resolvedImage = isCustom ? customImage.trim() : selectedImage;
 
   const pricePerHour = listing.price_per_hour_cad || listing.price_per_hour || 0;
   const spotRate = spotPrice ?? pricePerHour * 0.7;
@@ -66,10 +82,25 @@ export function RentModal({ listing, onClose }: RentModalProps) {
         if (prices[gpu] != null) setSpotPrice(prices[gpu]);
       })
       .catch((e) => console.error("Failed to fetch spot prices", e));
+    api.fetchImageTemplates()
+      .then((r) => {
+        if (r.templates?.length) {
+          setTemplates(
+            r.templates.map((t: ImageTemplate) => ({
+              id: t.id,
+              label: t.label,
+              image: t.image,
+              icon: t.icon,
+            })),
+          );
+        }
+      })
+      .catch((e) => console.error("Failed to load templates", e));
   }, [listing.gpu_model]);
 
   const handleSubmit = async () => {
     if (!instanceName.trim()) { toast.error("Enter an instance name"); return; }
+    if (!resolvedImage) { toast.error("Select a Docker image"); return; }
     setSubmitting(true);
     try {
       if (pricingMode === "spot") {
@@ -80,6 +111,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
           vram_needed_gb: listing.vram_gb || 24,
           max_bid: bid,
           tier: tier !== "standard" ? tier : undefined,
+          image: resolvedImage,
         });
         setInstanceId(res.instance?.job_id || "");
       } else {
@@ -89,6 +121,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
           vram_needed_gb: listing.vram_gb || 24,
           tier,
           name: instanceName.trim(),
+          image: resolvedImage,
         });
         const inst = res.instance as Record<string, unknown> | undefined;
         setInstanceId((inst?.job_id as string) || "");
@@ -144,11 +177,69 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                 {/* Instance name */}
                 <div className="space-y-1.5">
                   <Label className="text-xs">Instance Name</Label>
-                  <Input
-                    placeholder="my-training-instance"
-                    value={instanceName}
-                    onChange={(e) => setInstanceName(e.target.value)}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="chunky-narwhal"
+                      value={instanceName}
+                      onChange={(e) => setInstanceName(e.target.value)}
+                      className="flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setInstanceName(generateFunName())}
+                      title="Generate a new name"
+                      className="flex items-center justify-center h-10 w-10 rounded-lg border border-border bg-surface-hover/50 text-text-muted hover:text-ice-blue hover:border-ice-blue/30 transition-colors shrink-0"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Docker image picker */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <Box className="h-3.5 w-3.5" />
+                    Docker Image
+                  </Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {templates.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        onClick={() => { setSelectedImage(tpl.image); setIsCustom(false); }}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-lg border p-2 text-xs transition-colors",
+                          !isCustom && selectedImage === tpl.image
+                            ? "border-ice-blue bg-ice-blue/5 text-ice-blue"
+                            : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                        )}
+                      >
+                        <span className="text-base">{tpl.icon}</span>
+                        <span className="font-medium">{tpl.label}</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setIsCustom(true); setSelectedImage(""); }}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg border p-2 text-xs transition-colors",
+                        isCustom
+                          ? "border-ice-blue bg-ice-blue/5 text-ice-blue"
+                          : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                      )}
+                    >
+                      <span className="text-base">⚙️</span>
+                      <span className="font-medium">Custom</span>
+                    </button>
+                  </div>
+                  {isCustom && (
+                    <Input
+                      placeholder="docker.io/my-org/my-image:latest"
+                      value={customImage}
+                      onChange={(e) => setCustomImage(e.target.value)}
+                      className="mt-1.5"
+                    />
+                  )}
                 </div>
 
                 {/* Pricing Mode */}
@@ -246,7 +337,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                 <Button
                   className="w-full"
                   onClick={() => setStep("confirm")}
-                  disabled={!instanceName.trim()}
+                  disabled={!instanceName.trim() || !resolvedImage}
                 >
                   Continue
                 </Button>
@@ -260,6 +351,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                   <div className="space-y-1.5 text-xs">
                     <div className="flex justify-between"><span className="text-text-muted">GPU</span><span>{listing.gpu_model}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Instance</span><span>{instanceName}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">Image</span><span className="text-right max-w-[220px] truncate" title={resolvedImage}>{resolvedImage}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Pricing</span><span className="capitalize">{pricingMode === "on_demand" ? "On-Demand" : "Spot"}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Tier</span><span className="capitalize">{tier}</span></div>
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
