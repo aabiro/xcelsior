@@ -178,6 +178,13 @@ def api_submit_instance(j: JobIn, request: Request):
         else:
             vram_needed = 4.0  # minimal default when no hosts available
 
+    # ── Marketplace flow requires a Docker image ──────────────────────
+    if target_host_id and not j.image:
+        raise HTTPException(
+            status_code=422,
+            detail="Docker image is required for marketplace launches — select a template or enter a custom image",
+        )
+
     with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
         customer_id = user.get("customer_id", user.get("user_id", ""))
 
@@ -499,17 +506,18 @@ def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
     """Load recent log lines from PG job_logs table (fallback when in-memory buffer is empty)."""
     try:
         from db import _get_pg_pool
+        from psycopg.rows import dict_row
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            rows = conn.execute(
-                "SELECT ts AS timestamp, level, line, line AS message FROM job_logs "
-                "WHERE job_id = %s ORDER BY ts DESC LIMIT %s",
-                (job_id, limit),
-            ).fetchall()
+            with conn.cursor(row_factory=dict_row) as cur:
+                rows = cur.execute(
+                    "SELECT ts AS timestamp, level, line, line AS message FROM job_logs "
+                    "WHERE job_id = %s ORDER BY ts DESC LIMIT %s",
+                    (job_id, limit),
+                ).fetchall()
         if not rows:
             return []
-        cols = ["timestamp", "level", "line", "message"]
-        return [dict(zip(cols, r)) for r in reversed(rows)]  # chronological order
+        return list(reversed(rows))  # chronological order, already dicts
     except Exception:
         return []
 
@@ -890,6 +898,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         docker_cmd = [
             "ssh",
             "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
             "-i", SSH_KEY_PATH,
