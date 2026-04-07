@@ -57,9 +57,10 @@ services:
       XCELSIOR_BTC_RPC_PASS: ${XCELSIOR_BTC_RPC_PASS:-}
       XCELSIOR_BTC_CONFIRMATIONS: ${XCELSIOR_BTC_CONFIRMATIONS:-3}
       XCELSIOR_BTC_DEPOSIT_EXPIRY: ${XCELSIOR_BTC_DEPOSIT_EXPIRY:-1800}
-      # Lightning Network Deposits
+      # Lightning Network Deposits (via clnrest over Tailscale)
       XCELSIOR_LN_ENABLED: ${XCELSIOR_LN_ENABLED:-false}
-      XCELSIOR_LN_RPC_SOCKET: ${XCELSIOR_LN_RPC_SOCKET:-/run/lightning/lightning-rpc}
+      XCELSIOR_LN_CLNREST_URL: ${XCELSIOR_LN_CLNREST_URL:-https://127.0.0.1:3010}
+      XCELSIOR_LN_RUNE: ${XCELSIOR_LN_RUNE:-}
       XCELSIOR_LN_INVOICE_EXPIRY: ${XCELSIOR_LN_INVOICE_EXPIRY:-600}
       XCELSIOR_LN_DB_PATH: /data/xcelsior_ln.db
       XCELSIOR_LN_MIN_CAD: ${XCELSIOR_LN_MIN_CAD:-1}
@@ -99,7 +100,6 @@ services:
     volumes:
       - xcelsior-data:/data
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
-      - ${HOME}/.lightning/bitcoin/lightning-rpc:/run/lightning/lightning-rpc:ro
     restart: unless-stopped
 
   scheduler-worker:

@@ -1,14 +1,16 @@
 # Xcelsior — Lightning Network Deposit Support
 # Instant BTC deposits via Core Lightning (CLN) node.
 # Credits the existing CAD wallet at a locked BTC/CAD spot rate.
-# Uses the CLN JSON-RPC Unix socket (lightning-rpc).
+# Uses the CLN clnrest HTTP API over Tailscale.
 
 import json
 import logging
 import os
-import socket
+import ssl
 import sqlite3
 import time
+import urllib.error
+import urllib.request
 import uuid
 from contextlib import contextmanager
 
@@ -17,56 +19,50 @@ log = logging.getLogger("xcelsior")
 # ── Configuration ─────────────────────────────────────────────────────
 
 LN_ENABLED = os.environ.get("XCELSIOR_LN_ENABLED", "false").lower() == "true"
-LN_RPC_SOCKET = os.environ.get(
-    "XCELSIOR_LN_RPC_SOCKET",
-    os.path.expanduser("~/.lightning/bitcoin/lightning-rpc"),
-)
+LN_CLNREST_URL = os.environ.get("XCELSIOR_LN_CLNREST_URL", "https://127.0.0.1:3010")
+LN_RUNE = os.environ.get("XCELSIOR_LN_RUNE", "")
 LN_INVOICE_EXPIRY = int(os.environ.get("XCELSIOR_LN_INVOICE_EXPIRY", "600"))  # 10 min
 LN_DB_PATH = os.environ.get("XCELSIOR_LN_DB_PATH", "xcelsior_ln.db")
 LN_MIN_CAD = float(os.environ.get("XCELSIOR_LN_MIN_CAD", "1"))
 LN_MAX_CAD = float(os.environ.get("XCELSIOR_LN_MAX_CAD", "1000"))
 
-_rpc_id_counter = 0
+# SSL context for clnrest (self-signed certificate)
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
-# ── CLN JSON-RPC over Unix Socket ─────────────────────────────────────
+# ── CLN clnrest HTTP API ──────────────────────────────────────────────
 
 
 def _rpc_call(method: str, params: dict | list | None = None, timeout: float = 10.0) -> dict:
-    """Call Core Lightning via the Unix domain socket JSON-RPC interface."""
-    global _rpc_id_counter
-    _rpc_id_counter += 1
+    """Call Core Lightning via the clnrest HTTP API."""
+    url = f"{LN_CLNREST_URL}/v1/{method}"
+    data = json.dumps(params or {}).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Rune": LN_RUNE,
+        },
+        method="POST",
+    )
 
-    payload = {
-        "jsonrpc": "2.0",
-        "id": _rpc_id_counter,
-        "method": method,
-        "params": params or {},
-    }
-
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
     try:
-        sock.connect(LN_RPC_SOCKET)
-        sock.sendall(json.dumps(payload).encode() + b"\n\n")
-
-        # Read response — CLN terminates with double newline
-        buf = b""
-        while True:
-            chunk = sock.recv(65536)
-            if not chunk:
-                break
-            buf += chunk
-            if b"\n\n" in buf:
-                break
-
-        response = json.loads(buf.strip())
-        if "error" in response:
-            err = response["error"]
-            raise RuntimeError(f"CLN RPC error ({err.get('code', '?')}): {err.get('message', str(err))}")
-        return response.get("result", {})
-    finally:
-        sock.close()
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        try:
+            err = json.loads(body)
+            raise RuntimeError(
+                f"CLN REST error ({err.get('code', '?')}): {err.get('message', body)}"
+            ) from e
+        except (json.JSONDecodeError, KeyError):
+            raise RuntimeError(f"CLN REST error ({e.code}): {body}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"CLN REST connection failed: {e.reason}") from e
 
 
 def get_node_info() -> dict:
@@ -117,7 +113,7 @@ def wait_invoice(label: str, timeout: float = 30.0) -> dict | None:
     """Block until an invoice is paid or timeout. Non-blocking alternative to polling."""
     try:
         return _rpc_call("waitinvoice", {"label": label}, timeout=timeout)
-    except (RuntimeError, socket.timeout):
+    except (RuntimeError, TimeoutError):
         return None
 
 
@@ -238,8 +234,8 @@ def get_service_status() -> dict:
         result["reason"] = "Lightning deposits are not enabled"
         return result
 
-    if not os.path.exists(LN_RPC_SOCKET):
-        result["reason"] = "Lightning node socket not found"
+    if not LN_RUNE:
+        result["reason"] = "Lightning rune not configured"
         return result
 
     try:
