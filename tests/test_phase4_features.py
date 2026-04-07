@@ -246,7 +246,11 @@ class TestArgcompleteIntegration:
 
 
 class TestWebSocketTerminal:
-    """WebSocket /ws/terminal/{instance_id} endpoint tests."""
+    """WebSocket /ws/terminal/{instance_id} endpoint tests.
+
+    NOTE: Comprehensive terminal tests live in tests/test_terminal.py.
+    These are kept as basic smoke checks for backward compatibility.
+    """
 
     def test_terminal_endpoint_exists(self):
         """The /ws/terminal/{instance_id} route is registered."""
@@ -259,34 +263,21 @@ class TestWebSocketTerminal:
         assert "/ws/terminal/{instance_id}" in ws_routes
 
     def test_terminal_constants(self):
-        """Terminal session constants are properly defined."""
-        from routes import instances as instances_mod
+        """Terminal session constants are properly defined (new module)."""
+        from routes import terminal as terminal_mod
 
-        assert hasattr(instances_mod, "_TERMINAL_SESSION_TIMEOUT")
-        assert instances_mod._TERMINAL_SESSION_TIMEOUT == 1800  # 30 minutes
-        assert hasattr(instances_mod, "_TERMINAL_MAX_SCROLLBACK")
-        assert instances_mod._TERMINAL_MAX_SCROLLBACK == 50_000  # 50 KB
-        assert hasattr(instances_mod, "_TERMINAL_RATE_LIMIT_BYTES")
-        assert instances_mod._TERMINAL_RATE_LIMIT_BYTES == 10_240  # 10 KB/s
-
-    @pytest.mark.skipif(
-        os.environ.get("XCELSIOR_DB_BACKEND") == "sqlite",
-        reason="WebSocket tests need async test client"
-    )
-    def test_terminal_rejects_unauthenticated(self):
-        """Terminal WS rejects connections without valid auth."""
-        # This requires httpx async client; skip in unit tests
-        pass
+        assert terminal_mod._SESSION_TIMEOUT_SEC == 14_400       # 4 hours
+        assert terminal_mod._RATE_LIMIT_BYTES_PER_SEC == 524_288  # 512 KB/s
+        assert terminal_mod._IDLE_WARN_THRESHOLD_SEC == 14_100   # 5 min before
 
     def test_terminal_ws_auth_validator(self):
         """_validate_ws_auth returns None for empty tokens when auth required."""
-        import routes.instances as _instances_mod
-        from routes.instances import _validate_ws_auth
+        from routes._deps import _validate_ws_auth
+        import routes._deps as _deps_mod
 
-        # When auth is required and no token provided
-        original = _instances_mod.AUTH_REQUIRED
+        original = _deps_mod.AUTH_REQUIRED
         try:
-            _instances_mod.AUTH_REQUIRED = True
+            _deps_mod.AUTH_REQUIRED = True
 
             class FakeWebSocket:
                 cookies = {}
@@ -295,7 +286,7 @@ class TestWebSocketTerminal:
             result = _validate_ws_auth(FakeWebSocket())
             assert result is None
         finally:
-            _instances_mod.AUTH_REQUIRED = original
+            _deps_mod.AUTH_REQUIRED = original
 
 
 # ── Instance Detail Terminal Integration ─────────────────────────────
