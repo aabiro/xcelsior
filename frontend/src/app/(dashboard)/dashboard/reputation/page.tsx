@@ -31,7 +31,7 @@ const TIERS = [
     glow: "shadow-slate-500/30",
     searchBoost: "0.8×",
     pricingPremium: "0%",
-    commission: "15%",
+    platformFee: "15%",
     perk: "Baseline access",
     unlock: "Create an account.",
   },
@@ -45,7 +45,7 @@ const TIERS = [
     glow: "shadow-amber-700/40",
     searchBoost: "1.0×",
     pricingPremium: "0%",
-    commission: "15%",
+    platformFee: "15%",
     perk: "Standard marketplace visibility",
     unlock: "Earn 100 reputation points.",
   },
@@ -59,7 +59,7 @@ const TIERS = [
     glow: "shadow-gray-400/40",
     searchBoost: "1.1×",
     pricingPremium: "5%",
-    commission: "15%",
+    platformFee: "15%",
     perk: "Priority payout status",
     unlock: "Reach 250 points — verify phone or gov ID.",
   },
@@ -73,7 +73,7 @@ const TIERS = [
     glow: "shadow-yellow-500/40",
     searchBoost: "1.25×",
     pricingPremium: "20%",
-    commission: "12%",
+    platformFee: "12%",
     perk: "Verified badge + 20% pricing premium",
     unlock: "Reach 450 points — hardware audit recommended.",
   },
@@ -87,7 +87,7 @@ const TIERS = [
     glow: "shadow-cyan-400/40",
     searchBoost: "1.5×",
     pricingPremium: "40%",
-    commission: "10%",
+    platformFee: "10%",
     perk: "Featured listing placement",
     unlock: "Reach 650 points — low failure rate required.",
   },
@@ -101,8 +101,8 @@ const TIERS = [
     glow: "shadow-purple-400/40",
     searchBoost: "2.0×",
     pricingPremium: "50%",
-    commission: "8%",
-    perk: "Max visibility + reduced commission",
+    platformFee: "8%",
+    perk: "Max visibility + reduced platform fee",
     unlock: "Reach 850 points — sustained through ongoing activity.",
   },
 ] as const;
@@ -156,8 +156,8 @@ function TierTooltip({ tier, visible, position }: { tier: (typeof TIERS)[number]
           <div className="font-mono font-medium">+{tier.pricingPremium}</div>
         </div>
         <div className="rounded bg-surface px-1.5 py-1 text-center">
-          <div className="text-text-muted text-[10px]">Commission</div>
-          <div className="font-mono font-medium">{tier.commission}</div>
+          <div className="text-text-muted text-[10px]">Platform Fee</div>
+          <div className="font-mono font-medium">{tier.platformFee}</div>
         </div>
       </div>
       <p className="text-text-muted text-[10px]">{tier.unlock}</p>
@@ -443,8 +443,8 @@ export default function ReputationPage() {
                     <div className="font-mono font-semibold">+{tierCfg.pricingPremium}</div>
                   </div>
                   <div className="rounded-lg bg-surface p-2 border border-border">
-                    <div className="text-text-muted text-[10px] mb-0.5">Commission</div>
-                    <div className="font-mono font-semibold">{tierCfg.commission}</div>
+                    <div className="text-text-muted text-[10px] mb-0.5">Platform Fee</div>
+                    <div className="font-mono font-semibold">{tierCfg.platformFee}</div>
                   </div>
                 </div>
               </div>
@@ -655,4 +655,3 @@ export default function ReputationPage() {
     </div>
   );
 }
-

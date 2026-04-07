@@ -37,7 +37,7 @@ _TIER_DESCRIPTIONS = {
     ReputationTier.SILVER: "Trusted provider — priority payout status and small pricing premium.",
     ReputationTier.GOLD: "Verified provider — verified badge, higher visibility, 20% pricing premium.",
     ReputationTier.PLATINUM: "Elite provider — featured listing placement, 40% pricing premium.",
-    ReputationTier.DIAMOND: "Top-tier provider — maximum visibility, 50% premium, reduced commission.",
+    ReputationTier.DIAMOND: "Top-tier provider — maximum visibility, 50% premium, reduced platform fee.",
 }
 
 
@@ -169,4 +169,3 @@ def api_reputation_breakdown(entity_id: str):
         },
         "events_analyzed": len(history),
     }
-
