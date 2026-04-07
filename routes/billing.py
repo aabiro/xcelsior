@@ -65,6 +65,20 @@ try:
 except ImportError:
     _ln_mod = None  # type: ignore[assignment]
 
+
+def _analytics_customer_scope(user: dict) -> str:
+    """Return the billing owner identifier for the authenticated user.
+
+    Usage meters and wallet records are keyed by customer_id, not email.
+    Falling back preserves older/test flows that may still use user_id/email.
+    """
+    return str(
+        user.get("customer_id")
+        or user.get("user_id")
+        or user.get("email")
+        or ""
+    ).strip()
+
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
@@ -718,7 +732,7 @@ def api_usage_analytics(
     # Non-admin users are scoped to their own data automatically
     is_admin = bool(user.get("is_admin"))
     if not is_admin:
-        customer_id = user["email"]
+        customer_id = _analytics_customer_scope(user)
         provider_id = ""  # provider filtering requires admin
 
     billing = get_billing_engine()
@@ -743,9 +757,11 @@ def api_usage_analytics(
     if customer_id:
         where_clauses.append("owner = %s")
         params.append(customer_id)
-    # Provider filter: match host_id (providers are hosts)
+    # Provider filter: use payout ownership instead of assuming provider_id == host_id.
     if provider_id:
-        where_clauses.append("host_id = %s")
+        where_clauses.append(
+            "job_id IN (SELECT job_id FROM payout_splits WHERE provider_id = %s)"
+        )
         params.append(provider_id)
 
     where_sql = " AND ".join(where_clauses)
@@ -755,11 +771,11 @@ def api_usage_analytics(
             rows = conn.execute(
                 f"SELECT {group_sql}, "
                 "COUNT(*) AS job_count, "
-                "ROUND(SUM(total_cost_cad), 2) AS total_cost_cad, "
-                "ROUND(SUM(gpu_seconds), 0) AS total_gpu_seconds, "
-                "ROUND(AVG(gpu_utilization_pct), 1) AS avg_gpu_util_pct, "
-                "SUM(is_canadian_compute) AS canadian_jobs, "
-                "COUNT(*) - SUM(is_canadian_compute) AS international_jobs "
+                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost_cad, "
+                "ROUND(COALESCE(SUM(gpu_seconds), 0)::numeric, 0) AS total_gpu_seconds, "
+                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct, "
+                "COALESCE(SUM(is_canadian_compute), 0) AS canadian_jobs, "
+                "COUNT(*) - COALESCE(SUM(is_canadian_compute), 0) AS international_jobs "
                 f"FROM usage_meters WHERE {where_sql} "
                 "GROUP BY period ORDER BY period",
                 params,
@@ -769,11 +785,11 @@ def api_usage_analytics(
                 {
                     "period": r["period"],
                     "job_count": r["job_count"],
-                    "total_cost_cad": r["total_cost_cad"],
+                    "total_cost_cad": float(r["total_cost_cad"] or 0),
                     "total_gpu_hours": (
-                        round(r["total_gpu_seconds"] / 3600, 2) if r["total_gpu_seconds"] else 0
+                        round(float(r["total_gpu_seconds"] or 0) / 3600, 2) if r["total_gpu_seconds"] else 0
                     ),
-                    "avg_gpu_utilization_pct": r["avg_gpu_util_pct"],
+                    "avg_gpu_utilization_pct": float(r["avg_gpu_util_pct"] or 0),
                     "canadian_jobs": r["canadian_jobs"],
                     "international_jobs": r["international_jobs"],
                 }
@@ -783,9 +799,9 @@ def api_usage_analytics(
             # Summary
             summary_row = conn.execute(
                 "SELECT COUNT(*) AS total_jobs, "
-                "ROUND(SUM(total_cost_cad), 2) AS total_spend, "
-                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS total_gpu_hours, "
-                "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
+                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_spend, "
+                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
+                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
                 f"FROM usage_meters WHERE {where_sql}",
                 params,
             ).fetchone()
@@ -800,9 +816,9 @@ def api_usage_analytics(
         "analytics": analytics,
         "summary": {
             "total_jobs": summary_row["total_jobs"] if summary_row else 0,
-            "total_spend_cad": summary_row["total_spend"] if summary_row else 0,
-            "total_gpu_hours": summary_row["total_gpu_hours"] if summary_row else 0,
-            "avg_gpu_utilization_pct": summary_row["avg_util"] if summary_row else 0,
+            "total_spend_cad": float(summary_row["total_spend"] or 0) if summary_row else 0,
+            "total_gpu_hours": float(summary_row["total_gpu_hours"] or 0) if summary_row else 0,
+            "avg_gpu_utilization_pct": float(summary_row["avg_util"] or 0) if summary_row else 0,
         },
     }
 
@@ -826,8 +842,7 @@ def api_analytics_enhanced(
         raise HTTPException(401, "Not authenticated")
 
     is_admin = bool(user.get("is_admin"))
-    email = user["email"]
-    customer_id = user.get("customer_id", email)
+    customer_id = _analytics_customer_scope(user)
     provider_id = user.get("provider_id", "")
 
     billing = get_billing_engine()
@@ -841,15 +856,9 @@ def api_analytics_enhanced(
         params: list = [since, now]
     else:
         where_clauses = ["started_at >= %s", "started_at < %s", "owner = %s"]
-        params = [since, now, email]
+        params = [since, now, customer_id]
 
     where_sql = " AND ".join(where_clauses)
-
-    # Provider WHERE for host-side metrics
-    provider_where = " AND ".join(
-        ["started_at >= %s", "started_at < %s", "host_id = %s"]
-    ) if provider_id else ""
-    provider_params: list = [since, now, provider_id] if provider_id else []
 
     result: dict = {
         "ok": True,
@@ -865,10 +874,10 @@ def api_analytics_enhanced(
             cph_rows = conn.execute(
                 "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
                 "CASE WHEN SUM(gpu_seconds) > 0 "
-                "  THEN ROUND(SUM(total_cost_cad) / (SUM(gpu_seconds) / 3600.0), 4) "
+                "  THEN ROUND((SUM(total_cost_cad) / (SUM(gpu_seconds) / 3600.0))::numeric, 4) "
                 "  ELSE 0 END AS cost_per_hour, "
-                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours, "
-                "ROUND(SUM(total_cost_cad), 2) AS spend "
+                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend "
                 f"FROM usage_meters WHERE {where_sql} "
                 "GROUP BY date ORDER BY date",
                 params,
@@ -899,7 +908,7 @@ def api_analytics_enhanced(
                 "  ELSE '4+ hr' "
                 "END AS bucket, "
                 "COUNT(*) AS count, "
-                "ROUND(SUM(total_cost_cad), 2) AS total_cost "
+                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost "
                 f"FROM usage_meters WHERE {where_sql} "
                 "GROUP BY bucket ORDER BY MIN(duration_sec)",
                 params,
@@ -935,8 +944,8 @@ def api_analytics_enhanced(
             if is_admin:
                 top_rows = conn.execute(
                     "SELECT owner AS entity, COUNT(*) AS job_count, "
-                    "ROUND(SUM(total_cost_cad), 2) AS total_cost, "
-                    "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY owner ORDER BY total_cost DESC LIMIT 10",
                     params,
@@ -944,8 +953,8 @@ def api_analytics_enhanced(
             else:
                 top_rows = conn.execute(
                     "SELECT host_id AS entity, COUNT(*) AS job_count, "
-                    "ROUND(SUM(total_cost_cad), 2) AS total_cost, "
-                    "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
                     f"FROM usage_meters WHERE {where_sql} "
                     "GROUP BY host_id ORDER BY job_count DESC LIMIT 10",
                     params,
@@ -962,16 +971,16 @@ def api_analytics_enhanced(
                 "SELECT "
                 "COUNT(*) AS total, "
                 "SUM(CASE WHEN is_canadian_compute = 1 THEN 1 ELSE 0 END) AS canadian, "
-                "ROUND(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END), 2) AS ca_spend, "
-                "ROUND(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END), 2) AS intl_spend "
+                "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS ca_spend, "
+                "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS intl_spend "
                 f"FROM usage_meters WHERE {where_sql}",
                 params,
             ).fetchone()
             total_jobs_sov = int(sov_row["total"]) if sov_row else 0
             result["sovereignty"] = {
                 "total_jobs": total_jobs_sov,
-                "canadian_jobs": int(sov_row["canadian"]) if sov_row else 0,
-                "canadian_pct": round(int(sov_row["canadian"]) / total_jobs_sov * 100, 1) if total_jobs_sov else 0,
+                "canadian_jobs": int((sov_row["canadian"] or 0)) if sov_row else 0,
+                "canadian_pct": round(int((sov_row["canadian"] or 0)) / total_jobs_sov * 100, 1) if total_jobs_sov else 0,
                 "canadian_spend": float(sov_row["ca_spend"]) if sov_row else 0,
                 "international_spend": float(sov_row["intl_spend"]) if sov_row else 0,
             }
@@ -979,12 +988,12 @@ def api_analytics_enhanced(
             # ── 8. GPU model performance breakdown ──
             gpu_perf_rows = conn.execute(
                 "SELECT gpu_model, COUNT(*) AS jobs, "
-                "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util, "
-                "ROUND(AVG(duration_sec / 60.0), 1) AS avg_duration_min, "
-                "ROUND(SUM(total_cost_cad), 2) AS total_cost, "
-                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours, "
-                "ROUND(AVG(CASE WHEN gpu_seconds > 0 "
-                "  THEN total_cost_cad / (gpu_seconds / 3600.0) ELSE 0 END), 4) AS avg_cost_per_hour "
+                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
+                "ROUND(COALESCE(AVG(duration_sec / 60.0), 0)::numeric, 1) AS avg_duration_min, "
+                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                "ROUND(COALESCE(AVG(CASE WHEN gpu_seconds > 0 "
+                "  THEN total_cost_cad / (gpu_seconds / 3600.0) ELSE 0 END), 0)::numeric, 4) AS avg_cost_per_hour "
                 f"FROM usage_meters WHERE {where_sql} "
                 "GROUP BY gpu_model ORDER BY total_cost DESC LIMIT 12",
                 params,
@@ -1003,15 +1012,17 @@ def api_analytics_enhanced(
             ]
 
             # ── 9. Provider earnings (if user is a provider) ──
-            if provider_id and provider_where:
+            if provider_id:
                 prov_rows = conn.execute(
-                    "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
-                    "COUNT(*) AS jobs_served, "
-                    "ROUND(SUM(total_cost_cad), 2) AS total_revenue, "
-                    "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
-                    f"FROM usage_meters WHERE {provider_where} "
+                    "SELECT to_char(to_timestamp(COALESCE(um.completed_at, ps.created_at)), 'YYYY-MM-DD') AS date, "
+                    "COUNT(DISTINCT ps.job_id) AS jobs_served, "
+                    "ROUND(COALESCE(SUM(ps.provider_share_cad), 0)::numeric, 2) AS total_revenue, "
+                    "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
+                    "FROM payout_splits ps "
+                    "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
+                    "WHERE ps.provider_id = %s AND ps.created_at >= %s AND ps.created_at < %s "
                     "GROUP BY date ORDER BY date",
-                    provider_params,
+                    (provider_id, since, now),
                 ).fetchall()
                 result["provider_daily"] = [
                     {"date": r["date"], "jobs_served": int(r["jobs_served"]),
@@ -1021,12 +1032,14 @@ def api_analytics_enhanced(
                 ]
 
                 prov_summary = conn.execute(
-                    "SELECT COUNT(*) AS total_jobs_served, "
-                    "ROUND(SUM(total_cost_cad), 2) AS total_revenue, "
-                    "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS total_gpu_hours, "
-                    "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
-                    f"FROM usage_meters WHERE {provider_where}",
-                    provider_params,
+                    "SELECT COUNT(DISTINCT ps.job_id) AS total_jobs_served, "
+                    "ROUND(COALESCE(SUM(ps.provider_share_cad), 0)::numeric, 2) AS total_revenue, "
+                    "ROUND((COALESCE(SUM(um.gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
+                    "ROUND(COALESCE(AVG(COALESCE(um.gpu_utilization_pct, 0)), 0)::numeric, 1) AS avg_util "
+                    "FROM payout_splits ps "
+                    "LEFT JOIN usage_meters um ON um.job_id = ps.job_id "
+                    "WHERE ps.provider_id = %s AND ps.created_at >= %s AND ps.created_at < %s",
+                    (provider_id, since, now),
                 ).fetchone()
                 result["provider_summary"] = {
                     "total_jobs_served": int(prov_summary["total_jobs_served"]) if prov_summary else 0,
@@ -1060,9 +1073,9 @@ def api_analytics_enhanced(
             peak_rows = conn.execute(
                 "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
                 "COUNT(*) AS jobs, "
-                "ROUND(SUM(gpu_seconds) / 3600.0, 2) AS gpu_hours, "
-                "ROUND(SUM(total_cost_cad), 2) AS spend, "
-                "ROUND(AVG(gpu_utilization_pct), 1) AS avg_util "
+                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend, "
+                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
                 f"FROM usage_meters WHERE {where_sql} "
                 "GROUP BY date ORDER BY jobs DESC LIMIT 5",
                 params,
@@ -1124,4 +1137,3 @@ def api_billing_get_topup(request: Request):
             "threshold_cad": wallet.get("auto_topup_threshold", 0),
         },
     }
-

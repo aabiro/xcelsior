@@ -611,8 +611,29 @@ const fr: Record<string, string> = {
   "dash.instances.back": "Retour aux instances",
   "dash.instances.cancel": "Annuler",
   "dash.instances.cancel_title": "Annuler l'instance ?",
-  "dash.instances.cancel_desc": "L'instance sera arrêtée immédiatement. Toute progression non sauvegardée sera perdue. Cette action est irréversible.",
+  "dash.instances.cancel_desc": "L'instance en file d'attente ou en provisionnement sera retirée de la file.",
   "dash.instances.requeue": "Relancer",
+
+  "dash.instances.stopping": "Arrêt en cours",
+  "dash.instances.stopped": "Arrêtée",
+  "dash.instances.restarting": "Redémarrage en cours",
+  "dash.instances.terminated": "Terminée",
+
+  "dash.instances.stop": "Arrêter",
+  "dash.instances.stop_title": "Arrêter l'instance ?",
+  "dash.instances.stop_desc": "Le conteneur sera arrêté progressivement (SIGTERM). Vos données et volumes sont préservés. La facturation du stockage continue. Vous pouvez le redémarrer à tout moment.",
+
+  "dash.instances.start": "Démarrer",
+  "dash.instances.start_title": "Démarrer l'instance ?",
+  "dash.instances.start_desc": "Le conteneur sera restauré depuis son état arrêté. La facturation de calcul reprend immédiatement.",
+
+  "dash.instances.restart": "Redémarrer",
+  "dash.instances.restart_title": "Redémarrer l'instance ?",
+  "dash.instances.restart_desc": "Le conteneur sera arrêté puis redémarré immédiatement. Toutes les données sont préservées. La facturation est continue — sans interruption.",
+
+  "dash.instances.terminate": "Supprimer",
+  "dash.instances.terminate_title": "Supprimer l'instance ?",
+  "dash.instances.terminate_desc": "Cela supprimera définitivement le conteneur. Les volumes nommés sont préservés, mais toutes les autres données du conteneur seront perdues. Cette action est irréversible.",
   "dash.instances.timeline": "Chronologie du statut",
   "dash.instances.during_exec": "Instance {status} pendant l'exécution",
   "dash.instances.label_gpu": "GPU",

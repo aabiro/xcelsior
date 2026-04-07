@@ -1219,6 +1219,101 @@ class TestAnalytics:
         r = client.get("/api/analytics/usage")
         assert r.status_code == 200
 
+    def test_usage_analytics_scopes_to_customer_id(self, monkeypatch):
+        """Authenticated analytics use customer_id, not the user's email."""
+        import routes._deps as _deps_mod
+        from billing import get_billing_engine
+
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "analytics-scope@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+        customer_id = reg["user"]["customer_id"]
+        job_id = f"analytics-scope-{os.urandom(4).hex()}"
+        now = time.time()
+
+        get_billing_engine().meter_job(
+            {
+                "job_id": job_id,
+                "owner": customer_id,
+                "started_at": now - 900,
+                "completed_at": now - 300,
+                "vram_needed_gb": 24,
+            },
+            {
+                "host_id": "analytics-host-1",
+                "gpu_model": "RTX 4090",
+                "cost_per_hour": 0.5,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
+
+        r = client.get("/api/analytics/usage", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        payload = r.json()
+        assert payload["summary"]["total_jobs"] == 1
+        assert len(payload["analytics"]) == 1
+        assert payload["analytics"][0]["job_count"] == 1
+
+    def test_enhanced_analytics_provider_uses_payout_ownership(self, monkeypatch):
+        """Provider analytics follow payout ownership instead of host_id == provider_id."""
+        import routes._deps as _deps_mod
+        from billing import get_billing_engine
+        from db import UserStore
+
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+        email = "provider-analytics@xcelsior.ca"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+        provider_id = f"prov-analytics-{os.urandom(4).hex()}"
+        UserStore.update_user(email, {"provider_id": provider_id, "role": "provider"})
+        with _deps_mod._user_lock:
+            if email in _deps_mod._users_db:
+                _deps_mod._users_db[email]["provider_id"] = provider_id
+                _deps_mod._users_db[email]["role"] = "provider"
+
+        eng = get_billing_engine()
+        job_id = f"provider-job-{os.urandom(4).hex()}"
+        now = time.time()
+        eng.meter_job(
+            {
+                "job_id": job_id,
+                "owner": "cust-someone-else",
+                "started_at": now - 1800,
+                "completed_at": now - 900,
+                "vram_needed_gb": 24,
+            },
+            {
+                "host_id": "provider-host-1",
+                "gpu_model": "RTX 4090",
+                "cost_per_hour": 0.6,
+                "country": "CA",
+                "province": "ON",
+            },
+        )
+        with eng._conn() as conn:
+            conn.execute(
+                """INSERT INTO payout_splits
+                   (job_id, provider_id, total_cad, provider_share_cad,
+                    platform_share_cad, gst_hst_cad, stripe_transfer_id, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (job_id, provider_id, 5.0, 4.25, 0.75, 0.65, "", now - 600),
+            )
+
+        r = client.get("/api/analytics/enhanced?days=30", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        payload = r.json()
+        assert payload["role"] == "provider"
+        assert payload["provider_summary"]["total_jobs_served"] == 1
+        assert payload["provider_summary"]["total_revenue"] == pytest.approx(4.25, abs=0.01)
+        assert payload["provider_daily"][0]["jobs_served"] == 1
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # User Authentication & API Keys

@@ -119,6 +119,26 @@ html.light :hover::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.15);
 }
 
+/* ── Instance Lifecycle Transitional Animations ────────────────────── */
+/* stopping: soft amber shimmer — signals graceful shutdown in progress */
+@keyframes status-stopping {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.animate-status-stopping {
+  animation: status-stopping 1.6s ease-in-out infinite;
+}
+
+/* restarting: flowing cyan pulse — signals the container is being restored */
+@keyframes status-restarting {
+  0% { opacity: 0.6; filter: hue-rotate(0deg); }
+  50% { opacity: 1; filter: hue-rotate(20deg); }
+  100% { opacity: 0.6; filter: hue-rotate(0deg); }
+}
+.animate-status-restarting {
+  animation: status-restarting 1.4s ease-in-out infinite;
+}
+
 /* ── AI Typewriter Cursor Blink ─────────────────────────────────────── */
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
