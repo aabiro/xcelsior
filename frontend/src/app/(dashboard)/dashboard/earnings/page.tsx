@@ -100,7 +100,7 @@ export default function EarningsPage() {
       const pid = providerId || customerId;
       if (pid) {
         api.abandonOnboarding(pid)
-          .then((res) => { if (res?.provider) setProvider(res.provider as ProviderInfo); })
+          .then(() => { load(); })
           .catch(() => {/* non-critical */});
       }
     } else if (stripeState === "return") {
@@ -152,7 +152,7 @@ export default function EarningsPage() {
         const pid = providerId || customerId;
         if (pid) {
           api.abandonOnboarding(pid)
-            .then((res) => { if (res?.provider) setProvider(res.provider as ProviderInfo); })
+            .then(() => { load(); })
             .catch(() => {/* non-critical */});
         }
         toast.info("Stripe verification timed out. If you completed setup, click \"Resume Setup\" to check again.", { duration: 10000 });

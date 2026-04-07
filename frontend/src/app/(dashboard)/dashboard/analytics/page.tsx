@@ -347,8 +347,8 @@ export default function AnalyticsPage() {
 
   // ── Derived data ──────────────────────────────────────────────────
 
-  const analytics: any[] = data?.analytics || [];
-  const summary = data?.summary || {};
+  const analytics = useMemo<any[]>(() => data?.analytics ?? [], [data?.analytics]);
+  const summary = useMemo<Record<string, any>>(() => data?.summary ?? {}, [data?.summary]);
   const hasCustomerData = analytics.length > 0 || (summary.total_jobs != null && summary.total_jobs > 0);
   const hasProviderData = !!(
     (enhanced?.provider_daily?.length ?? 0) > 0
