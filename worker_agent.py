@@ -1489,6 +1489,7 @@ def run_job(job):
             log.info("Job %s already has active container — stopping for requeue", job_id)
             del _active_containers[job_id]
     _kill_container(container_name)  # No-op if container doesn't exist
+    _remove_container(container_name)  # Force remove stale container to prevent name conflict
     time.sleep(2)  # Let old monitor thread notice removal and exit
 
     log.info("Starting job %s (%s) — image=%s", job_id, job_name, image)

@@ -184,13 +184,13 @@ def api_submit_instance(j: JobIn, request: Request):
         else:
             vram_needed = 24.0
     elif vram_needed <= 0:
-        # Auto GPU: use the smallest available host's free VRAM so the job
-        # can actually be scheduled rather than defaulting to 24 GB.
+        # Auto GPU: request the largest available host's total VRAM so the
+        # job gets the full GPU.  Falls back to 4 GB if no hosts registered.
         hosts = list_hosts()
         if hosts:
-            vram_needed = float(min(h.get("free_vram_gb", 0) for h in hosts) or 4.0)
+            vram_needed = float(max(h.get("total_vram_gb", 0) for h in hosts) or 4.0)
         else:
-            vram_needed = 4.0  # minimal default when no hosts available
+            vram_needed = 4.0
 
     # ── Marketplace flow requires a Docker image ──────────────────────
     if target_host_id and not j.image:

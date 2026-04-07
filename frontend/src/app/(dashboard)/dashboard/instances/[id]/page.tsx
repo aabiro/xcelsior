@@ -142,6 +142,7 @@ export default function InstanceDetailPage() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const prevStatusRef = useRef<string | null>(null);
+  const [wsLogs, setWsLogs] = useState<{ timestamp: number | string; level?: string; message: string }[]>([]);
 
   // Auto-open terminal when instance starts running
   useEffect(() => {
@@ -180,9 +181,13 @@ export default function InstanceDetailPage() {
   const onWsJobError = useCallback((err: { job_id: string; error: string; message: string }) => {
     setJobError(err.message);
   }, []);
+  const onWsLog = useCallback((log: { job_id: string; timestamp: number; line: string; level: string }) => {
+    setWsLogs((prev) => [...prev, { timestamp: log.timestamp, level: log.level, message: log.line }].slice(-5000));
+  }, []);
   const wsState = useInstanceWebSocket(id, {
     onInstance: onWsInstance,
     onJobError: onWsJobError,
+    onLog: onWsLog,
     enabled: isLive,
   });
 
@@ -668,6 +673,8 @@ export default function InstanceDetailPage() {
         <LogViewer
           jobId={id}
           live={isRunning || status === "starting" || status === "assigned" || status === "queued"}
+          wsLogs={wsLogs}
+          wsConnected={wsState.connected}
         />
       </Card>
 
