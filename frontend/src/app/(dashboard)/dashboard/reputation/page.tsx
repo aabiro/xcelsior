@@ -124,15 +124,21 @@ const VERIFICATION_TYPES = [
 
 // ── Tier tooltip ──────────────────────────────────────────────────────────
 
-function TierTooltip({ tier, visible }: { tier: (typeof TIERS)[number]; visible: boolean }) {
+function TierTooltip({ tier, visible, position }: { tier: (typeof TIERS)[number]; visible: boolean; position?: "left" | "center" | "right" }) {
+  const alignClass =
+    position === "left" ? "left-0 -translate-x-0" :
+    position === "right" ? "right-0 left-auto translate-x-0" :
+    "left-1/2 -translate-x-1/2";
   return (
     <div
       className={cn(
-        "pointer-events-none absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 z-50",
-        "w-64 rounded-xl border border-border bg-navy-dark p-3 shadow-xl text-xs",
+        "pointer-events-none absolute bottom-[calc(100%+10px)] z-50",
+        alignClass,
+        "w-64 rounded-xl border border-border p-3 shadow-xl text-xs",
         "transition-all duration-150",
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
       )}
+      style={{ backgroundColor: "#0f172a" }}
     >
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">{tier.icon}</span>
@@ -156,7 +162,7 @@ function TierTooltip({ tier, visible }: { tier: (typeof TIERS)[number]; visible:
       </div>
       <p className="text-text-muted text-[10px]">{tier.unlock}</p>
       {/* Downward arrow pointer */}
-      <div className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-navy-dark border-r border-b border-border" />
+      <div className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-r border-b border-border" style={{ backgroundColor: "#0f172a" }} />
     </div>
   );
 }
@@ -168,7 +174,7 @@ function TierTrack({ currentTier }: { currentTier: TierKey }) {
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
-    <div className="relative flex items-center justify-between px-4 py-2">
+    <div className="relative flex items-center justify-between px-4 py-2 overflow-visible">
       {/* Connecting line */}
       <div className="absolute inset-y-1/2 left-6 right-6 h-0.5 bg-border -translate-y-1/2" />
       {/* Filled portion */}
@@ -191,7 +197,11 @@ function TierTrack({ currentTier }: { currentTier: TierKey }) {
             onMouseEnter={() => setHovered(idx)}
             onMouseLeave={() => setHovered(null)}
           >
-            <TierTooltip tier={tier} visible={hovered === idx} />
+            <TierTooltip
+              tier={tier}
+              visible={hovered === idx}
+              position={idx === 0 ? "left" : idx === TIERS.length - 1 ? "right" : "center"}
+            />
             <button
               type="button"
               className={cn(

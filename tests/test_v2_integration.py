@@ -136,6 +136,20 @@ class TestBinPackScheduler:
         job = {"name": "huge-job", "vram_needed_gb": 80, "num_gpus": 1}
         assert allocate_binpack(job, hosts) is None
 
+    def test_binpack_skips_draining_hosts(self):
+        """Draining hosts should not receive new placements."""
+        from scheduler import allocate_binpack
+        hosts = [
+            {"host_id": "draining", "free_vram_gb": 80, "total_vram_gb": 80, "gpu_count": 1,
+             "admitted": True, "status": "draining", "gpu_model": "A100", "cost_per_hour": 1.0},
+            {"host_id": "active", "free_vram_gb": 40, "total_vram_gb": 40, "gpu_count": 1,
+             "admitted": True, "status": "active", "gpu_model": "RTX 4090", "cost_per_hour": 0.8},
+        ]
+        job = {"name": "test-job", "vram_needed_gb": 20, "num_gpus": 1}
+        best = allocate_binpack(job, hosts)
+        assert best is not None
+        assert best["host_id"] == "active"
+
     def test_binpack_locality_bonus(self):
         """Volume-attached host should be preferred."""
         from scheduler import allocate_binpack

@@ -143,6 +143,24 @@ def api_submit_instance(j: JobIn, request: Request):
     # If host_id provided but no vram, look it up from the host record
     vram_needed = j.vram_needed_gb
     target_host_id = j.host_id
+    target_host = None
+    if target_host_id:
+        all_hosts = list_hosts(active_only=False)
+        hmap_all = {h["host_id"]: h for h in all_hosts}
+        target_host = hmap_all.get(target_host_id)
+        if not target_host:
+            raise HTTPException(status_code=404, detail=f"Host {target_host_id} not found")
+        if target_host.get("status") == "draining":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Host {target_host_id} is draining for maintenance and not accepting new instances",
+            )
+        if target_host.get("status") != "active":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Host {target_host_id} is {target_host.get('status', 'unavailable')} and not accepting new instances",
+            )
+
     if target_host_id and vram_needed <= 0:
         hosts = list_hosts()
         hmap = {h["host_id"]: h for h in hosts}

@@ -231,6 +231,66 @@ class TestHostRegistrationFlow:
         # Should stay queued — no admitted hosts
         assert instance["status"] == "queued"
 
+    def test_drain_endpoint_marks_host_draining(self):
+        """Drained hosts are preserved but excluded from scheduling."""
+        _register_host("h1", versions=GOOD_VERSIONS)
+        r = client.post("/host/h1/drain")
+        assert r.status_code == 200
+        host = r.json()["host"]
+        assert host["status"] == "draining"
+
+        active_hosts = client.get("/hosts").json()["hosts"]
+        assert all(h["host_id"] != "h1" for h in active_hosts)
+
+        all_hosts = client.get("/hosts?active_only=false").json()["hosts"]
+        assert next(h for h in all_hosts if h["host_id"] == "h1")["status"] == "draining"
+
+    def test_draining_host_not_assigned_new_work(self):
+        """Scheduler should skip drained hosts and use another active host."""
+        _register_host("h1", ip="10.0.0.1", versions=GOOD_VERSIONS)
+        _register_host("h2", ip="10.0.0.2", versions=GOOD_VERSIONS)
+        assert client.post("/host/h1/drain").status_code == 200
+
+        r = _submit_job("llama3", 16)
+        assert r.status_code == 200
+        instance = r.json()["instance"]
+        assert instance["host_id"] == "h2"
+
+    def test_direct_launch_rejects_draining_host(self):
+        """Direct marketplace launches should fail fast for drained hosts."""
+        _register_host("h1", versions=GOOD_VERSIONS)
+        assert client.post("/host/h1/drain").status_code == 200
+
+        r = _submit_job("llama3", 16, host_id="h1")
+        assert r.status_code == 409
+        assert "draining" in r.json()["detail"]
+
+    def test_host_maintenance_summary_blocks_until_interactive_jobs_clear(self):
+        """Maintenance summary should expose active interactive instances."""
+        _register_host("h1", versions=GOOD_VERSIONS)
+
+        r = _submit_job("llama3", 16)
+        assert r.status_code == 200
+        assert r.json()["instance"]["host_id"] == "h1"
+
+        assert client.post("/host/h1/drain").status_code == 200
+
+        summary = client.get("/host/h1/maintenance")
+        assert summary.status_code == 200
+        data = summary.json()
+        assert data["draining"] is True
+        assert data["active_interactive_instances"] == 1
+        assert data["safe_to_maintain"] is False
+
+    def test_undrain_restores_active_status_for_admitted_host(self):
+        """Undraining an admitted host should make it schedulable again."""
+        _register_host("h1", versions=GOOD_VERSIONS)
+        assert client.post("/host/h1/drain").status_code == 200
+
+        r = client.post("/host/h1/undrain")
+        assert r.status_code == 200
+        assert r.json()["host"]["status"] == "active"
+
     def test_host_canadian_company_fields(self):
         """Canadian company fields persist on registration."""
         r = _register_host(
