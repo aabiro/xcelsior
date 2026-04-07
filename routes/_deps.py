@@ -11,7 +11,7 @@ import time
 import threading as _threading
 from collections import defaultdict, deque
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, WebSocket
 from db import UserStore, NotificationStore
 from scheduler import list_jobs, API_TOKEN, log
 
@@ -349,6 +349,51 @@ def _require_write_access(request: Request):
     ):
         raise HTTPException(403, "This API key has read-only scope")
     return user
+
+
+# ── WebSocket Auth ────────────────────────────────────────────────────
+
+def _validate_ws_auth(websocket: WebSocket) -> dict | None:
+    """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware).
+
+    Checks (in order):
+    1. Cookie ``xcelsior_session``
+    2. Query param ``?token=``
+    3. Master API token (constant-time compare)
+    4. Persistent session / API key lookup
+
+    Returns the user dict on success, ``None`` on failure.
+    """
+    if not AUTH_REQUIRED:
+        return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": True}
+    api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    token: str = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
+    if not token:
+        token = websocket.query_params.get("token", "")
+    if not token:
+        return None
+    if api_token and hmac.compare_digest(token, api_token):
+        return {"email": "api-token", "user_id": "api-token", "role": "admin", "is_admin": True}
+    if _USE_PERSISTENT_AUTH:
+        session = UserStore.get_session(token)
+        if session:
+            full_user = UserStore.get_user(session["email"])
+            return _merge_auth_user(dict(session), full_user)
+        api_key = UserStore.get_api_key(token)
+        if api_key:
+            return {
+                "email": api_key["email"],
+                "user_id": api_key["user_id"],
+                "role": api_key.get("role", "submitter"),
+                "is_admin": api_key.get("is_admin", False),
+            }
+    else:
+        with _user_lock:
+            if token in _sessions and _sessions[token]["expires_at"] > time.time():
+                return _sessions[token]
+            if token in _api_keys:
+                return _api_keys[token]
+    return None
 
 
 # ── OpenTelemetry Span Helper ─────────────────────────────────────────

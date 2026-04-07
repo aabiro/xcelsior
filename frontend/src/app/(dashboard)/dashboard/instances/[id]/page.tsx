@@ -624,7 +624,9 @@ export default function InstanceDetailPage() {
 
       {/* Web Terminal */}
       {showTerminal && isRunning && (
-        <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
+        <div className="h-[500px]">
+          <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
+        </div>
       )}
 
       {/* Logs */}
