@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Bell, Check, CheckCheck, ExternalLink, Trash2 } from "lucide-react";
+import { Bell, Check, CheckCheck, Trash2, Cpu, CreditCard, Shield, Server, type LucideIcon } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
-const TYPE_ICONS: Record<string, string> = {
-  instance: "🖥️",
-  host: "🖧",
-  billing: "💳",
-  security: "🔒",
+const TYPE_ICONS: Record<string, LucideIcon> = {
+  instance: Server,
+  host: Cpu,
+  billing: CreditCard,
+  security: Shield,
 };
 
 function timeAgo(ts: number): string {
@@ -92,6 +92,7 @@ export function NotificationBell() {
             ) : (
               notifications.map((n) => {
                 const href = notifHref(n);
+                const TypeIcon = TYPE_ICONS[n.type] || Bell;
                 const wrapperProps = { href, onClick: () => { markRead(n.id); setOpen(false); } };
                 return (
                   <Link
@@ -102,7 +103,9 @@ export function NotificationBell() {
                       !n.read && "bg-ice-blue/5",
                     )}
                   >
-                    <span className="mt-0.5 text-base">{TYPE_ICONS[n.type] || "📋"}</span>
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background/60 text-text-muted">
+                      <TypeIcon className="h-4 w-4" />
+                    </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={cn("text-sm truncate", !n.read && "font-semibold")}>

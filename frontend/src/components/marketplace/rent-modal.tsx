@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { ProviderLogo, hasProviderLogo } from "@/components/ui/provider-logo";
 import {
   X, Cpu, MapPin, Zap, DollarSign, Loader2, CheckCircle, TrendingDown, Activity,
   AlertTriangle, CreditCard, Box, RefreshCw,
 } from "lucide-react";
 import * as api from "@/lib/api";
+import Image from "next/image";
 import type { MarketplaceListing, LaunchErrorInfo, ImageTemplate } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -43,12 +45,12 @@ const TIERS = [
 ];
 
 const FALLBACK_TEMPLATES: { id: string; label: string; image: string; icon: string }[] = [
-  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", icon: "🔥" },
-  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", icon: "🧠" },
-  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", icon: "⚡" },
-  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", icon: "🎨" },
-  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", icon: "📓" },
-  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", icon: "🐧" },
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", icon: "/logos/pytorch.svg" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", icon: "/logos/tensorflow.svg" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", icon: "/logos/vllm.svg" },
+  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", icon: "/logos/comfyui.svg" },
+  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", icon: "/logos/jupyter.svg" },
+  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", icon: "/logos/ubuntu.svg" },
 ];
 
 export function RentModal({ listing, onClose }: RentModalProps) {
@@ -150,7 +152,12 @@ export function RentModal({ listing, onClose }: RentModalProps) {
               <>
                 {/* Listing summary */}
                 <div className="flex items-center gap-4 rounded-lg bg-surface p-3">
-                  <Cpu className="h-8 w-8 text-ice-blue" />
+                  <ProviderLogo
+                    provider="nvidia"
+                    framed
+                    size={56}
+                    className="rounded-2xl border-ice-blue/20 bg-ice-blue/5 shadow-none"
+                  />
                   <div className="flex-1">
                     <p className="text-sm font-medium">{listing.gpu_model}</p>
                     <div className="flex gap-3 text-xs text-text-muted">
@@ -193,35 +200,61 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                     <Box className="h-3.5 w-3.5" />
                     Docker Image
                   </Label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {templates.map((tpl) => (
                       <button
                         key={tpl.id}
                         type="button"
                         onClick={() => { setSelectedImage(tpl.image); setIsCustom(false); }}
                         className={cn(
-                          "flex flex-col items-center gap-1 rounded-lg border p-2 text-xs transition-colors",
+                          "group flex min-h-[108px] flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors",
                           !isCustom && selectedImage === tpl.image
-                            ? "border-ice-blue bg-ice-blue/5 text-ice-blue"
-                            : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                            ? "border-ice-blue bg-ice-blue/5"
+                            : "border-border bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary"
                         )}
                       >
-                        <span className="text-base">{tpl.icon}</span>
-                        <span className="font-medium">{tpl.label}</span>
+                        <div
+                          className={cn(
+                            "flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
+                            !isCustom && selectedImage === tpl.image
+                              ? "border-ice-blue/30 bg-ice-blue/10"
+                              : "border-border/60",
+                          )}
+                        >
+                          {tpl.icon.startsWith("/") ? (
+                            <Image src={tpl.icon} alt={tpl.label} width={34} height={34} className="h-8 w-8 object-contain" unoptimized />
+                          ) : hasProviderLogo(tpl.icon) ? (
+                            <ProviderLogo provider={tpl.icon} size={34} />
+                          ) : hasProviderLogo(tpl.id) ? (
+                            <ProviderLogo provider={tpl.id} size={34} />
+                          ) : (
+                            <Box className="h-6 w-6 text-text-secondary" />
+                          )}
+                        </div>
+                        <span className="font-medium text-text-primary">{tpl.label}</span>
                       </button>
                     ))}
                     <button
                       type="button"
                       onClick={() => { setIsCustom(true); setSelectedImage(""); }}
                       className={cn(
-                        "flex flex-col items-center gap-1 rounded-lg border p-2 text-xs transition-colors",
+                        "group flex min-h-[108px] flex-col items-center justify-center gap-2 rounded-xl border p-3 text-center transition-colors",
                         isCustom
-                          ? "border-ice-blue bg-ice-blue/5 text-ice-blue"
-                          : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                          ? "border-ice-blue bg-ice-blue/5"
+                          : "border-border bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary"
                       )}
                     >
-                      <span className="text-base">⚙️</span>
-                      <span className="font-medium">Custom</span>
+                      <div
+                        className={cn(
+                          "flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
+                          isCustom
+                            ? "border-ice-blue/30 bg-ice-blue/10 text-ice-blue"
+                            : "border-border/60",
+                        )}
+                      >
+                        <Box className="h-6 w-6" />
+                      </div>
+                      <span className="font-medium text-text-primary">Custom</span>
                     </button>
                   </div>
                   {isCustom && (

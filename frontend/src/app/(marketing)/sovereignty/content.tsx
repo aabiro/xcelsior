@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Shield, AlertTriangle, CheckCircle, XCircle, ArrowRight, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useLocale } from "@/lib/locale";
 
 const fadeUp = {
@@ -62,9 +63,9 @@ export function SovereigntyContent() {
             {t("sov.residency_desc")}
           </p>
           <ul className="space-y-3">
-            <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_aws")} />
-            <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_google")} />
-            <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_azure")} />
+            <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_aws")} logo="aws" />
+            <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_google")} logo="google-cloud" />
+            <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_azure")} logo="azure" />
           </ul>
         </motion.div>
 
@@ -157,10 +158,18 @@ export function SovereigntyContent() {
   );
 }
 
-function Row({ icon: Icon, color, text }: { icon: typeof CheckCircle; color: string; text: string }) {
+function Row({ icon: Icon, color, text, logo }: { icon: typeof CheckCircle; color: string; text: string; logo?: string }) {
   return (
     <li className="flex items-start gap-2">
       <Icon className={`h-4 w-4 mt-0.5 ${color} shrink-0`} />
+      {logo && (
+        <ProviderLogo
+          provider={logo}
+          framed
+          size={22}
+          className="mt-0.5 rounded-lg border-border/60 bg-background/70 shadow-none"
+        />
+      )}
       <span className="text-sm text-text-secondary">{text}</span>
     </li>
   );

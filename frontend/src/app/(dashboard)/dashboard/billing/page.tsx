@@ -69,8 +69,8 @@ export default function BillingPage() {
   const [showLightningDeposit, setShowLightningDeposit] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [btcStatus, setBtcStatus] = useState({
-    enabled: false,
-    available: false,
+    enabled: true,
+    available: true,
     reason: "",
   });
   const [lnStatus, setLnStatus] = useState({
@@ -156,6 +156,9 @@ export default function BillingPage() {
     const timer = setTimeout(() => ctrl.abort(), 4000);
     api.checkCryptoEnabled({ signal: ctrl.signal })
       .then((r) => {
+        if (r.reason && !(r.available ?? r.enabled)) {
+          console.warn("Bitcoin deposits unavailable", r.reason);
+        }
         setBtcStatus({
           enabled: r.enabled,
           available: r.available ?? r.enabled,
@@ -669,7 +672,7 @@ export default function BillingPage() {
                   <p className="text-xs text-text-secondary">
                     {btcStatus.available
                       ? "Pay with BTC - zero processing fees, settled in CAD"
-                      : btcStatus.reason || "Bitcoin deposits are temporarily unavailable."}
+                      : "Bitcoin deposits are temporarily unavailable."}
                   </p>
                 </div>
                 <Button
@@ -677,7 +680,6 @@ export default function BillingPage() {
                   className="bg-amber-500 hover:bg-amber-600 text-black"
                   onClick={() => setShowCryptoDeposit(true)}
                   disabled={!btcStatus.available}
-                  title={!btcStatus.available ? btcStatus.reason : undefined}
                 >
                   <Bitcoin className="h-3.5 w-3.5" />
                   {btcStatus.available ? "Deposit BTC" : "Unavailable"}

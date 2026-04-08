@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import {
   Shield,
   Zap,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useLocale } from "@/lib/locale";
 
 const fadeUp = {
@@ -194,9 +196,24 @@ export default function HomePage() {
                 <tr className="border-b border-border">
                   <th scope="col" className="py-4 pl-6 pr-4 text-left text-text-secondary font-medium">{t("home.compare_feature")}</th>
                   <th scope="col" className="py-4 px-4 text-center font-bold text-accent-cyan">{t("home.compare_xcelsior")}</th>
-                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">{t("home.compare_aws")}</th>
-                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">{t("home.compare_vast")}</th>
-                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">{t("home.compare_runpod")}</th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <ProviderLogo provider="aws" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />
+                      {t("home.compare_aws")}
+                    </div>
+                  </th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <ProviderLogo provider="vast" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />
+                      {t("home.compare_vast")}
+                    </div>
+                  </th>
+                  <th scope="col" className="py-4 px-4 text-center text-text-secondary">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <ProviderLogo provider="runpod" framed size={34} className="rounded-xl border-border/60 bg-background/70 shadow-none" />
+                      {t("home.compare_runpod")}
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody className="text-text-secondary">

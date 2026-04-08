@@ -150,7 +150,7 @@ class TestServiceStatus:
         assert status["available"] is False
         assert status["rpc_reachable"] is True
         assert status["wallet_ready"] is False
-        assert "no receiving keys available" in status["reason"]
+        assert status["reason"] == "Bitcoin deposits are temporarily unavailable"
 
 
 class TestRpcFallback:
@@ -193,6 +193,29 @@ class TestRpcFallback:
 
 
 class TestCreateDeposit:
+    def test_wallet_ready_loads_existing_wallet_before_creating(self):
+        with patch("bitcoin._rpc_call") as mock_call:
+            mock_call.side_effect = [
+                [],  # listwallets
+                {"wallets": [{"name": "xcelsior"}]},  # listwalletdir
+                {"name": "xcelsior"},  # loadwallet
+                {
+                    "private_keys_enabled": True,
+                    "blank": False,
+                    "keypoolsize": 4000,
+                    "keypoolsize_hd_internal": 4000,
+                },
+            ]
+
+            bitcoin._ensure_wallet_ready("xcelsior")
+
+        assert [call.args[0] for call in mock_call.call_args_list] == [
+            "listwallets",
+            "listwalletdir",
+            "loadwallet",
+            "getwalletinfo",
+        ]
+
     def test_get_new_address_falls_back_to_dedicated_wallet(self):
         original_active = bitcoin._active_wallet_name
         try:
@@ -201,7 +224,7 @@ class TestCreateDeposit:
                 mock_call.side_effect = [
                     RuntimeError("Bitcoin RPC error: {'code': -19, 'message': 'Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path).'}"),
                     [],  # listwallets
-                    RuntimeError("Bitcoin RPC error: {'code': -18, 'message': 'Requested wallet does not exist or is not loaded'}"),
+                    {"wallets": []},  # listwalletdir
                     {"name": "xcelsior"},  # createwallet
                     {
                         "private_keys_enabled": True,

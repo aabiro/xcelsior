@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchUsageSummary: vi.fn(),
   fetchReservedPlans: vi.fn(),
   checkCryptoEnabled: vi.fn(),
+  checkLightningEnabled: vi.fn(),
   resetWalletTestingState: vi.fn(),
   checkFreeCreditsStatus: vi.fn(),
   claimFreeCredits: vi.fn(),
@@ -105,6 +106,7 @@ describe("BillingPage free credits flow", () => {
     });
     apiMocks.fetchReservedPlans.mockResolvedValue({});
     apiMocks.checkCryptoEnabled.mockResolvedValue({ ok: true, enabled: false });
+    apiMocks.checkLightningEnabled.mockResolvedValue({ ok: true, enabled: false });
     apiMocks.checkFreeCreditsStatus.mockResolvedValue({ ok: true, claimed: false });
     apiMocks.resetWalletTestingState.mockResolvedValue({
       ok: true,
@@ -196,13 +198,14 @@ describe("BillingPage free credits flow", () => {
       ok: true,
       enabled: true,
       available: false,
-      reason: "Bitcoin node is offline or unavailable",
+      reason: "Bitcoin RPC error: {'code': -4, 'message': 'Database already exists.'}",
     });
 
     render(<BillingPage />);
 
     await screen.findByText("Bitcoin Deposits");
-    expect(screen.getByText("Bitcoin node is offline or unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Bitcoin deposits are temporarily unavailable.")).toBeInTheDocument();
+    expect(screen.queryByText(/database already exists/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /unavailable/i })).toBeDisabled();
   });
 });

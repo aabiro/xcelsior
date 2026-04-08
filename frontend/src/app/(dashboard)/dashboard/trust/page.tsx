@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge, StatusBadge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import {
-  ShieldCheck, Search, RefreshCw, CheckCircle, XCircle, AlertTriangle, Lock,
+  ShieldCheck, Search, RefreshCw, CheckCircle, XCircle, AlertTriangle, Lock, Globe, MapPin, Shield, type LucideIcon,
 } from "lucide-react";
 import {
   fetchVerifiedHosts, fetchTrustTiers, fetchTransparencyReport,
@@ -16,11 +16,11 @@ import type { VerifiedHost } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 
-const TIER_ICONS: Record<string, string> = {
-  community: "🌐",
-  residency: "🍁",
-  sovereignty: "🛡️",
-  regulated: "🏛️",
+const TIER_ICONS: Record<string, LucideIcon> = {
+  community: Globe,
+  residency: MapPin,
+  sovereignty: Shield,
+  regulated: Lock,
 };
 
 const TIER_COLORS: Record<string, string> = {
@@ -106,10 +106,17 @@ export default function TrustPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Object.entries(tiers).map(([name, tier]) => (
             <Card key={name} className={`border ${TIER_COLORS[name] || ""}`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xl">{TIER_ICONS[name] || "📋"}</span>
-                <h3 className="font-semibold capitalize">{name}</h3>
-              </div>
+              {(() => {
+                const TierIcon = TIER_ICONS[name] || ShieldCheck;
+                return (
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-current/15 bg-black/10">
+                      <TierIcon className="h-5 w-5" />
+                    </span>
+                    <h3 className="font-semibold capitalize">{name}</h3>
+                  </div>
+                );
+              })()}
               <p className="text-xs text-text-muted mb-2">Min Score: {tier.min_score ?? 0}</p>
               <ul className="space-y-1">
                 {(tier.requirements || []).map((req, i) => (

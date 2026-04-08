@@ -631,6 +631,20 @@ def report_job_status(job_id, status, host_id=None, container_id=None, container
         return False
 
 
+def _push_log_lines(job_id, lines):
+    """Push log lines directly to the API (used during pull phase before LogForwarder starts)."""
+    body = json.dumps({"lines": lines}).encode()
+    try:
+        requests.post(
+            _api_url(f"/agent/logs/{job_id}"),
+            data=body,
+            headers=_api_headers(),
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass  # best-effort — don't block job execution
+
+
 # ── Lease Protocol ────────────────────────────────────────────────────
 # Per REPORT_FEATURE_FINAL.md: clean "lease/claim" protocol instead of
 # conflating "assigned" with "running."
@@ -1554,14 +1568,38 @@ def run_job(job):
         # 1. Pull image (with cache tracking + LRU eviction)
         cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
         log.info("Pulling image %s...", image)
-        pull = subprocess.run(
+        _push_log_lines(job_id, [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}])
+
+        pull_proc = subprocess.Popen(
             ["docker", "pull", image],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=1800,
+            bufsize=1,
         )
-        if pull.returncode != 0:
-            log.error("Image pull failed: %s", pull.stderr.strip())
+        pull_last_send = time.time()
+        pull_lines = []
+        for raw_line in pull_proc.stdout:
+            line = raw_line.rstrip("\n")
+            if not line:
+                continue
+            # Send pull progress to API every 3 seconds (avoid flooding)
+            now = time.time()
+            if now - pull_last_send >= 3.0:
+                pull_lines.append({"message": line, "level": "info", "timestamp": now})
+                _push_log_lines(job_id, pull_lines)
+                pull_lines = []
+                pull_last_send = now
+            else:
+                pull_lines.append({"message": line, "level": "info", "timestamp": now})
+        # Flush remaining
+        if pull_lines:
+            _push_log_lines(job_id, pull_lines)
+
+        pull_rc = pull_proc.wait(timeout=1800)
+        if pull_rc != 0:
+            log.error("Image pull failed for %s (exit %d)", image, pull_rc)
+            _push_log_lines(job_id, [{"message": f"Image pull failed (exit {pull_rc})", "level": "error", "timestamp": time.time()}])
             report_job_status(job_id, "failed")
             return
 
@@ -1622,6 +1660,7 @@ def run_job(job):
         # 4. Start container — remove stale container with same name (e.g. requeue)
         _remove_container(container_name)
         log.info("Starting container %s", container_name)
+        _push_log_lines(job_id, [{"message": "Pull complete — starting container…", "level": "info", "timestamp": time.time()}])
         start = subprocess.run(
             docker_args,
             capture_output=True,
@@ -1630,11 +1669,13 @@ def run_job(job):
         )
         if start.returncode != 0:
             log.error("Container start failed: %s", start.stderr.strip())
+            _push_log_lines(job_id, [{"message": f"Container start failed: {start.stderr.strip()}", "level": "error", "timestamp": time.time()}])
             report_job_status(job_id, "failed")
             return
 
         container_id = start.stdout.strip()[:12]
         log.info("Container started: %s", container_id)
+        _push_log_lines(job_id, [{"message": f"Container started ({container_id})", "level": "info", "timestamp": time.time()}])
 
         # Report container info to scheduler
         report_job_status(job_id, "running", host_id=HOST_ID,
@@ -2125,13 +2166,27 @@ def _kill_container(container_name):
 
 
 def _remove_container(container_name):
-    """Remove a container (force)."""
-    with suppress(Exception):
-        subprocess.run(
+    """Remove a container (force). Falls back to removing by ID if name fails."""
+    try:
+        result = subprocess.run(
             ["docker", "rm", "-f", container_name],
             capture_output=True,
-            timeout=10,
+            text=True,
+            timeout=15,
         )
+        if result.returncode != 0 and "No such container" not in result.stderr:
+            log.warning("docker rm -f %s failed: %s — trying by ID", container_name, result.stderr.strip())
+            # Fallback: find container ID by name and remove by ID
+            ps = subprocess.run(
+                ["docker", "ps", "-a", "--filter", f"name=^/{container_name}$", "-q"],
+                capture_output=True, text=True, timeout=10,
+            )
+            for cid in ps.stdout.strip().splitlines():
+                if cid:
+                    subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=10)
+                    log.info("Removed container %s by ID %s", container_name, cid)
+    except Exception as e:
+        log.warning("_remove_container(%s) error: %s", container_name, e)
 
 
 def handle_preemptions(preempt_job_ids):
