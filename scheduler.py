@@ -1202,7 +1202,8 @@ def update_job_status(job_id, status, host_id=None):
         if status == "running" and old_status == "running":
             return j
 
-        # Reserve GPU memory when job starts running.
+        # Reserve GPU memory when job starts running (best-effort — never
+        # block the status transition because the container is already live).
         if status == "running" and old_status != "running":
             target_host = host_id or j.get("host_id")
             reserved = float(j.get("vram_needed_gb", 0) or 0)
@@ -1210,11 +1211,11 @@ def update_job_status(job_id, status, host_id=None):
                 reserve_result = _reserve_host_vram(conn, target_host, reserved)
                 if reserve_result is False:
                     log.warning(
-                        "VRAM RESERVE FAILED job=%s host=%s needed=%.1fGB",
+                        "VRAM RESERVE FAILED job=%s host=%s needed=%.1fGB — proceeding anyway",
                         job_id, target_host, reserved,
                     )
-                    return None
-                j["vram_reserved_gb"] = reserved
+                else:
+                    j["vram_reserved_gb"] = reserved
 
         # Release GPU memory when a running job reaches terminal state.
         if status in ("completed", "failed", "cancelled") and old_status == "running":
