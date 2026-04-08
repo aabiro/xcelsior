@@ -26,7 +26,6 @@ const LEVEL_COLORS: Record<string, string> = {
 export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewerProps) {
   const [logs, setLogs] = useState<InstanceLog[]>([]);
   const [connected, setConnected] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -72,10 +71,10 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
     return () => es.close();
   }, [jobId, live, useWs]);
 
-  // Auto-scroll
+  // Auto-scroll (scroll only the log container, not the whole page)
   useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (autoScroll && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [displayLogs, autoScroll]);
 
@@ -162,7 +161,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
             );
           })
         )}
-        <div ref={bottomRef} />
+
       </div>
     </div>
   );

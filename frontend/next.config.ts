@@ -1,6 +1,13 @@
+import withSerwistInit from "@serwist/next";
 import type { NextConfig } from "next";
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
+
+const withSerwist = withSerwistInit({
+  swSrc: "src/app/sw.ts",
+  swDest: "public/sw.js",
+  disable: process.env.NODE_ENV === "development",
+});
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -75,4 +82,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);
