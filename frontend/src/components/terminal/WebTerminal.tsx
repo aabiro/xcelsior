@@ -456,26 +456,27 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     >
       {/* ── Toolbar ── */}
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-black">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-text-muted">Terminal</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs font-mono text-text-muted shrink-0">Terminal</span>
 
           {/* Connection state badge */}
           {(connState === "connecting" || connState === "reconnecting") ? (
-            <Badge variant="warning" className="text-[10px] px-1.5 py-0 flex items-center gap-1">
+            <Badge variant="warning" className="text-[10px] px-1.5 py-0 flex items-center gap-1 shrink-0">
               <Loader2 className="h-2.5 w-2.5 animate-spin text-sky-400" />
               {connState === "reconnecting" ? "Reconnecting" : "Connecting"}
             </Badge>
           ) : (
             <Badge
               variant={_badgeVariant(connState)}
-              className="text-[10px] px-1.5 py-0"
+              className="text-[10px] px-1.5 py-0 shrink-0"
             >
-              {connState === "connected"
-                ? (statusMsg || "Connected")
-                : connState === "disconnected"
-                ? "Disconnected"
-                : "Error"}
+              {connState === "connected" ? "Connected" : connState === "disconnected" ? "Disconnected" : "Error"}
             </Badge>
+          )}
+
+          {/* Instance name / status detail */}
+          {connState === "connected" && statusMsg && (
+            <span className="text-xs font-mono text-emerald truncate">{statusMsg}</span>
           )}
         </div>
 

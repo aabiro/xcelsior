@@ -856,6 +856,8 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
 
     # Verify job exists and send initial snapshot
     jobs = list_jobs()
+    hosts = list_hosts()
+    host_map = {h["host_id"]: h for h in hosts}
     instance = next((j for j in jobs if j["job_id"] == job_id), None)
     if not instance:
         await websocket.send_json({"event": "error", "data": {"message": "Instance not found"}})
@@ -871,6 +873,7 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
             await websocket.close(code=4003)
             return
 
+    _enrich_instance(instance, host_map)
     _ws_connections[job_id].add(websocket)
     await websocket.send_json({"event": "instance", "data": instance})
 
@@ -901,10 +904,11 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
             if event_data.get("job_id") != job_id:
                 continue
             await websocket.send_json({"event": event_type, "data": event_data})
-            # On status change, send full instance snapshot
+            # On status change, send full enriched instance snapshot
             if event_type == "job_status":
                 fresh = next((j for j in list_jobs() if j["job_id"] == job_id), None)
                 if fresh:
+                    _enrich_instance(fresh, {h["host_id"]: h for h in list_hosts()})
                     await websocket.send_json({"event": "instance", "data": fresh})
 
     async def _recv_loop():
@@ -916,6 +920,7 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
                 if data.get("event") == "refresh":
                     fresh = next((j for j in list_jobs() if j["job_id"] == job_id), None)
                     if fresh:
+                        _enrich_instance(fresh, {h["host_id"]: h for h in list_hosts()})
                         await websocket.send_json({"event": "instance", "data": fresh})
             except (WebSocketDisconnect, RuntimeError):
                 closed = True
