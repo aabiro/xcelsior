@@ -64,9 +64,9 @@ export function StatusBadge({ status }: { status: string }) {
 
   const label =
     {
-      user_paused: "stopped",
-      paused_low_balance: "low balance",
-    }[status] ?? status;
+      user_paused: "Stopped",
+      paused_low_balance: "Low Balance",
+    }[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
 
   return <Badge variant={variant}>{label}</Badge>;
 }

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
-  HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, Globe,
+  HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, Globe, Lock,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import * as api from "@/lib/api";
@@ -210,7 +210,10 @@ export default function VolumesPage() {
                     <span className="font-medium">{vol.name}</span>
                     <Badge variant={statusColor(vol.status)}>{vol.status}</Badge>
                     {vol.encrypted && (
-                      <Badge variant="info" className="text-xs">🔒 Encrypted</Badge>
+                      <Badge variant="info" className="gap-1 text-xs">
+                        <Lock className="h-3 w-3" />
+                        Encrypted
+                      </Badge>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">

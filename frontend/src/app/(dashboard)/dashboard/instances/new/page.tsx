@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-import { ArrowLeft, Rocket, DollarSign, Box, AlertTriangle, CreditCard, RefreshCw } from "lucide-react";
+import { ArrowLeft, Rocket, DollarSign, Box, AlertTriangle, CreditCard, RefreshCw, CheckCircle2, Zap } from "lucide-react";
+import { ProviderLogo, hasProviderLogo } from "@/components/ui/provider-logo";
 import { launchInstance, fetchPricingReference, fetchProvinces, fetchImageTemplates, classifyLaunchError, ApiError } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import type { PricingReference, ImageTemplate, LaunchErrorInfo, LaunchInstanceParams } from "@/lib/api";
@@ -48,13 +50,22 @@ const PRIORITIES = [
 ] as const;
 
 const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string; icon: string }[] = [
-  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", vram: "24", icon: "🔥" },
-  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", vram: "24", icon: "🧠" },
-  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", vram: "24", icon: "⚡" },
-  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", vram: "12", icon: "🎨" },
-  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: "8", icon: "📓" },
-  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: "8", icon: "🐧" },
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", vram: "24", icon: "/logos/pytorch.svg" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", vram: "24", icon: "/logos/tensorflow.svg" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", vram: "24", icon: "/logos/vllm.svg" },
+  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", vram: "12", icon: "/logos/comfyui.svg" },
+  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: "8", icon: "/logos/jupyter.svg" },
+  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: "8", icon: "/logos/ubuntu.svg" },
 ];
+
+const PORTABILITY_PROVIDERS = [
+  { provider: "nvidia", label: "NVIDIA" },
+  { provider: "aws", label: "AWS" },
+  { provider: "azure", label: "Azure" },
+  { provider: "google-cloud", label: "Google Cloud" },
+  { provider: "runpod", label: "RunPod" },
+  { provider: "vast", label: "Vast.ai" },
+] as const;
 
 export default function NewInstancePage() {
   const router = useRouter();
@@ -188,19 +199,47 @@ export default function NewInstancePage() {
             <h2 className="text-lg font-semibold">Templates</h2>
           </div>
           <p className="text-sm text-text-secondary">Quick-start with a pre-configured environment, or choose custom.</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+            <p className="text-xs text-text-secondary">
+              Ready for <span className="font-medium text-text-primary">NVIDIA GPUs</span> and portable across the clouds teams already know.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {PORTABILITY_PROVIDERS.map((item) => (
+                <span key={item.provider} className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-2.5 py-1.5 text-xs text-text-secondary">
+                  <ProviderLogo
+                    provider={item.provider}
+                    framed
+                    size={28}
+                    className="rounded-lg border-transparent bg-transparent shadow-none"
+                  />
+                  {item.label}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <button
               type="button"
               onClick={() => { setImage(""); }}
               className={cn(
-                "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
+                "group flex min-h-[148px] flex-col items-center justify-center gap-3 rounded-2xl border p-4 text-center transition-all",
                 !templates.some((t) => t.image === image)
-                  ? "border-accent-red bg-accent-red/10 text-accent-red"
-                  : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                  ? "border-accent-red/40 bg-accent-red/8"
+                  : "border-border/80 bg-background/30 hover:border-text-muted/50 hover:bg-background/60"
               )}
             >
-              <span className="text-lg">⚙️</span>
-              <span className="font-medium">Custom</span>
+              <div
+                className={cn(
+                  "flex h-16 w-16 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
+                  !templates.some((t) => t.image === image)
+                    ? "border-accent-red/30 bg-accent-red/10 text-accent-red"
+                    : "border-border/60 text-text-secondary",
+                )}
+              >
+                <Box className="h-7 w-7" />
+              </div>
+              <span className="font-semibold text-text-primary">Custom</span>
+              <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Any image</span>
             </button>
             {templates.map((tpl) => (
               <button
@@ -208,14 +247,32 @@ export default function NewInstancePage() {
                 type="button"
                 onClick={() => { setImage(tpl.image); }}
                 className={cn(
-                  "flex flex-col items-center gap-1.5 rounded-lg border p-3 text-sm transition-colors",
+                  "group flex min-h-[148px] flex-col items-center justify-center gap-3 rounded-2xl border p-4 text-center transition-all",
                   image === tpl.image
-                    ? "border-accent-red bg-accent-red/10 text-accent-red"
-                    : "border-border text-text-secondary hover:border-text-muted hover:text-text-primary"
+                    ? "border-accent-red/40 bg-accent-red/8"
+                    : "border-border/80 bg-background/30 hover:border-text-muted/50 hover:bg-background/60"
                 )}
               >
-                <span className="text-lg">{tpl.icon}</span>
-                <span className="font-medium">{tpl.label}</span>
+                <div
+                  className={cn(
+                    "flex h-16 w-16 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
+                    image === tpl.image
+                      ? "border-accent-red/30 bg-accent-red/10"
+                      : "border-border/60",
+                  )}
+                >
+                  {tpl.icon.startsWith("/") ? (
+                    <Image src={tpl.icon} alt={tpl.label} width={42} height={42} className="h-10 w-10 object-contain" unoptimized />
+                  ) : hasProviderLogo(tpl.icon) ? (
+                    <ProviderLogo provider={tpl.icon} size={42} />
+                  ) : hasProviderLogo(tpl.id) ? (
+                    <ProviderLogo provider={tpl.id} size={42} />
+                  ) : (
+                    <Box className="h-7 w-7 text-text-secondary" />
+                  )}
+                </div>
+                <span className="font-semibold text-text-primary">{tpl.label}</span>
+                <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{tpl.vram} GB VRAM</span>
               </button>
             ))}
           </div>
@@ -402,10 +459,16 @@ export default function NewInstancePage() {
                     Total: ${totalWithTax.toFixed(2)} CAD
                   </p>
                   {tier === "spot" && (
-                    <p className="text-xs text-amber-400 mt-1">⚡ Spot instances are interruptible — your job may be preempted if demand increases.</p>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-amber-400">
+                      <Zap className="h-3.5 w-3.5 shrink-0" />
+                      Spot instances are interruptible. Your job may be preempted if demand increases.
+                    </p>
                   )}
                   {tier === "reserved" && (
-                    <p className="text-xs text-emerald-400 mt-1">✓ Reserved pricing — 20% discount with commitment.</p>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-emerald-400">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      Reserved pricing with a 20% commitment discount.
+                    </p>
                   )}
                 </div>
               </div>

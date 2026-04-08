@@ -175,6 +175,30 @@ def _wallet_has_receiving_keys(info: dict) -> bool:
     return int(info.get("keypoolsize", 0)) > 0 or int(info.get("keypoolsize_hd_internal", 0)) > 0
 
 
+def _wallet_names(payload: object) -> set[str]:
+    names: set[str] = set()
+    if isinstance(payload, list):
+        entries = payload
+    elif isinstance(payload, dict):
+        entries = payload.get("wallets", [])
+    else:
+        return names
+
+    for entry in entries:
+        if isinstance(entry, str):
+            names.add(entry)
+            continue
+        if isinstance(entry, dict):
+            name = entry.get("name")
+            if isinstance(name, str):
+                names.add(name)
+    return names
+
+
+def _wallet_error_message(exc: Exception) -> str:
+    return str(exc).lower()
+
+
 def _ensure_wallet_ready(
     wallet_name: str,
     timeout: float | None = None,
@@ -182,16 +206,36 @@ def _ensure_wallet_ready(
 ) -> None:
     """Load or create a dedicated receiving wallet, then verify it has keys."""
     try:
-        loaded = _rpc_call("listwallets", timeout=timeout, skip_fallback=skip_fallback)
+        loaded = _wallet_names(
+            _rpc_call("listwallets", timeout=timeout, skip_fallback=skip_fallback)
+        )
     except Exception:
-        loaded = []
+        loaded = set()
+
+    try:
+        wallet_dir = _wallet_names(
+            _rpc_call("listwalletdir", timeout=timeout, skip_fallback=skip_fallback)
+        )
+    except Exception:
+        wallet_dir = set()
 
     if wallet_name not in loaded:
-        try:
-            _rpc_call("loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
-        except Exception:
-            # If the wallet does not exist yet, create a fresh descriptor wallet.
-            _rpc_call("createwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
+        wallet_exists = wallet_name in wallet_dir
+        if wallet_exists:
+            try:
+                _rpc_call("loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
+            except Exception as exc:
+                if "already loaded" not in _wallet_error_message(exc):
+                    raise
+        else:
+            try:
+                _rpc_call("createwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
+            except Exception as exc:
+                msg = _wallet_error_message(exc)
+                if "database already exists" in msg or "already exists" in msg:
+                    _rpc_call("loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
+                else:
+                    raise
 
     info = _rpc_call("getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback)
     if _wallet_has_receiving_keys(info):
@@ -314,6 +358,20 @@ def describe_service_error(exc: Exception | str) -> str:
     ):
         return "Bitcoin node is offline or unavailable"
 
+    if any(
+        token in normalized
+        for token in (
+            "wallet file verification failed",
+            "database already exists",
+            "no receiving keys available",
+            "requested wallet does not exist",
+            "wallet file not specified",
+            "wallet already loading",
+            "wallet is not loaded",
+        )
+    ):
+        return "Bitcoin deposits are temporarily unavailable"
+
     return message or "Bitcoin service is currently unavailable"
 
 
@@ -349,6 +407,7 @@ def get_service_status() -> dict:
         _ensure_wallet_ready(wallet_name, timeout=BTC_STATUS_RPC_TIMEOUT, skip_fallback=True)
         status["wallet_ready"] = True
     except Exception as exc:
+        log.warning("BTC wallet readiness check failed: %s", exc)
         status["reason"] = describe_service_error(exc)
         return status
 
