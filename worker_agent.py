@@ -2050,7 +2050,7 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 _remove_container(container_name)
                 return
 
-            elif status not in ("running", "created"):
+            elif status not in ("running", "created", "restarting"):
                 log.warning("Interactive container %s in unexpected state: %s", container_name, status)
                 report_job_status(job_id, "failed")
                 release_lease(job_id, "failed")

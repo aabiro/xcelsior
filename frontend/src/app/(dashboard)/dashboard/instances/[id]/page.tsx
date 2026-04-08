@@ -184,7 +184,7 @@ export default function InstanceDetailPage() {
     setJobError(err.message);
   }, []);
   const onWsLog = useCallback((log: { job_id: string; timestamp: number; line: string; level: string }) => {
-    setWsLogs((prev) => [...prev, { timestamp: log.timestamp, level: log.level, message: log.line }].slice(-5000));
+    setWsLogs((prev) => [...prev, { timestamp: log.timestamp, level: log.level, message: log.line }].slice(-3000));
   }, []);
   const wsState = useInstanceWebSocket(id, {
     onInstance: onWsInstance,

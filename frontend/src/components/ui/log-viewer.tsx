@@ -37,7 +37,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
 
   // Load historical logs
   useEffect(() => {
-    fetchInstanceLogs(jobId, 500)
+    fetchInstanceLogs(jobId, 300)
       .then((r) => setLogs(r.logs || []))
       .catch((e) => console.error("Failed to load logs", e));
   }, [jobId]);
@@ -53,7 +53,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
     es.addEventListener("job_log", (e) => {
       try {
         const data = JSON.parse(e.data);
-        setLogs((prev) => [...prev, data].slice(-5000));
+        setLogs((prev) => [...prev, data].slice(-3000));
       } catch {}
     });
 
@@ -63,7 +63,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
         setLogs((prev) => [
           ...prev,
           { timestamp: new Date().toISOString(), level: "info", message: `Status changed to ${data.status}` },
-        ].slice(-5000));
+        ].slice(-3000));
       } catch {}
     });
 
@@ -137,7 +137,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="max-h-[28rem] overflow-y-auto rounded-lg bg-navy border border-border p-4 font-mono text-xs leading-relaxed"
+        className="max-h-[17rem] overflow-y-auto rounded-lg bg-navy border border-border p-4 font-mono text-xs leading-relaxed"
       >
         {displayLogs.length === 0 ? (
           <p className="text-text-muted">No logs yet.</p>
