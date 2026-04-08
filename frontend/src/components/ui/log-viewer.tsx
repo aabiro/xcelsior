@@ -137,7 +137,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="max-h-96 overflow-y-auto rounded-lg bg-navy border border-border p-4 font-mono text-xs leading-relaxed"
+        className="max-h-[28rem] overflow-y-auto rounded-lg bg-navy border border-border p-4 font-mono text-xs leading-relaxed"
       >
         {displayLogs.length === 0 ? (
           <p className="text-text-muted">No logs yet.</p>

@@ -49,7 +49,7 @@ function DirectAccessSection({ instance }: { instance: Instance }) {
         className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-muted hover:text-text-secondary transition-colors"
       >
         {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-        <span>Direct access (advanced)</span>
+        <span>Direct access</span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-2">
@@ -113,7 +113,7 @@ const CONFIRM_CONFIGS: Record<NonNullable<ConfirmAction>, {
   },
   restart: {
     title: "Restart instance?",
-    description: "The container will be stopped and immediately restarted. All data is preserved. Billing is continuous — no gap.",
+    description: "The container will be stopped and immediately restarted. All data is preserved.",
     confirmLabel: "Restart",
     variant: "default",
   },
@@ -297,108 +297,28 @@ export default function InstanceDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <StatusBadge status={status} />
+          {/* Live / reconnecting / disconnected indicator */}
           {isLive && (
             <span
-              className={`flex items-center gap-1 text-xs ${wsState.connected ? "text-emerald" : "text-text-muted"}`}
+              className={`flex items-center gap-1.5 text-xs font-medium ${
+                wsState.connected ? "text-emerald" : wsState.reconnecting ? "text-accent-gold" : "text-accent-red"
+              }`}
               title={wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : "Disconnected"}
             >
-              {wsState.connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : ""}
+              <span className={`inline-block h-2 w-2 rounded-full ${
+                wsState.connected ? "bg-emerald shadow-[0_0_6px_rgba(16,185,129,0.6)]" : wsState.reconnecting ? "bg-accent-gold animate-pulse shadow-[0_0_6px_rgba(234,179,8,0.5)]" : "bg-accent-red shadow-[0_0_6px_rgba(239,68,68,0.5)]"
+              }`} />
+              {wsState.connected ? "Live" : wsState.reconnecting ? "Reconnecting…" : "Disconnected"}
             </span>
           )}
-          {/* Transitional state indicator */}
+          {/* Transitional state — gradient sweep text */}
           {isTransitional && (
-            <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {status === "stopping" ? "Stopping…" : status === "starting" ? "Starting…" : "Restarting…"}
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Loader2 className="h-4 w-4 brand-gradient-spinner" />
+              <span className="brand-gradient-text">
+                {status === "stopping" ? "Stopping…" : status === "starting" ? "Starting…" : "Restarting…"}
+              </span>
             </span>
-          )}
-          {/* Connection info button — only when running */}
-          {isRunning && (
-            <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
-              <Info className="h-3.5 w-3.5" /> Connection Info
-            </Button>
-          )}
-          {/* Terminal toggle — running or starting */}
-          {(isRunning || status === "starting") && (
-            <Button size="sm" variant="outline" onClick={() => { setShowTerminal(!showTerminal); if (!terminalMounted) setTerminalMounted(true); }}>
-              <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
-            </Button>
-          )}
-          {/* Running: actions dropdown */}
-          {isRunning && (
-            <div ref={actionsRef} className="relative">
-              <Button
-                size="sm" variant="outline"
-                onClick={() => setShowActionsMenu(!showActionsMenu)}
-                disabled={actionPending}
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </Button>
-              {showActionsMenu && (
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-surface-overlay shadow-lg py-1">
-                  <button
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-ice-blue hover:bg-ice-blue/10 transition-colors"
-                    onClick={() => { setShowActionsMenu(false); setConfirmAction("restart"); }}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" /> Restart
-                  </button>
-                  <button
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-accent-gold hover:bg-accent-gold/10 transition-colors"
-                    onClick={() => { setShowActionsMenu(false); setConfirmAction("stop"); }}
-                  >
-                    <Square className="h-3.5 w-3.5" /> Stop
-                  </button>
-                  <div className="my-1 border-t border-border" />
-                  <button
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-accent-red hover:bg-accent-red/10 transition-colors"
-                    onClick={() => { setShowActionsMenu(false); setConfirmAction("terminate"); }}
-                  >
-                    <Zap className="h-3.5 w-3.5" /> Terminate
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {/* Stopped actions */}
-          {isStopped && (
-            <>
-              <Button
-                size="sm"
-                onClick={() => setConfirmAction("start")}
-                disabled={actionPending}
-                className="bg-emerald hover:bg-emerald/80 text-white"
-              >
-                <Play className="h-3.5 w-3.5" /> Start
-              </Button>
-              <div ref={actionsRef} className="relative">
-                <Button
-                  size="sm" variant="outline"
-                  onClick={() => setShowActionsMenu(!showActionsMenu)}
-                  disabled={actionPending}
-                >
-                  <MoreVertical className="h-3.5 w-3.5" />
-                </Button>
-                {showActionsMenu && (
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-surface-overlay shadow-lg py-1">
-                    <button
-                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-ice-blue hover:bg-ice-blue/10 transition-colors"
-                      onClick={() => { setShowActionsMenu(false); setConfirmAction("restart"); }}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" /> Restart
-                    </button>
-                    <div className="my-1 border-t border-border" />
-                    <button
-                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-accent-red hover:bg-accent-red/10 transition-colors"
-                      onClick={() => { setShowActionsMenu(false); setConfirmAction("terminate"); }}
-                    >
-                      <Zap className="h-3.5 w-3.5" /> Terminate
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
           )}
           {/* Queued/provisioning cancel */}
           {isQueued && (
@@ -575,7 +495,51 @@ export default function InstanceDetailPage() {
         />
       </Card>
 
-      {/* Web Terminal — kept mounted once opened, toggled via CSS */}
+      {/* Terminal controls + Web Terminal */}
+      {(isRunning || status === "starting" || isStopped) && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {(isRunning || status === "starting") && (
+              <Button size="sm" variant="outline" onClick={() => { setShowTerminal(!showTerminal); if (!terminalMounted) setTerminalMounted(true); }}>
+                <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
+              </Button>
+            )}
+            {isRunning && (
+              <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
+                <Info className="h-3.5 w-3.5" /> Connection Info
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {isRunning && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Restart
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setConfirmAction("stop")} disabled={actionPending} className="text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10">
+                  <Square className="h-3.5 w-3.5" /> Stop
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                  <Zap className="h-3.5 w-3.5" /> Terminate
+                </Button>
+              </>
+            )}
+            {isStopped && (
+              <>
+                <Button size="sm" onClick={() => setConfirmAction("start")} disabled={actionPending} className="bg-emerald hover:bg-emerald/80 text-white">
+                  <Play className="h-3.5 w-3.5" /> Start
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Restart
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                  <Zap className="h-3.5 w-3.5" /> Terminate
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {terminalMounted && (isRunning || status === "starting") && (
         <div className="h-[500px]" style={{ display: showTerminal ? undefined : "none" }}>
           <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
@@ -656,7 +620,7 @@ export default function InstanceDetailPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 text-xs font-mono text-ice-blue bg-background rounded px-2 py-1.5 select-all border border-border">
+                    <code className="flex-1 text-sm font-mono text-ice-blue bg-background rounded px-2.5 py-2 select-all border border-border">
                       ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
                     </code>
                     <button
