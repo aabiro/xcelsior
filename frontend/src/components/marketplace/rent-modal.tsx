@@ -10,7 +10,6 @@ import {
   AlertTriangle, CreditCard, Box, RefreshCw,
 } from "lucide-react";
 import * as api from "@/lib/api";
-import Image from "next/image";
 import type { MarketplaceListing, LaunchErrorInfo, ImageTemplate } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -44,13 +43,13 @@ const TIERS = [
   { value: "reserved", label: "Reserved", desc: "Dedicated allocation, priority support" },
 ];
 
-const FALLBACK_TEMPLATES: { id: string; label: string; image: string; icon: string }[] = [
-  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", icon: "/logos/pytorch.svg" },
-  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", icon: "/logos/tensorflow.svg" },
-  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", icon: "/logos/vllm.svg" },
-  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", icon: "/logos/comfyui.svg" },
-  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", icon: "/logos/jupyter.svg" },
-  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", icon: "/logos/ubuntu.svg" },
+const FALLBACK_TEMPLATES: { id: string; label: string; image: string }[] = [
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1" },
+  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8" },
+  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest" },
+  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04" },
 ];
 
 export function RentModal({ listing, onClose }: RentModalProps) {
@@ -213,24 +212,11 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                             : "border-border bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary"
                         )}
                       >
-                        <div
-                          className={cn(
-                            "flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
-                            !isCustom && selectedImage === tpl.image
-                              ? "border-ice-blue/30 bg-ice-blue/10"
-                              : "border-border/60",
-                          )}
-                        >
-                          {tpl.icon.startsWith("/") ? (
-                            <Image src={tpl.icon} alt={tpl.label} width={34} height={34} className="h-8 w-8 object-contain" unoptimized />
-                          ) : hasProviderLogo(tpl.icon) ? (
-                            <ProviderLogo provider={tpl.icon} size={34} />
-                          ) : hasProviderLogo(tpl.id) ? (
-                            <ProviderLogo provider={tpl.id} size={34} />
-                          ) : (
-                            <Box className="h-6 w-6 text-text-secondary" />
-                          )}
-                        </div>
+                        {hasProviderLogo(tpl.id) ? (
+                          <ProviderLogo provider={tpl.id} size={34} className="transition-transform group-hover:scale-105" />
+                        ) : (
+                          <Box className="h-6 w-6 text-text-secondary transition-transform group-hover:scale-105" />
+                        )}
                         <span className="font-medium text-text-primary">{tpl.label}</span>
                       </button>
                     ))}

@@ -146,16 +146,8 @@ export default function InstanceDetailPage() {
   const [wsLogs, setWsLogs] = useState<{ timestamp: number | string; level?: string; message: string }[]>([]);
   const [uptickKey, setUptickKey] = useState(0);
 
-  // Auto-open terminal when instance starts running
+  // Track status transitions (don't auto-open terminal — avoids scroll jumps)
   useEffect(() => {
-    if (
-      (instance?.status === "running" || instance?.status === "starting")
-      && prevStatusRef.current !== "running"
-      && prevStatusRef.current !== "starting"
-    ) {
-      setShowTerminal(true);
-      setTerminalMounted(true);
-    }
     prevStatusRef.current = instance?.status ?? null;
   }, [instance?.status]);
 
@@ -237,17 +229,6 @@ export default function InstanceDetailPage() {
   }
 
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const actionsRef = useRef<HTMLDivElement>(null);
-
-  // Close actions dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) setShowActionsMenu(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
 
   if (loading) {
     return (
@@ -495,55 +476,59 @@ export default function InstanceDetailPage() {
         />
       </Card>
 
-      {/* Terminal controls + Web Terminal */}
+      {/* Terminal Card — controls in card header, terminal below */}
       {(isRunning || status === "starting" || isStopped) && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {(isRunning || status === "starting") && (
-              <Button size="sm" variant="outline" onClick={() => { setShowTerminal(!showTerminal); if (!terminalMounted) setTerminalMounted(true); }}>
-                <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
-              </Button>
-            )}
-            {isRunning && (
-              <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
-                <Info className="h-3.5 w-3.5" /> Connection Info
-              </Button>
-            )}
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Terminal className="h-4 w-4 text-text-muted" />
+              <h2 className="text-sm font-semibold text-text-secondary">Terminal</h2>
+              {(isRunning || status === "starting") && (
+                <Button size="sm" variant="outline" onClick={() => { setShowTerminal(!showTerminal); if (!terminalMounted) setTerminalMounted(true); }} className="ml-2 h-7 text-xs">
+                  {showTerminal ? "Hide" : "Open"}
+                </Button>
+              )}
+              {isRunning && (
+                <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="h-7 text-xs text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
+                  <Info className="h-3 w-3" /> Connection Info
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {isRunning && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
+                    <RefreshCw className="h-3 w-3" /> Restart
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("stop")} disabled={actionPending} className="h-7 text-xs text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10">
+                    <Square className="h-3 w-3" /> Stop
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="h-7 text-xs text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                    <Zap className="h-3 w-3" /> Terminate
+                  </Button>
+                </>
+              )}
+              {isStopped && (
+                <>
+                  <Button size="sm" onClick={() => setConfirmAction("start")} disabled={actionPending} className="h-7 text-xs bg-emerald hover:bg-emerald/80 text-white">
+                    <Play className="h-3 w-3" /> Start
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
+                    <RefreshCw className="h-3 w-3" /> Restart
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="h-7 text-xs text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                    <Zap className="h-3 w-3" /> Terminate
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {isRunning && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending}>
-                  <RefreshCw className="h-3.5 w-3.5" /> Restart
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setConfirmAction("stop")} disabled={actionPending} className="text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10">
-                  <Square className="h-3.5 w-3.5" /> Stop
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
-                  <Zap className="h-3.5 w-3.5" /> Terminate
-                </Button>
-              </>
-            )}
-            {isStopped && (
-              <>
-                <Button size="sm" onClick={() => setConfirmAction("start")} disabled={actionPending} className="bg-emerald hover:bg-emerald/80 text-white">
-                  <Play className="h-3.5 w-3.5" /> Start
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending}>
-                  <RefreshCw className="h-3.5 w-3.5" /> Restart
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="text-accent-red border-accent-red/30 hover:bg-accent-red/10">
-                  <Zap className="h-3.5 w-3.5" /> Terminate
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-      {terminalMounted && (isRunning || status === "starting") && (
-        <div className="h-[500px]" style={{ display: showTerminal ? undefined : "none" }}>
-          <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
-        </div>
+          {terminalMounted && (isRunning || status === "starting") && (
+            <div className="h-[500px] rounded-lg overflow-hidden border border-border" style={{ display: showTerminal ? undefined : "none" }}>
+              <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
+            </div>
+          )}
+        </Card>
       )}
 
       {/* Details — at bottom */}
