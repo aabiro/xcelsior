@@ -163,5 +163,19 @@ services:
       - api
     restart: unless-stopped
 
+  ssh-gateway:
+    build: .
+    command: python ssh_gateway.py
+    network_mode: host
+    environment:
+      XCELSIOR_POSTGRES_DSN: postgresql://xcelsior:${XCELSIOR_POSTGRES_PASSWORD:-xcelsior}@127.0.0.1:5432/${XCELSIOR_POSTGRES_DB:-xcelsior}
+      SSH_GW_HEALTH_PORT: "9510"
+      SSH_GW_MAX_CONNS: "10"
+      SSH_GW_IDLE_TIMEOUT: "3600"
+      SSH_GW_SYNC_INTERVAL: "30"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   xcelsior-data:

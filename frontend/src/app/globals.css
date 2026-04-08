@@ -402,6 +402,37 @@ html.light .brand-top-accent::after { opacity: 0.3; }
 
 /* ── Analytics Dashboard ───────────────────────────────────────────── */
 
+/* Brand gradient text sweep — used on transitional state text (Starting…, etc.) */
+@keyframes brand-sweep {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.brand-gradient-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-cyan) 0%,
+    var(--color-accent-violet) 25%,
+    var(--color-accent-red) 50%,
+    var(--color-accent-violet) 75%,
+    var(--color-accent-cyan) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: brand-sweep 3s linear infinite;
+}
+/* Brand gradient spinner — same sweep on the SVG icon */
+.brand-gradient-spinner {
+  animation: spin 1s linear infinite;
+  color: var(--color-accent-cyan);
+  filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.3));
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Shimmer skeleton for analytics loading */
 @keyframes analytics-shimmer {
   0% { background-position: -200% 0; }
