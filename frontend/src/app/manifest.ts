@@ -10,6 +10,8 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#060a13",
     theme_color: "#060a13",
+    orientation: "any",
+    categories: ["business", "productivity", "utilities"],
     icons: [
       { src: "/favicon.svg", sizes: "any", type: "image/svg+xml" },
       { src: "/xcelsior_icon_16x16.png", sizes: "16x16", type: "image/png" },
@@ -22,5 +24,59 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/xcelsior_icon_192x192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
       { src: "/xcelsior_icon_512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
+    shortcuts: [
+      {
+        name: "Launch GPU",
+        short_name: "Launch",
+        url: "/dashboard/marketplace",
+        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192" }],
+      },
+      {
+        name: "My Instances",
+        short_name: "Instances",
+        url: "/dashboard",
+        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192" }],
+      },
+      {
+        name: "Marketplace",
+        short_name: "Market",
+        url: "/dashboard/marketplace",
+        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192" }],
+      },
+      {
+        name: "Billing",
+        short_name: "Billing",
+        url: "/dashboard/billing",
+        icons: [{ src: "/xcelsior_icon_192x192.png", sizes: "192x192" }],
+      },
+    ],
+    screenshots: [
+      {
+        src: "/xcelsior_og_card_1200x630.png",
+        sizes: "1200x630",
+        type: "image/png",
+        // @ts-expect-error -- form_factor is valid in the Web App Manifest spec but not yet in Next.js types
+        form_factor: "wide",
+        label: "Xcelsior GPU Marketplace — Desktop",
+      },
+      {
+        src: "/xcelsior_og_card_1200x630.png",
+        sizes: "1200x630",
+        type: "image/png",
+        // @ts-expect-error -- form_factor is valid in the Web App Manifest spec but not yet in Next.js types
+        form_factor: "narrow",
+        label: "Xcelsior GPU Marketplace — Mobile",
+      },
+    ],
+    // @ts-expect-error -- share_target is valid in the Web App Manifest spec but not yet in Next.js types
+    share_target: {
+      action: "/dashboard/marketplace",
+      method: "GET",
+      params: {
+        title: "title",
+        text: "text",
+        url: "url",
+      },
+    },
   };
 }

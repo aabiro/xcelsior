@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Toaster } from "sonner";
 import { Providers } from "./providers";
+import { InstallBanner } from "@/components/InstallBanner";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import "./globals.css";
 
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
@@ -143,6 +145,8 @@ export default function RootLayout({
       >
         <Providers>
           {children}
+          <InstallBanner />
+          <ServiceWorkerRegistrar />
         </Providers>
         <Toaster
           position="bottom-right"
