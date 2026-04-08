@@ -442,7 +442,9 @@ def build_secure_docker_args(
     # Docker applies the default seccomp profile automatically (CIS 5.21)
 
     # Security: drop all capabilities, add back minimums
-    args.extend(["--cap-drop", "ALL"])
+    # Interactive GPU containers need capabilities for CUDA and root for setup
+    if not interactive:
+        args.extend(["--cap-drop", "ALL"])
 
     # Security: read-only root filesystem + tmpfs for writable dirs (batch only)
     # Interactive containers need writable FS for user workflows (SSH, package installs)
@@ -451,8 +453,9 @@ def build_secure_docker_args(
     args.extend(["--tmpfs", "/tmp:rw,noexec,nosuid,size=1g"])
     args.extend(["--tmpfs", "/var/tmp:rw,noexec,nosuid,size=512m"])
 
-    # Security: non-root user
-    args.extend(["--user", "1000:1000"])
+    # Security: non-root user (batch only — interactive containers need root for CUDA)
+    if not interactive:
+        args.extend(["--user", "1000:1000"])
 
     # Security: disable Dockerfile HEALTHCHECK override (CIS 5.14)
     args.append("--no-healthcheck")
