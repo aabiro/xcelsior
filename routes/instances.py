@@ -177,14 +177,12 @@ def api_submit_instance(j: JobIn, request: Request):
     # VRAM is always derived from the host — not user-configurable.
     # When a target host is specified, use its total VRAM.
     # For Auto GPU, use the largest available host's VRAM.
-    if target_host_id and target_host:
-        vram_needed = float(target_host.get("total_vram_gb", 0) or 0)
-    if vram_needed <= 0:
-        hosts = list_hosts()
-        if hosts:
-            vram_needed = float(max(h.get("total_vram_gb", 0) for h in hosts) or 4.0)
-        else:
-            vram_needed = 4.0
+    # Interactive instances get exclusive GPU access — no fractional VRAM
+    # reservation needed.  The scheduler already ensures only one interactive
+    # job runs per host, so setting vram_needed_gb = 0 avoids false negatives
+    # caused by telemetry free-VRAM being slightly less than total due to
+    # driver / OS overhead.
+    vram_needed = 0.0
 
     # ── Marketplace flow requires a Docker image ──────────────────────
     if target_host_id and not j.image:
