@@ -1610,9 +1610,12 @@ def run_job(job):
         # 2. Determine runtime
         gpu_info = get_gpu_info()
         runtime_name = "runc"
-        if PREFER_GVISOR:
+        is_interactive = bool(job.get("interactive", False))
+        if PREFER_GVISOR and not is_interactive:
             runtime_name, reason = recommend_runtime(gpu_info["gpu_model"])
             log.info("Runtime: %s (%s)", runtime_name, reason)
+        elif is_interactive:
+            log.info("Runtime: runc (interactive GPU — gVisor nvproxy incompatible)")
 
         # Multi-GPU: get requested GPU count from job
         num_gpus = job.get("num_gpus", 1) or 1
@@ -1620,7 +1623,6 @@ def run_job(job):
             log.info("Multi-GPU job: requesting %d GPUs", num_gpus)
 
         # 3. Build secure Docker args
-        is_interactive = bool(job.get("interactive", False))
         ssh_port = int(job.get("ssh_port", 22) or 22)
 
         # Interactive mode: override entrypoint to keep container alive

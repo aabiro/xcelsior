@@ -140,9 +140,11 @@ export default function InstanceDetailPage() {
   const [actionPending, setActionPending] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [terminalMounted, setTerminalMounted] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const prevStatusRef = useRef<string | null>(null);
   const [wsLogs, setWsLogs] = useState<{ timestamp: number | string; level?: string; message: string }[]>([]);
+  const [uptickKey, setUptickKey] = useState(0);
 
   // Auto-open terminal when instance starts running
   useEffect(() => {
@@ -152,9 +154,17 @@ export default function InstanceDetailPage() {
       && prevStatusRef.current !== "starting"
     ) {
       setShowTerminal(true);
+      setTerminalMounted(true);
     }
     prevStatusRef.current = instance?.status ?? null;
   }, [instance?.status]);
+
+  // Tick uptime every 30s
+  useEffect(() => {
+    if (instance?.status !== "running" || !instance?.started_at) return;
+    const id = setInterval(() => setUptickKey((k) => k + 1), 30_000);
+    return () => clearInterval(id);
+  }, [instance?.status, instance?.started_at]);
 
   const load = () => {
     setLoading(true);
@@ -304,15 +314,15 @@ export default function InstanceDetailPage() {
               {status === "stopping" ? "Stopping…" : status === "starting" ? "Starting…" : "Restarting…"}
             </span>
           )}
-          {/* Connect button — only when running */}
+          {/* Connection info button — only when running */}
           {isRunning && (
             <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
-              <Link2 className="h-3.5 w-3.5" /> Connect
+              <Info className="h-3.5 w-3.5" /> Connection Info
             </Button>
           )}
           {/* Terminal toggle — running or starting */}
           {(isRunning || status === "starting") && (
-            <Button size="sm" variant="outline" onClick={() => setShowTerminal(!showTerminal)}>
+            <Button size="sm" variant="outline" onClick={() => { setShowTerminal(!showTerminal); if (!terminalMounted) setTerminalMounted(true); }}>
               <Terminal className="h-3.5 w-3.5" /> {showTerminal ? "Hide Terminal" : "Terminal"}
             </Button>
           )}
@@ -565,9 +575,9 @@ export default function InstanceDetailPage() {
         />
       </Card>
 
-      {/* Web Terminal */}
-      {showTerminal && (isRunning || status === "starting") && (
-        <div className="h-[500px]">
+      {/* Web Terminal — kept mounted once opened, toggled via CSS */}
+      {terminalMounted && (isRunning || status === "starting") && (
+        <div className="h-[500px]" style={{ display: showTerminal ? undefined : "none" }}>
           <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
         </div>
       )}
@@ -607,7 +617,7 @@ export default function InstanceDetailPage() {
           {instance.started_at && isRunning && (
             <div className="flex justify-between sm:block">
               <dt className="text-text-muted">Uptime</dt>
-              <dd>{formatUptime(Date.now() / 1000 - Number(instance.started_at))}</dd>
+              <dd key={uptickKey}>{formatUptime(Date.now() / 1000 - Number(instance.started_at))}</dd>
             </div>
           )}
           {instance.completed_at && (
