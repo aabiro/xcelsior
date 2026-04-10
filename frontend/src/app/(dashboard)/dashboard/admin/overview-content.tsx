@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { FadeIn, StaggerList, StaggerItem, CountUp, HoverCard } from "@/components/ui/motion";
+import { DesktopPushHealthCard } from "@/components/admin/DesktopPushHealthCard";
 import {
   Users, Server, Activity, DollarSign, Clock, Zap,
   RefreshCw, TrendingUp, LayoutDashboard, Gauge, AlertTriangle, UserCheck,
@@ -88,30 +89,41 @@ export default function AdminOverviewPage() {
           </div>
         </div>
       ) : !hasData ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
-            <LayoutDashboard className="h-10 w-10 text-text-muted" />
-          </div>
-          <h3 className="text-xl font-semibold mb-2">No platform data yet</h3>
-          <p className="text-sm text-text-secondary max-w-md text-center mb-6">
-            Once users register, hosts come online, and jobs are submitted, platform metrics will appear here.
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 w-full max-w-lg">
-            <Card className="p-4 text-center border-dashed">
-              <Users className="h-5 w-5 text-text-muted mx-auto mb-2" />
-              <p className="text-xs text-text-muted">Users</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
-            </Card>
-            <Card className="p-4 text-center border-dashed">
-              <Server className="h-5 w-5 text-text-muted mx-auto mb-2" />
-              <p className="text-xs text-text-muted">Hosts</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
-            </Card>
-            <Card className="p-4 text-center border-dashed">
-              <DollarSign className="h-5 w-5 text-text-muted mx-auto mb-2" />
-              <p className="text-xs text-text-muted">Revenue</p>
-              <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
-            </Card>
+        <div className="space-y-6">
+          {data?.web_push ? (
+            <FadeIn delay={0.1}>
+              <DesktopPushHealthCard
+                snapshot={data.web_push}
+                onSnapshotChange={(next) => setData((current) => (current ? { ...current, web_push: next } : current))}
+              />
+            </FadeIn>
+          ) : null}
+
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
+              <LayoutDashboard className="h-10 w-10 text-text-muted" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2">No platform data yet</h3>
+            <p className="text-sm text-text-secondary max-w-md text-center mb-6">
+              Once users register, hosts come online, and jobs are submitted, platform metrics will appear here.
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 w-full max-w-lg">
+              <Card className="p-4 text-center border-dashed">
+                <Users className="h-5 w-5 text-text-muted mx-auto mb-2" />
+                <p className="text-xs text-text-muted">Users</p>
+                <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              </Card>
+              <Card className="p-4 text-center border-dashed">
+                <Server className="h-5 w-5 text-text-muted mx-auto mb-2" />
+                <p className="text-xs text-text-muted">Hosts</p>
+                <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              </Card>
+              <Card className="p-4 text-center border-dashed">
+                <DollarSign className="h-5 w-5 text-text-muted mx-auto mb-2" />
+                <p className="text-xs text-text-muted">Revenue</p>
+                <p className="text-lg font-bold font-mono text-text-muted/50">—</p>
+              </Card>
+            </div>
           </div>
         </div>
       ) : (
@@ -133,6 +145,15 @@ export default function AdminOverviewPage() {
               <StatCard label="ARPU" value={<CountUp value={k.arpu} prefix="$" />} icon={UserCheck} />
             </div>
           </FadeIn>
+
+          {data?.web_push ? (
+            <FadeIn delay={0.2}>
+              <DesktopPushHealthCard
+                snapshot={data.web_push}
+                onSnapshotChange={(next) => setData((current) => (current ? { ...current, web_push: next } : current))}
+              />
+            </FadeIn>
+          ) : null}
 
           {/* Charts */}
           <FadeIn delay={0.25}>

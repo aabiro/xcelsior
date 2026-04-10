@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Xcelsior Desktop",
+  "version": "0.1.0",
+  "identifier": "ca.xcelsior.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:stack",
+    "devUrl": "http://127.0.0.1:1430",
+    "beforeBuildCommand": "npm run build:control-center",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "control-center",
+        "title": "Xcelsior Control Center",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1080,
+        "minHeight": 720,
+        "center": true,
+        "visible": false,
+        "resizable": true,
+        "focus": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "appimage", "deb", "rpm", "msi", "nsis"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["xcelsior"]
+      }
+    },
+    "updater": {
+      "pubkey": "$TAURI_SIGNING_PUBLIC_KEY",
+      "endpoints": [
+        "https://downloads.xcelsior.ca/desktop/latest.json?target={{target}}&currentVersion={{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "xcelsior": {
+      "remoteOrigin": "https://xcelsior.ca",
+      "devOrigin": "http://localhost:3000",
+      "controlCenterDevUrl": "http://127.0.0.1:1430",
+      "updaterEndpoint": "https://downloads.xcelsior.ca/desktop/latest.json",
+      "bundleId": "ca.xcelsior.desktop",
+      "deepLinkScheme": "xcelsior",
+      "bundleTargets": ["app", "dmg", "appimage", "deb", "rpm", "msi", "nsis"]
+    }
+  }
+}

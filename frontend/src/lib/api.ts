@@ -1,6 +1,10 @@
 /** API client — all requests use httpOnly cookie auth (credentials: include). */
 
 let _refreshing: Promise<boolean> | null = null;
+const _BROWSER_OAUTH_STATE_KEY = "xcelsior.browser_oauth";
+const _BROWSER_OAUTH_CLIENT_ID = "xcelsior-web";
+const _BROWSER_OAUTH_SCOPE = "profile email offline_access";
+const _BROWSER_OAUTH_MAX_AGE_MS = 10 * 60 * 1000;
 
 async function _tryRefresh(): Promise<boolean> {
   try {
@@ -87,6 +91,165 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+interface BrowserOAuthState {
+  state: string;
+  verifier: string;
+  redirectUri: string;
+  nextPath: string;
+  createdAt: number;
+}
+
+function _base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function _getBrowserCrypto(): Crypto {
+  if (typeof window === "undefined" || !window.crypto?.subtle) {
+    throw new Error("Browser OAuth requires Web Crypto support");
+  }
+  return window.crypto;
+}
+
+function _randomBase64Url(byteLength: number): string {
+  const crypto = _getBrowserCrypto();
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return _base64UrlEncode(bytes);
+}
+
+async function _pkceChallenge(verifier: string): Promise<string> {
+  const crypto = _getBrowserCrypto();
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return _base64UrlEncode(new Uint8Array(digest));
+}
+
+function _oauthRedirectUri(): string {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth redirect URI is only available in the browser");
+  }
+  return `${window.location.origin}/oauth/callback`;
+}
+
+function _storeBrowserOAuthState(state: BrowserOAuthState): void {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth state is only available in the browser");
+  }
+  window.sessionStorage.setItem(_BROWSER_OAUTH_STATE_KEY, JSON.stringify(state));
+}
+
+function _consumeBrowserOAuthState(expectedState: string): BrowserOAuthState {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth state is only available in the browser");
+  }
+  const raw = window.sessionStorage.getItem(_BROWSER_OAUTH_STATE_KEY);
+  window.sessionStorage.removeItem(_BROWSER_OAUTH_STATE_KEY);
+  if (!raw) {
+    throw new Error("OAuth login session is missing or expired");
+  }
+  let parsed: BrowserOAuthState;
+  try {
+    parsed = JSON.parse(raw) as BrowserOAuthState;
+  } catch {
+    throw new Error("OAuth login session is invalid");
+  }
+  if (!parsed.state || !parsed.verifier || !parsed.redirectUri) {
+    throw new Error("OAuth login session is incomplete");
+  }
+  if (parsed.state !== expectedState) {
+    throw new Error("OAuth state mismatch");
+  }
+  if (Date.now() - Number(parsed.createdAt || 0) > _BROWSER_OAUTH_MAX_AGE_MS) {
+    throw new Error("OAuth login session expired");
+  }
+  return parsed;
+}
+
+export function normalizeAuthRedirectPath(path: string | null | undefined, fallback = "/dashboard"): string {
+  const value = String(path || "").trim();
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return fallback;
+  }
+  try {
+    const normalized = new URL(value, "https://xcelsior.local");
+    if (normalized.origin !== "https://xcelsior.local") {
+      return fallback;
+    }
+    return `${normalized.pathname}${normalized.search}${normalized.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function buildBrowserOAuthAuthorizePath(nextPath?: string): Promise<string> {
+  const redirectUri = _oauthRedirectUri();
+  const verifier = _randomBase64Url(48);
+  const state = _randomBase64Url(24);
+  const challenge = await _pkceChallenge(verifier);
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: _BROWSER_OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri,
+    scope: _BROWSER_OAUTH_SCOPE,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+  });
+  _storeBrowserOAuthState({
+    state,
+    verifier,
+    redirectUri,
+    nextPath: normalizeAuthRedirectPath(nextPath, "/dashboard"),
+    createdAt: Date.now(),
+  });
+  return `/oauth/authorize?${params.toString()}`;
+}
+
+export async function beginBrowserOAuthLogin(nextPath?: string): Promise<void> {
+  if (typeof window === "undefined") {
+    throw new Error("Browser OAuth login can only run in the browser");
+  }
+  const authorizePath = await buildBrowserOAuthAuthorizePath(nextPath);
+  window.location.assign(authorizePath);
+}
+
+export async function completeBrowserOAuthLogin(
+  code: string,
+  state: string,
+): Promise<{ redirectPath: string }> {
+  const oauthState = _consumeBrowserOAuthState(state);
+  const res = await fetch("/oauth/token", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: _BROWSER_OAUTH_CLIENT_ID,
+      code,
+      redirect_uri: oauthState.redirectUri,
+      code_verifier: oauthState.verifier,
+    }).toString(),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      (body as { error_description?: string; detail?: string; message?: string }).error_description
+      || (body as { detail?: string; message?: string }).detail
+      || (body as { message?: string }).message
+      || res.statusText
+      || "OAuth token exchange failed",
+      body,
+    );
+  }
+  return {
+    redirectPath: normalizeAuthRedirectPath(oauthState.nextPath, "/dashboard"),
+  };
 }
 
 // ── Launch Error Classification ──────────────────────────────────────
@@ -291,6 +454,23 @@ export async function restartInstance(instanceId: string) {
 
 export async function terminateInstance(instanceId: string) {
   return apiFetch(`/instances/${encodeURIComponent(instanceId)}/terminate`, { method: "POST" });
+}
+
+export async function createTerminalTicket(instanceId: string) {
+  return apiFetch<{ ok: boolean; ticket: string; expires_in: number }>(
+    "/api/terminal/ticket",
+    {
+      method: "POST",
+      body: JSON.stringify({ instance_id: instanceId }),
+    },
+  );
+}
+
+export async function createInstanceStreamTicket(instanceId: string) {
+  return apiFetch<{ ok: boolean; ticket: string; expires_in: number }>(
+    `/api/instances/${encodeURIComponent(instanceId)}/stream-ticket`,
+    { method: "POST" },
+  );
 }
 
 // ── Billing ───────────────────────────────────────────────────────────
@@ -1005,6 +1185,35 @@ export async function revokeApiKey(keyPreview: string) {
   return apiFetch<{ ok: boolean }>(`/api/keys/${encodeURIComponent(keyPreview)}`, { method: "DELETE" });
 }
 
+// ── OAuth Clients ─────────────────────────────────────────────────────
+export async function createOAuthClient(
+  clientName: string,
+  scopes: string[],
+  grantTypes: string[] = ["client_credentials"],
+) {
+  return apiFetch<{ ok: boolean; client: OAuthClientInfo & { client_secret?: string } }>(
+    "/api/oauth/clients",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: clientName,
+        client_type: "confidential",
+        redirect_uris: [],
+        grant_types: grantTypes,
+        scopes,
+      }),
+    },
+  );
+}
+
+export async function fetchOAuthClients() {
+  return apiFetch<{ ok: boolean; clients: OAuthClientInfo[] }>("/api/oauth/clients");
+}
+
+export async function deleteOAuthClient(clientId: string) {
+  return apiFetch<{ ok: boolean }>(`/api/oauth/clients/${encodeURIComponent(clientId)}`, { method: "DELETE" });
+}
+
 // ── SSH Keys ──────────────────────────────────────────────────────────
 export async function generateSshKey() {
   return apiFetch<{ ok: boolean; key_path: string; public_key: string }>("/ssh/keygen", { method: "POST" });
@@ -1199,7 +1408,56 @@ export async function fetchAdminOverview(days = 30) {
     daily_revenue: { date: string; revenue: number }[];
     daily_signups: { date: string; signups: number }[];
     daily_jobs: { date: string; jobs: number }[];
+    web_push: {
+      configured: number;
+      active_subscriptions: number;
+      revoked_subscriptions: number;
+      stale_subscriptions: number;
+      delivery_attempts_total: number;
+      delivery_success_total: number;
+      delivery_failure_total: number;
+      delivery_revoked_total: number;
+      deliveries_skipped_unconfigured_total: number;
+      deliveries_skipped_no_subscriptions_total: number;
+      last_delivery_attempt_at: number;
+      last_delivery_success_at: number;
+      last_delivery_failure_at: number;
+      last_failure_status_code: number;
+      notification_retained_total: number;
+      current_user_subscription_count: number;
+    };
   }>(`/api/admin/overview?days=${days}`);
+}
+
+export async function sendAdminWebPushTestNotification() {
+  return apiFetch<{
+    ok: boolean;
+    notification_id: string;
+    smoke_id: string;
+    title: string;
+    body: string;
+    action_url: string;
+    user_email: string;
+    active_subscription_count: number;
+    web_push: {
+      configured: number;
+      active_subscriptions: number;
+      revoked_subscriptions: number;
+      stale_subscriptions: number;
+      delivery_attempts_total: number;
+      delivery_success_total: number;
+      delivery_failure_total: number;
+      delivery_revoked_total: number;
+      deliveries_skipped_unconfigured_total: number;
+      deliveries_skipped_no_subscriptions_total: number;
+      last_delivery_attempt_at: number;
+      last_delivery_success_at: number;
+      last_delivery_failure_at: number;
+      last_failure_status_code: number;
+    };
+  }>("/api/admin/web-push/test-notification", {
+    method: "POST",
+  });
 }
 
 export async function fetchAdminRevenue(days = 90) {
@@ -1345,6 +1603,26 @@ export interface Notification {
   data: Record<string, unknown>;
   read: number;
   created_at: number;
+  action_url?: string;
+  entity_type?: string;
+  entity_id?: string;
+  priority?: number;
+}
+
+export interface WebPushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+export interface WebPushSubscriptionStatus {
+  ok: boolean;
+  configured: boolean;
+  vapid_public_key: string;
+  active_subscription_count: number;
 }
 
 export async function fetchNotifications(unread = false, limit = 50) {
@@ -1376,6 +1654,24 @@ export async function deleteNotification(notificationId: string) {
     `/api/notifications/${encodeURIComponent(notificationId)}`,
     { method: "DELETE" },
   );
+}
+
+export async function fetchPushSubscriptionStatus() {
+  return apiFetch<WebPushSubscriptionStatus>("/api/notifications/push/subscription");
+}
+
+export async function subscribePushNotifications(payload: WebPushSubscriptionPayload) {
+  return apiFetch<{ ok: boolean; subscription_id: string }>("/api/notifications/push/subscription", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function unsubscribePushNotifications(endpoint: string) {
+  return apiFetch<{ ok: boolean; revoked: boolean }>("/api/notifications/push/subscription", {
+    method: "DELETE",
+    body: JSON.stringify({ endpoint }),
+  });
 }
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -1572,6 +1868,18 @@ export interface ApiKeyInfo {
   scope: string;
   preview: string;
   created_at: string;
+}
+
+export interface OAuthClientInfo {
+  client_id: string;
+  client_name: string;
+  client_type: string;
+  redirect_uris: string[];
+  grant_types: string[];
+  scopes: string[];
+  is_first_party: boolean;
+  created_by_email?: string | null;
+  created_at?: number;
 }
 
 export interface ConsentRecord {

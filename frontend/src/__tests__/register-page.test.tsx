@@ -7,6 +7,8 @@ const apiMocks = vi.hoisted(() => ({
   register: vi.fn(),
   oauthInitiate: vi.fn(),
   resendVerification: vi.fn(),
+  beginBrowserOAuthLogin: vi.fn(),
+  normalizeAuthRedirectPath: vi.fn(() => "/dashboard"),
 }));
 
 const authMocks = vi.hoisted(() => ({
@@ -64,6 +66,7 @@ vi.mock("@/lib/locale", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => navigationMocks,
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("next/link", () => ({

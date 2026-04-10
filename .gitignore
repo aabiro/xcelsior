@@ -94,6 +94,9 @@ scripts/globe_transform.py
 
 frontend/public/xcelsior-*
 frontend/public/xcelsior_*
+frontend/public/sw*
+frontend/playwright-report/
+frontend/test-results/
 # ── Allow branding assets used by the app ─────────────────────────────────
 !frontend/public/xcelsior-logo-wordmark-iconbg.svg
 !frontend/public/xcelsior-logo-wordmark-iconbg-light.svg

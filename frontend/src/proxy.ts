@@ -13,7 +13,7 @@ const CSP_HEADER =
   "frame-src 'self' https://js.stripe.com https://verify.walletconnect.org; " +
   "frame-ancestors 'self';";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = request.cookies.has(AUTH_COOKIE);
 

@@ -10,6 +10,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { createTerminalTicket } from "@/lib/api";
 import { Loader2, Maximize2, Minimize2, X } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -31,17 +32,16 @@ interface WebTerminalProps {
 const MAX_RECONNECT_ATTEMPTS = 8;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
-
-// ── Cookie helper ─────────────────────────────────────────────────────────────
-
-function _getSessionToken(): string {
-  // Prefer xcelsior_session; fall back to xcelsior_token (legacy)
-  for (const name of ["xcelsior_session", "xcelsior_token"]) {
-    const entry = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`));
-    if (entry) return decodeURIComponent(entry.split("=")[1] ?? "");
-  }
-  return "";
-}
+const NON_RETRYABLE_WS_CLOSE_CODES = new Set([
+  1000,
+  1008,
+  1009,
+  4001,
+  4003,
+  4004,
+  4408,
+  4429,
+]);
 
 // ── Badge helper ──────────────────────────────────────────────────────────────
 
@@ -273,8 +273,17 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const apiBase = process.env.NEXT_PUBLIC_API_URL ?? window.location.origin;
     const wsBase = apiBase.replace(/^https?:/, protocol);
-    const token = _getSessionToken();
-    const wsUrl = `${wsBase}/ws/terminal/${instanceId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    let ticketResp: { ok: boolean; ticket: string; expires_in: number };
+    try {
+      ticketResp = await createTerminalTicket(instanceId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to open terminal";
+      term.write(`\r\n\x1b[31m\u26a0 ${message}\x1b[0m\r\n`);
+      setConnState("error");
+      setStatusMsg(message);
+      return () => {};
+    }
+    const wsUrl = `${wsBase}/ws/terminal/${instanceId}?ticket=${encodeURIComponent(ticketResp.ticket)}`;
 
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
@@ -354,10 +363,21 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event: CloseEvent) => {
       if (!mountedRef.current) return;
       if (termRef.current) {
         termRef.current.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
+      }
+
+      if (NON_RETRYABLE_WS_CLOSE_CODES.has(event.code)) {
+        if (event.code === 1000) {
+          setConnState("disconnected");
+          setStatusMsg("Connection closed");
+        } else {
+          setConnState("error");
+          setStatusMsg(event.reason || `Connection closed (${event.code})`);
+        }
+        return;
       }
 
       const att = reconnectAttemptsRef.current;

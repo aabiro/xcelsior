@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
-    _get_current_user,
+    _require_user_grant,
     broadcast_sse,
     log,
 )
@@ -116,9 +116,7 @@ class UpdateTeamMemberRoleRequest(BaseModel):
 @router.post("/api/teams", tags=["Teams"])
 def api_create_team(body: CreateTeamRequest, request: Request):
     """Create a new team/organization. Creator becomes team admin."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     team_id = f"team-{uuid.uuid4().hex[:8]}"
     max_members = {"free": 5, "pro": 25, "enterprise": 100}.get(body.plan, 5)
@@ -141,9 +139,7 @@ def api_create_team(body: CreateTeamRequest, request: Request):
 @router.get("/api/teams/me", tags=["Teams"])
 def api_my_teams(request: Request):
     """Get teams the current user belongs to."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     teams = UserStore.get_user_teams(user["email"])
     return {"ok": True, "teams": teams}
@@ -151,9 +147,7 @@ def api_my_teams(request: Request):
 @router.get("/api/teams/{team_id}", tags=["Teams"])
 def api_get_team(team_id: str, request: Request):
     """Get team details including members."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     team = UserStore.get_team(team_id)
     if not team:
@@ -169,9 +163,7 @@ def api_get_team(team_id: str, request: Request):
 @router.post("/api/teams/{team_id}/members", tags=["Teams"])
 def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Request):
     """Add a member to a team. Only team admins can add members."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     team = UserStore.get_team(team_id)
     if not team:
@@ -206,9 +198,7 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
 @router.delete("/api/teams/{team_id}/members/{email}", tags=["Teams"])
 def api_remove_team_member(team_id: str, email: str, request: Request):
     """Remove a member from a team. Admins can remove anyone; members can leave."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     team = UserStore.get_team(team_id)
     if not team:
@@ -241,9 +231,7 @@ def api_remove_team_member(team_id: str, email: str, request: Request):
 @router.patch("/api/teams/{team_id}/members/{email}", tags=["Teams"])
 def api_update_team_member_role(team_id: str, email: str, body: UpdateTeamMemberRoleRequest, request: Request):
     """Update a team member's role. Only admins can change roles."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     if body.role not in ("admin", "member", "viewer"):
         raise HTTPException(400, "Role must be admin, member, or viewer")
@@ -268,9 +256,7 @@ def api_update_team_member_role(team_id: str, email: str, body: UpdateTeamMember
 @router.delete("/api/teams/{team_id}", tags=["Teams"])
 def api_delete_team(team_id: str, request: Request):
     """Delete a team. Only the team owner can delete it."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
 
     team = UserStore.get_team(team_id)
     if not team:

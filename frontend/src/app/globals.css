@@ -74,6 +74,21 @@ html.light body {
   font-family: var(--font-sans);
 }
 
+html[data-desktop-mode="1"] body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at top, rgba(0, 212, 255, 0.08), transparent 30%),
+    radial-gradient(circle at 80% 20%, rgba(124, 58, 237, 0.08), transparent 25%),
+    var(--color-navy);
+}
+
+html.light[data-desktop-mode="1"] body {
+  background:
+    radial-gradient(circle at top, rgba(2, 132, 199, 0.08), transparent 30%),
+    radial-gradient(circle at 80% 20%, rgba(109, 40, 217, 0.06), transparent 25%),
+    #ffffff;
+}
+
 /* ── Scrollbar (auto-hide, very faint) ─────────────────────────────── */
 * {
   scrollbar-width: thin;
@@ -258,6 +273,58 @@ html.light .aurora-gradient {
   border-radius: 1rem;
   background: var(--color-surface);
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.desktop-shell-root {
+  position: relative;
+}
+
+.desktop-shell-root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 212, 255, 0.04), transparent 14%),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.04), transparent 22%, transparent 78%, rgba(0, 212, 255, 0.04));
+}
+
+.desktop-sidebar-surface {
+  background:
+    linear-gradient(180deg, rgba(13, 19, 32, 0.98), rgba(6, 10, 19, 0.98)),
+    var(--color-surface);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+}
+
+.desktop-topbar {
+  padding-top: max(env(titlebar-area-height, 0px), 0px);
+  height: calc(72px + max(env(titlebar-area-height, 0px), 0px));
+  background:
+    linear-gradient(180deg, rgba(13, 19, 32, 0.95), rgba(13, 19, 32, 0.88)),
+    var(--color-surface);
+  backdrop-filter: blur(18px);
+}
+
+.desktop-topbar-actions {
+  white-space: nowrap;
+}
+
+.desktop-main-surface {
+  padding-top: 1rem;
+  padding-bottom: 2rem;
+}
+
+.desktop-main-surface > * {
+  width: 100%;
+  max-width: 1680px;
+  margin-inline: auto;
+}
+
+@media (min-width: 1280px) {
+  .desktop-main-surface {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
 }
 .glow-card::before {
   content: "";

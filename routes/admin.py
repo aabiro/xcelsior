@@ -1,6 +1,7 @@
 """Routes: admin."""
 
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -16,10 +17,11 @@ from scheduler import (
     list_hosts,
     list_jobs,
 )
-from db import UserStore, emit_event
+from db import NotificationStore, UserStore, WebPushSubscriptionStore, emit_event
 from billing import get_billing_engine
 from verification import get_verification_engine
 from events import get_event_store
+from web_push import get_web_push_observability_snapshot
 
 router = APIRouter()
 
@@ -123,7 +125,7 @@ def api_admin_users(request: Request):
 @router.get("/api/admin/overview", tags=["Admin"])
 def api_admin_overview(request: Request, days: int = 30):
     """Admin overview with KPIs and trend data for a configurable window."""
-    _require_admin(request)
+    user = _require_admin(request)
     import datetime as _dt
 
     days = max(1, min(days, 365))
@@ -256,6 +258,18 @@ def api_admin_overview(request: Request, days: int = 30):
     except Exception as e:
         log.debug("job failure rate calculation failed: %s", e)
     arpu = round(curr_revenue / len(users), 2) if users else 0.0
+    web_push = {
+        **get_web_push_observability_snapshot(),
+        "notification_retained_total": 0,
+        "current_user_subscription_count": 0,
+    }
+    try:
+        web_push["notification_retained_total"] = NotificationStore.total_count()
+        web_push["current_user_subscription_count"] = WebPushSubscriptionStore.count_active_for_user(
+            user.get("email", ""),
+        )
+    except Exception as e:
+        log.debug("admin_overview: failed to fetch web push data: %s", e)
 
     return {
         "ok": True,
@@ -276,6 +290,51 @@ def api_admin_overview(request: Request, days: int = 30):
         "daily_revenue": daily_revenue,
         "daily_signups": daily_signups,
         "daily_jobs": daily_jobs,
+        "web_push": web_push,
+    }
+
+
+@router.post("/api/admin/web-push/test-notification", tags=["Admin"])
+def api_admin_web_push_test_notification(request: Request):
+    """Send a real web-push smoke notification to the current admin user."""
+    user = _require_admin(request)
+    user_email = user.get("email", "")
+    if not user_email:
+        raise HTTPException(400, "Current admin user email is unavailable")
+
+    smoke_id = f"smoke-{uuid.uuid4().hex[:12]}"
+    action_url = f"/dashboard/admin?push_smoke=1&smoke_id={smoke_id}"
+    created_at = int(time.time())
+    title = "Desktop push smoke test"
+    body = "Open this notification to confirm desktop click-through on the admin dashboard."
+
+    notification_id = NotificationStore.create(
+        user_email,
+        "admin_web_push_smoke",
+        title,
+        body,
+        data={
+            "smoke_test": True,
+            "smoke_id": smoke_id,
+            "triggered_by": user_email,
+            "created_at": created_at,
+        },
+        action_url=action_url,
+        entity_type="admin_web_push_smoke",
+        entity_id=smoke_id,
+        priority=10,
+    )
+
+    return {
+        "ok": True,
+        "notification_id": notification_id,
+        "smoke_id": smoke_id,
+        "title": title,
+        "body": body,
+        "action_url": action_url,
+        "user_email": user_email,
+        "active_subscription_count": WebPushSubscriptionStore.count_active_for_user(user_email),
+        "web_push": get_web_push_observability_snapshot(),
     }
 
 @router.post("/api/admin/users/{email}/role", tags=["Admin"])
@@ -876,5 +935,4 @@ def api_admin_ai_conversations(
         "page": page,
         "per_page": per_page,
     }
-
 

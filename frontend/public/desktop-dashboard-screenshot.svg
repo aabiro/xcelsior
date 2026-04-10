@@ -1,0 +1,40 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="1034" y2="604" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D1320" />
+      <stop offset="0.55" stop-color="#08121E" />
+      <stop offset="1" stop-color="#060A13" />
+    </linearGradient>
+    <linearGradient id="glow" x1="215" y1="154" x2="963" y2="538" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00D4FF" stop-opacity="0.35" />
+      <stop offset="1" stop-color="#7C3AED" stop-opacity="0.25" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" rx="28" fill="#03060D" />
+  <rect x="28" y="28" width="1144" height="574" rx="24" fill="url(#bg)" stroke="#1A2235" />
+  <rect x="60" y="68" width="204" height="494" rx="22" fill="#0D1320" stroke="#202A3C" />
+  <rect x="84" y="104" width="116" height="24" rx="12" fill="#00D4FF" fill-opacity="0.12" />
+  <rect x="84" y="160" width="156" height="18" rx="9" fill="#E8EDF5" fill-opacity="0.9" />
+  <rect x="84" y="196" width="144" height="14" rx="7" fill="#8492A6" fill-opacity="0.7" />
+  <rect x="84" y="236" width="156" height="14" rx="7" fill="#8492A6" fill-opacity="0.7" />
+  <rect x="84" y="276" width="132" height="14" rx="7" fill="#8492A6" fill-opacity="0.7" />
+  <rect x="84" y="316" width="148" height="14" rx="7" fill="#8492A6" fill-opacity="0.7" />
+  <rect x="84" y="356" width="126" height="14" rx="7" fill="#8492A6" fill-opacity="0.7" />
+  <rect x="298" y="68" width="842" height="78" rx="22" fill="#0D1320" stroke="#202A3C" />
+  <rect x="330" y="95" width="202" height="24" rx="12" fill="#E8EDF5" fill-opacity="0.92" />
+  <rect x="848" y="94" width="108" height="26" rx="13" fill="#00D4FF" fill-opacity="0.12" />
+  <rect x="972" y="94" width="126" height="26" rx="13" fill="#10B981" fill-opacity="0.16" />
+  <rect x="298" y="170" width="842" height="356" rx="24" fill="#0A111D" stroke="url(#glow)" />
+  <rect x="332" y="204" width="196" height="108" rx="18" fill="#0D1320" stroke="#202A3C" />
+  <rect x="552" y="204" width="196" height="108" rx="18" fill="#0D1320" stroke="#202A3C" />
+  <rect x="772" y="204" width="196" height="108" rx="18" fill="#0D1320" stroke="#202A3C" />
+  <rect x="992" y="204" width="114" height="108" rx="18" fill="#0D1320" stroke="#202A3C" />
+  <rect x="332" y="338" width="774" height="154" rx="18" fill="#0D1320" stroke="#202A3C" />
+  <rect x="364" y="370" width="324" height="14" rx="7" fill="#E8EDF5" fill-opacity="0.8" />
+  <rect x="364" y="404" width="694" height="12" rx="6" fill="#8492A6" fill-opacity="0.55" />
+  <rect x="364" y="434" width="618" height="12" rx="6" fill="#8492A6" fill-opacity="0.55" />
+  <rect x="364" y="464" width="552" height="12" rx="6" fill="#8492A6" fill-opacity="0.55" />
+  <rect x="298" y="548" width="842" height="22" rx="11" fill="#00D4FF" fill-opacity="0.08" />
+  <text x="84" y="530" fill="#E8EDF5" font-size="22" font-family="Geist, Arial, sans-serif" font-weight="700">Xcelsior Desktop</text>
+  <text x="332" y="590" fill="#8492A6" font-size="18" font-family="Geist, Arial, sans-serif">Shared dashboard UI with desktop-native framing, tray state, and infrastructure controls.</text>
+</svg>

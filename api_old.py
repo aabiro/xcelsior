@@ -5,6 +5,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 import urllib.parse
@@ -23,6 +24,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
 from db import start_pg_listen, UserStore, NotificationStore, MfaStore, emit_event
+from routes._deps import (
+    _check_ws_connect_rate_limit as _shared_check_ws_connect_rate_limit,
+    _consume_ws_ticket as _shared_consume_ws_ticket,
+    _get_ws_client_ip as _shared_get_ws_client_ip,
+    _issue_ws_ticket as _shared_issue_ws_ticket,
+    _validate_ws_origin as _shared_validate_ws_origin,
+)
 
 from scheduler import (
     register_host,
@@ -705,7 +713,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if auth.startswith("Bearer "):
             token = auth[7:]
         else:
-            token = request.query_params.get("token", "")
+            token = ""
         if not token:
             token = request.cookies.get(_AUTH_COOKIE_NAME, "")
 
@@ -1483,14 +1491,14 @@ def api_instance_logs(job_id: str, request: Request, limit: int = 100):
 _ws_connections: dict[str, set[WebSocket]] = defaultdict(set)  # job_id -> {ws, ...}
 
 
-def _validate_ws_auth(websocket: WebSocket) -> dict | None:
+def _validate_ws_auth(websocket: WebSocket, *, allow_query_token: bool = True) -> dict | None:
     """Validate auth for WebSocket connections (mirrors TokenAuthMiddleware).
     Returns user dict on success, None on failure."""
     if not AUTH_REQUIRED:
         return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": 1}
     api_token = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
     token = websocket.cookies.get(_AUTH_COOKIE_NAME, "")
-    if not token:
+    if not token and allow_query_token:
         token = websocket.query_params.get("token", "")
     if not token:
         return None
@@ -1516,6 +1524,89 @@ def _validate_ws_auth(websocket: WebSocket) -> dict | None:
     return None
 
 
+def _legacy_ws_owner_matches(user: dict, instance: dict) -> bool:
+    owner_candidates = {
+        str(instance.get("owner", "") or ""),
+        str(instance.get("customer_id", "") or ""),
+        str(instance.get("owner_email", "") or ""),
+        str(instance.get("user_email", "") or ""),
+    }
+    caller_candidates = {
+        str(user.get("customer_id", "") or ""),
+        str(user.get("user_id", "") or ""),
+        str(user.get("email", "") or ""),
+    }
+    owner_candidates.discard("")
+    caller_candidates.discard("")
+    return not owner_candidates or bool(owner_candidates & caller_candidates)
+
+
+def _check_legacy_job_access(user: dict, job_id: str) -> dict:
+    instance = next((j for j in list_jobs() if j["job_id"] == job_id), None)
+    if not instance:
+        raise HTTPException(404, "Instance not found")
+    if user.get("role") == "admin" or user.get("is_admin"):
+        return instance
+    if not _legacy_ws_owner_matches(user, instance):
+        raise HTTPException(403, "Not authorized")
+    return instance
+
+
+class LegacyTerminalTicketIn(BaseModel):
+    instance_id: str = Field(min_length=1, max_length=128)
+
+
+def _legacy_terminal_session_key(user: dict) -> str:
+    return str(
+        user.get("customer_id")
+        or user.get("user_id")
+        or user.get("email")
+        or "anonymous"
+    )
+
+
+def _acquire_legacy_terminal_session_slot(user: dict) -> bool:
+    key = _legacy_terminal_session_key(user)
+    with _legacy_terminal_session_lock:
+        current = _legacy_terminal_session_counts.get(key, 0)
+        if current >= _LEGACY_TERMINAL_MAX_CONCURRENT_SESSIONS_PER_USER:
+            return False
+        _legacy_terminal_session_counts[key] = current + 1
+    return True
+
+
+def _release_legacy_terminal_session_slot(user: dict) -> None:
+    key = _legacy_terminal_session_key(user)
+    with _legacy_terminal_session_lock:
+        current = _legacy_terminal_session_counts.get(key, 0)
+        if current <= 1:
+            _legacy_terminal_session_counts.pop(key, None)
+            return
+        _legacy_terminal_session_counts[key] = current - 1
+
+
+def _legacy_frame_too_large(payload: str) -> bool:
+    return len(payload.encode("utf-8")) > _LEGACY_TERMINAL_MAX_INPUT_FRAME_BYTES
+
+
+@app.post("/api/instances/{job_id}/stream-ticket")
+def api_instance_stream_ticket(job_id: str, request: Request) -> dict:
+    """Issue a short-lived one-time WebSocket ticket for instance streaming."""
+    user = _require_auth(request)
+    _check_legacy_job_access(user, job_id)
+    ticket = _shared_issue_ws_ticket(
+        user,
+        request=request,
+        purpose="instance_stream",
+        target=job_id,
+    )
+    return {
+        "ok": True,
+        "ticket": ticket["ticket"],
+        "expires_in": int(max(0, ticket["expires_at"] - time.time())),
+    }
+
+
 @app.websocket("/ws/instances/{job_id}")
 async def ws_instance_stream(websocket: WebSocket, job_id: str):
     """WebSocket endpoint for real-time instance updates.
@@ -1529,7 +1620,33 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
     Client can send ``{"event": "pong"}`` or ``{"event": "refresh"}``
     to request a fresh instance snapshot.
     """
-    if not _validate_ws_auth(websocket):
+    client_ip = _shared_get_ws_client_ip(websocket)
+
+    if not _shared_validate_ws_origin(
+        websocket,
+        require_for_cookie_auth=True,
+        allow_query_token=False,
+    ):
+        log.warning("legacy.instances.ws.origin_rejected ip=%s job=%s", client_ip, job_id)
+        await websocket.close(code=1008, reason="Invalid origin")
+        return
+
+    if not _shared_check_ws_connect_rate_limit(websocket, bucket="instances"):
+        log.warning("legacy.instances.ws.rate_limited ip=%s job=%s", client_ip, job_id)
+        await websocket.close(code=4429, reason="Connection rate limit exceeded")
+        return
+
+    ticket = websocket.query_params.get("ticket", "").strip()
+    if ticket:
+        user = _shared_consume_ws_ticket(
+            ticket,
+            websocket,
+            purpose="instance_stream",
+            target=job_id,
+        )
+    else:
+        user = _validate_ws_auth(websocket, allow_query_token=False)
+    if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
@@ -1542,6 +1659,12 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
         await websocket.send_json({"event": "error", "data": {"message": "Instance not found"}})
         await websocket.close(code=4004)
         return
+
+    if not (user.get("role") == "admin" or user.get("is_admin")):
+        if not _legacy_ws_owner_matches(user, instance):
+            await websocket.send_json({"event": "error", "data": {"message": "Not authorized"}})
+            await websocket.close(code=4003)
+            return
 
     _ws_connections[job_id].add(websocket)
     await websocket.send_json({"event": "instance", "data": instance})
@@ -1618,6 +1741,53 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
 _TERMINAL_SESSION_TIMEOUT = 1800  # 30 minutes
 _TERMINAL_MAX_SCROLLBACK = 50_000  # 50 KB
 _TERMINAL_RATE_LIMIT_BYTES = 10_240  # 10 KB/s
+_LEGACY_TERMINAL_MAX_INPUT_FRAME_BYTES = int(
+    os.environ.get("XCELSIOR_TERMINAL_MAX_INPUT_FRAME_BYTES", "65536")
+)
+_LEGACY_TERMINAL_MAX_RESIZE_COLS = int(
+    os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_COLS", "500")
+)
+_LEGACY_TERMINAL_MAX_RESIZE_ROWS = int(
+    os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_ROWS", "200")
+)
+_LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES = int(
+    os.environ.get("XCELSIOR_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES", "5")
+)
+_LEGACY_TERMINAL_MAX_CONCURRENT_SESSIONS_PER_USER = int(
+    os.environ.get("XCELSIOR_TERMINAL_MAX_CONCURRENT_SESSIONS_PER_USER", "3")
+)
+_LEGACY_TERMINAL_CONTAINER_REF_RE = re.compile(r"\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}\Z")
+_LEGACY_TERMINAL_DEFAULT_ALLOWED_SHELLS = (
+    "/bin/bash,/bin/sh,/bin/zsh,/usr/bin/bash,/usr/bin/sh,/usr/bin/zsh,/bin/ash"
+)
+_LEGACY_TERMINAL_ALLOWED_SHELLS = frozenset(
+    shell.strip()
+    for shell in os.environ.get(
+        "XCELSIOR_TERMINAL_ALLOWED_SHELLS",
+        _LEGACY_TERMINAL_DEFAULT_ALLOWED_SHELLS,
+    ).split(",")
+    if shell.strip()
+)
+_legacy_terminal_session_counts: dict[str, int] = defaultdict(int)
+_legacy_terminal_session_lock = _threading.Lock()
+
+
+@app.post("/api/terminal/ticket")
+def api_terminal_ticket(body: LegacyTerminalTicketIn, request: Request) -> dict:
+    """Issue a short-lived one-time WebSocket ticket for terminal access."""
+    user = _require_auth(request)
+    _check_legacy_job_access(user, body.instance_id)
+    ticket = _shared_issue_ws_ticket(
+        user,
+        request=request,
+        purpose="terminal",
+        target=body.instance_id,
+    )
+    return {
+        "ok": True,
+        "ticket": ticket["ticket"],
+        "expires_in": int(max(0, ticket["expires_at"] - time.time())),
+    }
 
 
 @app.websocket("/ws/terminal/{instance_id}")
@@ -1635,8 +1805,38 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     - Server sends: ``{"type": "error", "message": "..."}``
     - Server sends: ``{"type": "exit", "code": N}``
     """
-    if not _validate_ws_auth(websocket):
+    client_ip = _shared_get_ws_client_ip(websocket)
+
+    if not _shared_validate_ws_origin(
+        websocket,
+        require_for_cookie_auth=True,
+        allow_query_token=False,
+    ):
+        log.warning("legacy.terminal.ws.origin_rejected ip=%s instance=%s", client_ip, instance_id)
+        await websocket.close(code=1008, reason="Invalid origin")
+        return
+
+    if not _shared_check_ws_connect_rate_limit(websocket, bucket="terminal"):
+        log.warning("legacy.terminal.ws.rate_limited ip=%s instance=%s", client_ip, instance_id)
+        await websocket.close(code=4429, reason="Connection rate limit exceeded")
+        return
+
+    ticket = websocket.query_params.get("ticket", "").strip()
+    if ticket:
+        user = _shared_consume_ws_ticket(
+            ticket,
+            websocket,
+            purpose="terminal",
+            target=instance_id,
+        )
+    else:
+        user = _validate_ws_auth(websocket, allow_query_token=False)
+    if not user:
         await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    if not _acquire_legacy_terminal_session_slot(user):
+        await websocket.close(code=4429, reason="Too many concurrent terminal sessions")
         return
 
     await websocket.accept()
@@ -1647,11 +1847,20 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     if not instance:
         await websocket.send_json({"type": "error", "message": "Instance not found"})
         await websocket.close(code=4004)
+        _release_legacy_terminal_session_slot(user)
         return
+
+    if not (user.get("role") == "admin" or user.get("is_admin")):
+        if not _legacy_ws_owner_matches(user, instance):
+            await websocket.send_json({"type": "error", "message": "Not authorized"})
+            await websocket.close(code=4003)
+            _release_legacy_terminal_session_slot(user)
+            return
 
     if instance.get("status") != "running":
         await websocket.send_json({"type": "error", "message": f"Instance is {instance.get('status', 'unknown')}, not running"})
         await websocket.close(code=4003)
+        _release_legacy_terminal_session_slot(user)
         return
 
     host_id = instance.get("host_id", "")
@@ -1659,12 +1868,24 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     if not host_id:
         await websocket.send_json({"type": "error", "message": "No host assigned"})
         await websocket.close(code=4003)
+        _release_legacy_terminal_session_slot(user)
+        return
+
+    if not _LEGACY_TERMINAL_CONTAINER_REF_RE.match(str(container_id or "")):
+        await websocket.send_json({"type": "error", "message": "Invalid container reference"})
+        await websocket.close(code=4003)
+        _release_legacy_terminal_session_slot(user)
         return
 
     # Build docker exec command via Tailscale
     # In production: ssh through Tailscale mesh to the worker host
     # For local dev: direct docker exec
-    shell = instance.get("shell", "/bin/bash")
+    shell = str(instance.get("shell", "/bin/bash") or "/bin/bash")
+    if shell not in _LEGACY_TERMINAL_ALLOWED_SHELLS:
+        await websocket.send_json({"type": "error", "message": "Unsupported shell path"})
+        await websocket.close(code=4003)
+        _release_legacy_terminal_session_slot(user)
+        return
     docker_cmd = [
         "docker", "exec", "-it", container_id, shell,
     ]
@@ -1673,6 +1894,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
     process = None
     closed = False
     master_fd = None
+    malformed_control_frames = 0
 
     try:
         import pty as _pty, fcntl, struct, termios
@@ -1704,10 +1926,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         except FileNotFoundError:
             await websocket.send_json({"type": "error", "message": "Docker not available on this host"})
             await websocket.close(code=4003)
+            _release_legacy_terminal_session_slot(user)
             return
         except Exception as exc:
             await websocket.send_json({"type": "error", "message": str(exc)})
             await websocket.close(code=4003)
+            _release_legacy_terminal_session_slot(user)
             return
 
     await websocket.send_json({"type": "output", "data": f"Connected to {instance.get('name', instance_id)}\\r\\n"})
@@ -1767,7 +1991,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
 
     async def _stdin_relay():
         """Read browser input and relay to container stdin."""
-        nonlocal closed
+        nonlocal closed, malformed_control_frames
         try:
             while not closed:
                 # Session timeout check
@@ -1781,17 +2005,53 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                     )
                 except asyncio.TimeoutError:
                     continue
-                msg = json.loads(raw)
+                if _legacy_frame_too_large(raw):
+                    await websocket.send_json({"type": "error", "message": "Input frame too large", "code": 1009})
+                    await websocket.close(code=1009)
+                    closed = True
+                    break
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    malformed_control_frames += 1
+                    if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
+                        await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                        await websocket.close(code=1008)
+                        closed = True
+                        break
+                    continue
                 if msg.get("type") == "input":
                     data = msg.get("data", "")
+                    if not isinstance(data, str):
+                        malformed_control_frames += 1
+                        if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
+                            await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                            await websocket.close(code=1008)
+                            closed = True
+                            break
+                        continue
+                    if _legacy_frame_too_large(data):
+                        await websocket.send_json({"type": "error", "message": "Input frame too large", "code": 1009})
+                        await websocket.close(code=1009)
+                        closed = True
+                        break
                     if master_fd is not None:
                         os.write(master_fd, data.encode("utf-8"))
                     elif process and process.stdin:
                         process.stdin.write(data.encode("utf-8"))
                         await process.stdin.drain()
                 elif msg.get("type") == "resize":
-                    cols = int(msg.get("cols", 80))
-                    rows = int(msg.get("rows", 24))
+                    try:
+                        cols = max(1, min(_LEGACY_TERMINAL_MAX_RESIZE_COLS, int(msg.get("cols", 80))))
+                        rows = max(1, min(_LEGACY_TERMINAL_MAX_RESIZE_ROWS, int(msg.get("rows", 24))))
+                    except (TypeError, ValueError):
+                        malformed_control_frames += 1
+                        if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
+                            await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                            await websocket.close(code=1008)
+                            closed = True
+                            break
+                        continue
                     if master_fd is not None:
                         try:
                             import fcntl, struct, termios
@@ -1801,10 +2061,15 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                             pass
                 elif msg.get("type") == "ping":
                     await websocket.send_json({"type": "pong", "ts": time.time()})
+                else:
+                    malformed_control_frames += 1
+                    if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
+                        await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                        await websocket.close(code=1008)
+                        closed = True
+                        break
         except (WebSocketDisconnect, RuntimeError):
             closed = True
-        except (json.JSONDecodeError, KeyError):
-            pass
 
     try:
         done, pending = await asyncio.wait(
@@ -1826,6 +2091,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                 await process.wait()
             except Exception as e:
                 log.debug("Terminal process cleanup error: %s", e)
+        _release_legacy_terminal_session_slot(user)
         # Send exit notification
         try:
             exit_code = process.returncode if process else -1

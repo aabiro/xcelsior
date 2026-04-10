@@ -3,13 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
-import { login as apiLogin, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
+import { beginBrowserOAuthLogin, login as apiLogin, normalizeAuthRedirectPath, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 
@@ -17,8 +17,10 @@ const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading, login } = useAuth();
   const { t } = useLocale();
+  const redirectTarget = normalizeAuthRedirectPath(searchParams.get("redirect"), "/dashboard");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -50,8 +52,17 @@ export default function LoginPage() {
 
   // If already authenticated, redirect to dashboard
   if (!authLoading && user) {
-    router.replace("/dashboard");
+    router.replace(redirectTarget);
     return null;
+  }
+
+  async function completeBrowserLogin() {
+    try {
+      await beginBrowserOAuthLogin(redirectTarget);
+    } catch {
+      await login();
+      router.replace(redirectTarget);
+    }
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -72,8 +83,7 @@ export default function LoginPage() {
         else setMfaMethod("backup");
         return;
       }
-      await login();
-      router.push("/dashboard");
+      await completeBrowserLogin();
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         const body = err.body as { email_verification_required?: boolean; email?: string } | undefined;
@@ -95,8 +105,7 @@ export default function LoginPage() {
     setMfaVerifying(true);
     try {
       await verifyMfaLogin(mfaChallengeId, mfaMethod, mfaCode);
-      await login();
-      router.push("/dashboard");
+      await completeBrowserLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed");
     } finally {
@@ -161,8 +170,7 @@ export default function LoginPage() {
         },
       });
       if (result.ok) {
-        await login();
-        router.push("/dashboard");
+        await completeBrowserLogin();
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "NotAllowedError") {
@@ -354,14 +362,14 @@ export default function LoginPage() {
               <Button
                 key={provider}
                 variant="outline"
-                className="relative h-auto w-full justify-start gap-3 rounded-xl border-border/70 bg-background/40 px-4 py-3.5 hover:bg-surface-hover/70"
+                className="relative h-auto w-full justify-start gap-3 rounded-xl border-border/70 bg-background/40 px-4 py-2.5 hover:bg-surface-hover/70"
                 onClick={() => handleOAuth(provider)}
               >
                 <ProviderLogo
                   provider={provider}
                   framed
-                  size={40}
-                  className="rounded-xl border-border/60 bg-navy/70 shadow-none"
+                  size={28}
+                  className="rounded-lg border-border/60 bg-navy/70 shadow-none"
                 />
                 <span className="flex-1 text-left">{labels[provider]}</span>
                 {lastOAuth === provider && (

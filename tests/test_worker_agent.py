@@ -17,12 +17,30 @@ import worker_agent
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _patch_base(monkeypatch, host_id="rig-01", url="http://localhost:8000", token=None, cost=0.50):
+def _patch_base(
+    monkeypatch,
+    host_id="rig-01",
+    url="http://localhost:8000",
+    token=None,
+    cost=0.50,
+    oauth_client_id="",
+    oauth_client_secret="",
+    oauth_scope="api",
+    oauth_token_url="",
+):
     """Apply the common module-level patches for most tests."""
     monkeypatch.setattr(worker_agent, "HOST_ID", host_id)
     monkeypatch.setattr(worker_agent, "SCHEDULER_URL", url)
     monkeypatch.setattr(worker_agent, "API_TOKEN", token)
+    monkeypatch.setattr(worker_agent, "OAUTH_CLIENT_ID", oauth_client_id)
+    monkeypatch.setattr(worker_agent, "OAUTH_CLIENT_SECRET", oauth_client_secret)
+    monkeypatch.setattr(worker_agent, "OAUTH_SCOPE", oauth_scope)
+    monkeypatch.setattr(worker_agent, "OAUTH_TOKEN_URL", oauth_token_url)
+    monkeypatch.setattr(worker_agent, "OAUTH_TOKEN_TIMEOUT_SEC", 10)
+    monkeypatch.setattr(worker_agent, "OAUTH_TOKEN_REFRESH_SKEW_SEC", 60)
     monkeypatch.setattr(worker_agent, "COST_PER_HOUR", cost)
+    monkeypatch.setattr(worker_agent, "_oauth_access_token", "")
+    monkeypatch.setattr(worker_agent, "_oauth_access_token_expires_at", 0.0)
 
 
 class _FakeResp:
@@ -67,15 +85,89 @@ class TestValidateConfig:
 
 class TestApiHelpers:
     def test_api_headers_no_token(self, monkeypatch):
+        _patch_base(monkeypatch, token="")
         monkeypatch.setattr(worker_agent, "API_TOKEN", "")
         h = worker_agent._api_headers()
         assert "Authorization" not in h
         assert h["Content-Type"] == "application/json"
 
     def test_api_headers_with_token(self, monkeypatch):
+        _patch_base(monkeypatch, token="secret-tok")
         monkeypatch.setattr(worker_agent, "API_TOKEN", "secret-tok")
         h = worker_agent._api_headers()
         assert h["Authorization"] == "Bearer secret-tok"
+
+    def test_api_headers_with_oauth_client_credentials(self, monkeypatch):
+        _patch_base(
+            monkeypatch,
+            token="legacy-token",
+            oauth_client_id="oauth-client",
+            oauth_client_secret="oauth-secret",
+        )
+        captured = {}
+
+        def fake_post(url, data, timeout):
+            captured["url"] = url
+            captured["data"] = data
+            captured["timeout"] = timeout
+            return _FakeResp(
+                200,
+                {
+                    "access_token": "oauth-access-token",
+                    "token_type": "Bearer",
+                    "expires_in": 900,
+                },
+            )
+
+        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
+        h = worker_agent._api_headers()
+        assert h["Authorization"] == "Bearer oauth-access-token"
+        assert captured["url"] == "http://localhost:8000/oauth/token"
+        assert captured["data"]["grant_type"] == "client_credentials"
+        assert captured["data"]["client_id"] == "oauth-client"
+        assert captured["data"]["client_secret"] == "oauth-secret"
+        assert captured["data"]["scope"] == "api"
+
+    def test_api_headers_caches_oauth_token(self, monkeypatch):
+        _patch_base(
+            monkeypatch,
+            oauth_client_id="oauth-client",
+            oauth_client_secret="oauth-secret",
+        )
+        calls = {"count": 0}
+
+        def fake_post(url, data, timeout):
+            calls["count"] += 1
+            return _FakeResp(
+                200,
+                {
+                    "access_token": "cached-oauth-token",
+                    "token_type": "Bearer",
+                    "expires_in": 900,
+                },
+            )
+
+        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
+        first = worker_agent._api_headers()
+        second = worker_agent._api_headers()
+        assert first["Authorization"] == "Bearer cached-oauth-token"
+        assert second["Authorization"] == "Bearer cached-oauth-token"
+        assert calls["count"] == 1
+
+    def test_api_headers_fall_back_to_api_token_when_oauth_exchange_fails(self, monkeypatch):
+        _patch_base(
+            monkeypatch,
+            token="legacy-token",
+            oauth_client_id="oauth-client",
+            oauth_client_secret="oauth-secret",
+        )
+
+        def fake_post(url, data, timeout):
+            raise requests.ConnectionError("oauth unavailable")
+
+        monkeypatch.setattr(worker_agent.requests, "post", fake_post)
+        h = worker_agent._api_headers()
+        assert h["Authorization"] == "Bearer legacy-token"
 
     def test_api_url(self, monkeypatch):
         monkeypatch.setattr(worker_agent, "SCHEDULER_URL", "http://api:8000/")

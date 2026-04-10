@@ -27,7 +27,8 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
   const [logs, setLogs] = useState<InstanceLog[]>([]);
   const [connected, setConnected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(false);
+  const prevLogLen = useRef(0);
 
   // When WS logs are provided, use those instead of internal state
   const useWs = wsLogs !== undefined;
@@ -71,16 +72,21 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
     return () => es.close();
   }, [jobId, live, useWs]);
 
-  // Auto-scroll (scroll only the log container, not the whole page)
+  // Bulletproof auto-scroll: only scroll if user is at bottom and new logs arrive
   useEffect(() => {
-    if (autoScroll && containerRef.current) {
+    if (!containerRef.current) return;
+    const logLen = displayLogs.length;
+    // Only scroll if new logs were added (not on mount/status change)
+    if (logLen > prevLogLen.current && autoScroll) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
+    prevLogLen.current = logLen;
   }, [displayLogs, autoScroll]);
 
   function handleScroll() {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    // Only enable autoScroll if user is within 40px of bottom
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 40);
   }
 

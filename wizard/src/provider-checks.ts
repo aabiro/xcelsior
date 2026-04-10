@@ -605,6 +605,8 @@ export async function installWorkerAgent(
     apiToken: string,
     hostId: string,
     hostIp: string,
+    oauthClientId?: string,
+    oauthClientSecret?: string,
 ): Promise<WorkerInstallResult> {
     const { execSync } = await import("child_process");
     const { writeFileSync, existsSync, mkdirSync } = await import("fs");
@@ -618,12 +620,20 @@ export async function installWorkerAgent(
     }
 
     // 2. Write worker agent env file
-    const envContent = [
+    // Prefer OAuth client credentials when available; fall back to API token.
+    const envLines = [
         `XCELSIOR_HOST_ID=${hostId}`,
         `XCELSIOR_SCHEDULER_URL=${apiUrl}`,
-        `XCELSIOR_API_TOKEN=${apiToken}`,
         `XCELSIOR_HOST_IP=${hostIp}`,
-    ].join("\n") + "\n";
+    ];
+    if (oauthClientId && oauthClientSecret) {
+        envLines.push(`XCELSIOR_OAUTH_CLIENT_ID=${oauthClientId}`);
+        envLines.push(`XCELSIOR_OAUTH_CLIENT_SECRET=${oauthClientSecret}`);
+    }
+    if (apiToken) {
+        envLines.push(`XCELSIOR_API_TOKEN=${apiToken}`);
+    }
+    const envContent = envLines.join("\n") + "\n";
 
     const envFile = join(configDir, "worker.env");
     writeFileSync(envFile, envContent, { mode: 0o600 });

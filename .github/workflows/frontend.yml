@@ -82,3 +82,11 @@ jobs:
         run: npm run build
       - name: Verify standalone output
         run: test -f .next/standalone/server.js
+      - name: Verify PWA output
+        run: npm run verify:pwa
+      - name: Install Chromium For PWA Smoke Test
+        run: npx playwright install --with-deps chromium
+      - name: Run PWA Smoke Test
+        env:
+          NEXT_PUBLIC_API_URL: https://xcelsior.ca
+        run: npm run test:pwa:smoke

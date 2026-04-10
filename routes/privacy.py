@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from routes._deps import (
     _get_current_user,
+    _require_user_grant,
     log,
 )
 from privacy import PrivacyConfig, RETENTION_POLICIES, execute_right_to_erasure, get_consent_manager, get_lifecycle_manager
@@ -121,9 +122,7 @@ class ConsentRequest(BaseModel):
 @router.post("/api/v2/privacy/consent", tags=["Privacy"])
 def api_privacy_record_consent(body: ConsentRequest, request: Request):
     """Record CASL consent for a purpose."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     cm = get_consent_manager()
     client_ip = request.client.host if request.client else ""
     cm.record_consent(
@@ -138,9 +137,7 @@ def api_privacy_record_consent(body: ConsentRequest, request: Request):
 @router.delete("/api/v2/privacy/consent/{purpose}", tags=["Privacy"])
 def api_privacy_withdraw_consent(purpose: str, request: Request):
     """Withdraw CASL consent for a purpose (unsubscribe)."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     cm = get_consent_manager()
     cm.withdraw_consent(user.get("user_id", user.get("email", "")), purpose)
     return {"ok": True}
@@ -148,9 +145,7 @@ def api_privacy_withdraw_consent(purpose: str, request: Request):
 @router.get("/api/v2/privacy/consents", tags=["Privacy"])
 def api_privacy_list_consents(request: Request):
     """List all consent records for the current user."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     cm = get_consent_manager()
     consents = cm.get_user_consents(user.get("user_id", user.get("email", "")))
     return {"ok": True, "consents": consents}
@@ -158,9 +153,7 @@ def api_privacy_list_consents(request: Request):
 @router.post("/api/v2/privacy/erase", tags=["Privacy"])
 def api_privacy_right_to_erasure(request: Request):
     """Execute right-to-erasure (PIPEDA/Law 25). Irreversible."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     summary = execute_right_to_erasure(user.get("user_id", user.get("email", "")))
     return {"ok": True, "erasure": summary}
 

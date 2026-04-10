@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Bell, Check, CheckCheck, Trash2, Cpu, CreditCard, Shield, Server, type LucideIcon } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
+import type { Notification } from "@/lib/api";
+import { useDesktopRuntime } from "@/lib/desktop/runtime";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -21,7 +23,8 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function notifHref(notif: { type: string; data: Record<string, unknown> }): string {
+function notifHref(notif: Notification): string {
+  if (notif.action_url) return notif.action_url;
   const jobId = notif.data?.job_id as string | undefined;
   const hostId = notif.data?.host_id as string | undefined;
   if (notif.type === "instance" && jobId) return `/dashboard/instances/${jobId}`;
@@ -32,6 +35,7 @@ function notifHref(notif: { type: string; data: Record<string, unknown> }): stri
 export function NotificationBell() {
   const { notifications, unreadCount, loading, markRead, markAllRead, deleteNotification, refresh } =
     useNotifications();
+  const { state: desktopState, syncNativeState } = useDesktopRuntime();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -43,6 +47,38 @@ export function NotificationBell() {
     if (open) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
+
+  useEffect(() => {
+    if (!desktopState.isNativeDesktop) return;
+    if (loading || unreadCount === 0 || notifications.length > 0) return;
+    refresh();
+  }, [desktopState.isNativeDesktop, loading, notifications.length, refresh, unreadCount]);
+
+  useEffect(() => {
+    if (!desktopState.isNativeDesktop) return;
+
+    const recentNotifications = notifications.slice(0, 8).map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      body: notification.body,
+      actionUrl: notifHref(notification),
+      createdAt: notification.created_at,
+      read: Boolean(notification.read),
+      type: notification.type,
+      priority: notification.priority ?? 0,
+    }));
+
+    const criticalAlertCount = recentNotifications.filter(
+      (notification) => !notification.read && (notification.priority > 0 || notification.type === "security"),
+    ).length;
+
+    void syncNativeState({
+      unreadCount,
+      criticalAlertCount,
+      notificationsEnabled: typeof Notification !== "undefined" && Notification.permission === "granted",
+      recentNotifications,
+    });
+  }, [desktopState.isNativeDesktop, notifications, syncNativeState, unreadCount]);
 
   // Fetch full list when opening
   function handleToggle() {

@@ -1614,6 +1614,12 @@ def run_job(job, host, docker_image=None):
 
     # Container name
     parts.append(f"--name {shlex.quote(container_name)}")
+    for label in (
+        "xcelsior.managed=true",
+        f"xcelsior.job_id={job['job_id']}",
+        f"xcelsior.container_name={container_name}",
+    ):
+        parts.append(f"--label {shlex.quote(label)}")
 
     # Security hardening (parity with build_secure_docker_args in security.py)
     parts.append("--security-opt=no-new-privileges")
@@ -1874,7 +1880,14 @@ def run_job_local(job, docker_image=None):
 
     try:
         result = subprocess.run(
-            ["docker", "run", "-d", "--name", container_name, image],
+            [
+                "docker", "run", "-d",
+                "--name", container_name,
+                "--label", "xcelsior.managed=true",
+                "--label", f"xcelsior.job_id={job['job_id']}",
+                "--label", f"xcelsior.container_name={container_name}",
+                image,
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -2778,7 +2791,7 @@ def _infer_platform_fees_from_payout(payout: float, cut: float) -> float:
     """Infer platform revenue from accumulated provider payout and fee cut."""
     if payout <= 0 or not (0 < cut < 1):
         return 0.0
-    return round(payout * cut / (1 - cut), 4)
+    return round(payout * cut / (1 - cut), 6)
 
 
 def _platform_cut_for_host(host_id: str) -> float:
@@ -2952,21 +2965,21 @@ def marketplace_bill(job_id):
 
     duration_sec = job["completed_at"] - job["started_at"]
     duration_hr = duration_sec / 3600
-    total_cost = round(duration_hr * listing["price_per_hour"], 4)
+    total_cost = round(duration_hr * listing["price_per_hour"], 6)
 
     # Tier multiplier
     tier = job.get("tier", "free")
     tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
-    total_cost = round(total_cost * tier_info["multiplier"], 4)
+    total_cost = round(total_cost * tier_info["multiplier"], 6)
 
     platform_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
-    platform_fee = round(total_cost * platform_cut, 4)
-    host_payout = round(total_cost - platform_fee, 4)
+    platform_fee = round(total_cost * platform_cut, 6)
+    host_payout = round(total_cost - platform_fee, 6)
 
     # Update listing stats
     listing["total_jobs"] = listing.get("total_jobs", 0) + 1
-    listing["total_earned"] = round(listing.get("total_earned", 0) + host_payout, 4)
-    listing["total_platform_fees"] = round(listing.get("total_platform_fees", 0) + platform_fee, 4)
+    listing["total_earned"] = round(listing.get("total_earned", 0) + host_payout, 6)
+    listing["total_platform_fees"] = round(listing.get("total_platform_fees", 0) + platform_fee, 6)
     save_marketplace(listings)
 
     log.info(
@@ -3003,13 +3016,13 @@ def marketplace_stats():
         payout = float(l.get("total_earned", 0) or 0)
         cut = float(l.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
         platform_revenue += _infer_platform_fees_from_payout(payout, cut)
-    platform_revenue = round(platform_revenue, 4)
+    platform_revenue = round(platform_revenue, 6)
 
     return {
         "total_listings": len(listings),
         "active_listings": len(active),
         "total_jobs_completed": total_jobs,
-        "total_host_payouts": round(total_earned, 4),
+        "total_host_payouts": round(total_earned, 6),
         "platform_revenue": platform_revenue,
         "default_platform_cut_pct": PLATFORM_CUT,
     }
@@ -3399,7 +3412,7 @@ def get_metrics_snapshot():
     queued = [j for j in jobs if j.get("status") == "queued"]
     running = [j for j in jobs if j.get("status") == "running"]
     failed = [j for j in jobs if j.get("status") == "failed"]
-    return {
+    snapshot = {
         "queue_depth": len(queued),
         "active_hosts": len([h for h in hosts if h.get("status") == "active"]),
         "failed_jobs": len(failed),
@@ -3409,6 +3422,24 @@ def get_metrics_snapshot():
             "records": len(load_billing()),
         },
     }
+
+    try:
+        from db import NotificationStore
+
+        snapshot["notifications"] = {
+            "retained_total": NotificationStore.total_count(),
+        }
+    except Exception as exc:
+        log.debug("Notification metrics unavailable: %s", exc)
+
+    try:
+        from web_push import get_web_push_observability_snapshot
+
+        snapshot["web_push"] = get_web_push_observability_snapshot()
+    except Exception as exc:
+        log.debug("Web push metrics unavailable: %s", exc)
+
+    return snapshot
 
 
 # ── Spot Pricing & Preemption ─────────────────────────────────────────

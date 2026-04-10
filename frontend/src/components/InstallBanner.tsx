@@ -1,57 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt(): Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
+import { usePwaInstallPrompt } from "@/hooks/usePwaInstallPrompt";
 
 /**
  * Custom "Add to Home Screen" banner shown on mobile only (md:hidden).
  * Appears on 2nd visit, dismissible, non-annoying.
  */
 export function InstallBanner() {
-  const [deferredPrompt, setDeferredPrompt] =
-    useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
+  const [visitCount, setVisitCount] = useState(0);
+  const { canInstall, isDesktopDevice, isInstalled, promptToInstall } = usePwaInstallPrompt();
 
   useEffect(() => {
-    // Don't show if already installed (standalone mode)
-    if (window.matchMedia("(display-mode: standalone)").matches) return;
+    if (isInstalled || isDesktopDevice) return;
 
-    // Track visit count — show banner on 2nd+ visit
     const visits = parseInt(
       localStorage.getItem("xcelsior-pwa-visits") || "0",
       10,
     );
     localStorage.setItem("xcelsior-pwa-visits", String(visits + 1));
+    setVisitCount(visits);
+  }, [isDesktopDevice, isInstalled]);
+
+  useEffect(() => {
+    if (isInstalled || isDesktopDevice) return;
 
     // Check if user previously dismissed
     const dismissed = localStorage.getItem("xcelsior-pwa-dismissed");
     if (dismissed) return;
 
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-      // Show on 2nd visit or later
-      if (visits >= 1) {
-        setShow(true);
-      }
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
+    if (canInstall && visitCount >= 1) {
+      setShow(true);
+    } else if (!canInstall) {
+      setShow(false);
+    }
+  }, [canInstall, isDesktopDevice, isInstalled, visitCount]);
 
   const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    const outcome = await promptToInstall();
     if (outcome === "accepted") {
       setShow(false);
     }
-    setDeferredPrompt(null);
   };
 
   const handleDismiss = () => {

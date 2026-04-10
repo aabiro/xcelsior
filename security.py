@@ -413,6 +413,7 @@ def build_secure_docker_args(
     extra_args=None,
     environment=None,
     volumes=None,
+    labels=None,
     command=None,
     interactive=False,
 ):
@@ -435,6 +436,12 @@ def build_secure_docker_args(
 
     # Container identity
     args.extend(["--name", container_name])
+    if labels:
+        _LABEL_KEY_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+        for key, value in labels.items():
+            if not _LABEL_KEY_RE.match(str(key)):
+                raise ValueError(f"Invalid label name: {key!r}")
+            args.extend(["--label", f"{key}={value}"])
 
     # Security: no privileged, no new privileges
     args.append("--security-opt=no-new-privileges")

@@ -6,6 +6,14 @@ import { makeRequest } from "./makeRequest.js";
 import { requestWithRetries } from "./requestWithRetries.js";
 import { Supplier } from "./Supplier.js";
 
+function headersToObject(headers: Headers): Record<string, string> {
+    const values: Record<string, string> = {};
+    headers.forEach((value, key) => {
+        values[key] = value;
+    });
+    return values;
+}
+
 export declare namespace PassthroughRequest {
     /**
      * Per-request options that can override the SDK client defaults.
@@ -71,7 +79,7 @@ export async function makePassthroughRequest(
         if (init == null) {
             effectiveInit = {
                 method: input.method,
-                headers: Object.fromEntries(input.headers.entries()),
+                headers: headersToObject(input.headers),
                 body: input.body,
                 signal: input.signal,
                 credentials: input.credentials,
@@ -126,7 +134,7 @@ export async function makePassthroughRequest(
     if (effectiveInit?.headers != null) {
         const initHeaders =
             effectiveInit.headers instanceof Headers
-                ? Object.fromEntries(effectiveInit.headers.entries())
+                ? headersToObject(effectiveInit.headers)
                 : Array.isArray(effectiveInit.headers)
                   ? Object.fromEntries(effectiveInit.headers)
                   : effectiveInit.headers;

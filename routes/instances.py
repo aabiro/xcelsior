@@ -15,11 +15,16 @@ from routes._deps import (
     _AUTH_COOKIE_NAME,
     _USE_PERSISTENT_AUTH,
     _api_keys,
+    _check_ws_connect_rate_limit,
+    _consume_ws_ticket,
+    _issue_ws_ticket,
     _require_auth,
+    _require_scope,
     _sessions,
     _sse_lock,
     _sse_subscribers,
     _user_lock,
+    _validate_ws_origin,
     _validate_ws_auth,  # re-exported for backward compat with tests
     broadcast_sse,
     log,
@@ -153,6 +158,7 @@ def api_submit_instance(j: JobIn, request: Request):
     the job is queued and process_queue runs to find a host.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
 
     vram_needed = 0.0
     target_host_id = j.host_id
@@ -174,15 +180,9 @@ def api_submit_instance(j: JobIn, request: Request):
                 detail=f"Host {target_host_id} is {target_host.get('status', 'unavailable')} and not accepting new instances",
             )
 
-    # VRAM is always derived from the host — not user-configurable.
-    # When a target host is specified, use its total VRAM.
-    # For Auto GPU, use the largest available host's VRAM.
-    # Interactive instances get exclusive GPU access — no fractional VRAM
-    # reservation needed.  The scheduler already ensures only one interactive
-    # job runs per host, so setting vram_needed_gb = 0 avoids false negatives
-    # caused by telemetry free-VRAM being slightly less than total due to
-    # driver / OS overhead.
-    vram_needed = 0.0
+    # Respect the requested VRAM for scheduler matching and host selection.
+    # A zero value remains valid and means "no minimum VRAM preference".
+    vram_needed = max(float(j.vram_needed_gb or 0.0), 0.0)
 
     # ── Marketplace flow requires a Docker image ──────────────────────
     if target_host_id and not j.image:
@@ -377,7 +377,8 @@ def api_failover():
 @router.post("/instances/{job_id}/cancel", tags=["Instances"])
 def api_cancel_instance(job_id: str, request: Request):
     """Cancel a running or queued instance. For interactive instances, stops the container."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
     jobs = list_jobs()
     job = next((j for j in jobs if j["job_id"] == job_id), None)
     if not job:
@@ -406,7 +407,8 @@ def api_cancel_instance(job_id: str, request: Request):
 @router.post("/instance/{job_id}/requeue", tags=["Instances"])
 def api_requeue_instance(job_id: str, request: Request):
     """Manually requeue a failed or stuck job."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
     result = requeue_job(job_id)
     if not result:
         raise HTTPException(
@@ -425,6 +427,7 @@ def api_pause_instance(job_id: str, request: Request):
     Requires authentication. Only the instance owner or an admin can pause.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
     customer_id = user.get("customer_id", user.get("user_id", ""))
     role = user.get("role", "")
 
@@ -459,6 +462,7 @@ def api_resume_instance(job_id: str, request: Request):
     Returns 402 if wallet has insufficient funds.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
     customer_id = user.get("customer_id", user.get("user_id", ""))
     role = user.get("role", "")
 
@@ -506,6 +510,7 @@ def api_stop_instance(job_id: str, request: Request):
     continues at the per-GB rate. The instance can be started again at any time.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
     customer_id = user.get("customer_id", user.get("user_id", ""))
     role = user.get("role", "")
 
@@ -540,6 +545,7 @@ def api_start_instance(job_id: str, request: Request):
     immediately.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
     customer_id = user.get("customer_id", user.get("user_id", ""))
     role = user.get("role", "")
 
@@ -585,6 +591,7 @@ def api_restart_instance(job_id: str, request: Request):
     Billing is continuous — no gap. Requires a positive wallet balance.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
     customer_id = user.get("customer_id", user.get("user_id", ""))
     role = user.get("role", "")
 
@@ -627,6 +634,7 @@ def api_terminate_instance(job_id: str, request: Request):
     after termination.
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:write")
     customer_id = user.get("customer_id", user.get("user_id", ""))
     role = user.get("role", "")
 
@@ -752,7 +760,8 @@ async def api_instance_log_stream(request: Request, job_id: str):
     - `job_status` — status change (data: {job_id, status})
     - `connected` — initial handshake (data: {job_id, status: "streaming"})
     """
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
     # Verify job exists
     jobs = list_jobs()
     if not any(j["job_id"] == job_id for j in jobs):
@@ -777,6 +786,7 @@ def api_instance_logs(job_id: str, request: Request, limit: int = 100):
     For real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).
     """
     user = _require_auth(request)
+    _require_scope(user, "instances:read")
     _check_job_access(user, job_id)
     limit = min(limit, 10_000)
     buf = _job_log_buffers.get(job_id, [])
@@ -831,6 +841,24 @@ def api_process_queue_binpack(canada_only: bool = False, province: str = ""):
     return {"ok": True, "assigned": assigned, "count": len(assigned)}
 
 
+@router.post("/api/instances/{job_id}/stream-ticket")
+def api_instance_stream_ticket(job_id: str, request: Request) -> dict:
+    """Issue a short-lived one-time WebSocket ticket for instance streaming."""
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
+    ticket = _issue_ws_ticket(
+        user,
+        request=request,
+        purpose="instance_stream",
+        target=job_id,
+    )
+    return {
+        "ok": True,
+        "ticket": ticket["ticket"],
+        "expires_in": int(max(0, ticket["expires_at"] - time.time())),
+    }
+
+
 
 # ── WebSocket Instance Streaming ──────────────────────────────────
 
@@ -847,7 +875,28 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
     Client can send ``{"event": "pong"}`` or ``{"event": "refresh"}``
     to request a fresh instance snapshot.
     """
-    user = _validate_ws_auth(websocket)
+    if not _validate_ws_origin(
+        websocket,
+        require_for_cookie_auth=True,
+        allow_query_token=False,
+    ):
+        await websocket.close(code=1008, reason="Invalid origin")
+        return
+
+    if not _check_ws_connect_rate_limit(websocket, bucket="instances"):
+        await websocket.close(code=4429, reason="Connection rate limit exceeded")
+        return
+
+    ticket = websocket.query_params.get("ticket", "").strip()
+    if ticket:
+        user = _consume_ws_ticket(
+            ticket,
+            websocket,
+            purpose="instance_stream",
+            target=job_id,
+        )
+    else:
+        user = _validate_ws_auth(websocket, allow_query_token=False)
     if not user:
         await websocket.close(code=4001, reason="Unauthorized")
         return
