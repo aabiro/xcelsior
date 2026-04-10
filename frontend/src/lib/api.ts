@@ -1233,6 +1233,29 @@ export async function fetchOAuthClients() {
   return apiFetch<{ ok: boolean; clients: OAuthClientInfo[] }>("/api/oauth/clients");
 }
 
+export async function updateOAuthClient(
+  clientId: string,
+  updates: {
+    client_name?: string;
+    redirect_uris?: string[];
+    grant_types?: string[];
+    scopes?: string[];
+    status?: "active" | "disabled";
+  },
+) {
+  return apiFetch<{ ok: boolean }>(`/api/oauth/clients/${encodeURIComponent(clientId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function rotateOAuthClientSecret(clientId: string) {
+  return apiFetch<{ ok: boolean; client_id: string; client_secret: string }>(
+    `/api/oauth/clients/${encodeURIComponent(clientId)}/rotate-secret`,
+    { method: "POST" },
+  );
+}
+
 export async function deleteOAuthClient(clientId: string) {
   return apiFetch<{ ok: boolean }>(`/api/oauth/clients/${encodeURIComponent(clientId)}`, { method: "DELETE" });
 }
@@ -1902,7 +1925,10 @@ export interface OAuthClientInfo {
   scopes: string[];
   is_first_party: boolean;
   created_by_email?: string | null;
+  status?: string;
   created_at?: number;
+  updated_at?: number;
+  last_used?: number | null;
 }
 
 export interface ConsentRecord {

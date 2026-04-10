@@ -50,6 +50,7 @@ class ChatRequest(BaseModel):
 @router.post("/api/chat", tags=["Chat"])
 async def api_chat(body: ChatRequest, request: Request):
     """Stream an AI chat response about Xcelsior via SSE."""
+    from routes._deps import _require_scope
     client_ip = request.client.host if request.client else "unknown"
 
     if not check_chat_rate_limit(client_ip):
@@ -63,6 +64,9 @@ async def api_chat(body: ChatRequest, request: Request):
 
     # Get or create conversation (persisted to SQLite)
     user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "chat:write")
     user_email = user.get("email") if user else None
     conversation_id, history = get_or_create_conversation(
         body.conversation_id, ip=client_ip, user_email=user_email
@@ -118,9 +122,14 @@ def api_chat_suggestions():
 @router.get("/api/chat/history/{conversation_id}", tags=["Chat"])
 def api_chat_history(conversation_id: str, request: Request):
     """Return message history for an existing conversation."""
+    from routes._deps import _require_scope, _get_current_user
     client_ip = request.client.host if request.client else "unknown"
     if not check_chat_rate_limit(client_ip):
         raise HTTPException(429, "Rate limit exceeded.")
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "chat:read")
     messages = get_conversation_messages(conversation_id)
     if messages is None:
         raise HTTPException(404, "Conversation not found or expired.")
@@ -133,9 +142,11 @@ def api_chat_history(conversation_id: str, request: Request):
 @router.get("/api/chat/conversations", tags=["Chat"])
 def api_chat_conversations(request: Request):
     """List recent conversations for the authenticated user."""
+    from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated.")
+    _require_scope(user, "chat:read")
     email = user.get("email", "")
     if not email:
         raise HTTPException(401, "No email in session.")
@@ -150,8 +161,13 @@ class ChatFeedbackRequest(BaseModel):
     vote: str  # "up" or "down"
 
 @router.post("/api/chat/feedback", tags=["Chat"])
-def api_chat_feedback(body: ChatFeedbackRequest):
+def api_chat_feedback(body: ChatFeedbackRequest, request: Request):
     """Record thumbs-up / thumbs-down feedback on a chat message."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "chat:write")
     if body.vote not in ("up", "down"):
         raise HTTPException(400, "Vote must be 'up' or 'down'.")
     record_feedback(body.message_id, body.vote)

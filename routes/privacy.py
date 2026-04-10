@@ -13,8 +13,12 @@ from privacy import PrivacyConfig, RETENTION_POLICIES, execute_right_to_erasure,
 router = APIRouter()
 
 @router.get("/api/privacy/retention-policies", tags=["Privacy"])
-def api_retention_policies():
+def api_retention_policies(request: Request = None):
     """Data retention policies per PIPEDA fair information principles."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:read")
     policies = {}
     for cat, policy in RETENTION_POLICIES.items():
         cat_key = cat.value if hasattr(cat, "value") else str(cat)
@@ -26,14 +30,22 @@ def api_retention_policies():
     return {"policies": policies}
 
 @router.get("/api/privacy/retention-summary", tags=["Privacy"])
-def api_retention_summary():
+def api_retention_summary(request: Request = None):
     """Current retention status across all data categories."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     return lm.get_retention_summary()
 
 @router.post("/api/privacy/purge-expired", tags=["Privacy"])
-def api_purge_expired():
+def api_purge_expired(request: Request = None):
     """Purge all expired retention records (daily maintenance)."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     count = lm.purge_expired()
     return {"ok": True, "purged": count}
@@ -56,8 +68,12 @@ class PrivacyConfigRequest(BaseModel):
     telemetry_retention_days: int = None
 
 @router.post("/api/privacy/config", tags=["Privacy"])
-def api_save_privacy_config(req: PrivacyConfigRequest):
+def api_save_privacy_config(req: PrivacyConfigRequest, request: Request = None):
     """Save privacy configuration for an organization."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     config = PrivacyConfig(
         privacy_level=req.privacy_level,
@@ -77,8 +93,12 @@ def api_save_privacy_config(req: PrivacyConfigRequest):
     return {"ok": True, "org_id": req.org_id, "privacy_level": req.privacy_level}
 
 @router.get("/api/privacy/config/{org_id}", tags=["Privacy"])
-def api_get_privacy_config(org_id: str):
+def api_get_privacy_config(org_id: str, request: Request = None):
     """Get privacy configuration for an organization (defaults to STRICT)."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     config = lm.get_config(org_id)
     return config.to_dict()
@@ -92,22 +112,34 @@ class ConsentRequest(BaseModel):
     details: dict = None
 
 @router.post("/api/privacy/consent", tags=["Privacy"])
-def api_record_consent(req: ConsentRequest):
+def api_record_consent(req: ConsentRequest, request: Request = None):
     """Record explicit consent (PIPEDA principle: Consent)."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     consent_id = lm.record_consent(req.entity_id, req.consent_type, req.details)
     return {"ok": True, "consent_id": consent_id}
 
 @router.delete("/api/privacy/consent/{entity_id}/{consent_type}", tags=["Privacy"])
-def api_revoke_consent(entity_id: str, consent_type: str):
+def api_revoke_consent(entity_id: str, consent_type: str, request: Request = None):
     """Revoke consent (PIPEDA: individuals can withdraw consent)."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:write")
     lm = get_lifecycle_manager()
     lm.revoke_consent(entity_id, consent_type)
     return {"ok": True, "revoked": consent_type}
 
 @router.get("/api/privacy/consent/{entity_id}", tags=["Privacy"])
-def api_get_consents(entity_id: str):
+def api_get_consents(entity_id: str, request: Request = None):
     """Get all consent records for an entity (PIPEDA: Individual Access)."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     consents = lm.get_consents(entity_id)
     return {"consents": consents}

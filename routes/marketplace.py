@@ -75,36 +75,59 @@ class RigListing(BaseModel):
     owner: str = "anonymous"
 
 @router.post("/marketplace/list", tags=["Marketplace"])
-def api_list_rig(rig: RigListing):
+def api_list_rig(rig: RigListing, request: Request):
     """List a rig on the marketplace."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     listing = list_rig(
         rig.host_id, rig.gpu_model, rig.vram_gb, rig.price_per_hour, rig.description, rig.owner
     )
     return {"ok": True, "listing": listing}
 
 @router.delete("/marketplace/{host_id}", tags=["Marketplace"])
-def api_unlist_rig(host_id: str):
+def api_unlist_rig(host_id: str, request: Request):
     """Remove a rig from the marketplace."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     if not unlist_rig(host_id):
         raise HTTPException(status_code=404, detail=f"Listing {host_id} not found")
     return {"ok": True, "unlisted": host_id}
 
 @router.get("/marketplace", tags=["Marketplace"])
-def api_get_marketplace(active_only: bool = True):
+def api_get_marketplace(active_only: bool = True, request: Request = None):
     """Browse marketplace listings."""
+    user = _get_current_user(request) if request else None
+    if user:
+        from routes._deps import _require_scope
+        _require_scope(user, "marketplace:read")
     return {"listings": get_marketplace(active_only=active_only)}
 
 @router.post("/marketplace/bill/{job_id}", tags=["Marketplace"])
-def api_marketplace_bill(job_id: str):
+def api_marketplace_bill(job_id: str, request: Request):
     """Bill a marketplace job — split between host and platform."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     result = marketplace_bill(job_id)
     if not result:
         raise HTTPException(status_code=400, detail=f"Could not bill marketplace job {job_id}")
     return {"ok": True, "bill": result}
 
 @router.get("/marketplace/stats", tags=["Marketplace"])
-def api_marketplace_stats():
+def api_marketplace_stats(request: Request = None):
     """Marketplace aggregate stats."""
+    user = _get_current_user(request) if request else None
+    if user:
+        from routes._deps import _require_scope
+        _require_scope(user, "marketplace:read")
     return {"stats": marketplace_stats()}
 
 
@@ -126,6 +149,8 @@ def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     offer = me.upsert_offer(
         provider_id=user.get("user_id", user.get("email", "")),
@@ -202,6 +227,8 @@ def api_marketplace_create_reservation(body: ReservationCreate, request: Request
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     try:
         res = me.create_reservation(
@@ -223,6 +250,8 @@ def api_marketplace_cancel_reservation(reservation_id: str, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     result = me.cancel_reservation(
         reservation_id=reservation_id,
@@ -247,6 +276,8 @@ def api_marketplace_allocate(body: AllocateGPURequest, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     alloc = me.allocate_gpu(body.offer_id, body.job_id, body.gpu_count, spot=body.spot)
     if not alloc:
@@ -254,8 +285,13 @@ def api_marketplace_allocate(body: AllocateGPURequest, request: Request):
     return {"ok": True, "allocation": alloc}
 
 @router.post("/api/v2/marketplace/release/{allocation_id}", tags=["Marketplace v2"])
-def api_marketplace_release(allocation_id: str):
+def api_marketplace_release(allocation_id: str, request: Request):
     """Release a GPU allocation (job completed/failed)."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     me.release_allocation(allocation_id)
     return {"ok": True}

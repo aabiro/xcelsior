@@ -55,7 +55,9 @@ def _ssh_key_fingerprint(key_str: str) -> str:
 @router.post("/api/ssh/keys", tags=["SSH Keys"])
 async def api_add_ssh_key(request: Request):
     """Upload a user SSH public key. Like GitHub/AWS key management."""
+    from routes._deps import _require_scope
     user = _require_user_grant(request, allow_api_key=True)
+    _require_scope(user, "ssh:write")
     body = await request.json()
     name = body.get("name", "").strip() or "default"
     public_key = body.get("public_key", "").strip()
@@ -101,7 +103,9 @@ async def api_add_ssh_key(request: Request):
 @router.get("/api/ssh/keys", tags=["SSH Keys"])
 def api_list_ssh_keys(request: Request):
     """List the authenticated user's SSH public keys."""
+    from routes._deps import _require_scope
     user = _require_user_grant(request, allow_api_key=True)
+    _require_scope(user, "ssh:read")
     keys = UserStore.list_ssh_keys(user["email"])
     return {
         "ok": True,

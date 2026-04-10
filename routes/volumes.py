@@ -28,9 +28,11 @@ class VolumeCreate(BaseModel):
 @router.post("/api/v2/volumes", tags=["Volumes"])
 def api_volume_create(body: VolumeCreate, request: Request):
     """Create a new persistent volume. Billed in real-time from credits."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
     customer_id = user.get("user_id", user.get("email", ""))
     ve = get_volume_engine()
     try:
@@ -50,9 +52,11 @@ def api_volume_create(body: VolumeCreate, request: Request):
 @router.get("/api/v2/volumes", tags=["Volumes"])
 def api_volume_list(request: Request):
     """List volumes owned by the current user."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:read")
     ve = get_volume_engine()
     volumes = ve.list_volumes(user.get("user_id", user.get("email", "")))
     for v in volumes:
@@ -63,6 +67,11 @@ def api_volume_list(request: Request):
 @router.get("/api/v2/volumes/{volume_id}", tags=["Volumes"])
 def api_volume_get(volume_id: str, request: Request):
     """Get volume details."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:read")
     ve = get_volume_engine()
     vol = ve.get_volume(volume_id)
     if not vol:
@@ -80,9 +89,11 @@ class VolumeAttachRequest(BaseModel):
 @router.post("/api/v2/volumes/{volume_id}/attach", tags=["Volumes"])
 def api_volume_attach(volume_id: str, body: VolumeAttachRequest, request: Request):
     """Attach a volume to a running instance."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
     ve = get_volume_engine()
     try:
         att = ve.attach_volume(volume_id, body.instance_id, body.mount_path, body.mode)
@@ -95,9 +106,11 @@ def api_volume_attach(volume_id: str, body: VolumeAttachRequest, request: Reques
 @router.post("/api/v2/volumes/{volume_id}/detach", tags=["Volumes"])
 def api_volume_detach(volume_id: str, request: Request):
     """Detach a volume from its current instance."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
     ve = get_volume_engine()
     vol = ve.get_volume(volume_id)
     if not vol:
@@ -126,9 +139,11 @@ def api_volume_detach(volume_id: str, request: Request):
 @router.delete("/api/v2/volumes/{volume_id}", tags=["Volumes"])
 def api_volume_delete(volume_id: str, request: Request):
     """Delete a volume. Must not have active attachments."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
     ve = get_volume_engine()
     owner_id = user.get("user_id", user.get("email", ""))
     try:

@@ -20,7 +20,7 @@ router = APIRouter()
 GST_SMALL_SUPPLIER_THRESHOLD_CAD = 30_000.00
 
 @router.get("/api/billing/gst-threshold", tags=["Compliance"])
-def api_gst_threshold_status():
+def api_gst_threshold_status(request: Request = None):
     """Check platform-wide GST/HST small-supplier threshold status.
 
     Under the Excise Tax Act, a distribution platform operator **must**
@@ -33,6 +33,10 @@ def api_gst_threshold_status():
     - `threshold_cad`: the $30,000 statutory limit
     - `quarters_assessed`: number of quarters with data
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "compliance:read")
     billing = get_billing_engine()
     now = time.time()
     # Look back 4 quarters (~365 days)
@@ -68,7 +72,7 @@ def api_gst_threshold_status():
         "quarters_assessed": quarters,
         "must_register": exceeded,
         "message": (
-            "GST/HST registration REQUIRED — revenue exceeds $30,000 threshold."
+            "GST/HST registration REQUIRED  revenue exceeds $30,000 threshold."
             if exceeded
             else f"Below threshold (${total_rev:,.2f} / $30,000). "
             "Registration not yet required but recommended."

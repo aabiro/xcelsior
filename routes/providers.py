@@ -37,7 +37,7 @@ class IncorporationUploadRequest(BaseModel):
     file_id: str  # Reference to file uploaded via /api/artifacts/upload
 
 @router.post("/api/providers/register", tags=["Providers"])
-def api_register_provider(req: ProviderRegisterRequest):
+def api_register_provider(req: ProviderRegisterRequest, request: Request = None):
     """Register a GPU provider with Stripe Connect onboarding.
 
     For Canadian companies, include corporation_name, business_number,
@@ -49,6 +49,10 @@ def api_register_provider(req: ProviderRegisterRequest):
     3. Credentialing (GPU/bandwidth checked at admission)
     4. Tax Compliance (GST/HST auto-collected per province)
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "providers:write")
     if req.provider_type == "company" and not req.corporation_name:
         raise HTTPException(400, "corporation_name required for company providers")
 
@@ -100,9 +104,11 @@ def api_abandon_onboarding(provider_id: str, request: Request):
     or when the frontend poll times out after a return URL visit.
     Idempotent — safe to call multiple times.
     """
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Unauthorized")
+    _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
     result = mgr.mark_abandoned(provider_id)
     return {"ok": True, **result}
@@ -115,9 +121,11 @@ def api_resume_onboarding(provider_id: str, request: Request):
     This lets users who closed the Stripe modal mid-flow resume from where
     they left off without re-registering.
     """
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Unauthorized")
+    _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
     if not provider:
@@ -141,8 +149,12 @@ def api_resume_onboarding(provider_id: str, request: Request):
     return {"ok": True, **result}
 
 @router.get("/api/providers/{provider_id}", tags=["Providers"])
-def api_get_provider(provider_id: str):
+def api_get_provider(provider_id: str, request: Request = None):
     """Get provider account details including company info and payout status."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "providers:read")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
     if not provider:
@@ -152,8 +164,12 @@ def api_get_provider(provider_id: str):
     return {"ok": True, "provider": provider}
 
 @router.get("/api/providers", tags=["Providers"])
-def api_list_providers(status: str = ""):
+def api_list_providers(status: str = "", request: Request = None):
     """List all provider accounts, optionally filtered by status."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "providers:read")
     mgr = get_stripe_manager()
     providers = mgr.list_providers(status)
     # Redact Stripe IDs
@@ -162,12 +178,16 @@ def api_list_providers(status: str = ""):
     return {"ok": True, "providers": providers, "count": len(providers)}
 
 @router.post("/api/providers/{provider_id}/incorporation", tags=["Providers"])
-def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest):
+def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, request: Request = None):
     """Link an uploaded incorporation document to a provider account.
 
     The file itself should first be uploaded via POST /api/artifacts/upload
     with artifact_type='incorporation_doc'. Then pass the resulting file_id here.
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
     if not provider:
@@ -184,20 +204,28 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest):
     return {"ok": True, **result}
 
 @router.get("/api/providers/{provider_id}/earnings", tags=["Providers"])
-def api_provider_earnings(provider_id: str):
+def api_provider_earnings(provider_id: str, request: Request = None):
     """Get aggregate earnings and payout history for a provider."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "providers:read")
     mgr = get_stripe_manager()
     earnings = mgr.get_provider_earnings(provider_id)
     payouts = mgr.get_provider_payouts(provider_id, limit=20)
     return {"ok": True, "earnings": earnings, "recent_payouts": payouts}
 
 @router.post("/api/providers/{provider_id}/payout", tags=["Providers"])
-def api_provider_payout(provider_id: str, job_id: str = "", total_cad: float = 0):
+def api_provider_payout(provider_id: str, job_id: str = "", total_cad: float = 0, request: Request = None):
     """Split a job payment between provider (85%) and platform (15%).
 
     Applies province-specific GST/HST. If Stripe is configured,
     creates a real Transfer to the provider's connected account.
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "providers:write")
     if not job_id or total_cad <= 0:
         raise HTTPException(400, "job_id and total_cad (>0) required")
     mgr = get_stripe_manager()
