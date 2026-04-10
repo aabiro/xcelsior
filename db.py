@@ -761,11 +761,16 @@ def _ensure_oauth_auth_tables(conn) -> None:
             client_secret_salt TEXT,
             created_by_email TEXT,
             is_first_party INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            last_used DOUBLE PRECISION,
             created_at DOUBLE PRECISION NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL
         )
         """
     )
+    # Add columns if missing (for migrations)
+    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'")
+    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used DOUBLE PRECISION")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
@@ -1805,7 +1810,63 @@ class MfaStore:
 
 
 class OAuthStore:
-    """Persistent OAuth clients and refresh-token rotation state."""
+    @staticmethod
+    def update_client(client_id: str, updates: dict, created_by_email: str | None = None) -> bool:
+            allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+            fields = {k: v for k, v in updates.items() if k in allowed}
+            if not fields:
+                return False
+            # Wrap JSONB fields for psycopg3
+            from psycopg.types.json import Jsonb
+            for k in ["redirect_uris", "grant_types", "scopes"]:
+                if k in fields:
+                    fields[k] = Jsonb(list(fields[k]))
+            set_clause = ", ".join(f"{k} = %s" for k in fields)
+            values = list(fields.values())
+            values.append(time.time())
+            set_clause += ", updated_at = %s"
+            if created_by_email:
+                values.extend([client_id, created_by_email])
+                where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+            else:
+                values.append(client_id)
+                where = "client_id = %s"
+            with auth_connection() as conn:
+                cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+                return cur.rowcount > 0
+
+    @staticmethod
+    def rotate_client_secret(client_id: str, new_secret_hash: str, new_secret_salt: str, created_by_email: str | None = None) -> bool:
+            set_clause = "client_secret_hash = %s, client_secret_salt = %s, updated_at = %s"
+            values = [new_secret_hash, new_secret_salt, time.time()]
+            if created_by_email:
+                values.extend([client_id, created_by_email])
+                where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+            else:
+                values.append(client_id)
+                where = "client_id = %s"
+            with auth_connection() as conn:
+                cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+                return cur.rowcount > 0
+
+    @staticmethod
+    def set_client_status(client_id: str, status: str, created_by_email: str | None = None) -> bool:
+            values = [status, time.time()]
+            if created_by_email:
+                values.extend([client_id, created_by_email])
+                where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+            else:
+                values.append(client_id)
+                where = "client_id = %s"
+            with auth_connection() as conn:
+                cur = conn.execute(f"UPDATE oauth_clients SET status = %s, updated_at = %s WHERE {where}", values)
+                return cur.rowcount > 0
+
+
+    @staticmethod
+    def update_last_used(client_id: str):
+        with auth_connection() as conn:
+            conn.execute("UPDATE oauth_clients SET last_used = %s WHERE client_id = %s", (time.time(), client_id))
 
     @staticmethod
     def create_client(client: dict) -> None:
