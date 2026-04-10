@@ -58,6 +58,11 @@ export function Footer() {
                 </Link>
               </li>
               <li>
+                <Link href="/download" className="text-sm text-text-secondary hover:text-text-primary">
+                  {t("footer.download")}
+                </Link>
+              </li>
+              <li>
                 <a href="https://docs.xcelsior.ca" className="text-sm text-text-secondary hover:text-text-primary">
                   {t("footer.docs")}
                 </a>
