@@ -7,7 +7,7 @@
  *         consent_type: "consent_type"
  *     }
  */
-export interface RoutesPrivacyConsentRequest1 {
+export interface ConsentRequest {
     entity_id: string;
     consent_type: string;
     details?: Record<string, unknown>;

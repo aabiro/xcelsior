@@ -2458,7 +2458,7 @@ WHEN REGISTRATION FAILED — diagnose:
 **"API token invalid" or 401 error:**
 - Their token expired or was revoked. Go back to device-auth step.
 - `cat ~/.xcelsior/token.json` to inspect the token (it's a JWT — check `exp` field)
-- Regenerate at xcelsior.ca/settings/api-keys
+- If they switched to manual API key entry, create a fresh key at xcelsior.ca/dashboard/settings → API & SSH
 
 **"Network timeout" or connection error:**
 ```bash
@@ -3036,7 +3036,7 @@ THE DEVICE AUTH FLOW — what should happen step by step:
 4. Clicks "Authorize this device" on the page
 5. Terminal detects the token automatically (polls every 5s)
 6. Token saved to `~/.xcelsior/token.json`
-7. If a `.env` file exists in their project directory, `XCELSIOR_API_KEY=<token>` is also written there
+7. If a `.env` file exists in their project directory, `XCELSIOR_API_TOKEN=<token>` is also written there
 
 COMMON ISSUES — EXACT FIXES:
 
@@ -3056,7 +3056,7 @@ COMMON ISSUES — EXACT FIXES:
 cat ~/.xcelsior/token.json  # inspect it (it's a JWT — look at the "token" field)
 ```
 - May be from a different account or already revoked.
-- Regenerate: xcelsior.ca/settings/api-keys → "New API Key" → copy
+- Regenerate: xcelsior.ca/dashboard/settings → API & SSH → "New API Key" → copy
 - Manual paste: press **m** in the wizard to switch to manual token entry mode
 
 **Token save failed — permission denied:**
@@ -3068,7 +3068,7 @@ chmod 700 ~/.xcelsior
 
 **Manual token entry (press m at any time):**
 - Switch to manual mode by pressing **m**
-- Get token from: xcelsior.ca/settings/api-keys → "New API Key"
+- Get API key from: xcelsior.ca/dashboard/settings → API & SSH → "New API Key"
 - Paste the full token string — it starts with `xcel_`
 - Useful when: no browser on this machine, corporate SSO, or token already exists
 
@@ -3078,10 +3078,10 @@ chmod 700 ~/.xcelsior
 - Account can also provider AND rent — single account for everything
 
 SECURITY (say this once, not every message):
-- API token = long-lived credential. Treat like a password.
-- Never commit `~/.xcelsior/token.json` or `.env` with `XCELSIOR_API_KEY` to git
+- API keys and OAuth client secrets are long-lived credentials. Treat them like passwords.
+- Never commit `~/.xcelsior/token.json` or `.env` with `XCELSIOR_API_TOKEN` / `XCELSIOR_OAUTH_CLIENT_SECRET` to git
 - Add to `.gitignore`: `.env` and `.xcelsior/`
-- Revoke compromised tokens immediately at xcelsior.ca/settings/api-keys"""
+- Revoke compromised API keys or delete compromised OAuth clients immediately at xcelsior.ca/dashboard/settings"""
 
 
 def _prompt_confirm_setup(kv: dict) -> str:
@@ -3338,7 +3338,7 @@ The AI Onboarding Wizard will ask your intent (rent, provide, or both), then han
 hardware detection, host registration, pricing, and systemd service setup.
 
 It will prompt for:
-- API token (from Dashboard → Settings → API Keys)
+- API key (from Dashboard → Settings → API & SSH)
 - Pricing preference (auto-competitive or manual $/hr)
 - SLA tier selection (community, secure, sovereign)
 - Systemd service auto-install (y/n)

@@ -16,22 +16,49 @@ Xcelsior uses two authentication methods:
 All non-public API endpoints require a Bearer token in the `Authorization` header:
 
 ```bash
-Authorization: Bearer <XCELSIOR_API_TOKEN>
+Authorization: Bearer <token>
 ```
 
-### Setting Your Token
+Accepted bearer token types:
 
-Set the `XCELSIOR_API_TOKEN` environment variable in your `.env` file:
+- User API keys
+- OAuth access tokens from `xcelsior login` or the browser/device flow
+- OAuth `client_credentials` tokens for machine-to-machine callers
+
+### API Key Example
+
+For user-scoped bearer auth, set the `XCELSIOR_API_TOKEN` environment variable in your shell or `.env` file:
 
 ```bash
 XCELSIOR_API_TOKEN=your-secret-token-here
 ```
 
-### Example Request
+### OAuth Machine Client Example
+
+For worker or service automation, use a confidential OAuth client:
+
+```bash
+XCELSIOR_OAUTH_CLIENT_ID=your-client-id
+XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
+```
+
+Exchange it for an access token:
+
+```bash
+curl -X POST https://xcelsior.ca/oauth/token \
+  -d "grant_type=client_credentials" \
+  -d "client_id=$XCELSIOR_OAUTH_CLIENT_ID" \
+  -d "client_secret=$XCELSIOR_OAUTH_CLIENT_SECRET" \
+  -d "scope=api"
+```
+
+### Example API Request
+
+Examples below use `XCELSIOR_BEARER_TOKEN` as a shell variable for whichever bearer token you are using.
 
 ```bash
 curl -X GET https://xcelsior.ca/api/hosts \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN"
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN"
 ```
 
 ## Public Endpoints
@@ -78,7 +105,7 @@ import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 const client = new XcelsiorApiClient({
   environment: XcelsiorApiEnvironment.Production,
   headers: {
-    Authorization: `Bearer ${process.env.XCELSIOR_API_KEY}`,
+    Authorization: `Bearer ${process.env.XCELSIOR_BEARER_TOKEN}`,
   },
 });
 ```

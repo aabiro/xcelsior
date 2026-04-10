@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -17,8 +18,191 @@ export declare namespace AuthClient {
 export class AuthClient {
     protected readonly _options: NormalizedClientOptions<AuthClient.Options>;
 
-    constructor(options: AuthClient.Options) {
+    constructor(options: AuthClient.Options = {}) {
         this._options = normalizeClientOptions(options);
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.getAuthorizationServerMetadata()
+     */
+    public getAuthorizationServerMetadata(
+        requestOptions?: AuthClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__getAuthorizationServerMetadata(requestOptions));
+    }
+
+    private async __getAuthorizationServerMetadata(
+        requestOptions?: AuthClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                ".well-known/oauth-authorization-server",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "GET",
+            "/.well-known/oauth-authorization-server",
+        );
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.authorize()
+     */
+    public authorize(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__authorize(requestOptions));
+    }
+
+    private async __authorize(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "oauth/authorize",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/oauth/authorize");
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.exchangeToken()
+     */
+    public exchangeToken(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__exchangeToken(requestOptions));
+    }
+
+    private async __exchangeToken(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "oauth/token",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/oauth/token");
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.deviceAuthorize()
+     */
+    public deviceAuthorize(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__deviceAuthorize(requestOptions));
+    }
+
+    private async __deviceAuthorize(
+        requestOptions?: AuthClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "oauth/device/authorize",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/oauth/device/authorize");
     }
 
     /**
@@ -53,7 +237,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/register",
             ),
             method: "POST",
@@ -123,7 +308,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/login",
             ),
             method: "POST",
@@ -192,7 +378,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/auth/oauth/${core.url.encodePathParam(provider)}`,
             ),
             method: "POST",
@@ -228,76 +415,6 @@ export class AuthClient {
     }
 
     /**
-     * OAuth callback — exchanges authorization code for user profile, creates session,
-     * and redirects to dashboard.
-     *
-     * @param {XcelsiorApi.OauthCallbackAuthRequest} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.oauthCallback({
-     *         provider: "provider"
-     *     })
-     */
-    public oauthCallback(
-        request: XcelsiorApi.OauthCallbackAuthRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__oauthCallback(request, requestOptions));
-    }
-
-    private async __oauthCallback(
-        request: XcelsiorApi.OauthCallbackAuthRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { provider } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
-                `api/auth/oauth/${core.url.encodePathParam(provider)}/callback`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "GET",
-            "/api/auth/oauth/{provider}/callback",
-        );
-    }
-
-    /**
      * Get the currently authenticated user's profile.
      *
      * Requires Authorization: Bearer <token> header.
@@ -316,7 +433,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/me",
             ),
             method: "GET",
@@ -360,7 +478,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/me",
             ),
             method: "DELETE",
@@ -413,7 +532,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/me",
             ),
             method: "PATCH",
@@ -452,6 +572,8 @@ export class AuthClient {
     }
 
     /**
+     * @deprecated
+     *
      * Refresh an existing session token.
      *
      * Returns a new token with a fresh 30-day expiry.
@@ -470,7 +592,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/refresh",
             ),
             method: "POST",
@@ -514,7 +637,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/logout",
             ),
             method: "POST",
@@ -542,6 +666,8 @@ export class AuthClient {
     }
 
     /**
+     * @deprecated
+     *
      * Generate a named API key for the authenticated user.
      *
      * API keys can be used as Bearer tokens for programmatic access.
@@ -561,7 +687,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/keys/generate",
             ),
             method: "POST",
@@ -589,6 +716,8 @@ export class AuthClient {
     }
 
     /**
+     * @deprecated
+     *
      * List all API keys for the authenticated user (keys are redacted).
      *
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
@@ -605,7 +734,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/keys",
             ),
             method: "GET",
@@ -633,6 +763,8 @@ export class AuthClient {
     }
 
     /**
+     * @deprecated
+     *
      * Revoke an API key by its preview string.
      *
      * @param {XcelsiorApi.RevokeApiKeyAuthRequest} request
@@ -661,7 +793,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/keys/${core.url.encodePathParam(keyPreview)}`,
             ),
             method: "DELETE",
@@ -724,7 +857,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/password-reset",
             ),
             method: "POST",
@@ -791,7 +925,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/password-reset/confirm",
             ),
             method: "POST",
@@ -863,7 +998,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/change-password",
             ),
             method: "POST",
@@ -929,7 +1065,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/verify-email",
             ),
             method: "POST",
@@ -995,7 +1132,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/resend-verification",
             ),
             method: "POST",
@@ -1055,7 +1193,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/sessions",
             ),
             method: "GET",
@@ -1111,7 +1250,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/auth/sessions/${core.url.encodePathParam(tokenPrefix)}`,
             ),
             method: "DELETE",
@@ -1171,7 +1311,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/auth/me/data-export",
             ),
             method: "GET",
@@ -1215,7 +1356,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/users/me/preferences",
             ),
             method: "GET",
@@ -1270,7 +1412,8 @@ export class AuthClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/users/me/preferences",
             ),
             method: "PUT",
@@ -1306,239 +1449,5 @@ export class AuthClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "PUT", "/api/users/me/preferences");
-    }
-
-    /**
-     * Initiate OAuth2 device authorization flow (RFC 8628).
-     *
-     * Returns a device_code (for polling) and a user_code (for the user to enter
-     * in the browser at the verification_uri).
-     *
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.auth.deviceCode()
-     */
-    public deviceCode(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__deviceCode(requestOptions));
-    }
-
-    private async __deviceCode(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
-                "api/auth/device",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/device");
-    }
-
-    /**
-     * Poll for device authorization result (RFC 8628 §3.4).
-     *
-     * Returns:
-     * - 200 + access_token when authorized
-     * - 428 "authorization_pending" while waiting
-     * - 410 "expired_token" if timed out
-     *
-     * @param {XcelsiorApi.DeviceTokenRequest} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.deviceToken({
-     *         device_code: "device_code"
-     *     })
-     */
-    public deviceToken(
-        request: XcelsiorApi.DeviceTokenRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__deviceToken(request, requestOptions));
-    }
-
-    private async __deviceToken(
-        request: XcelsiorApi.DeviceTokenRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
-                "api/auth/token",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/token");
-    }
-
-    /**
-     * Browser-facing page where users enter their device code.
-     *
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.auth.verifyPage()
-     */
-    public verifyPage(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<string> {
-        return core.HttpResponsePromise.fromPromise(this.__verifyPage(requestOptions));
-    }
-
-    private async __verifyPage(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<string>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
-                "api/auth/verify",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            responseType: "text",
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body as string, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/auth/verify");
-    }
-
-    /**
-     * Verify a device code by entering the user_code shown in the CLI.
-     *
-     * Called from the web dashboard after the user logs in and enters their code.
-     * Requires a valid session (cookie or bearer token) so the CLI token can be
-     * tied to the authenticated user.  Falls back to creating an anonymous session
-     * when no user context is available (e.g. first-time sign-up via device flow).
-     *
-     * @param {XcelsiorApi.DeviceVerifyRequest} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.verifyDevice({
-     *         user_code: "user_code"
-     *     })
-     */
-    public verifyDevice(
-        request: XcelsiorApi.DeviceVerifyRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__verifyDevice(request, requestOptions));
-    }
-
-    private async __verifyDevice(
-        request: XcelsiorApi.DeviceVerifyRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
-                "api/auth/verify",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/verify");
     }
 }

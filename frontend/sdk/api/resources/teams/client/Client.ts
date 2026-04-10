@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -17,7 +18,7 @@ export declare namespace TeamsClient {
 export class TeamsClient {
     protected readonly _options: NormalizedClientOptions<TeamsClient.Options>;
 
-    constructor(options: TeamsClient.Options) {
+    constructor(options: TeamsClient.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -49,7 +50,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/teams",
             ),
             method: "POST",
@@ -104,7 +106,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/teams/me",
             ),
             method: "GET",
@@ -160,7 +163,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/teams/${core.url.encodePathParam(teamId)}`,
             ),
             method: "GET",
@@ -224,7 +228,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/teams/${core.url.encodePathParam(teamId)}`,
             ),
             method: "DELETE",
@@ -289,7 +294,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/teams/${core.url.encodePathParam(teamId)}/members`,
             ),
             method: "POST",
@@ -357,7 +363,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/teams/${core.url.encodePathParam(teamId)}/members/${core.url.encodePathParam(email)}`,
             ),
             method: "DELETE",
@@ -428,7 +435,8 @@ export class TeamsClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/teams/${core.url.encodePathParam(teamId)}/members/${core.url.encodePathParam(email)}`,
             ),
             method: "PATCH",

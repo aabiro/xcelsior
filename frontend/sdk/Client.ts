@@ -67,7 +67,7 @@ export class XcelsiorApiClient {
     protected _verification: VerificationClient | undefined;
     protected _volumes: VolumesClient | undefined;
 
-    constructor(options: XcelsiorApiClient.Options) {
+    constructor(options: XcelsiorApiClient.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 

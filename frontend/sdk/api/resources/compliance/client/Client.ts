@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 
@@ -13,10 +14,13 @@ export declare namespace ComplianceClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
+/**
+ * Province compliance matrix, tax rates, Quebec PIA checks.
+ */
 export class ComplianceClient {
     protected readonly _options: NormalizedClientOptions<ComplianceClient.Options>;
 
-    constructor(options: ComplianceClient.Options) {
+    constructor(options: ComplianceClient.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -43,7 +47,8 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/compliance/status",
             ),
             method: "GET",
@@ -89,7 +94,8 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/compliance/provinces",
             ),
             method: "GET",
@@ -135,7 +141,8 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/compliance/tax-rates",
             ),
             method: "GET",
@@ -183,7 +190,8 @@ export class ComplianceClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/compliance/trust-tier-requirements",
             ),
             method: "GET",

@@ -30,8 +30,10 @@ data residency with province-level filtering.
 All non-public endpoints require a Bearer token:
 
 ```
-Authorization: Bearer <XCELSIOR_API_TOKEN>
+Authorization: Bearer <token>
 ```
+
+Bearer auth can use a user API key, an OAuth user access token, or an OAuth machine token.
 
 Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 `/healthz`, `/readyz`, `/metrics`, `/api/stream`, `/api/transparency/report`.

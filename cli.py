@@ -826,7 +826,7 @@ def _load_token():
 
 
 def get_api_token():
-    """Get API token from env var or saved OAuth token."""
+    """Get bearer auth from env var or saved OAuth user token."""
     env_token = os.environ.get("XCELSIOR_API_TOKEN", "")
     if env_token:
         return env_token
@@ -928,10 +928,10 @@ def cmd_whoami(args):
         print("Not authenticated. Run 'xcelsior login' to authenticate.")
         return
 
-    source = "env" if os.environ.get("XCELSIOR_API_TOKEN") else "oauth"
+    source = "env bearer" if os.environ.get("XCELSIOR_API_TOKEN") else "saved oauth"
     masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "****"
     print(f"Authenticated ({source}): {masked}")
-    if source == "oauth":
+    if source == "saved oauth":
         print(f"Token file: {TOKEN_FILE}")
 
 

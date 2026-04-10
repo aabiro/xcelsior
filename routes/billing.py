@@ -1,6 +1,8 @@
 """Routes: billing."""
 
+import httpx
 import io
+import os
 import time
 import uuid
 
@@ -147,6 +149,131 @@ def api_create_payment_intent(req: PaymentIntentRequest):
     mgr = get_stripe_manager()
     result = mgr.create_credit_deposit(req.customer_id, req.amount_cad, req.description)
     return {"ok": True, "intent": result}
+
+# ── PayPal ───────────────────────────────────────────────────────────────
+
+_PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
+_PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
+_PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox")  # sandbox | live
+_PAYPAL_BASE = (
+    "https://api-m.paypal.com"
+    if _PAYPAL_MODE == "live"
+    else "https://api-m.sandbox.paypal.com"
+)
+
+
+def _paypal_access_token() -> str:
+    """Get a PayPal OAuth2 access token (short-lived, not cached)."""
+    resp = httpx.post(
+        f"{_PAYPAL_BASE}/v1/oauth2/token",
+        data={"grant_type": "client_credentials"},
+        auth=(_PAYPAL_CLIENT_ID, _PAYPAL_CLIENT_SECRET),
+        headers={"Accept": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+class PayPalCreateOrderRequest(BaseModel):
+    customer_id: str
+    amount_cad: float
+
+
+class PayPalCaptureRequest(BaseModel):
+    customer_id: str
+    order_id: str
+
+
+@router.get("/api/billing/paypal/enabled", tags=["Billing"])
+def api_paypal_enabled():
+    """Check whether PayPal is configured."""
+    return {"enabled": bool(_PAYPAL_CLIENT_ID and _PAYPAL_CLIENT_SECRET)}
+
+
+@router.post("/api/billing/paypal/create-order", tags=["Billing"])
+def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
+    """Create a PayPal order for depositing compute credits."""
+    _require_auth(request)
+    if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
+        raise HTTPException(503, "PayPal is not configured")
+    if req.amount_cad < 5 or req.amount_cad > 10000:
+        raise HTTPException(400, "Amount must be between $5 and $10,000 CAD")
+
+    token = _paypal_access_token()
+    order_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v2/checkout/orders",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "intent": "CAPTURE",
+            "purchase_units": [
+                {
+                    "amount": {
+                        "currency_code": "CAD",
+                        "value": f"{req.amount_cad:.2f}",
+                    },
+                    "description": f"Xcelsior compute credits — {req.customer_id}",
+                    "custom_id": req.customer_id,
+                }
+            ],
+            "application_context": {
+                "brand_name": "Xcelsior",
+                "shipping_preference": "NO_SHIPPING",
+            },
+        },
+        timeout=15,
+    )
+    if order_resp.status_code >= 400:
+        log.error("PayPal create-order failed: %s", order_resp.text)
+        raise HTTPException(502, "PayPal order creation failed")
+
+    data = order_resp.json()
+    return {"ok": True, "order_id": data["id"]}
+
+
+@router.post("/api/billing/paypal/capture-order", tags=["Billing"])
+def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
+    """Capture a PayPal order and credit the wallet."""
+    user = _require_auth(request)
+    if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
+        raise HTTPException(503, "PayPal is not configured")
+
+    token = _paypal_access_token()
+    cap_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v2/checkout/orders/{req.order_id}/capture",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        timeout=15,
+    )
+    if cap_resp.status_code >= 400:
+        log.error("PayPal capture failed: %s", cap_resp.text)
+        raise HTTPException(502, "PayPal capture failed")
+
+    data = cap_resp.json()
+    if data.get("status") != "COMPLETED":
+        raise HTTPException(400, f"PayPal order status: {data.get('status', 'unknown')}")
+
+    # Extract captured amount
+    capture = data["purchase_units"][0]["payments"]["captures"][0]
+    amount_cad = float(capture["amount"]["value"])
+    paypal_id = capture["id"]
+
+    # Credit wallet
+    be = get_billing_engine()
+    result = be.deposit(
+        req.customer_id,
+        amount_cad,
+        f"PayPal deposit ({paypal_id})",
+        idempotency_key=f"paypal-{req.order_id}",
+    )
+    log.info("PayPal deposit: %s → $%.2f CAD (capture %s)", req.customer_id, amount_cad, paypal_id)
+    return {"ok": True, "balance_cad": result["balance_cad"], "amount_cad": amount_cad}
+
 
 @router.post("/api/billing/wallet/{customer_id}/deposit", tags=["Billing"])
 def api_deposit(customer_id: str, req: DepositRequest):

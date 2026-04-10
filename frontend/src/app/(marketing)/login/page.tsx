@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,7 +15,7 @@ import { useLocale } from "@/lib/locale";
 
 const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading, login } = useAuth();
@@ -454,5 +454,13 @@ export default function LoginPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

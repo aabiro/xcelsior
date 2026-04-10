@@ -13,6 +13,7 @@ import { useLocale } from "@/lib/locale";
 import type { PricingReference, ImageTemplate, LaunchErrorInfo, LaunchInstanceParams } from "@/lib/api";
 import { toast } from "sonner";
 import { cn, generateFunName } from "@/lib/utils";
+import { markInstanceLaunched } from "@/components/InstallBanner";
 
 /* ── Past-values history (for native datalist suggestions) ───── */
 const LS_KEY = "xcelsior:instance-history";
@@ -149,6 +150,7 @@ export default function NewInstancePage() {
         durationHrs,
         nfsMount,
       });
+      markInstanceLaunched();
       toast.success("Instance submitted");
       const jobId = res.instance?.job_id;
       router.push(jobId ? `/dashboard/instances/${jobId}` : "/dashboard/instances");

@@ -311,6 +311,55 @@ export async function getMe(
     return data.user;
 }
 
+// ── OAuth Client Management ──────────────────────────────────────────
+
+export interface OAuthClientCreateParams {
+    client_name: string;
+    client_type?: "public" | "confidential";
+    redirect_uris?: string[];
+    grant_types?: string[];
+    scopes?: string[];
+    is_first_party?: boolean;
+}
+
+export interface OAuthClientCredentials {
+    client_id: string;
+    client_secret: string;
+    client_name: string;
+    client_type: string;
+    grant_types: string[];
+    scopes: string[];
+}
+
+/** Create a confidential OAuth client for worker client_credentials auth. */
+export async function createOAuthClient(
+    baseUrl: string,
+    token: string,
+    params: OAuthClientCreateParams,
+): Promise<OAuthClientCredentials> {
+    const { status, data } = await jsonRequest<{
+        ok: boolean;
+        client: OAuthClientCredentials;
+    }>(
+        "POST",
+        baseUrl,
+        "/api/oauth/clients",
+        {
+            client_name: params.client_name,
+            client_type: params.client_type ?? "confidential",
+            redirect_uris: params.redirect_uris ?? [],
+            grant_types: params.grant_types ?? ["client_credentials"],
+            scopes: params.scopes ?? ["api"],
+            is_first_party: params.is_first_party ?? false,
+        },
+        token,
+    );
+    if (status !== 200 || !data.client?.client_id || !data.client?.client_secret) {
+        throw new Error(`OAuth client creation failed: HTTP ${status}`);
+    }
+    return data.client;
+}
+
 // ── Marketplace ──────────────────────────────────────────────────────
 
 export interface MarketplaceListing {

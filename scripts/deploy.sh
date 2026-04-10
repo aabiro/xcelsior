@@ -113,7 +113,7 @@ resolve_api_base_url() {
 resolve_api_token() {
     local token
     token=$(get_env_value "XCELSIOR_API_TOKEN")
-    [[ -n "$token" ]] || error "XCELSIOR_API_TOKEN missing from $ENV_FILE"
+    [[ -n "$token" ]] || error "XCELSIOR_API_TOKEN missing from $ENV_FILE (required for deployment maintenance API calls)"
     printf '%s' "$token"
 }
 
@@ -326,7 +326,18 @@ EOF
 
 sync_code() {
     log "Syncing code to server..."
-    
+    local remote_tarball
+
+    # Auto-clean stale deploy archives so repeated deploys don't fill /tmp.
+    ssh_cmd '
+set -e
+for d in /tmp /var/tmp /opt/xcelsior-backups /opt/xcelsior-backups/staging; do
+    if [ -d "$d" ]; then
+        find "$d" -maxdepth 1 -type f -name "xcelsior_deploy*.tar.gz" -mtime +2 -delete 2>/dev/null || true
+    fi
+done
+' || true
+
     # Create tarball locally (excluding unnecessary files)
     TARBALL="/tmp/xcelsior_deploy.tar.gz"
     tar -czf "$TARBALL" \
@@ -342,26 +353,45 @@ sync_code() {
         --exclude='data/*' \
         --exclude='./artifacts/*' \
         --exclude='.env' \
+        --exclude='./desktop' \
+        --exclude='./desktop/*' \
+        --exclude='checkpoints' \
         -C "$PROJECT_DIR" .
-    
-    scp_file "$TARBALL" "/tmp/xcelsior_deploy.tar.gz"
+
+    # Try multiple remote staging paths in order; /tmp can be full on busy hosts.
+    remote_tarball=""
+    local candidate
+    for candidate in /tmp /var/tmp /opt/xcelsior-backups/staging /opt/xcelsior-backups; do
+        ssh_cmd "mkdir -p '$candidate' 2>/dev/null || sudo mkdir -p '$candidate' || true; sudo chown \$USER:\$USER '$candidate' 2>/dev/null || true" || true
+        local probe_target
+        probe_target="${candidate%/}/xcelsior_deploy_$(date +%s).tar.gz"
+        if scp_file "$TARBALL" "$probe_target" 2>/dev/null; then
+            remote_tarball="$probe_target"
+            break
+        fi
+    done
+    [[ -n "$remote_tarball" ]] || error "Failed to upload deploy artifact to all staging paths (/tmp, /var/tmp, /opt/xcelsior-backups)"
+    log "Using remote staging path: $remote_tarball"
     rm "$TARBALL"
     
-    ssh_cmd << 'EOF'
+    ssh_cmd "DEPLOY_ARCHIVE='$remote_tarball' bash -s" << 'EOF'
 set -e
-sudo mkdir -p /opt/xcelsior
+sudo mkdir -p /opt/xcelsior /opt/xcelsior_new
 # Preserve server-specific files (but NOT .env — we'll send the right one)
 for f in docker-compose.override.yml docker-compose.prod.yml; do
     [ -f "/opt/xcelsior/$f" ] && sudo cp "/opt/xcelsior/$f" "/tmp/xcelsior_preserve_$f" || true
 done
-sudo tar -xzf /tmp/xcelsior_deploy.tar.gz -C /opt/xcelsior
+sudo rm -rf /opt/xcelsior_new/*
+sudo tar -xzf "$DEPLOY_ARCHIVE" -C /opt/xcelsior_new
 # Restore preserved files
 for f in docker-compose.override.yml docker-compose.prod.yml; do
-    [ -f "/tmp/xcelsior_preserve_$f" ] && sudo cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior/$f" || true
+    [ -f "/tmp/xcelsior_preserve_$f" ] && sudo cp "/tmp/xcelsior_preserve_$f" "/opt/xcelsior_new/$f" || true
     sudo rm -f "/tmp/xcelsior_preserve_$f"
 done
+sudo rm -rf /opt/xcelsior
+sudo mv /opt/xcelsior_new /opt/xcelsior
 sudo chown -R $USER:$USER /opt/xcelsior
-rm /tmp/xcelsior_deploy.tar.gz
+rm -f "$DEPLOY_ARCHIVE"
 EOF
 
     # Send the correct env file as .env on the server
@@ -450,7 +480,9 @@ deploy_docker() {
     local env_hash
     env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
     local prev_hash
-    prev_hash=$(ssh_cmd "cat /opt/xcelsior/.frontend_env_hash 2>/dev/null" || echo "")
+    # Keep hash outside release dir so sync_code swaps don't erase it and
+    # accidentally force --no-cache rebuilds every deploy.
+    prev_hash=$(ssh_cmd "cat /opt/xcelsior-backups/.frontend_env_hash 2>/dev/null" || echo "")
 
     local cache_flag=""
     if [[ "$env_hash" != "$prev_hash" ]]; then
@@ -462,7 +494,7 @@ deploy_docker() {
 
     ssh_cmd "cd /opt/xcelsior && docker compose build $cache_flag $build_args frontend" || error "Frontend build failed"
     # Save hash so next deploy can compare
-    ssh_cmd "echo '$env_hash' > /opt/xcelsior/.frontend_env_hash"
+    ssh_cmd "echo '$env_hash' > /opt/xcelsior-backups/.frontend_env_hash"
     success "Frontend image built (env vars baked in)"
 
     # Run Alembic migrations

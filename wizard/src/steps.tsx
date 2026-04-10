@@ -333,7 +333,7 @@ export function DeviceAuthStep({
   if (status === "manual") {
     return (
       <Box flexDirection="column">
-        <Text dimColor>Manual authentication — paste your API token below</Text>
+        <Text dimColor>Manual authentication — paste your API key below</Text>
       </Box>
     );
   }
@@ -390,7 +390,7 @@ export function ManualTokenStep({ onSubmit }: ManualTokenStepProps) {
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>Paste your API token (from Dashboard → Settings → API Keys):</Text>
+      <Text dimColor>Paste your API key (from Dashboard → Settings → API & SSH):</Text>
       <Box>
         <Text color="#00d4ff">{"› "}</Text>
         <TextInput
@@ -703,4 +703,3 @@ export function AiPrompt({ onSubmit, onCancel }: AiPromptProps) {
     </Box>
   );
 }
-

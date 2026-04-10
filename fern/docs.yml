@@ -28,11 +28,6 @@ colors:
 
 favicon: ./assets/favicon.svg
 
-playground:
-  environments:
-    - url: https://xcelsior.ca
-      display-name: Production
-
 css: ./assets/custom.css
 
 navbar-links:

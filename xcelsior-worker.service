@@ -14,7 +14,10 @@ WorkingDirectory=/opt/xcelsior
 Environment="PATH=/opt/xcelsior/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="XCELSIOR_HOST_ID=gpu-worker-01"
 Environment="XCELSIOR_SCHEDULER_URL=http://scheduler:8000"
-Environment="XCELSIOR_API_TOKEN=your_api_token_here"
+# Choose one auth method below. If both are set, the worker prefers OAuth client credentials.
+Environment="XCELSIOR_API_TOKEN=your_api_key_here"
+Environment="XCELSIOR_OAUTH_CLIENT_ID=your_oauth_client_id_here"
+Environment="XCELSIOR_OAUTH_CLIENT_SECRET=your_oauth_client_secret_here"
 Environment="XCELSIOR_COST_PER_HOUR=0.50"
 Environment="XCELSIOR_REPORT_INTERVAL=5"
 

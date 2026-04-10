@@ -24,8 +24,15 @@ Set environment variables:
 ```bash
 export XCELSIOR_HOST_ID=my-gpu-01
 export XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
-export XCELSIOR_API_TOKEN=your-token
+# Option A: API key
+export XCELSIOR_API_TOKEN=your-api-key
+
+# Option B: OAuth machine client
+export XCELSIOR_OAUTH_CLIENT_ID=your-client-id
+export XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
 ```
+
+If both auth methods are present, the worker prefers OAuth client credentials.
 
 ## Starting the Agent
 

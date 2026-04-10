@@ -16,5 +16,7 @@ export type { GetWalletDepletionBillingRequest } from "./GetWalletDepletionBilli
 export type { GetWalletHistoryBillingRequest } from "./GetWalletHistoryBillingRequest.js";
 export type { ListInvoicesBillingRequest } from "./ListInvoicesBillingRequest.js";
 export type { PaymentIntentRequest } from "./PaymentIntentRequest.js";
+export type { PayPalCaptureRequest } from "./PayPalCaptureRequest.js";
+export type { PayPalCreateOrderRequest } from "./PayPalCreateOrderRequest.js";
 export type { RefundRequest } from "./RefundRequest.js";
 export type { ReservedCommitmentRequest } from "./ReservedCommitmentRequest.js";

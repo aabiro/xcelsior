@@ -14,4 +14,5 @@ export interface SpotJobIn {
     max_bid: number;
     priority?: number;
     tier?: string | null;
+    image?: string | null;
 }

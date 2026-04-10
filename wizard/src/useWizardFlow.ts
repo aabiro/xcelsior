@@ -8,7 +8,7 @@ import { WIZARD_STEPS, getNextStep, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_I
 import {
     streamChat, confirmAction, type ApiClientConfig,
     requestDeviceCode, pollDeviceToken, type DeviceCodeResult,
-    getMe, generateApiKey, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
+    getMe, generateApiKey, createOAuthClient, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
     getWallet, claimFreeCredits,
     launchInstance, getInstance, type InstanceInfo,
     registerHost, reportVersions, reportBenchmark, reportVerification,
@@ -470,6 +470,29 @@ export function generateInstanceName(): string {
     return `${pick(adj)}-${pick(noun)}-${Math.floor(Math.random() * 1000)}`;
 }
 
+function shouldProvisionWorkerOAuthClient(
+    answers: Record<string, string | string[]>,
+): boolean {
+    return answers.mode === "provide" || answers.mode === "both";
+}
+
+function buildWorkerOAuthClientName(
+    answers: Record<string, string | string[]>,
+): string {
+    const label = String(
+        answers["_host_id"]
+        || answers["_email"]
+        || answers["_customer_id"]
+        || answers.mode
+        || "worker",
+    )
+        .replace(/[^a-zA-Z0-9._-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 32);
+    const suffix = Date.now().toString(36);
+    return `CLI Wizard Worker ${label || "worker"} ${suffix}`;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────
 
 export function useWizardFlow(): UseWizardFlowReturn {
@@ -588,6 +611,37 @@ export function useWizardFlow(): UseWizardFlowReturn {
         }
     }, [deviceAuth.verificationUri]);
 
+    const ensureWorkerOAuthClient = useCallback(async (
+        currentAnswers: Record<string, string | string[]>,
+        sessionToken?: string,
+    ): Promise<Record<string, string | string[]>> => {
+        if (!shouldProvisionWorkerOAuthClient(currentAnswers)) return currentAnswers;
+        if (currentAnswers["oauth-client-id"] && currentAnswers["oauth-client-secret"]) return currentAnswers;
+
+        const userGrant = String(sessionToken || currentAnswers["_session-token"] || "").trim();
+        if (!userGrant) return currentAnswers;
+
+        try {
+            const client = await createOAuthClient(API_BASE_URL, userGrant, {
+                client_name: buildWorkerOAuthClientName(currentAnswers),
+                client_type: "confidential",
+                redirect_uris: [],
+                grant_types: ["client_credentials"],
+                scopes: ["api"],
+            });
+            const updated = {
+                ...currentAnswers,
+                "oauth-client-id": client.client_id,
+                "oauth-client-secret": client.client_secret,
+            };
+            answersRef.current = updated;
+            setAnswers(updated);
+            return updated;
+        } catch {
+            return currentAnswers;
+        }
+    }, []);
+
     const startDeviceAuth = useCallback(async () => {
         stopDevicePoll();
         setDeviceAuth({ status: "loading", userCode: null, verificationUri: null, token: null, email: null, errorMessage: null });
@@ -654,6 +708,16 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             // profile fetch is best-effort
                         }
 
+                        let updated: Record<string, string | string[]> = {
+                            ...answersRef.current,
+                            "api-key": apiKey,
+                            "device-auth": "authorized",
+                            "_session-token": sessionToken,
+                        };
+                        if (customerId) updated["_customer_id"] = customerId;
+                        if (email) updated["_email"] = email;
+                        updated = await ensureWorkerOAuthClient(updated, sessionToken);
+
                         setDeviceAuth({
                             status: "authorized",
                             userCode: result.user_code,
@@ -662,15 +726,6 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             email,
                             errorMessage: null,
                         });
-
-                        // Store in answers
-                        const updated: Record<string, string | string[]> = {
-                            ...answersRef.current,
-                            "api-key": apiKey,
-                            "device-auth": "authorized",
-                        };
-                        if (customerId) updated["_customer_id"] = customerId;
-                        if (email) updated["_email"] = email;
                         answersRef.current = updated;
                         setAnswers(updated);
 
@@ -681,14 +736,24 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             // Write to project .env if detected
                             const fw = detectFramework();
                             if (fw) {
-                                const envResult = await writeProjectEnv(fw.envPath, apiKey);
+                                const oauthId = answersRef.current["oauth-client-id"] as string | undefined;
+                                const oauthSecret = answersRef.current["oauth-client-secret"] as string | undefined;
+                                const envResult = await writeProjectEnv(fw.envPath, apiKey, oauthId, oauthSecret);
                                 const displayPath = fw.envPath.replace(CONFIG_HOME, "~");
                                 if (envResult === true) {
                                     setDeviceAuthEnvPath(displayPath);
-                                    setWizardMessage(`Key saved to ~/.xcelsior/token.json and ${displayPath} — press Enter to continue`);
+                                    if (oauthId && oauthSecret) {
+                                        setWizardMessage(`API key saved to ~/.xcelsior/token.json and worker OAuth credentials written to ${displayPath} — press Enter to continue`);
+                                    } else {
+                                        setWizardMessage(`Key saved to ~/.xcelsior/token.json and ${displayPath} — press Enter to continue`);
+                                    }
                                 } else {
                                     setDeviceAuthEnvPath(null);
-                                    setWizardMessage(`Key saved to ~/.xcelsior/token.json (could not write ${displayPath}: ${envResult}) — press Enter to continue`);
+                                    if (oauthId && oauthSecret) {
+                                        setWizardMessage(`API key saved to ~/.xcelsior/token.json (could not write worker OAuth credentials to ${displayPath}: ${envResult}) — press Enter to continue`);
+                                    } else {
+                                        setWizardMessage(`Key saved to ~/.xcelsior/token.json (could not write ${displayPath}: ${envResult}) — press Enter to continue`);
+                                    }
                                 }
                             } else {
                                 setDeviceAuthEnvPath(null);
@@ -1192,10 +1257,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
             case "worker-install": {
                 try {
                     const { installWorkerAgent } = await import("./provider-checks.js");
-                    const token = currentAnswers["api-key"] as string;
-                    const hostId = currentAnswers["_host_id"] as string;
-                    const hostIp = currentAnswers["_host_ip"] as string || "";
-                    const result = await installWorkerAgent(API_BASE_URL, token, hostId, hostIp);
+                    const answersWithWorkerAuth = await ensureWorkerOAuthClient(currentAnswers);
+                    const token = answersWithWorkerAuth["api-key"] as string;
+                    const hostId = answersWithWorkerAuth["_host_id"] as string;
+                    const hostIp = answersWithWorkerAuth["_host_ip"] as string || "";
+                    const oauthClientId = answersWithWorkerAuth["oauth-client-id"] as string | undefined;
+                    const oauthClientSecret = answersWithWorkerAuth["oauth-client-secret"] as string | undefined;
+                    const result = await installWorkerAgent(API_BASE_URL, token, hostId, hostIp, oauthClientId, oauthClientSecret);
                     return [
                         { name: "Worker Agent", ok: result.installed, detail: result.detail },
                     ];
@@ -1218,7 +1286,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             default:
                 return [{ name: checkId, ok: false, detail: "Unknown check" }];
         }
-    }, [checkWallet, launchGpuInstance]);
+    }, [checkWallet, ensureWorkerOAuthClient, launchGpuInstance]);
 
     // ── Step advancement ─────────────────────────────────────────────
 

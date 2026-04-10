@@ -13,6 +13,7 @@ import * as api from "@/lib/api";
 import type { MarketplaceListing, LaunchErrorInfo, ImageTemplate } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { markInstanceLaunched } from "@/components/InstallBanner";
 import { cn, generateFunName } from "@/lib/utils";
 
 interface RentModalProps {
@@ -120,6 +121,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
       const res = await api.launchInstance(params);
       setInstanceId(res.instance?.job_id || "");
       setStep("success");
+      markInstanceLaunched();
       toast.success("Instance launched successfully");
     } catch (err) {
       const info = api.classifyLaunchError(err);

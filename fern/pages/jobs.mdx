@@ -8,11 +8,13 @@ slug: jobs
 
 Instances are the core unit of work on Xcelsior. Submitters create instances specifying their compute requirements, and the scheduler matches them to available GPU hosts.
 
+Examples below use `XCELSIOR_BEARER_TOKEN`, which can be an API key or an OAuth access token.
+
 ## Submitting an Instance
 
 ```bash
 curl -X POST https://xcelsior.ca/instance \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "llama-70b-inference",
@@ -68,7 +70,7 @@ Submit interruptible instances at a bid price:
 
 ```bash
 curl -X POST https://xcelsior.ca/spot/instance \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
   -d '{
     "name": "batch-embeddings",
     "vram_needed_gb": 8,

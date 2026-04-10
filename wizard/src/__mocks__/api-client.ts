@@ -58,3 +58,14 @@ export async function* confirmAction(
         yield event;
     }
 }
+
+export async function createOAuthClient() {
+    return {
+        client_id: "oauth_test_client",
+        client_secret: "oauth_test_secret",
+        client_name: "Mock OAuth Client",
+        client_type: "confidential",
+        grant_types: ["client_credentials"],
+        scopes: ["api"],
+    };
+}

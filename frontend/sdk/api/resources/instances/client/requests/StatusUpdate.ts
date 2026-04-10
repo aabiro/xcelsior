@@ -13,4 +13,6 @@ export interface StatusUpdate {
     host_id?: string | null;
     container_id?: string | null;
     container_name?: string | null;
+    ssh_port?: number | null;
+    interactive?: boolean | null;
 }

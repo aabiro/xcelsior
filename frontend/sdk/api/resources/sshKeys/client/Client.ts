@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -17,7 +18,7 @@ export declare namespace SshKeysClient {
 export class SshKeysClient {
     protected readonly _options: NormalizedClientOptions<SshKeysClient.Options>;
 
-    constructor(options: SshKeysClient.Options) {
+    constructor(options: SshKeysClient.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -38,7 +39,8 @@ export class SshKeysClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/ssh/keys",
             ),
             method: "GET",
@@ -82,7 +84,8 @@ export class SshKeysClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/ssh/keys",
             ),
             method: "POST",
@@ -138,7 +141,8 @@ export class SshKeysClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/ssh/keys/${core.url.encodePathParam(keyId)}`,
             ),
             method: "DELETE",
