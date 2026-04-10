@@ -1,5 +1,6 @@
 """Routes: auth."""
 
+import base64
 import hmac
 import os
 import re
@@ -21,19 +22,21 @@ from routes._deps import (
     _USE_PERSISTENT_AUTH,
     _admin_flag,
     _api_keys,
-    _check_auth_rate_limit,
-    _clear_auth_cookie,
-    _create_session,
-    _get_current_user,
-    _get_real_client_ip,
-    _hash_password,
-    _is_platform_admin,
-    _merge_auth_user,
-    _require_admin,
-    _require_auth,
-    _require_write_access,
+    _check_auth_rate_limit as _deps_check_auth_rate_limit,
+    _clear_auth_cookie as _deps_clear_auth_cookie,
+    _create_session as _deps_create_session,
+    _get_current_user as _deps_get_current_user,
+    _get_real_client_ip as _deps_get_real_client_ip,
+    _hash_password as _deps_hash_password,
+    _is_platform_admin as _deps_is_platform_admin,
+    _merge_auth_user as _deps_merge_auth_user,
+    _require_admin as _deps_require_admin,
+    _require_auth as _deps_require_auth,
+    _require_user_grant as _deps_require_user_grant,
+    _require_write_access as _deps_require_write_access,
     _sessions,
-    _set_auth_cookie,
+    _set_auth_cookie as _deps_set_auth_cookie,
+    _set_session_cookies,
     _user_lock,
     _users_db,
     broadcast_sse,
@@ -52,6 +55,26 @@ import hashlib as _hashlib
 import httpx as _httpx
 import urllib.parse as _urllib_parse
 from routes.teams import _send_team_email
+from oauth_service import (
+    ACCESS_TOKEN_TTL_SEC,
+    DEVICE_CODE_INTERVAL_SEC,
+    REFRESH_COOKIE_NAME,
+    REFRESH_TOKEN_TTL_SEC,
+    OAuthGrantError,
+    approve_device_code,
+    authenticate_client,
+    build_deprecation_headers,
+    create_oauth_client,
+    exchange_authorization_code,
+    exchange_device_code,
+    get_client,
+    issue_authorization_code,
+    issue_client_credentials_jwt,
+    issue_device_authorization,
+    issue_user_tokens,
+    revoke_refresh_session,
+    rotate_refresh_token,
+)
 
 router = APIRouter()
 
@@ -92,211 +115,231 @@ _OAUTH_STATE_TTL = 600
 
 def _set_auth_cookie(response, token: str):
     """Add httpOnly session cookie to response."""
-    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
-    is_prod = _base.startswith("https")
-    kwargs: dict = dict(
-        key=_AUTH_COOKIE_NAME,
-        value=token,
-        max_age=SESSION_EXPIRY,
-        httponly=True,
-        secure=is_prod,
-        samesite="lax",
-        path="/",
-    )
-    # Share cookie across subdomains (docs.xcelsior.ca, xcelsior.ca, etc.)
-    if is_prod:
-        kwargs["domain"] = ".xcelsior.ca"
-    response.set_cookie(**kwargs)
-    return response
+    return _deps_set_auth_cookie(response, token)
 
 
 # ── Helper: _clear_auth_cookie ──
 
 def _clear_auth_cookie(response):
     """Remove session cookie."""
-    _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
-    kwargs: dict = dict(key=_AUTH_COOKIE_NAME, path="/")
-    if _base.startswith("https"):
-        kwargs["domain"] = ".xcelsior.ca"
-    response.delete_cookie(**kwargs)
-    return response
+    return _deps_clear_auth_cookie(response)
 
 
 # ── Helper: _hash_password ──
 
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     """Hash a password with PBKDF2-HMAC-SHA256."""
-    if salt is None:
-        salt = secrets.token_hex(16)
-    hashed = _hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
-    return hashed, salt
+    return _deps_hash_password(password, salt)
 
 
 # ── Helper: _is_platform_admin ──
 
 def _is_platform_admin(user: dict | None) -> bool:
     """Platform admin privilege is independent from the account role."""
-    if not user:
-        return False
-    return _admin_flag(user.get("is_admin")) == 1 or user.get("role") == "admin"
+    return _deps_is_platform_admin(user)
 
 
 # ── Helper: _merge_auth_user ──
 
 def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     """Overlay live user/account data onto a session or API-key auth payload."""
-    merged = dict(base or {})
-    if full_user:
-        merged["role"] = full_user.get("role", merged.get("role", "submitter"))
-        merged["name"] = full_user.get("name", merged.get("name", ""))
-        merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
-        merged["provider_id"] = full_user.get("provider_id", merged.get("provider_id"))
-        merged["is_admin"] = True if _is_platform_admin(full_user) else False
-    else:
-        merged["is_admin"] = True if _is_platform_admin(merged) else False
-    return merged
+    return _deps_merge_auth_user(base, full_user)
 
 
 # ── Helper: _create_session ──
 
 def _create_session(email: str, user: dict, request: Request | None = None) -> dict:
     """Create a session token for a user."""
-    token = secrets.token_urlsafe(48)
-    now = time.time()
-    session = {
-        "token": token,
-        "email": email,
-        "user_id": user.get("user_id", email),
-        "role": user.get("role", "submitter"),
-        "is_admin": True if _is_platform_admin(user) else False,
-        "name": user.get("name", ""),
-        "created_at": now,
-        "expires_at": now + SESSION_EXPIRY,
-        "ip_address": _get_real_client_ip(request) if request else None,
-        "user_agent": request.headers.get("user-agent", "")[:512] if request else None,
-        "last_active": now,
-    }
-    if _USE_PERSISTENT_AUTH:
-        UserStore.create_session(session)
-    else:
-        with _user_lock:
-            _sessions[token] = session
-    return session
+    return _deps_create_session(email, user, request)
 
 
 # ── Helper: _get_current_user ──
 
 def _get_current_user(request: Request) -> dict | None:
     """Extract user from Authorization header or session cookie."""
-    auth = request.headers.get("authorization", "")
-    token = ""
-    if auth.startswith("Bearer "):
-        token = auth[7:]
-    if not token:
-        token = request.cookies.get(_AUTH_COOKIE_NAME, "")
-    if not token:
-        return None
-    # Master API token → admin user
-    master = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
-    if master and hmac.compare_digest(token, master):
-        return {
-            "email": "api-token@xcelsior.ca",
-            "user_id": "api-admin",
-            "role": "admin",
-            "is_admin": True,
-            "name": "API Token",
-        }
-    if _USE_PERSISTENT_AUTH:
-        session = UserStore.get_session(token)
-        if session:
-            # Enforce absolute session lifetime — no amount of refreshing
-            # extends a session beyond MAX_SESSION_LIFETIME from creation.
-            created = session.get("created_at") or 0
-            if time.time() - created > MAX_SESSION_LIFETIME:
-                UserStore.delete_session(token)
-                return None
-            # Update last_active periodically (every 5 minutes to reduce DB writes)
-            try:
-                last = session.get("last_active") or 0
-                if time.time() - last > 300:
-                    UserStore.update_session_last_active(token)
-            except Exception as e:
-                log.debug("session last_active update failed: %s", e)
-            full_user = UserStore.get_user(session["email"])
-            return _merge_auth_user(dict(session), full_user)
-        api_key = UserStore.get_api_key(token)
-        if api_key:
-            full_user = UserStore.get_user(api_key["email"])
-            return _merge_auth_user(
-                {
-                    "email": api_key["email"],
-                    "user_id": api_key["user_id"],
-                    "role": api_key.get("role", "submitter"),
-                    "is_admin": api_key.get("is_admin", False),
-                    "name": api_key.get("name", ""),
-                    "scope": api_key.get("scope", "full-access"),
-                },
-                full_user,
-            )
-    else:
-        with _user_lock:
-            session = _sessions.get(token)
-            full_user = _users_db.get(session["email"]) if session else None
-        if session and session["expires_at"] > time.time():
-            return _merge_auth_user(session, full_user)
-        with _user_lock:
-            api_key = _api_keys.get(token)
-            full_user = _users_db.get(api_key["email"]) if api_key else None
-        if api_key:
-            api_key["last_used"] = time.time()
-            return _merge_auth_user(
-                {
-                    "email": api_key["email"],
-                    "user_id": api_key["user_id"],
-                    "role": api_key.get("role", "submitter"),
-                    "is_admin": api_key.get("is_admin", False),
-                    "name": api_key.get("name", ""),
-                    "scope": api_key.get("scope", "full-access"),
-                },
-                full_user,
-            )
-    return None
+    return _deps_get_current_user(request)
 
 
 # ── Helper: _require_auth ──
 
 def _require_auth(request: Request) -> dict:
     """Return the current user or raise 401."""
-    if not AUTH_REQUIRED:
-        return {"email": "anonymous", "user_id": "anonymous", "role": "submitter", "is_admin": False}
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Authentication required")
-    return user
+    return _deps_require_auth(request)
 
 
 # ── Helper: _require_admin ──
 
 def _require_admin(request: Request) -> dict:
     """Return the current user or raise 403 if they lack platform admin access."""
-    user = _require_auth(request)
-    if not _is_platform_admin(user):
-        raise HTTPException(403, "Admin access required")
-    return user
+    return _deps_require_admin(request)
 
 
 # ── Helper: _require_write_access ──
 
 def _require_write_access(request: Request):
     """Raise 403 if the current user is using a read-only API key on a mutating request."""
-    user = _get_current_user(request)
-    if (
-        user
-        and user.get("scope") == "read-only"
-        and request.method not in ("GET", "HEAD", "OPTIONS")
-    ):
-        raise HTTPException(403, "This API key has read-only scope")
-    return user
+    return _deps_require_write_access(request)
+
+
+def _check_auth_rate_limit(request: Request) -> None:
+    _deps_check_auth_rate_limit(request)
+
+
+def _require_user_grant(request: Request, *, allow_api_key: bool = False) -> dict:
+    return _deps_require_user_grant(request, allow_api_key=allow_api_key)
+
+
+def _build_auth_response(
+    token_bundle: dict,
+    *,
+    user: dict | None = None,
+    status_code: int = 200,
+    extra: dict | None = None,
+    deprecated_surface: str | None = None,
+) -> JSONResponse:
+    body = {
+        "ok": True,
+        "access_token": token_bundle["access_token"],
+        "token_type": token_bundle.get("token_type", "Bearer"),
+        "expires_in": token_bundle.get("expires_in", ACCESS_TOKEN_TTL_SEC),
+    }
+    if user is not None:
+        body["user"] = {
+            "user_id": user.get("user_id", ""),
+            "email": user.get("email", ""),
+            "name": user.get("name", ""),
+            "role": user.get("role", "submitter"),
+            "is_admin": True if _is_platform_admin(user) else False,
+            "customer_id": user.get("customer_id"),
+            "provider_id": user.get("provider_id"),
+        }
+    if extra:
+        body.update(extra)
+    resp = JSONResponse(content=body, status_code=status_code)
+    _set_session_cookies(resp, token_bundle)
+    if deprecated_surface:
+        for key, value in build_deprecation_headers(deprecated_surface).items():
+            resp.headers[key] = value
+    return resp
+
+
+def _oauth_error_response(exc: OAuthGrantError, *, deprecated_surface: str | None = None) -> JSONResponse:
+    resp = JSONResponse(status_code=exc.status_code, content=exc.payload())
+    for key, value in exc.headers.items():
+        resp.headers[key] = value
+    if deprecated_surface:
+        for key, value in build_deprecation_headers(deprecated_surface).items():
+            resp.headers[key] = value
+    return resp
+
+
+async def _parse_request_body(request: Request) -> dict:
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/x-www-form-urlencoded" in content_type:
+        raw = (await request.body()).decode()
+        return {
+            key: value
+            for key, value in _urllib_parse.parse_qsl(raw, keep_blank_values=True)
+        }
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return body if isinstance(body, dict) else {}
+
+
+def _extract_client_credentials(request: Request, body: dict) -> tuple[str, str | None]:
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Basic "):
+        try:
+            raw = base64.b64decode(auth[6:]).decode()
+            client_id, client_secret = raw.split(":", 1)
+            return client_id, client_secret
+        except Exception:
+            raise OAuthGrantError("invalid_client", "Invalid client authorization", status_code=401)
+    client_id = str(body.get("client_id", "")).strip()
+    client_secret = str(body.get("client_secret", "")).strip() or None
+    return client_id, client_secret
+
+
+def _current_refresh_token(request: Request, user: dict | None = None) -> str:
+    refresh_token = request.cookies.get(REFRESH_COOKIE_NAME, "").strip()
+    if refresh_token:
+        return refresh_token
+    if user and str(user.get("session_token", "")).strip():
+        return str(user.get("session_token", "")).strip()
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def _validate_oauth_client_redirect(client: dict, redirect_uri: str) -> None:
+    allowed = list(client.get("redirect_uris") or [])
+    if allowed and redirect_uri not in allowed:
+        raise OAuthGrantError("invalid_request", "redirect_uri is not registered for this client")
+
+
+async def _oauth_token_grant_response(
+    request: Request,
+    body: dict,
+    *,
+    deprecated_surface: str | None = None,
+) -> JSONResponse:
+    try:
+        grant_type = str(body.get("grant_type", "")).strip()
+        client_id, client_secret = _extract_client_credentials(request, body)
+        client = authenticate_client(client_id, client_secret)
+
+        if grant_type == "authorization_code":
+            if "authorization_code" not in list(client.get("grant_types") or []):
+                raise OAuthGrantError("unauthorized_client", "Client is not allowed to use authorization_code")
+            redirect_uri = str(body.get("redirect_uri", "")).strip()
+            code = str(body.get("code", "")).strip()
+            code_verifier = str(body.get("code_verifier", "")).strip()
+            if not redirect_uri or not code or not code_verifier:
+                raise OAuthGrantError("invalid_request", "code, redirect_uri, and code_verifier are required")
+            token_bundle = exchange_authorization_code(
+                client=client,
+                code=code,
+                redirect_uri=redirect_uri,
+                code_verifier=code_verifier,
+                request=request,
+            )
+        elif grant_type == "refresh_token":
+            refresh_token = str(body.get("refresh_token", "")).strip()
+            if not refresh_token:
+                raise OAuthGrantError("invalid_request", "refresh_token is required")
+            token_bundle = rotate_refresh_token(refresh_token, request)
+        elif grant_type == "urn:ietf:params:oauth:grant-type:device_code":
+            if grant_type not in list(client.get("grant_types") or []):
+                raise OAuthGrantError("unauthorized_client", "Client is not allowed to use device_code")
+            device_code = str(body.get("device_code", "")).strip()
+            if not device_code:
+                raise OAuthGrantError("invalid_request", "device_code is required")
+            token_bundle = exchange_device_code(client=client, device_code=device_code, request=request)
+        elif grant_type == "client_credentials":
+            if client.get("client_type") != "confidential":
+                raise OAuthGrantError("unauthorized_client", "Public clients cannot use client_credentials")
+            if grant_type not in list(client.get("grant_types") or []):
+                raise OAuthGrantError("unauthorized_client", "Client is not allowed to use client_credentials")
+            scopes = str(body.get("scope", "")).strip()
+            token_bundle = issue_client_credentials_jwt(
+                client,
+                [scope for scope in scopes.split() if scope] or list(client.get("scopes") or []),
+            )
+        else:
+            raise OAuthGrantError("unsupported_grant_type", "Unsupported grant_type")
+    except OAuthGrantError as exc:
+        return _oauth_error_response(exc, deprecated_surface=deprecated_surface)
+
+    resp = JSONResponse(content=token_bundle)
+    if grant_type in {"authorization_code", "refresh_token"} and client.get("client_id") == "xcelsior-web":
+        _set_session_cookies(resp, token_bundle)
+    if deprecated_surface:
+        for key, value in build_deprecation_headers(deprecated_surface).items():
+            resp.headers[key] = value
+    return resp
 
 
 # ── Model: RegisterRequest ──
@@ -322,6 +365,233 @@ class ProfileUpdateRequest(BaseModel):
     role: str | None = None
     country: str | None = None
     province: str | None = None
+
+
+class OAuthClientCreateRequest(BaseModel):
+    client_name: str
+    redirect_uris: list[str] = []
+    grant_types: list[str] = ["client_credentials"]
+    scopes: list[str] = ["api"]
+    client_type: str = "confidential"
+    is_first_party: bool = False
+
+
+class DeviceVerificationRequest(BaseModel):
+    user_code: str
+
+
+@router.get("/.well-known/oauth-authorization-server", tags=["Auth"])
+def oauth_authorization_server_metadata(request: Request):
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "issuer": _OAUTH_BASE_URL.rstrip("/"),
+        "authorization_endpoint": f"{base_url}/oauth/authorize",
+        "token_endpoint": f"{base_url}/oauth/token",
+        "device_authorization_endpoint": f"{base_url}/oauth/device/authorize",
+        "grant_types_supported": [
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+            "urn:ietf:params:oauth:grant-type:device_code",
+        ],
+        "response_types_supported": ["code"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic", "none"],
+        "scopes_supported": [
+            "profile",
+            "email",
+            "offline_access",
+            "instances:read",
+            "instances:write",
+            "billing:read",
+            "billing:write",
+            "hosts:read",
+            "hosts:write",
+            "api",
+        ],
+        "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
+    }
+
+
+@router.get("/oauth/authorize", tags=["Auth"])
+def oauth_authorize(request: Request):
+    user = _get_current_user(request)
+    if not user:
+        wants_html = "text/html" in request.headers.get("accept", "").lower()
+        if wants_html or not request.headers.get("authorization"):
+            redirect_target = _urllib_parse.quote(str(request.url.path) + (f"?{request.url.query}" if request.url.query else ""))
+            return RedirectResponse(f"/login?redirect={redirect_target}", status_code=302)
+        raise HTTPException(401, "Not authenticated")
+    auth_type = str(user.get("auth_type", ""))
+    if auth_type == "client_credentials":
+        raise HTTPException(403, "Interactive user authentication required")
+    if auth_type == "api_key":
+        raise HTTPException(403, "Interactive session authentication required")
+    response_type = str(request.query_params.get("response_type", "")).strip()
+    client_id = str(request.query_params.get("client_id", "")).strip()
+    redirect_uri = str(request.query_params.get("redirect_uri", "")).strip()
+    state = str(request.query_params.get("state", "")).strip()
+    code_challenge = str(request.query_params.get("code_challenge", "")).strip()
+    code_challenge_method = str(request.query_params.get("code_challenge_method", "S256")).strip()
+    if response_type != "code":
+        raise HTTPException(400, "response_type=code is required")
+    if not client_id or not redirect_uri or not code_challenge:
+        raise HTTPException(400, "client_id, redirect_uri, and code_challenge are required")
+
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(400, "Unknown OAuth client")
+    if "authorization_code" not in list(client.get("grant_types") or []):
+        raise HTTPException(403, "Client is not allowed to use authorization_code")
+    _validate_oauth_client_redirect(client, redirect_uri)
+    scopes = str(request.query_params.get("scope", "")).strip().split()
+    try:
+        code = issue_authorization_code(
+            client=client,
+            user=user,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            scopes=scopes or list(client.get("scopes") or []),
+        )
+    except OAuthGrantError as exc:
+        raise HTTPException(exc.status_code, exc.description) from exc
+
+    sep = "&" if "?" in redirect_uri else "?"
+    location = f"{redirect_uri}{sep}code={code}"
+    if state:
+        location += f"&state={state}"
+    return RedirectResponse(location, status_code=302)
+
+
+@router.post("/oauth/token", tags=["Auth"])
+async def oauth_token(request: Request):
+    body = await _parse_request_body(request)
+    return await _oauth_token_grant_response(request, body)
+
+
+@router.post("/oauth/device/authorize", tags=["Auth"])
+async def oauth_device_authorize(request: Request):
+    body = await _parse_request_body(request)
+    try:
+        client_id, client_secret = _extract_client_credentials(request, body)
+        client = authenticate_client(client_id, client_secret)
+        grant_types = list(client.get("grant_types") or [])
+        if "urn:ietf:params:oauth:grant-type:device_code" not in grant_types:
+            raise OAuthGrantError("unauthorized_client", "Client is not allowed to use device_code")
+        data = issue_device_authorization(
+            client=client,
+            scopes=str(body.get("scope", "")).strip().split(),
+            base_url=str(request.base_url).rstrip("/"),
+        )
+    except OAuthGrantError as exc:
+        return _oauth_error_response(exc)
+    return JSONResponse(content=data)
+
+
+@router.post("/api/auth/device", tags=["Auth"], deprecated=True)
+async def oauth_device_authorize_compat(request: Request):
+    body = await _parse_request_body(request)
+    try:
+        client_id, client_secret = _extract_client_credentials(request, body)
+        client = authenticate_client(client_id, client_secret)
+        data = issue_device_authorization(
+            client=client,
+            scopes=str(body.get("scope", "")).strip().split(),
+            base_url=str(request.base_url).rstrip("/"),
+        )
+    except OAuthGrantError as exc:
+        return _oauth_error_response(exc, deprecated_surface="/api/auth/device")
+    resp = JSONResponse(content=data)
+    for key, value in build_deprecation_headers("/api/auth/device").items():
+        resp.headers[key] = value
+    return resp
+
+
+@router.post("/api/auth/token", tags=["Auth"], deprecated=True)
+async def oauth_token_compat(request: Request):
+    body = await _parse_request_body(request)
+    return await _oauth_token_grant_response(request, body, deprecated_surface="/api/auth/token")
+
+
+@router.get("/api/auth/verify", tags=["Auth"], deprecated=True)
+def oauth_verify_page():
+    from fastapi.responses import HTMLResponse
+
+    html = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xcelsior Device Authorization</title></head>
+<body><main style="max-width:480px;margin:3rem auto;font-family:system-ui,sans-serif">
+<h1>Authorize Device</h1>
+<p>Sign in, then submit your device code with <code>POST /api/auth/verify</code>.</p>
+</main></body></html>"""
+    return HTMLResponse(content=html)
+
+
+@router.post("/api/auth/verify", tags=["Auth"], deprecated=True)
+def oauth_verify_device(body: DeviceVerificationRequest, request: Request):
+    user = _require_user_grant(request)
+    try:
+        result = approve_device_code(user=user, user_code=body.user_code.strip().upper())
+    except OAuthGrantError as exc:
+        return _oauth_error_response(exc, deprecated_surface="/api/auth/verify")
+    resp = JSONResponse(content={"message": "Device authorized", **result})
+    for key, value in build_deprecation_headers("/api/auth/verify").items():
+        resp.headers[key] = value
+    return resp
+
+
+@router.post("/api/oauth/clients", tags=["Auth"])
+def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
+    user = _require_user_grant(request)
+    if body.client_type not in {"public", "confidential"}:
+        raise HTTPException(400, "client_type must be public or confidential")
+    if body.is_first_party and not _is_platform_admin(user):
+        raise HTTPException(403, "Only admins can create first-party OAuth clients")
+    client = create_oauth_client(
+        client_name=body.client_name.strip(),
+        redirect_uris=list(body.redirect_uris),
+        grant_types=list(body.grant_types),
+        scopes=list(body.scopes),
+        created_by_email=user["email"],
+        client_type=body.client_type,
+        is_first_party=body.is_first_party,
+    )
+    return {"ok": True, "client": client}
+
+
+@router.get("/api/oauth/clients", tags=["Auth"])
+def api_list_oauth_clients(request: Request):
+    user = _require_user_grant(request)
+    from db import OAuthStore
+
+    clients = OAuthStore.list_clients(None if _is_platform_admin(user) else user["email"])
+    safe_clients = [
+        {
+            "client_id": client["client_id"],
+            "client_name": client["client_name"],
+            "client_type": client["client_type"],
+            "redirect_uris": list(client.get("redirect_uris") or []),
+            "grant_types": list(client.get("grant_types") or []),
+            "scopes": list(client.get("scopes") or []),
+            "is_first_party": bool(client.get("is_first_party")),
+            "created_by_email": client.get("created_by_email"),
+            "created_at": client.get("created_at"),
+        }
+        for client in clients
+    ]
+    return {"ok": True, "clients": safe_clients}
+
+
+@router.delete("/api/oauth/clients/{client_id}", tags=["Auth"])
+def api_delete_oauth_client(client_id: str, request: Request):
+    user = _require_user_grant(request)
+    from db import OAuthStore
+
+    deleted = OAuthStore.delete_client(client_id, None if _is_platform_admin(user) else user["email"])
+    if not deleted:
+        raise HTTPException(404, "OAuth client not found")
+    return {"ok": True}
 
 @router.post("/api/auth/register", tags=["Auth"])
 def api_auth_register(body: RegisterRequest, request: Request):
@@ -441,20 +711,8 @@ def api_auth_register(body: RegisterRequest, request: Request):
             with _user_lock:
                 if email in _users_db:
                     _users_db[email]["email_verified"] = 1
-        session = _create_session(email, user, request)
-        return {
-            "ok": True,
-            "access_token": session["token"],
-            "token_type": "Bearer",
-            "user": {
-                "email": email,
-                "name": user["name"],
-                "role": user.get("role", "submitter"),
-                "is_admin": True if _is_platform_admin(user) else False,
-                "user_id": user["user_id"],
-                "customer_id": user["customer_id"],
-            },
-        }
+        token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+        return _build_auth_response(token_bundle, user=user)
 
     return JSONResponse(content={
         "ok": True,
@@ -516,7 +774,7 @@ def api_auth_login(body: LoginRequest, request: Request):
                 "methods": [m["method_type"] for m in enabled_methods],
             })
 
-    session = _create_session(email, user, request)
+    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
 
     # Ensure a welcome notification exists (checks ALL notifications, not just unread,
     # so marking-all-read won't re-trigger on next login)
@@ -531,24 +789,7 @@ def api_auth_login(body: LoginRequest, request: Request):
     except Exception as e:
         log.debug("welcome notification (OAuth) failed: %s", e)
 
-    body = {
-        "ok": True,
-        "access_token": session["token"],
-        "token_type": "Bearer",
-        "expires_in": SESSION_EXPIRY,
-        "user": {
-            "user_id": user["user_id"],
-            "email": email,
-            "name": user["name"],
-            "role": user["role"],
-            "is_admin": True if _is_platform_admin(user) else False,
-            "customer_id": user["customer_id"],
-            "provider_id": user.get("provider_id"),
-        },
-    }
-    resp = JSONResponse(content=body)
-    _set_auth_cookie(resp, session["token"])
-    return resp
+    return _build_auth_response(token_bundle, user=user)
 
 @router.post("/api/auth/oauth/{provider}", tags=["Auth"])
 def api_auth_oauth_initiate(provider: str):
@@ -733,7 +974,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
             with _user_lock:
                 _users_db[email] = user
 
-    session = _create_session(email, user, request)
+    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
 
     # Ensure welcome notification exists
     try:
@@ -749,7 +990,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
 
     # Set httpOnly cookie and redirect to dashboard
     resp = RedirectResponse("/dashboard", status_code=302)
-    _set_auth_cookie(resp, session["token"])
+    _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     _oauth_kw: dict = dict(
@@ -768,9 +1009,7 @@ def api_auth_me(request: Request):
 
     Requires Authorization: Bearer <token> header.
     """
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
 
     email = user["email"]
     if _USE_PERSISTENT_AUTH:
@@ -794,15 +1033,15 @@ def api_auth_me(request: Request):
             "team_id": full_user.get("team_id"),
             "oauth_provider": full_user.get("oauth_provider"),
             "created_at": full_user.get("created_at", 0),
+            "auth_type": user.get("auth_type", "legacy_session"),
+            "session_type": user.get("session_type", "browser"),
         },
     }
 
 @router.patch("/api/auth/me", tags=["Auth"])
 def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
     """Update the current user's profile fields."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     requested_role = None
     if body.role is not None:
         requested_role = body.role.strip().lower()
@@ -840,13 +1079,36 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
 
     return {"ok": True, "message": "Profile updated"}
 
-@router.post("/api/auth/refresh", tags=["Auth"])
+@router.post("/api/auth/refresh", tags=["Auth"], deprecated=True)
 def api_auth_refresh(request: Request):
     """Refresh an existing session token.
 
     Returns a new token with a fresh 30-day expiry.
     """
     user = _get_current_user(request)
+    if user and user.get("auth_type") == "api_key":
+        raise HTTPException(403, "Interactive session authentication required")
+    if user and user.get("auth_type") == "client_credentials":
+        raise HTTPException(403, "Interactive user authentication required")
+
+    refresh_token = _current_refresh_token(request, user)
+    if refresh_token:
+        try:
+            token_bundle = rotate_refresh_token(refresh_token, request)
+        except OAuthGrantError as exc:
+            return _oauth_error_response(exc, deprecated_surface="/api/auth/refresh")
+
+        refreshed_user = None
+        email = str((user or {}).get("email", "")).strip()
+        if email:
+            refreshed_user = UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
+        refreshed_user = refreshed_user or user or {}
+        return _build_auth_response(
+            token_bundle,
+            user=refreshed_user,
+            deprecated_surface="/api/auth/refresh",
+        )
+
     if not user:
         raise HTTPException(401, "Session expired or invalid")
 
@@ -876,6 +1138,8 @@ def api_auth_refresh(request: Request):
     }
     resp = JSONResponse(content=body)
     _set_auth_cookie(resp, session["token"])
+    for key, value in build_deprecation_headers("/api/auth/refresh").items():
+        resp.headers[key] = value
     return resp
 
 @router.post("/api/auth/logout", tags=["Auth"])
@@ -883,18 +1147,23 @@ def api_auth_logout(request: Request):
     """Logout — invalidate session and clear cookie."""
     user = _get_current_user(request)
     if user:
-        auth = request.headers.get("authorization", "")
-        token = ""
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-        if not token:
-            token = request.cookies.get(_AUTH_COOKIE_NAME, "")
-        if token:
-            if _USE_PERSISTENT_AUTH:
-                UserStore.delete_session(token)
-            else:
-                with _user_lock:
-                    _sessions.pop(token, None)
+        auth_type = str(user.get("auth_type", ""))
+        if auth_type in {"api_key", "client_credentials"}:
+            raise HTTPException(403, "Interactive session authentication required")
+        refresh_token = _current_refresh_token(request, user)
+        if refresh_token:
+            revoke_refresh_session(refresh_token)
+        else:
+            auth = request.headers.get("authorization", "")
+            token = auth[7:] if auth.startswith("Bearer ") else ""
+            if not token:
+                token = request.cookies.get(_AUTH_COOKIE_NAME, "")
+            if token:
+                if _USE_PERSISTENT_AUTH:
+                    UserStore.delete_session(token)
+                else:
+                    with _user_lock:
+                        _sessions.pop(token, None)
     resp = JSONResponse(content={"ok": True})
     _clear_auth_cookie(resp)
     return resp
@@ -902,9 +1171,7 @@ def api_auth_logout(request: Request):
 @router.delete("/api/auth/me", tags=["Auth"])
 def api_auth_delete_account(request: Request):
     """Delete the current user's account."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
 
     if _USE_PERSISTENT_AUTH:
         UserStore.delete_user(user["email"])
@@ -920,16 +1187,14 @@ def api_auth_delete_account(request: Request):
 
     return {"ok": True, "message": "Account deleted"}
 
-@router.post("/api/keys/generate", tags=["Auth"])
+@router.post("/api/keys/generate", tags=["Auth"], deprecated=True)
 async def api_generate_api_key(request: Request):
     """Generate a named API key for the authenticated user.
 
     API keys can be used as Bearer tokens for programmatic access.
     Scope: 'full-access' (default) or 'read-only' (GET requests only).
     """
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     body = await request.json()
     name = body.get("name", "default")
     scope = body.get("scope", "full-access")
@@ -955,21 +1220,22 @@ async def api_generate_api_key(request: Request):
     if _USE_PERSISTENT_AUTH:
         UserStore.create_api_key(key_data)
 
-    return {
+    resp = JSONResponse(content={
         "ok": True,
         "key": key,
         "name": name,
         "scope": scope,
         "preview": key[:12] + "..." + key[-4:],
         "note": "Save this key — it will not be shown again.",
-    }
+    })
+    for hdr, value in build_deprecation_headers("/api/keys").items():
+        resp.headers[hdr] = value
+    return resp
 
-@router.get("/api/keys", tags=["Auth"])
+@router.get("/api/keys", tags=["Auth"], deprecated=True)
 def api_list_keys(request: Request):
     """List all API keys for the authenticated user (keys are redacted)."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
 
     if _USE_PERSISTENT_AUTH:
         all_keys = UserStore.list_api_keys(user["email"])
@@ -997,14 +1263,15 @@ def api_list_keys(request: Request):
                 if v["email"] == user["email"]
             ]
 
-    return {"ok": True, "keys": keys}
+    resp = JSONResponse(content={"ok": True, "keys": keys})
+    for hdr, value in build_deprecation_headers("/api/keys").items():
+        resp.headers[hdr] = value
+    return resp
 
-@router.delete("/api/keys/{key_preview}", tags=["Auth"])
+@router.delete("/api/keys/{key_preview}", tags=["Auth"], deprecated=True)
 def api_revoke_key(key_preview: str, request: Request):
     """Revoke an API key by its preview string."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
 
     if _USE_PERSISTENT_AUTH:
         found = UserStore.delete_api_key_by_preview(user["email"], key_preview)
@@ -1022,7 +1289,10 @@ def api_revoke_key(key_preview: str, request: Request):
                 del _api_keys[k]
         if not to_remove:
             raise HTTPException(404, "API key not found")
-    return {"ok": True, "message": "API key revoked"}
+    resp = JSONResponse(content={"ok": True, "message": "API key revoked"})
+    for hdr, value in build_deprecation_headers("/api/keys").items():
+        resp.headers[hdr] = value
+    return resp
 
 
 # ── Model: PasswordResetRequest ──
@@ -1139,9 +1409,7 @@ class ChangePasswordRequest(BaseModel):
 @router.post("/api/auth/change-password", tags=["Auth"])
 def api_auth_change_password(request: Request, req: ChangePasswordRequest):
     """Change password for the authenticated user."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     if len(req.new_password) < 8:
         raise HTTPException(400, "New password must be at least 8 characters")
 
@@ -1225,7 +1493,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     if not user:
         raise HTTPException(400, "User not found")
 
-    session = _create_session(email, user, request)
+    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
 
     # Send welcome email now that they're verified
     try:
@@ -1245,23 +1513,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     except Exception as e:
         log.debug("email notification send failed: %s", e)
 
-    body = {
-        "ok": True,
-        "access_token": session["token"],
-        "token_type": "Bearer",
-        "expires_in": SESSION_EXPIRY,
-        "user": {
-            "user_id": user["user_id"],
-            "email": email,
-            "name": user.get("name", ""),
-            "role": user.get("role", "submitter"),
-            "is_admin": True if _is_platform_admin(user) else False,
-            "customer_id": user.get("customer_id"),
-        },
-    }
-    resp = JSONResponse(content=body)
-    _set_auth_cookie(resp, session["token"])
-    return resp
+    return _build_auth_response(token_bundle, user=user)
 
 @router.post("/api/auth/resend-verification", tags=["Auth"])
 def api_auth_resend_verification(req: ResendVerificationRequest, request: Request):
@@ -1319,16 +1571,8 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
 @router.get("/api/auth/sessions", tags=["Auth"])
 def api_auth_list_sessions(request: Request):
     """List active sessions for the current user."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-
-    current_token = ""
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        current_token = auth[7:]
-    if not current_token:
-        current_token = request.cookies.get(_AUTH_COOKIE_NAME, "")
+    user = _require_user_grant(request)
+    current_token = _current_refresh_token(request, user)
 
     if _USE_PERSISTENT_AUTH:
         sessions = UserStore.list_user_sessions(user["email"])
@@ -1357,15 +1601,13 @@ def api_auth_list_sessions(request: Request):
 @router.delete("/api/auth/sessions/{token_prefix}", tags=["Auth"])
 def api_auth_revoke_session(token_prefix: str, request: Request):
     """Revoke a specific session by its token prefix."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
 
     if _USE_PERSISTENT_AUTH:
         sessions = UserStore.list_user_sessions(user["email"])
         for s in sessions:
             if s["token"][:8] == token_prefix:
-                UserStore.delete_session(s["token"])
+                revoke_refresh_session(s["token"])
                 return {"ok": True, "message": "Session revoked"}
     else:
         with _user_lock:
@@ -1383,9 +1625,7 @@ def api_data_export(request: Request):
     Returns a JSON bundle of all user data: profile, jobs, billing,
     reputation, artifacts, and consent records.
     """
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     email = user["email"]
     customer_id = ""
 
@@ -1435,9 +1675,7 @@ def api_data_export(request: Request):
 @router.get("/api/users/me/preferences", tags=["Auth"])
 def api_get_user_preferences(request: Request):
     """Get user preferences."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     if _USE_PERSISTENT_AUTH:
         full_user = UserStore.get_user(user["email"]) or {}
     else:
@@ -1460,9 +1698,7 @@ def api_get_user_preferences(request: Request):
 @router.put("/api/users/me/preferences", tags=["Auth"])
 def api_set_user_preferences(request: Request, body: dict):
     """Update user preferences."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request)
     updates: dict = {}
     if "notifications" in body:
         updates["notifications_enabled"] = 1 if body["notifications"] else 0
@@ -1491,4 +1727,3 @@ def api_set_user_preferences(request: Request, body: dict):
     if updates and _USE_PERSISTENT_AUTH:
         UserStore.update_user(user["email"], updates)
     return {"ok": True}
-
