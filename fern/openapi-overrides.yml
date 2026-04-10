@@ -141,6 +141,18 @@ paths:
     post:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: createPaymentIntent
+  /api/billing/paypal/enabled:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: paypalEnabled
+  /api/billing/paypal/create-order:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: createPayPalOrder
+  /api/billing/paypal/capture-order:
+    post:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: capturePayPalOrder
   /api/billing/attestation:
     get:
       x-fern-sdk-group-name: billing
@@ -310,6 +322,22 @@ paths:
     post:
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: register
+  /.well-known/oauth-authorization-server:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: getAuthorizationServerMetadata
+  /oauth/authorize:
+    get:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: authorize
+  /oauth/token:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: exchangeToken
+  /oauth/device/authorize:
+    post:
+      x-fern-sdk-group-name: auth
+      x-fern-sdk-method-name: deviceAuthorize
   /api/auth/login:
     post:
       x-fern-sdk-group-name: auth

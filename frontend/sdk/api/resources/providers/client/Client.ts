@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -14,10 +15,13 @@ export declare namespace ProvidersClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
+/**
+ * Stripe Connect onboarding, Canadian company registration, payouts.
+ */
 export class ProvidersClient {
     protected readonly _options: NormalizedClientOptions<ProvidersClient.Options>;
 
-    constructor(options: ProvidersClient.Options) {
+    constructor(options: ProvidersClient.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -59,7 +63,8 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/providers/register",
             ),
             method: "POST",
@@ -126,7 +131,8 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/providers/${core.url.encodePathParam(providerId)}`,
             ),
             method: "GET",
@@ -191,7 +197,8 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/providers",
             ),
             method: "GET",
@@ -259,7 +266,8 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/providers/${core.url.encodePathParam(providerId)}/incorporation`,
             ),
             method: "POST",
@@ -331,7 +339,8 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/providers/${core.url.encodePathParam(providerId)}/earnings`,
             ),
             method: "GET",
@@ -407,7 +416,8 @@ export class ProvidersClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/providers/${core.url.encodePathParam(providerId)}/payout`,
             ),
             method: "POST",
@@ -445,49 +455,5 @@ export class ProvidersClient {
             "POST",
             "/api/providers/{provider_id}/payout",
         );
-    }
-
-    /**
-     * Handle Stripe Connect webhooks (account.updated, payment_intent.succeeded, etc.).
-     *
-     * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.providers.webhook()
-     */
-    public webhook(requestOptions?: ProvidersClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__webhook(requestOptions));
-    }
-
-    private async __webhook(requestOptions?: ProvidersClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
-                "api/providers/webhook",
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/providers/webhook");
     }
 }

@@ -8,11 +8,13 @@ slug: marketplace
 
 The Xcelsior Marketplace lets GPU providers list their rigs for rent and submitters browse available compute. Pricing is in CAD with configurable platform fees.
 
+Examples below use `XCELSIOR_BEARER_TOKEN`, which can be an API key or an OAuth access token.
+
 ## Listing a Rig
 
 ```bash
 curl -X POST https://xcelsior.ca/marketplace/list \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
   -d '{
     "host_id": "my-gpu-01",
     "gpu_model": "RTX 4090",

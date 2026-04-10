@@ -88,6 +88,7 @@ python cli.py run my-model 8.0
 
 > **Dashboard** → `http://localhost:8000/dashboard`
 > **Health** → `http://localhost:8000/healthz`
+> **Worker Auth** → hosted/prod workers can use either `XCELSIOR_API_TOKEN` or `XCELSIOR_OAUTH_CLIENT_ID` + `XCELSIOR_OAUTH_CLIENT_SECRET`. If both are set, the worker prefers OAuth.
 
 ---
 

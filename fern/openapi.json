@@ -2,811 +2,29 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Xcelsior",
-    "description": "Distributed GPU orchestration platform for AI/ML workloads. Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent\u2013optimized documentation.",
+    "description": "Distributed GPU orchestration platform for AI/ML workloads. Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation.\n\nThis published OpenAPI document contains the client-facing/public API surface only. Internal worker, admin, maintenance, and callback endpoints are intentionally omitted.",
+    "contact": {
+      "name": "Xcelsior",
+      "url": "https://xcelsior.ca/",
+      "email": "admin@xcelsior.ca"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    },
     "version": "2.3.0"
   },
+  "servers": [
+    {
+      "url": "https://xcelsior.ca",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:9500",
+      "description": "Development"
+    }
+  ],
   "paths": {
-    "/api/admin/stats": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Stats",
-        "description": "Get admin dashboard statistics.",
-        "operationId": "api_admin_stats_api_admin_stats_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/users": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Users",
-        "description": "List all users for admin panel.",
-        "operationId": "api_admin_users_api_admin_users_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/overview": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Overview",
-        "description": "Admin overview with KPIs and trend data for a configurable window.",
-        "operationId": "api_admin_overview_api_admin_overview_get",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 30,
-              "title": "Days"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/users/{email}/role": {
-      "post": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Set User Role",
-        "description": "Admin sets a user's role.",
-        "operationId": "api_admin_set_user_role_api_admin_users__email__role_post",
-        "parameters": [
-          {
-            "name": "email",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Email"
-            }
-          },
-          {
-            "name": "role",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "submitter",
-              "title": "Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/users/{email}/toggle-admin": {
-      "post": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Toggle Admin",
-        "description": "Admin toggles another user's admin flag.",
-        "operationId": "api_admin_toggle_admin_api_admin_users__email__toggle_admin_post",
-        "parameters": [
-          {
-            "name": "email",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Email"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/revenue": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Revenue",
-        "description": "Admin revenue breakdown \u2014 by day, GPU model, province, top customers/providers.",
-        "operationId": "api_admin_revenue_api_admin_revenue_get",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 90,
-              "title": "Days"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/infrastructure": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Infrastructure",
-        "description": "Admin infrastructure view \u2014 hosts by state, GPU model, province, verification, reputation.",
-        "operationId": "api_admin_infrastructure_api_admin_infrastructure_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/activity": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Activity",
-        "description": "Admin activity feed \u2014 recent events, job stats by day, events by type.",
-        "operationId": "api_admin_activity_api_admin_activity_get",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 7,
-              "title": "Days"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 100,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/verification-queue": {
-      "get": {
-        "tags": [
-          "Admin"
-        ],
-        "summary": "Api Admin Verification Queue",
-        "description": "Get verification queue for admin panel.",
-        "operationId": "api_admin_verification_queue_api_admin_verification_queue_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/work/{host_id}": {
-      "get": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Work",
-        "description": "Pull pending work for an agent. Returns assigned jobs.",
-        "operationId": "api_agent_work_agent_work__host_id__get",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/preempt/{host_id}": {
-      "get": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Preempt",
-        "description": "Check if any jobs on this host should be preempted.",
-        "operationId": "api_agent_preempt_agent_preempt__host_id__get",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/preempt/{host_id}/{job_id}": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Schedule Preemption",
-        "description": "Schedule a job for preemption on a host.",
-        "operationId": "api_schedule_preemption_agent_preempt__host_id___job_id__post",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/versions": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Versions",
-        "description": "Receive and validate node component versions for admission control.\n\nWhen a host passes admission, updates the host record to admitted=True\nand status='active'. This is the gate that allows hosts to receive work.\nPer REPORT_FEATURE_FINAL.md \u00a762 and REPORT_FEATURE_1.md:\n- CUDA >= 12.0, runc patched, NVIDIA Container Toolkit patched\n- Hosts that fail stay in 'pending' status",
-        "operationId": "api_agent_versions_agent_versions_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VersionReport"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/mining-alert": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Mining Alert",
-        "description": "Receive mining detection alert from an agent.",
-        "operationId": "api_mining_alert_agent_mining_alert_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MiningAlert"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/benchmark": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Benchmark",
-        "description": "Receive compute benchmark results from an agent.",
-        "operationId": "api_agent_benchmark_agent_benchmark_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BenchmarkReport"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/lease/claim": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Lease Claim",
-        "description": "Agent claims a lease for an assigned job.\n\nThis transitions the job from ASSIGNED \u2192 LEASED and starts\nthe lease clock. The agent must renew before expiry.",
-        "operationId": "api_agent_lease_claim_agent_lease_claim_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeaseClaimRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/lease/renew": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Lease Renew",
-        "description": "Agent renews its lease on a job. Must be called before expiry.",
-        "operationId": "api_agent_lease_renew_agent_lease_renew_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeaseRenewRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/lease/release": {
-      "post": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Lease Release",
-        "description": "Agent releases its lease (job completed/failed/preempted).",
-        "operationId": "api_agent_lease_release_agent_lease_release_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeaseReleaseRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/popular-images": {
-      "get": {
-        "tags": [
-          "Agent"
-        ],
-        "summary": "Api Agent Popular Images",
-        "description": "Return popular container images for agent pre-pulling.\n\nAgents call this during idle time to pre-cache frequently-used images,\nreducing cold-start latency for future jobs.",
-        "operationId": "api_agent_popular_images_agent_popular_images_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/telemetry": {
-      "post": {
-        "tags": [
-          "Telemetry"
-        ],
-        "summary": "Api Agent Telemetry",
-        "description": "Receive periodic GPU telemetry from agent (every 5s).",
-        "operationId": "api_agent_telemetry_agent_telemetry_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TelemetryPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/telemetry/{host_id}": {
-      "get": {
-        "tags": [
-          "Telemetry"
-        ],
-        "summary": "Api Get Telemetry",
-        "description": "Get latest telemetry for a host (dashboard live gauges).",
-        "operationId": "api_get_telemetry_agent_telemetry__host_id__get",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/telemetry/all": {
-      "get": {
-        "tags": [
-          "Telemetry"
-        ],
-        "summary": "Api All Telemetry",
-        "description": "Get latest telemetry for all hosts (dashboard overview).",
-        "operationId": "api_all_telemetry_api_telemetry_all_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/artifacts/upload": {
       "post": {
         "tags": [
@@ -989,6 +207,82 @@
         }
       }
     },
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Oauth Authorization Server Metadata",
+        "operationId": "oauth_authorization_server_metadata__well_known_oauth_authorization_server_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/authorize": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Oauth Authorize",
+        "operationId": "oauth_authorize_oauth_authorize_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Oauth Token",
+        "operationId": "oauth_token_oauth_token_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/device/authorize": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Oauth Device Authorize",
+        "operationId": "oauth_device_authorize_oauth_device_authorize_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/register": {
       "post": {
         "tags": [
@@ -1075,49 +369,8 @@
           "Auth"
         ],
         "summary": "Api Auth Oauth Initiate",
-        "description": "Initiate OAuth flow \u2014 returns the provider's authorization URL.\n\nThe frontend should redirect the user to the returned URL.",
+        "description": "Initiate OAuth flow — returns the provider's authorization URL.\n\nThe frontend should redirect the user to the returned URL.",
         "operationId": "api_auth_oauth_initiate_api_auth_oauth__provider__post",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Provider"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/oauth/{provider}/callback": {
-      "get": {
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Api Auth Oauth Callback",
-        "description": "OAuth callback \u2014 exchanges authorization code for user profile, creates session,\nand redirects to dashboard.",
-        "operationId": "api_auth_oauth_callback_api_auth_oauth__provider__callback_get",
         "parameters": [
           {
             "name": "provider",
@@ -1244,7 +497,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/auth/logout": {
@@ -1253,7 +507,7 @@
           "Auth"
         ],
         "summary": "Api Auth Logout",
-        "description": "Logout \u2014 invalidate session and clear cookie.",
+        "description": "Logout — invalidate session and clear cookie.",
         "operationId": "api_auth_logout_api_auth_logout_post",
         "responses": {
           "200": {
@@ -1284,7 +538,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/keys": {
@@ -1304,7 +559,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/keys/{key_preview}": {
@@ -1315,6 +571,7 @@
         "summary": "Api Revoke Key",
         "description": "Revoke an API key by its preview string.",
         "operationId": "api_revoke_key_api_keys__key_preview__delete",
+        "deprecated": true,
         "parameters": [
           {
             "name": "key_preview",
@@ -1689,246 +946,6 @@
         }
       }
     },
-    "/autoscale/pool": {
-      "get": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Get Pool",
-        "description": "List the autoscale pool.",
-        "operationId": "api_get_pool_autoscale_pool_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Add To Pool",
-        "description": "Add a host to the autoscale pool.",
-        "operationId": "api_add_to_pool_autoscale_pool_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PoolHost"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/pool/{host_id}": {
-      "delete": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Remove From Pool",
-        "description": "Remove a host from the autoscale pool.",
-        "operationId": "api_remove_from_pool_autoscale_pool__host_id__delete",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/cycle": {
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Autoscale Cycle",
-        "description": "Run a full autoscale cycle: scale up, process queue, scale down.",
-        "operationId": "api_autoscale_cycle_autoscale_cycle_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/up": {
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Autoscale Up",
-        "description": "Scale up: provision hosts for queued jobs.",
-        "operationId": "api_autoscale_up_autoscale_up_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/autoscale/down": {
-      "post": {
-        "tags": [
-          "Autoscale"
-        ],
-        "summary": "Api Autoscale Down",
-        "description": "Scale down: deprovision idle autoscaled hosts.",
-        "operationId": "api_autoscale_down_autoscale_down_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/billing/bill/{job_id}": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Bill Instance",
-        "description": "Bill a specific completed job.",
-        "operationId": "api_bill_instance_billing_bill__job_id__post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/billing/bill-all": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Bill All",
-        "description": "Bill all unbilled completed jobs.",
-        "operationId": "api_bill_all_billing_bill_all_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/billing": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Billing",
-        "description": "Get all billing records and total revenue.",
-        "operationId": "api_billing_billing_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/billing/wallet/{customer_id}": {
       "get": {
         "tags": [
@@ -2010,6 +1027,106 @@
         }
       }
     },
+    "/api/billing/paypal/enabled": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Api Paypal Enabled",
+        "description": "Check whether PayPal is configured.",
+        "operationId": "api_paypal_enabled_api_billing_paypal_enabled_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/billing/paypal/create-order": {
+      "post": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Api Paypal Create Order",
+        "description": "Create a PayPal order for depositing compute credits.",
+        "operationId": "api_paypal_create_order_api_billing_paypal_create_order_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayPalCreateOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/billing/paypal/capture-order": {
+      "post": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Api Paypal Capture Order",
+        "description": "Capture a PayPal order and credit the wallet.",
+        "operationId": "api_paypal_capture_order_api_billing_paypal_capture_order_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PayPalCaptureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/billing/wallet/{customer_id}/deposit": {
       "post": {
         "tags": [
@@ -2039,47 +1156,6 @@
             }
           }
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/billing/wallet/{customer_id}/reset-testing": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Reset Wallet Testing State",
-        "description": "Reset wallet balance and promo state for admin testing. Disabled in production.",
-        "operationId": "api_reset_wallet_testing_state_api_billing_wallet__customer_id__reset_testing_post",
-        "parameters": [
-          {
-            "name": "customer_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Customer Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2343,7 +1419,7 @@
           "Billing"
         ],
         "summary": "Api Generate Invoice",
-        "description": "Generate an AI Compute Access Fund\u2013aligned invoice.",
+        "description": "Generate an AI Compute Access Fund–aligned invoice.",
         "operationId": "api_generate_invoice_api_billing_invoice__customer_id__get",
         "parameters": [
           {
@@ -2657,7 +1733,7 @@
           "Billing"
         ],
         "summary": "Api Process Refund",
-        "description": "Process a refund for a failed job.\n\nFrom REPORT_FEATURE_1.md:\n- Hardware error \u2192 full refund\n- User OOM (exit 137) \u2192 zero refund",
+        "description": "Process a refund for a failed job.\n\nFrom REPORT_FEATURE_1.md:\n- Hardware error → full refund\n- User OOM (exit 137) → zero refund",
         "operationId": "api_process_refund_api_billing_refund_post",
         "requestBody": {
           "content": {
@@ -2951,78 +2027,6 @@
           },
           "required": true
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/analytics/usage": {
-      "get": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "Api Usage Analytics",
-        "description": "Usage analytics for both providers and submitters.\n\nProvides cost breakdowns, GPU utilization trends, and hardware health\naggregates over time. Supports grouping by day, week, GPU model,\nor province for detailed reporting.\n\nQuery params:\n- `customer_id` \u2014 filter to one customer (submitter view)\n- `provider_id` \u2014 filter to one provider (earnings view)\n- `days` \u2014 lookback window (default 30)\n- `group_by` \u2014 aggregation: `day`, `week`, `gpu_model`, `province`",
-        "operationId": "api_usage_analytics_api_analytics_usage_get",
-        "parameters": [
-          {
-            "name": "customer_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Customer Id"
-            }
-          },
-          {
-            "name": "provider_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Provider Id"
-            }
-          },
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 30,
-              "title": "Days"
-            }
-          },
-          {
-            "name": "group_by",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "day",
-              "title": "Group By"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3486,26 +2490,6 @@
         }
       }
     },
-    "/api/v2/burst/status": {
-      "get": {
-        "tags": [
-          "Cloud Burst"
-        ],
-        "summary": "Api Burst Status",
-        "description": "Get cloud burst auto-scaling status.",
-        "operationId": "api_burst_status_api_v2_burst_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/billing/gst-threshold": {
       "get": {
         "tags": [
@@ -3573,7 +2557,7 @@
           "Compliance"
         ],
         "summary": "Api Compliance Status",
-        "description": "Return high-level compliance check summary with live verification.\n\nChecks reflect actual user/platform configuration state \u2014 items require\nspecific action before they show as passing. Each non-passing check\nincludes an ``action`` with a CTA label and dashboard link.",
+        "description": "Return high-level compliance check summary with live verification.\n\nChecks reflect actual user/platform configuration state — items require\nspecific action before they show as passing. Each non-passing check\nincludes an ``action`` with a CTA label and dashboard link.",
         "operationId": "api_compliance_status_api_compliance_status_get",
         "responses": {
           "200": {
@@ -3641,46 +2625,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/compliance/quebec-pia-check": {
-      "post": {
-        "tags": [
-          "Compliance"
-        ],
-        "summary": "Api Quebec Pia Check",
-        "description": "Check if Qu\u00e9bec Law 25 PIA is required for cross-border transfer.",
-        "operationId": "api_quebec_pia_check_api_compliance_quebec_pia_check_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PIACheckRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -3814,7 +2758,7 @@
           "Events"
         ],
         "summary": "Api Instance Audit Trail",
-        "description": "Full auditable trail for a job \u2014 every event with hash chain.\n\nThis is the dispute-resolution artifact: every state change,\nlease renewal, billing event, ordered by time with tamper-evident hashes.",
+        "description": "Full auditable trail for a job — every event with hash chain.\n\nThis is the dispute-resolution artifact: every state change,\nlease renewal, billing event, ordered by time with tamper-evident hashes.",
         "operationId": "api_instance_audit_trail_api_audit_instance__job_id__get",
         "parameters": [
           {
@@ -3897,195 +2841,8 @@
           "GPU"
         ],
         "summary": "Api Gpu Available",
-        "description": "List available GPU types with regions, VRAM, pricing, and counts.\n\nUsed by both Serverless and Volumes to populate GPU/region pickers.\nQueries gpu_offers first, then hosts table. If neither has data,\nreturns an empty list \u2014 no fake inventory.",
+        "description": "List available GPU types with regions, VRAM, pricing, and counts.\n\nUsed by both Serverless and Volumes to populate GPU/region pickers.\nQueries gpu_offers first, then hosts table. If neither has data,\nreturns an empty list — no fake inventory.",
         "operationId": "api_gpu_available_api_v2_gpu_available_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboard": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Dashboard",
-        "description": "The dashboard. HTML + JS. No React. No npm. No build step.",
-        "operationId": "dashboard_dashboard_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/legacy/{path}": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Legacy Dashboard",
-        "description": "Legacy dashboard preserved at /legacy while Next.js serves /.",
-        "operationId": "legacy_dashboard_legacy__path__get",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/legacy": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Legacy Dashboard",
-        "description": "Legacy dashboard preserved at /legacy while Next.js serves /.",
-        "operationId": "legacy_dashboard_legacy_get",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/alerts/config": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Alert Config",
-        "description": "Get current alert config (passwords redacted).",
-        "operationId": "api_get_alert_config_alerts_config_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Set Alert Config",
-        "description": "Update alert config at runtime.",
-        "operationId": "api_set_alert_config_alerts_config_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AlertConfig"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/ssh/keygen": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Generate Ssh Key",
-        "description": "Generate an Ed25519 SSH keypair for host access.",
-        "operationId": "api_generate_ssh_key_ssh_keygen_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4118,482 +2875,13 @@
         }
       }
     },
-    "/ssh/pubkey": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Pubkey",
-        "description": "Get the public key to add to hosts' authorized_keys.",
-        "operationId": "api_get_pubkey_ssh_pubkey_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/token/generate": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Generate Token",
-        "description": "Generate a secure random API token. User must set it in .env themselves.",
-        "operationId": "api_generate_token_token_generate_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/device": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Device Code",
-        "description": "Initiate OAuth2 device authorization flow (RFC 8628).\n\nReturns a device_code (for polling) and a user_code (for the user to enter\nin the browser at the verification_uri).",
-        "operationId": "api_auth_device_code_api_auth_device_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/token": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Device Token",
-        "description": "Poll for device authorization result (RFC 8628 \u00a73.4).\n\nReturns:\n- 200 + access_token when authorized\n- 428 \"authorization_pending\" while waiting\n- 410 \"expired_token\" if timed out",
-        "operationId": "api_auth_device_token_api_auth_token_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/verify": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Verify Page",
-        "description": "Browser-facing page where users enter their device code.",
-        "operationId": "api_auth_verify_page_api_auth_verify_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Auth Verify Device",
-        "description": "Verify a device code by entering the user_code shown in the CLI.\n\nCalled from the web dashboard after the user logs in and enters their code.\nRequires a valid session (cookie or bearer token) so the CLI token can be\ntied to the authenticated user.  Falls back to creating an anonymous session\nwhen no user context is available (e.g. first-time sign-up via device flow).",
-        "operationId": "api_auth_verify_device_api_auth_verify_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceVerifyRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/submit": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Submit",
-        "description": "Submit an Xcelsior job to a Slurm cluster (HPC bridge).\n\nTranslates the job to an sbatch script and submits. Set dry_run=true\nto see the generated script without submitting.",
-        "operationId": "api_slurm_submit_api_slurm_submit_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SlurmSubmitIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/status/{slurm_job_id}": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Status",
-        "description": "Check the status of a Slurm job.",
-        "operationId": "api_slurm_status_api_slurm_status__slurm_job_id__get",
-        "parameters": [
-          {
-            "name": "slurm_job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Slurm Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/{slurm_job_id}": {
-      "delete": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Cancel",
-        "description": "Cancel a Slurm job.",
-        "operationId": "api_slurm_cancel_api_slurm__slurm_job_id__delete",
-        "parameters": [
-          {
-            "name": "slurm_job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Slurm Job Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/profiles": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm Profiles",
-        "description": "List available Slurm cluster profiles (Nibi, Graham, Narval, generic).",
-        "operationId": "api_slurm_profiles_api_slurm_profiles_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/nfs/config": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Nfs Config",
-        "description": "Get current NFS configuration from environment.",
-        "operationId": "api_nfs_config_api_nfs_config_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/build": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Build Image",
-        "description": "Build a Docker image for a model. Optionally quantize and push.",
-        "operationId": "api_build_image_build_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BuildIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/builds": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api List Builds",
-        "description": "List all local build directories.",
-        "operationId": "api_list_builds_builds_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/build/{model}/dockerfile": {
-      "post": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Generate Dockerfile",
-        "description": "Preview the generated Dockerfile without building.",
-        "operationId": "api_generate_dockerfile_build__model__dockerfile_post",
-        "parameters": [
-          {
-            "name": "model",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Model"
-            }
-          },
-          {
-            "name": "base_image",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "python:3.11-slim",
-              "title": "Base Image"
-            }
-          },
-          {
-            "name": "quantize",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Quantize"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/stream": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Sse Stream",
-        "description": "Server-Sent Events stream for real-time dashboard updates.",
-        "operationId": "sse_stream_api_stream_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/healthz": {
       "get": {
         "tags": [
           "Infrastructure"
         ],
         "summary": "Healthz",
-        "description": "Health check \u2014 verifies database connectivity and returns real system status.",
+        "description": "Health check — verifies database connectivity and returns real system status.",
         "operationId": "healthz_healthz_get",
         "responses": {
           "200": {
@@ -4626,150 +2914,13 @@
         }
       }
     },
-    "/metrics": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Metrics",
-        "operationId": "metrics_metrics_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/metrics/prometheus": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Metrics Prometheus",
-        "description": "Prometheus-compatible /metrics endpoint.\n\nExports xcelsior_* gauges, counters, and histograms in Prometheus\ntext exposition format for scraping by Prometheus/Grafana.",
-        "operationId": "metrics_prometheus_metrics_prometheus_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/llms.txt": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Llms Txt",
-        "description": "Serve LLM-optimized documentation for AI agents.\n\nPer Report #1.B: \"Standard llms.txt for AI agents\".\nSee https://llmstxt.org for specification.",
-        "operationId": "api_llms_txt_llms_txt_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/alerts/config": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Get Alert Config Alias",
-        "description": "Alias for /alerts/config with /api/ prefix.",
-        "operationId": "api_get_alert_config_alias_api_alerts_config_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Set Alert Config Alias",
-        "description": "Alias for PUT /alerts/config with /api/ prefix.",
-        "operationId": "api_set_alert_config_alias_api_alerts_config_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AlertConfig"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/slurm/instances": {
-      "get": {
-        "tags": [
-          "Infrastructure"
-        ],
-        "summary": "Api Slurm List Instances",
-        "description": "List all tracked Slurm jobs.",
-        "operationId": "api_slurm_list_instances_api_slurm_instances_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/host": {
       "put": {
         "tags": [
           "Hosts"
         ],
         "summary": "Api Register Host",
-        "description": "Register or update a host with strict admission gating.\n\nPer REPORT_FEATURE_FINAL.md \u00a762 and REPORT_FEATURE_2.md \u00a737:\n- Hosts must pass node admission (version gating) before accepting work\n- Country/province recorded for jurisdiction-aware scheduling\n- Hosts register as 'pending' until agent completes benchmark + admission\n- If versions are provided inline, admission is checked immediately",
+        "description": "Register or update a host with strict admission gating.\n\nPer REPORT_FEATURE_FINAL.md §62 and REPORT_FEATURE_2.md §37:\n- Hosts must pass node admission (version gating) before accepting work\n- Country/province recorded for jurisdiction-aware scheduling\n- Hosts register as 'pending' until agent completes benchmark + admission\n- If versions are provided inline, admission is checked immediately",
         "operationId": "api_register_host_host_put",
         "requestBody": {
           "content": {
@@ -4919,26 +3070,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/hosts/check": {
-      "post": {
-        "tags": [
-          "Hosts"
-        ],
-        "summary": "Api Check Hosts",
-        "description": "Ping all hosts and update status.",
-        "operationId": "api_check_hosts_hosts_check_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           }
@@ -5204,7 +3335,7 @@
           "Inference v2"
         ],
         "summary": "Api V1 Inference Async",
-        "description": "Asynchronous inference \u2014 returns job_id immediately for polling.",
+        "description": "Asynchronous inference — returns job_id immediately for polling.",
         "operationId": "api_v1_inference_async_v1_inference_async_post",
         "requestBody": {
           "content": {
@@ -5758,46 +3889,6 @@
         }
       }
     },
-    "/queue/process": {
-      "post": {
-        "tags": [
-          "Instances"
-        ],
-        "summary": "Api Process Queue",
-        "description": "Process the job queue \u2014 assign jobs to hosts.",
-        "operationId": "api_process_queue_queue_process_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/failover": {
-      "post": {
-        "tags": [
-          "Instances"
-        ],
-        "summary": "Api Failover",
-        "description": "Run a full failover cycle: check hosts, requeue orphaned jobs, reassign.",
-        "operationId": "api_failover_failover_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/instances/{job_id}/cancel": {
       "post": {
         "tags": [
@@ -5886,7 +3977,7 @@
           "Instances"
         ],
         "summary": "Api Instance Log Stream",
-        "description": "Stream real-time logs for a specific job via Server-Sent Events.\n\nConnect with `EventSource('/jobs/{job_id}/logs/stream')` in the browser\nor `curl -N` from the CLI. Replays buffered log lines on connect, then\nlive-tails new log entries until the client disconnects or the job completes.\n\nEvents emitted:\n- `job_log` \u2014 individual log line (data: {job_id, timestamp, line, level})\n- `job_status` \u2014 status change (data: {job_id, status})\n- `connected` \u2014 initial handshake (data: {job_id, status: \"streaming\"})",
+        "description": "Stream real-time logs for a specific job via Server-Sent Events.\n\nConnect with `EventSource('/jobs/{job_id}/logs/stream')` in the browser\nor `curl -N` from the CLI. Replays buffered log lines on connect, then\nlive-tails new log entries until the client disconnects or the job completes.\n\nEvents emitted:\n- `job_log` — individual log line (data: {job_id, timestamp, line, level})\n- `job_status` — status change (data: {job_id, status})\n- `connected` — initial handshake (data: {job_id, status: \"streaming\"})",
         "operationId": "api_instance_log_stream_instances__job_id__logs_stream_get",
         "parameters": [
           {
@@ -5927,7 +4018,7 @@
           "Instances"
         ],
         "summary": "Api Instance Logs",
-        "description": "Get buffered log lines for a job (non-streaming).\n\nReturns the last `limit` log lines from the in-memory buffer.\nFor real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).",
+        "description": "Get buffered log lines for a job (non-streaming).\n\nReturns the last `limit` log lines. Tries in-memory buffer first,\nfalls back to persistent job_logs table in PG.\nFor real-time streaming, use `/jobs/{job_id}/logs/stream` (SSE).",
         "operationId": "api_instance_logs_instances__job_id__logs_get",
         "parameters": [
           {
@@ -5992,116 +4083,6 @@
         }
       }
     },
-    "/api/v2/scheduler/process-binpack": {
-      "post": {
-        "tags": [
-          "Jobs"
-        ],
-        "summary": "Api Process Queue Binpack",
-        "description": "Process job queue using best-fit-decreasing bin packing.",
-        "operationId": "api_process_queue_binpack_api_v2_scheduler_process_binpack_post",
-        "parameters": [
-          {
-            "name": "canada_only",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Canada Only"
-            }
-          },
-          {
-            "name": "province",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Province"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/canada": {
-      "get": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Canada Status",
-        "description": "Check if Canada-only mode is active.",
-        "operationId": "api_canada_status_canada_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Set Canada",
-        "description": "Toggle Canada-only mode.",
-        "operationId": "api_set_canada_canada_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CanadaToggle"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/hosts/ca": {
       "get": {
         "tags": [
@@ -6110,26 +4091,6 @@
         "summary": "Api List Canadian Hosts",
         "description": "List only Canadian hosts.",
         "operationId": "api_list_canadian_hosts_hosts_ca_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/queue/process/ca": {
-      "post": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Process Queue Ca",
-        "description": "Process queue with Canada-only hosts.",
-        "operationId": "api_process_queue_ca_queue_process_ca_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -6226,10 +4187,10 @@
     "/api/trust-tiers": {
       "get": {
         "tags": [
-          "Jurisdiction"
+          "Reputation"
         ],
         "summary": "Api Trust Tiers",
-        "description": "List available trust tiers and their requirements.",
+        "description": "Return all six trust tiers with thresholds, perks, and unlock requirements.",
         "operationId": "api_trust_tiers_api_trust_tiers_get",
         "responses": {
           "200": {
@@ -6237,46 +4198,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/queue/process-sovereign": {
-      "post": {
-        "tags": [
-          "Jurisdiction"
-        ],
-        "summary": "Api Process Queue Sovereign",
-        "description": "Process queue with jurisdiction + verification + reputation awareness.",
-        "operationId": "api_process_queue_sovereign_api_queue_process_sovereign_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SovereignQueueRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -6529,47 +4450,6 @@
               "type": "boolean",
               "default": true,
               "title": "Active Only"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/marketplace/bill/{job_id}": {
-      "post": {
-        "tags": [
-          "Marketplace"
-        ],
-        "summary": "Api Marketplace Bill",
-        "description": "Bill a marketplace job \u2014 split between host and platform.",
-        "operationId": "api_marketplace_bill_marketplace_bill__job_id__post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
             }
           }
         ],
@@ -6873,7 +4753,7 @@
           "Marketplace v2"
         ],
         "summary": "Api Marketplace Allocate",
-        "description": "Allocate GPUs from an offer for a job. Atomic \u2014 prevents double-sell.",
+        "description": "Allocate GPUs from an offer for a job. Atomic — prevents double-sell.",
         "operationId": "api_marketplace_allocate_api_v2_marketplace_allocate_post",
         "requestBody": {
           "content": {
@@ -7682,26 +5562,6 @@
         }
       }
     },
-    "/api/privacy/purge-expired": {
-      "post": {
-        "tags": [
-          "Privacy"
-        ],
-        "summary": "Api Purge Expired",
-        "description": "Purge all expired retention records (daily maintenance).",
-        "operationId": "api_purge_expired_api_privacy_purge_expired_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/privacy/config": {
       "post": {
         "tags": [
@@ -7926,7 +5786,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/routes__privacy__ConsentRequest__2"
+                "$ref": "#/components/schemas/ConsentRequest"
               }
             }
           },
@@ -8311,26 +6171,6 @@
         }
       }
     },
-    "/api/providers/webhook": {
-      "post": {
-        "tags": [
-          "Providers"
-        ],
-        "summary": "Api Stripe Webhook",
-        "description": "Handle Stripe Connect webhooks (account.updated, payment_intent.succeeded, etc.).",
-        "operationId": "api_stripe_webhook_api_providers_webhook_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/reputation/leaderboard": {
       "get": {
         "tags": [
@@ -8541,7 +6381,7 @@
           "Reputation"
         ],
         "summary": "Api Reputation Breakdown",
-        "description": "Get a detailed breakdown of how a reputation score is calculated.\n\nReturns component scores: jobs completed, uptime bonus, penalties, decay.",
+        "description": "Get a detailed breakdown of how a reputation score is calculated.",
         "operationId": "api_reputation_breakdown_api_reputation__entity_id__breakdown_get",
         "parameters": [
           {
@@ -8554,46 +6394,6 @@
             }
           }
         ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sla/enforce": {
-      "post": {
-        "tags": [
-          "SLA"
-        ],
-        "summary": "Api Sla Enforce",
-        "description": "Run monthly SLA enforcement for a host.\n\nCalculates uptime percentage, downtime incidents, and credits owed\nbased on the SLA tier. Credits follow the Google Cloud / Azure model:\n- 95\u201399% uptime \u2192 10% credit\n- 90\u201395% uptime \u2192 25% credit\n- <90% uptime   \u2192 100% credit",
-        "operationId": "api_sla_enforce_api_sla_enforce_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SLAEnforceRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -8798,33 +6598,13 @@
         }
       }
     },
-    "/spot-prices/update": {
-      "post": {
-        "tags": [
-          "Spot Pricing"
-        ],
-        "summary": "Api Update Spot Prices",
-        "description": "Trigger spot price recalculation.",
-        "operationId": "api_update_spot_prices_spot_prices_update_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/spot/instance": {
       "post": {
         "tags": [
           "Spot Pricing"
         ],
         "summary": "Api Submit Spot Instance",
-        "description": "Submit a spot job with a maximum bid price.",
+        "description": "Submit a spot job — delegates to unified POST /instance.",
         "operationId": "api_submit_spot_instance_spot_instance_post",
         "requestBody": {
           "content": {
@@ -8852,26 +6632,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/spot/preemption-cycle": {
-      "post": {
-        "tags": [
-          "Spot Pricing"
-        ],
-        "summary": "Api Preemption Cycle",
-        "description": "Run a preemption cycle \u2014 reclaim resources from underbidding spot jobs.",
-        "operationId": "api_preemption_cycle_spot_preemption_cycle_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           }
@@ -9256,159 +7016,6 @@
         }
       }
     },
-    "/api/transparency/legal-request": {
-      "post": {
-        "tags": [
-          "Transparency"
-        ],
-        "summary": "Api Record Legal Request",
-        "description": "Record a legal request (subpoena, warrant, MLAT, etc.).",
-        "operationId": "api_record_legal_request_api_transparency_legal_request_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LegalRequestRecord"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transparency/legal-request/{request_id}/respond": {
-      "post": {
-        "tags": [
-          "Transparency"
-        ],
-        "summary": "Api Respond Legal Request",
-        "description": "Record response to a legal request.",
-        "operationId": "api_respond_legal_request_api_transparency_legal_request__request_id__respond_post",
-        "parameters": [
-          {
-            "name": "request_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Request Id"
-            }
-          },
-          {
-            "name": "complied",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Complied"
-            }
-          },
-          {
-            "name": "challenged",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Challenged"
-            }
-          },
-          {
-            "name": "notes",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Notes"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transparency/report": {
-      "get": {
-        "tags": [
-          "Transparency"
-        ],
-        "summary": "Api Transparency Report",
-        "description": "Generate transparency report \u2014 CLOUD Act diligence artifact.\n\nReturns summary of all legal requests and data disclosures.\nMonthly JSON per REPORT_FEATURE_2.md Phase B \u00a73.",
-        "operationId": "api_transparency_report_api_transparency_report_get",
-        "parameters": [
-          {
-            "name": "months",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 12,
-              "title": "Months"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/verify/{host_id}": {
       "post": {
         "tags": [
@@ -9515,148 +7122,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/verify/{host_id}/approve": {
-      "post": {
-        "tags": [
-          "Verification"
-        ],
-        "summary": "Api Admin Approve Host",
-        "description": "Admin manually approves a host, overriding automated checks.\n\nSets host verification state to 'verified' regardless of check results.\nUseful when an admin has physically inspected hardware or reviewed logs.",
-        "operationId": "api_admin_approve_host_api_verify__host_id__approve_post",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          },
-          {
-            "name": "notes",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Notes"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/verify/{host_id}/reject": {
-      "post": {
-        "tags": [
-          "Verification"
-        ],
-        "summary": "Api Admin Reject Host",
-        "description": "Admin manually rejects/deverifies a host.\n\nSets host verification state to 'deverified' so it cannot receive jobs.",
-        "operationId": "api_admin_reject_host_api_verify__host_id__reject_post",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Host Id"
-            }
-          },
-          {
-            "name": "reason",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "Admin rejection",
-              "title": "Reason"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/agent/verify": {
-      "post": {
-        "tags": [
-          "Verification"
-        ],
-        "summary": "Api Agent Verify",
-        "description": "Receive comprehensive benchmark report and run verification checks.",
-        "operationId": "api_agent_verify_agent_verify_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerificationReportPayload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -9896,33 +7361,13 @@
   },
   "components": {
     "schemas": {
-      "AddTeamMemberRequest": {
+      "StatusUpdate": {
         "properties": {
-          "email": {
+          "status": {
             "type": "string",
-            "title": "Email"
+            "title": "Status"
           },
-          "role": {
-            "type": "string",
-            "title": "Role",
-            "default": "member"
-          }
-        },
-        "type": "object",
-        "required": [
-          "email"
-        ],
-        "title": "AddTeamMemberRequest"
-      },
-      "AiChatRequest": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Message"
-          },
-          "conversation_id": {
+          "host_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -9931,52 +7376,9 @@
                 "type": "null"
               }
             ],
-            "title": "Conversation Id"
+            "title": "Host Id"
           },
-          "page_context": {
-            "type": "string",
-            "title": "Page Context",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "AiChatRequest"
-      },
-      "AiConfirmRequest": {
-        "properties": {
-          "confirmation_id": {
-            "type": "string",
-            "title": "Confirmation Id"
-          },
-          "approved": {
-            "type": "boolean",
-            "title": "Approved"
-          }
-        },
-        "type": "object",
-        "required": [
-          "confirmation_id",
-          "approved"
-        ],
-        "title": "AiConfirmRequest"
-      },
-      "AlertConfig": {
-        "properties": {
-          "email_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email Enabled"
-          },
-          "smtp_host": {
+          "container_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -9985,9 +7387,20 @@
                 "type": "null"
               }
             ],
-            "title": "Smtp Host"
+            "title": "Container Id"
           },
-          "smtp_port": {
+          "container_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Name"
+          },
+          "ssh_port": {
             "anyOf": [
               {
                 "type": "integer"
@@ -9996,53 +7409,9 @@
                 "type": "null"
               }
             ],
-            "title": "Smtp Port"
+            "title": "Ssh Port"
           },
-          "smtp_user": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Smtp User"
-          },
-          "smtp_pass": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Smtp Pass"
-          },
-          "email_from": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email From"
-          },
-          "email_to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email To"
-          },
-          "telegram_enabled": {
+          "interactive": {
             "anyOf": [
               {
                 "type": "boolean"
@@ -10051,277 +7420,25 @@
                 "type": "null"
               }
             ],
-            "title": "Telegram Enabled"
-          },
-          "telegram_bot_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Telegram Bot Token"
-          },
-          "telegram_chat_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Telegram Chat Id"
-          }
-        },
-        "type": "object",
-        "title": "AlertConfig"
-      },
-      "AllocateGPURequest": {
-        "properties": {
-          "offer_id": {
-            "type": "string",
-            "title": "Offer Id"
-          },
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
-          },
-          "gpu_count": {
-            "type": "integer",
-            "title": "Gpu Count",
-            "default": 1
-          },
-          "spot": {
-            "type": "boolean",
-            "title": "Spot",
-            "default": false
+            "title": "Interactive"
           }
         },
         "type": "object",
         "required": [
-          "offer_id",
-          "job_id"
+          "status"
         ],
-        "title": "AllocateGPURequest"
+        "title": "StatusUpdate"
       },
-      "AutoTopupConfig": {
+      "PasskeyRegisterRequest": {
         "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
-          },
-          "amount_cad": {
-            "type": "number",
-            "title": "Amount Cad",
-            "default": 25.0
-          },
-          "threshold_cad": {
-            "type": "number",
-            "title": "Threshold Cad",
-            "default": 5.0
-          },
-          "stripe_payment_method_id": {
+          "device_name": {
             "type": "string",
-            "title": "Stripe Payment Method Id",
-            "default": ""
+            "title": "Device Name",
+            "default": "Security Key"
           }
         },
         "type": "object",
-        "title": "AutoTopupConfig"
-      },
-      "BenchmarkReport": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model"
-          },
-          "score": {
-            "type": "number",
-            "title": "Score"
-          },
-          "tflops": {
-            "type": "number",
-            "title": "Tflops"
-          },
-          "details": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Details"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "gpu_model",
-          "score",
-          "tflops"
-        ],
-        "title": "BenchmarkReport"
-      },
-      "BuildIn": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "base_image": {
-            "type": "string",
-            "title": "Base Image",
-            "default": "python:3.11-slim"
-          },
-          "quantize": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quantize"
-          },
-          "push": {
-            "type": "boolean",
-            "title": "Push",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "title": "BuildIn"
-      },
-      "CanadaToggle": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled"
-          }
-        },
-        "type": "object",
-        "required": [
-          "enabled"
-        ],
-        "title": "CanadaToggle"
-      },
-      "ChangePasswordRequest": {
-        "properties": {
-          "current_password": {
-            "type": "string",
-            "title": "Current Password"
-          },
-          "new_password": {
-            "type": "string",
-            "title": "New Password"
-          }
-        },
-        "type": "object",
-        "required": [
-          "current_password",
-          "new_password"
-        ],
-        "title": "ChangePasswordRequest"
-      },
-      "ChatCompletionRequest": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "messages": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Messages"
-          },
-          "max_tokens": {
-            "type": "integer",
-            "maximum": 32768.0,
-            "minimum": 1.0,
-            "title": "Max Tokens",
-            "default": 512
-          },
-          "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
-            "title": "Temperature",
-            "default": 1.0
-          },
-          "stream": {
-            "type": "boolean",
-            "title": "Stream",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "title": "ChatCompletionRequest",
-        "description": "OpenAI-compatible chat completion request."
-      },
-      "ChatFeedbackRequest": {
-        "properties": {
-          "message_id": {
-            "type": "string",
-            "title": "Message Id"
-          },
-          "vote": {
-            "type": "string",
-            "title": "Vote"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message_id",
-          "vote"
-        ],
-        "title": "ChatFeedbackRequest"
-      },
-      "ChatRequest": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "maxLength": 2000,
-            "minLength": 1,
-            "title": "Message"
-          },
-          "conversation_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Conversation Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "ChatRequest"
+        "title": "PasskeyRegisterRequest"
       },
       "CreateTeamRequest": {
         "properties": {
@@ -10341,24 +7458,6 @@
         ],
         "title": "CreateTeamRequest"
       },
-      "CryptoDepositRequest": {
-        "properties": {
-          "customer_id": {
-            "type": "string",
-            "title": "Customer Id"
-          },
-          "amount_cad": {
-            "type": "number",
-            "title": "Amount Cad"
-          }
-        },
-        "type": "object",
-        "required": [
-          "customer_id",
-          "amount_cad"
-        ],
-        "title": "CryptoDepositRequest"
-      },
       "DepositRequest": {
         "properties": {
           "amount_cad": {
@@ -10377,59 +7476,301 @@
         ],
         "title": "DepositRequest"
       },
-      "DeviceTokenRequest": {
+      "ProfileUpdateRequest": {
         "properties": {
-          "device_code": {
-            "type": "string",
-            "title": "Device Code"
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
-          "grant_type": {
-            "type": "string",
-            "title": "Grant Type",
-            "default": "urn:ietf:params:oauth:grant-type:device_code"
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "province": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Province"
           }
         },
         "type": "object",
-        "required": [
-          "device_code"
-        ],
-        "title": "DeviceTokenRequest"
+        "title": "ProfileUpdateRequest"
       },
-      "DeviceVerifyRequest": {
+      "HTTPValidationError": {
         "properties": {
-          "user_code": {
-            "type": "string",
-            "title": "User Code"
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
           }
         },
         "type": "object",
-        "required": [
-          "user_code"
-        ],
-        "title": "DeviceVerifyRequest"
+        "title": "HTTPValidationError"
       },
-      "DownloadRequest": {
+      "RefundRequest": {
         "properties": {
           "job_id": {
             "type": "string",
             "title": "Job Id"
           },
-          "filename": {
-            "type": "string",
-            "title": "Filename"
+          "exit_code": {
+            "type": "integer",
+            "title": "Exit Code"
           },
-          "artifact_type": {
+          "failure_reason": {
             "type": "string",
-            "title": "Artifact Type",
-            "default": "job_output"
+            "title": "Failure Reason",
+            "default": ""
           }
         },
         "type": "object",
         "required": [
           "job_id",
-          "filename"
+          "exit_code"
         ],
-        "title": "DownloadRequest"
+        "title": "RefundRequest"
+      },
+      "MfaVerifyLogin": {
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "challenge_id",
+          "method",
+          "code"
+        ],
+        "title": "MfaVerifyLogin"
+      },
+      "AiConfirmRequest": {
+        "properties": {
+          "confirmation_id": {
+            "type": "string",
+            "title": "Confirmation Id"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirmation_id",
+          "approved"
+        ],
+        "title": "AiConfirmRequest"
+      },
+      "PayPalCreateOrderRequest": {
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "title": "Customer Id"
+          },
+          "amount_cad": {
+            "type": "number",
+            "title": "Amount Cad"
+          }
+        },
+        "type": "object",
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "PayPalCreateOrderRequest"
+      },
+      "InferenceResultCallback": {
+        "properties": {
+          "outputs": {
+            "items": {},
+            "type": "array",
+            "title": "Outputs"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "InferenceResultCallback"
+      },
+      "PaymentIntentRequest": {
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "title": "Customer Id"
+          },
+          "amount_cad": {
+            "type": "number",
+            "title": "Amount Cad"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": "Compute credits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "PaymentIntentRequest"
+      },
+      "RigListing": {
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "gpu_model": {
+            "type": "string",
+            "title": "Gpu Model"
+          },
+          "vram_gb": {
+            "type": "number",
+            "title": "Vram Gb"
+          },
+          "price_per_hour": {
+            "type": "number",
+            "title": "Price Per Hour"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner",
+            "default": "anonymous"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id",
+          "gpu_model",
+          "vram_gb",
+          "price_per_hour"
+        ],
+        "title": "RigListing"
+      },
+      "routes__privacy__ConsentRequest__1": {
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "title": "Entity Id"
+          },
+          "consent_type": {
+            "type": "string",
+            "title": "Consent Type"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entity_id",
+          "consent_type"
+        ],
+        "title": "ConsentRequest"
+      },
+      "CryptoDepositRequest": {
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "title": "Customer Id"
+          },
+          "amount_cad": {
+            "type": "number",
+            "title": "Amount Cad"
+          }
+        },
+        "type": "object",
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "CryptoDepositRequest"
+      },
+      "VolumeCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "size_gb": {
+            "type": "integer",
+            "title": "Size Gb",
+            "default": 50
+          },
+          "region": {
+            "type": "string",
+            "title": "Region",
+            "default": "ca-east"
+          },
+          "encrypted": {
+            "type": "boolean",
+            "title": "Encrypted",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "VolumeCreate"
       },
       "EstimateRequest": {
         "properties": {
@@ -10462,115 +7803,69 @@
         "type": "object",
         "title": "EstimateRequest"
       },
-      "GPUOfferCreate": {
+      "ChangePasswordRequest": {
         "properties": {
-          "host_id": {
+          "current_password": {
             "type": "string",
-            "title": "Host Id"
+            "title": "Current Password"
           },
-          "gpu_model": {
+          "new_password": {
             "type": "string",
-            "title": "Gpu Model"
-          },
-          "gpu_count_total": {
-            "type": "integer",
-            "title": "Gpu Count Total",
-            "default": 1
-          },
-          "vram_gb": {
-            "type": "number",
-            "title": "Vram Gb",
-            "default": 0
-          },
-          "ask_cents_per_hour": {
-            "type": "integer",
-            "title": "Ask Cents Per Hour",
-            "default": 20
-          },
-          "region": {
-            "type": "string",
-            "title": "Region",
-            "default": "ca-east"
-          },
-          "spot_enabled": {
-            "type": "boolean",
-            "title": "Spot Enabled",
-            "default": true
-          },
-          "spot_min_cents": {
-            "type": "integer",
-            "title": "Spot Min Cents",
-            "default": 10
+            "title": "New Password"
           }
         },
         "type": "object",
         "required": [
-          "host_id",
-          "gpu_model"
+          "current_password",
+          "new_password"
         ],
-        "title": "GPUOfferCreate"
+        "title": "ChangePasswordRequest"
       },
-      "HTTPValidationError": {
+      "AiChatRequest": {
         "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "title": "HTTPValidationError"
-      },
-      "HostIn": {
-        "properties": {
-          "host_id": {
+          "message": {
             "type": "string",
-            "title": "Host Id"
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message"
           },
-          "ip": {
-            "type": "string",
-            "title": "Ip"
-          },
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model"
-          },
-          "total_vram_gb": {
-            "type": "number",
-            "title": "Total Vram Gb"
-          },
-          "free_vram_gb": {
-            "type": "number",
-            "title": "Free Vram Gb"
-          },
-          "cost_per_hour": {
-            "type": "number",
-            "title": "Cost Per Hour",
-            "default": 0.2
-          },
-          "country": {
-            "type": "string",
-            "title": "Country",
-            "default": "CA"
-          },
-          "province": {
-            "type": "string",
-            "title": "Province",
-            "default": ""
-          },
-          "versions": {
+          "conversation_id": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Versions"
+            "title": "Conversation Id"
+          },
+          "page_context": {
+            "type": "string",
+            "title": "Page Context",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "AiChatRequest"
+      },
+      "ProviderRegisterRequest": {
+        "properties": {
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "provider_type": {
+            "type": "string",
+            "title": "Provider Type",
+            "default": "individual"
           },
           "corporation_name": {
             "type": "string",
@@ -10587,6 +7882,11 @@
             "title": "Gst Hst Number",
             "default": ""
           },
+          "province": {
+            "type": "string",
+            "title": "Province",
+            "default": ""
+          },
           "legal_name": {
             "type": "string",
             "title": "Legal Name",
@@ -10595,101 +7895,186 @@
         },
         "type": "object",
         "required": [
-          "host_id",
-          "ip",
-          "gpu_model",
-          "total_vram_gb",
-          "free_vram_gb"
+          "provider_id",
+          "email"
         ],
-        "title": "HostIn"
+        "title": "ProviderRegisterRequest"
       },
-      "IncorporationUploadRequest": {
+      "MarketplaceSearchParams": {
         "properties": {
-          "file_id": {
+          "gpu_model": {
             "type": "string",
-            "title": "File Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "file_id"
-        ],
-        "title": "IncorporationUploadRequest"
-      },
-      "InferenceEndpointCreate": {
-        "properties": {
-          "model_name": {
-            "type": "string",
-            "title": "Model Name"
-          },
-          "gpu_type": {
-            "type": "string",
-            "title": "Gpu Type",
+            "title": "Gpu Model",
             "default": ""
+          },
+          "min_vram_gb": {
+            "type": "number",
+            "title": "Min Vram Gb",
+            "default": 0
+          },
+          "max_price_cents": {
+            "type": "integer",
+            "title": "Max Price Cents",
+            "default": 0
           },
           "region": {
             "type": "string",
             "title": "Region",
-            "default": "ca-east"
+            "default": ""
           },
-          "docker_image": {
+          "canada_only": {
+            "type": "boolean",
+            "title": "Canada Only",
+            "default": false
+          },
+          "sort_by": {
             "type": "string",
-            "title": "Docker Image",
-            "default": "xcelsior/vllm:latest"
+            "title": "Sort By",
+            "default": "price"
           },
-          "min_workers": {
+          "limit": {
             "type": "integer",
-            "title": "Min Workers",
-            "default": 0
-          },
-          "max_workers": {
-            "type": "integer",
-            "title": "Max Workers",
-            "default": 3
-          },
-          "max_batch_size": {
-            "type": "integer",
-            "title": "Max Batch Size",
-            "default": 8
-          },
-          "max_concurrent": {
-            "type": "integer",
-            "title": "Max Concurrent",
-            "default": 4
-          },
-          "scaledown_window_sec": {
-            "type": "integer",
-            "title": "Scaledown Window Sec",
-            "default": 300
-          },
-          "mode": {
+            "title": "Limit",
+            "default": 50
+          }
+        },
+        "type": "object",
+        "title": "MarketplaceSearchParams"
+      },
+      "DownloadRequest": {
+        "properties": {
+          "job_id": {
             "type": "string",
-            "title": "Mode",
-            "default": "sync"
+            "title": "Job Id"
           },
-          "health_endpoint": {
+          "filename": {
             "type": "string",
-            "title": "Health Endpoint",
-            "default": "/health"
+            "title": "Filename"
           },
-          "api_format": {
+          "artifact_type": {
             "type": "string",
-            "title": "Api Format",
-            "default": "openai"
+            "title": "Artifact Type",
+            "default": "job_output"
           }
         },
         "type": "object",
         "required": [
-          "model_name"
+          "job_id",
+          "filename"
         ],
-        "title": "InferenceEndpointCreate"
+        "title": "DownloadRequest"
       },
-      "InferenceRequest": {
+      "SmsSetupRequest": {
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "title": "Phone Number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone_number"
+        ],
+        "title": "SmsSetupRequest"
+      },
+      "SpotJobIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "vram_needed_gb": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Vram Needed Gb"
+          },
+          "max_bid": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Bid"
+          },
+          "priority": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "default": 0
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "vram_needed_gb",
+          "max_bid"
+        ],
+        "title": "SpotJobIn"
+      },
+      "VolumeAttachRequest": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "mount_path": {
+            "type": "string",
+            "title": "Mount Path",
+            "default": "/workspace"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "rw"
+          }
+        },
+        "type": "object",
+        "required": [
+          "instance_id"
+        ],
+        "title": "VolumeAttachRequest"
+      },
+      "PasswordResetRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "PasswordResetRequest"
+      },
+      "V1InferenceRequest": {
         "properties": {
           "model": {
             "type": "string",
             "title": "Model",
-            "description": "Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')"
+            "description": "Model name or HuggingFace repo"
           },
           "inputs": {
             "anyOf": [
@@ -10706,12 +8091,6 @@
             "title": "Inputs",
             "description": "Text input(s) for inference"
           },
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model",
-            "description": "Preferred GPU model or 'any'",
-            "default": "any"
-          },
           "max_tokens": {
             "type": "integer",
             "maximum": 8192.0,
@@ -10726,12 +8105,11 @@
             "title": "Temperature",
             "default": 1.0
           },
-          "timeout_sec": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 10.0,
-            "title": "Timeout Sec",
-            "default": 300
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "description": "Stream response via SSE",
+            "default": false
           }
         },
         "type": "object",
@@ -10739,28 +8117,88 @@
           "model",
           "inputs"
         ],
-        "title": "InferenceRequest"
+        "title": "V1InferenceRequest",
+        "description": "OpenAI-compatible inference request for /v1/inference."
       },
-      "InferenceResultCallback": {
+      "ConsentRequest": {
         "properties": {
-          "outputs": {
-            "items": {},
-            "type": "array",
-            "title": "Outputs"
-          },
-          "model": {
+          "purpose": {
             "type": "string",
-            "title": "Model",
-            "default": ""
+            "title": "Purpose"
           },
-          "latency_ms": {
-            "type": "number",
-            "title": "Latency Ms",
-            "default": 0
+          "consent_type": {
+            "type": "string",
+            "title": "Consent Type",
+            "default": "express"
           }
         },
         "type": "object",
-        "title": "InferenceResultCallback"
+        "required": [
+          "purpose"
+        ],
+        "title": "ConsentRequest"
+      },
+      "ChatFeedbackRequest": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "vote": {
+            "type": "string",
+            "title": "Vote"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "vote"
+        ],
+        "title": "ChatFeedbackRequest"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "AutoTopupConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "amount_cad": {
+            "type": "number",
+            "title": "Amount Cad",
+            "default": 25.0
+          },
+          "threshold_cad": {
+            "type": "number",
+            "title": "Threshold Cad",
+            "default": 5.0
+          },
+          "stripe_payment_method_id": {
+            "type": "string",
+            "title": "Stripe Payment Method Id",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AutoTopupConfig"
       },
       "JobIn": {
         "properties": {
@@ -10889,6 +8327,18 @@
             "minimum": 1.0,
             "title": "Ssh Port",
             "default": 22
+          },
+          "max_bid": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Bid"
           }
         },
         "type": "object",
@@ -10896,6 +8346,134 @@
           "name"
         ],
         "title": "JobIn"
+      },
+      "PasskeyAuthenticateOptionsRequest": {
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "challenge_id"
+        ],
+        "title": "PasskeyAuthenticateOptionsRequest"
+      },
+      "ReservationCreate": {
+        "properties": {
+          "gpu_model": {
+            "type": "string",
+            "title": "Gpu Model"
+          },
+          "gpu_count": {
+            "type": "integer",
+            "title": "Gpu Count",
+            "default": 1
+          },
+          "period_months": {
+            "type": "integer",
+            "title": "Period Months",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "gpu_model"
+        ],
+        "title": "ReservationCreate"
+      },
+      "VerifyEmailRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "VerifyEmailRequest"
+      },
+      "MfaSendSmsRequest": {
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "title": "Challenge Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "challenge_id"
+        ],
+        "title": "MfaSendSmsRequest"
+      },
+      "GPUOfferCreate": {
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "gpu_model": {
+            "type": "string",
+            "title": "Gpu Model"
+          },
+          "gpu_count_total": {
+            "type": "integer",
+            "title": "Gpu Count Total",
+            "default": 1
+          },
+          "vram_gb": {
+            "type": "number",
+            "title": "Vram Gb",
+            "default": 0
+          },
+          "ask_cents_per_hour": {
+            "type": "integer",
+            "title": "Ask Cents Per Hour",
+            "default": 20
+          },
+          "region": {
+            "type": "string",
+            "title": "Region",
+            "default": "ca-east"
+          },
+          "spot_enabled": {
+            "type": "boolean",
+            "title": "Spot Enabled",
+            "default": true
+          },
+          "spot_min_cents": {
+            "type": "integer",
+            "title": "Spot Min Cents",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id",
+          "gpu_model"
+        ],
+        "title": "GPUOfferCreate"
+      },
+      "PasswordResetConfirm": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "new_password": {
+            "type": "string",
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "title": "PasswordResetConfirm"
       },
       "JurisdictionFilterRequest": {
         "properties": {
@@ -10916,173 +8494,76 @@
         "type": "object",
         "title": "JurisdictionFilterRequest"
       },
-      "LeaseClaimRequest": {
+      "InferenceEndpointCreate": {
         "properties": {
-          "host_id": {
+          "model_name": {
             "type": "string",
-            "title": "Host Id"
+            "title": "Model Name"
           },
-          "job_id": {
+          "gpu_type": {
             "type": "string",
-            "title": "Job Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "job_id"
-        ],
-        "title": "LeaseClaimRequest"
-      },
-      "LeaseReleaseRequest": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
-          },
-          "reason": {
-            "type": "string",
-            "title": "Reason",
-            "default": "completed"
-          }
-        },
-        "type": "object",
-        "required": [
-          "job_id"
-        ],
-        "title": "LeaseReleaseRequest"
-      },
-      "LeaseRenewRequest": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "job_id"
-        ],
-        "title": "LeaseRenewRequest"
-      },
-      "LegalRequestRecord": {
-        "properties": {
-          "request_type": {
-            "type": "string",
-            "title": "Request Type",
-            "default": "subpoena"
-          },
-          "jurisdiction": {
-            "type": "string",
-            "title": "Jurisdiction",
-            "default": "CA"
-          },
-          "authority": {
-            "type": "string",
-            "title": "Authority",
+            "title": "Gpu Type",
             "default": ""
-          },
-          "scope": {
-            "type": "string",
-            "title": "Scope",
-            "default": ""
-          },
-          "notes": {
-            "type": "string",
-            "title": "Notes",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "title": "LegalRequestRecord"
-      },
-      "LoginRequest": {
-        "properties": {
-          "email": {
-            "type": "string",
-            "title": "Email"
-          },
-          "password": {
-            "type": "string",
-            "title": "Password"
-          }
-        },
-        "type": "object",
-        "required": [
-          "email",
-          "password"
-        ],
-        "title": "LoginRequest"
-      },
-      "MarketplaceSearchParams": {
-        "properties": {
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model",
-            "default": ""
-          },
-          "min_vram_gb": {
-            "type": "number",
-            "title": "Min Vram Gb",
-            "default": 0
-          },
-          "max_price_cents": {
-            "type": "integer",
-            "title": "Max Price Cents",
-            "default": 0
           },
           "region": {
             "type": "string",
             "title": "Region",
-            "default": ""
+            "default": "ca-east"
           },
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": false
-          },
-          "sort_by": {
+          "docker_image": {
             "type": "string",
-            "title": "Sort By",
-            "default": "price"
+            "title": "Docker Image",
+            "default": "xcelsior/vllm:latest"
           },
-          "limit": {
+          "min_workers": {
             "type": "integer",
-            "title": "Limit",
-            "default": 50
-          }
-        },
-        "type": "object",
-        "title": "MarketplaceSearchParams"
-      },
-      "MfaSendSmsRequest": {
-        "properties": {
-          "challenge_id": {
+            "title": "Min Workers",
+            "default": 0
+          },
+          "max_workers": {
+            "type": "integer",
+            "title": "Max Workers",
+            "default": 3
+          },
+          "max_batch_size": {
+            "type": "integer",
+            "title": "Max Batch Size",
+            "default": 8
+          },
+          "max_concurrent": {
+            "type": "integer",
+            "title": "Max Concurrent",
+            "default": 4
+          },
+          "scaledown_window_sec": {
+            "type": "integer",
+            "title": "Scaledown Window Sec",
+            "default": 300
+          },
+          "mode": {
             "type": "string",
-            "title": "Challenge Id"
+            "title": "Mode",
+            "default": "sync"
+          },
+          "health_endpoint": {
+            "type": "string",
+            "title": "Health Endpoint",
+            "default": "/health"
+          },
+          "api_format": {
+            "type": "string",
+            "title": "Api Format",
+            "default": "openai"
           }
         },
         "type": "object",
         "required": [
-          "challenge_id"
+          "model_name"
         ],
-        "title": "MfaSendSmsRequest"
+        "title": "InferenceEndpointCreate"
       },
-      "MfaVerifyLogin": {
+      "SmsVerifyRequest": {
         "properties": {
-          "challenge_id": {
-            "type": "string",
-            "title": "Challenge Id"
-          },
-          "method": {
-            "type": "string",
-            "title": "Method"
-          },
           "code": {
             "type": "string",
             "title": "Code"
@@ -11090,103 +8571,111 @@
         },
         "type": "object",
         "required": [
-          "challenge_id",
-          "method",
           "code"
         ],
-        "title": "MfaVerifyLogin"
+        "title": "SmsVerifyRequest"
       },
-      "MiningAlert": {
+      "ValidationError": {
         "properties": {
-          "host_id": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
             "type": "string",
-            "title": "Host Id"
+            "title": "Message"
           },
-          "gpu_index": {
-            "type": "integer",
-            "title": "Gpu Index"
-          },
-          "confidence": {
-            "type": "number",
-            "title": "Confidence"
-          },
-          "reason": {
+          "type": {
             "type": "string",
-            "title": "Reason"
+            "title": "Error Type"
           },
-          "timestamp": {
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "AddTeamMemberRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "member"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "AddTeamMemberRequest"
+      },
+      "ChatRequest": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "conversation_id": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Timestamp"
+            "title": "Conversation Id"
           }
         },
         "type": "object",
         "required": [
-          "host_id",
-          "gpu_index",
-          "confidence",
-          "reason"
+          "message"
         ],
-        "title": "MiningAlert"
+        "title": "ChatRequest"
       },
-      "PIACheckRequest": {
+      "PayPalCaptureRequest": {
         "properties": {
-          "data_origin_province": {
+          "customer_id": {
             "type": "string",
-            "title": "Data Origin Province",
-            "default": "QC"
+            "title": "Customer Id"
           },
-          "processing_province": {
+          "order_id": {
             "type": "string",
-            "title": "Processing Province",
-            "default": "ON"
-          },
-          "data_contains_pi": {
-            "type": "boolean",
-            "title": "Data Contains Pi",
-            "default": false
-          }
-        },
-        "type": "object",
-        "title": "PIACheckRequest"
-      },
-      "PasskeyAuthenticateCompleteRequest": {
-        "properties": {
-          "state_id": {
-            "type": "string",
-            "title": "State Id"
-          },
-          "credential": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Credential"
+            "title": "Order Id"
           }
         },
         "type": "object",
         "required": [
-          "state_id",
-          "credential"
+          "customer_id",
+          "order_id"
         ],
-        "title": "PasskeyAuthenticateCompleteRequest"
-      },
-      "PasskeyAuthenticateOptionsRequest": {
-        "properties": {
-          "challenge_id": {
-            "type": "string",
-            "title": "Challenge Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "challenge_id"
-        ],
-        "title": "PasskeyAuthenticateOptionsRequest"
+        "title": "PayPalCaptureRequest"
       },
       "PasskeyDeleteRequest": {
         "properties": {
@@ -11200,128 +8689,6 @@
           "method_id"
         ],
         "title": "PasskeyDeleteRequest"
-      },
-      "PasskeyRegisterCompleteRequest": {
-        "properties": {
-          "state_id": {
-            "type": "string",
-            "title": "State Id"
-          },
-          "credential": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Credential"
-          }
-        },
-        "type": "object",
-        "required": [
-          "state_id",
-          "credential"
-        ],
-        "title": "PasskeyRegisterCompleteRequest"
-      },
-      "PasskeyRegisterRequest": {
-        "properties": {
-          "device_name": {
-            "type": "string",
-            "title": "Device Name",
-            "default": "Security Key"
-          }
-        },
-        "type": "object",
-        "title": "PasskeyRegisterRequest"
-      },
-      "PasswordResetConfirm": {
-        "properties": {
-          "token": {
-            "type": "string",
-            "title": "Token"
-          },
-          "new_password": {
-            "type": "string",
-            "title": "New Password"
-          }
-        },
-        "type": "object",
-        "required": [
-          "token",
-          "new_password"
-        ],
-        "title": "PasswordResetConfirm"
-      },
-      "PasswordResetRequest": {
-        "properties": {
-          "email": {
-            "type": "string",
-            "title": "Email"
-          }
-        },
-        "type": "object",
-        "required": [
-          "email"
-        ],
-        "title": "PasswordResetRequest"
-      },
-      "PaymentIntentRequest": {
-        "properties": {
-          "customer_id": {
-            "type": "string",
-            "title": "Customer Id"
-          },
-          "amount_cad": {
-            "type": "number",
-            "title": "Amount Cad"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "default": "Compute credits"
-          }
-        },
-        "type": "object",
-        "required": [
-          "customer_id",
-          "amount_cad"
-        ],
-        "title": "PaymentIntentRequest"
-      },
-      "PoolHost": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "ip": {
-            "type": "string",
-            "title": "Ip"
-          },
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model"
-          },
-          "vram_gb": {
-            "type": "number",
-            "title": "Vram Gb"
-          },
-          "cost_per_hour": {
-            "type": "number",
-            "title": "Cost Per Hour",
-            "default": 0.2
-          },
-          "country": {
-            "type": "string",
-            "title": "Country",
-            "default": "CA"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "ip",
-          "gpu_model",
-          "vram_gb"
-        ],
-        "title": "PoolHost"
       },
       "PrivacyConfigRequest": {
         "properties": {
@@ -11389,126 +8756,78 @@
         ],
         "title": "PrivacyConfigRequest"
       },
-      "ProfileUpdateRequest": {
+      "InferenceRequest": {
         "properties": {
-          "name": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')"
+          },
+          "inputs": {
             "anyOf": [
               {
-                "type": "string"
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "role": {
-            "anyOf": [
-              {
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ],
-            "title": "Role"
+            "title": "Inputs",
+            "description": "Text input(s) for inference"
           },
-          "country": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Country"
-          },
-          "province": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Province"
-          }
-        },
-        "type": "object",
-        "title": "ProfileUpdateRequest"
-      },
-      "ProviderRegisterRequest": {
-        "properties": {
-          "provider_id": {
+          "gpu_model": {
             "type": "string",
-            "title": "Provider Id"
+            "title": "Gpu Model",
+            "description": "Preferred GPU model or 'any'",
+            "default": "any"
           },
-          "email": {
-            "type": "string",
-            "title": "Email"
-          },
-          "provider_type": {
-            "type": "string",
-            "title": "Provider Type",
-            "default": "individual"
-          },
-          "corporation_name": {
-            "type": "string",
-            "title": "Corporation Name",
-            "default": ""
-          },
-          "business_number": {
-            "type": "string",
-            "title": "Business Number",
-            "default": ""
-          },
-          "gst_hst_number": {
-            "type": "string",
-            "title": "Gst Hst Number",
-            "default": ""
-          },
-          "province": {
-            "type": "string",
-            "title": "Province",
-            "default": ""
-          },
-          "legal_name": {
-            "type": "string",
-            "title": "Legal Name",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "required": [
-          "provider_id",
-          "email"
-        ],
-        "title": "ProviderRegisterRequest"
-      },
-      "RefundRequest": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
-          },
-          "exit_code": {
+          "max_tokens": {
             "type": "integer",
-            "title": "Exit Code"
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "default": 512
           },
-          "failure_reason": {
-            "type": "string",
-            "title": "Failure Reason",
-            "default": ""
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 1.0
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 10.0,
+            "title": "Timeout Sec",
+            "default": 300
           }
         },
         "type": "object",
         "required": [
-          "job_id",
-          "exit_code"
+          "model",
+          "inputs"
         ],
-        "title": "RefundRequest"
+        "title": "InferenceRequest"
+      },
+      "VerifyHostRequest": {
+        "properties": {
+          "gpu_info": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Gpu Info"
+          },
+          "network_info": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Network Info"
+          }
+        },
+        "type": "object",
+        "title": "VerifyHostRequest"
       },
       "RegisterRequest": {
         "properties": {
@@ -11551,28 +8870,182 @@
         ],
         "title": "ResendVerificationRequest"
       },
-      "ReservationCreate": {
+      "HostIn": {
         "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "ip": {
+            "type": "string",
+            "title": "Ip"
+          },
           "gpu_model": {
             "type": "string",
             "title": "Gpu Model"
+          },
+          "total_vram_gb": {
+            "type": "number",
+            "title": "Total Vram Gb"
+          },
+          "free_vram_gb": {
+            "type": "number",
+            "title": "Free Vram Gb"
+          },
+          "cost_per_hour": {
+            "type": "number",
+            "title": "Cost Per Hour",
+            "default": 0.2
+          },
+          "country": {
+            "type": "string",
+            "title": "Country",
+            "default": "CA"
+          },
+          "province": {
+            "type": "string",
+            "title": "Province",
+            "default": ""
+          },
+          "versions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Versions"
+          },
+          "corporation_name": {
+            "type": "string",
+            "title": "Corporation Name",
+            "default": ""
+          },
+          "business_number": {
+            "type": "string",
+            "title": "Business Number",
+            "default": ""
+          },
+          "gst_hst_number": {
+            "type": "string",
+            "title": "Gst Hst Number",
+            "default": ""
+          },
+          "legal_name": {
+            "type": "string",
+            "title": "Legal Name",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id",
+          "ip",
+          "gpu_model",
+          "total_vram_gb",
+          "free_vram_gb"
+        ],
+        "title": "HostIn"
+      },
+      "UploadRequest": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "artifact_type": {
+            "type": "string",
+            "title": "Artifact Type",
+            "default": "job_output"
+          },
+          "residency_policy": {
+            "type": "string",
+            "title": "Residency Policy",
+            "default": "canada_only"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "filename"
+        ],
+        "title": "UploadRequest"
+      },
+      "ChatCompletionRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "maximum": 32768.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "default": 512
+          },
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 1.0
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "ChatCompletionRequest",
+        "description": "OpenAI-compatible chat completion request."
+      },
+      "AllocateGPURequest": {
+        "properties": {
+          "offer_id": {
+            "type": "string",
+            "title": "Offer Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
           },
           "gpu_count": {
             "type": "integer",
             "title": "Gpu Count",
             "default": 1
           },
-          "period_months": {
-            "type": "integer",
-            "title": "Period Months",
-            "default": 1
+          "spot": {
+            "type": "boolean",
+            "title": "Spot",
+            "default": false
           }
         },
         "type": "object",
         "required": [
-          "gpu_model"
+          "offer_id",
+          "job_id"
         ],
-        "title": "ReservationCreate"
+        "title": "AllocateGPURequest"
       },
       "ReservedCommitmentRequest": {
         "properties": {
@@ -11607,291 +9080,50 @@
         ],
         "title": "ReservedCommitmentRequest"
       },
-      "RigListing": {
+      "PasskeyRegisterCompleteRequest": {
         "properties": {
-          "host_id": {
+          "state_id": {
             "type": "string",
-            "title": "Host Id"
+            "title": "State Id"
           },
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model"
-          },
-          "vram_gb": {
-            "type": "number",
-            "title": "Vram Gb"
-          },
-          "price_per_hour": {
-            "type": "number",
-            "title": "Price Per Hour"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "default": ""
-          },
-          "owner": {
-            "type": "string",
-            "title": "Owner",
-            "default": "anonymous"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "gpu_model",
-          "vram_gb",
-          "price_per_hour"
-        ],
-        "title": "RigListing"
-      },
-      "SLAEnforceRequest": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "month": {
-            "type": "string",
-            "title": "Month"
-          },
-          "tier": {
-            "type": "string",
-            "title": "Tier",
-            "default": "community"
-          },
-          "monthly_spend_cad": {
-            "type": "number",
-            "title": "Monthly Spend Cad",
-            "default": 0.0
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "month"
-        ],
-        "title": "SLAEnforceRequest"
-      },
-      "SlurmSubmitIn": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "vram_needed_gb": {
-            "type": "number",
-            "title": "Vram Needed Gb",
-            "default": 0
-          },
-          "priority": {
-            "type": "integer",
-            "title": "Priority",
-            "default": 0
-          },
-          "tier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tier"
-          },
-          "num_gpus": {
-            "type": "integer",
-            "title": "Num Gpus",
-            "default": 1
-          },
-          "image": {
-            "type": "string",
-            "title": "Image",
-            "default": ""
-          },
-          "profile": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Profile"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "title": "Dry Run",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "SlurmSubmitIn"
-      },
-      "SmsSetupRequest": {
-        "properties": {
-          "phone_number": {
-            "type": "string",
-            "title": "Phone Number"
-          }
-        },
-        "type": "object",
-        "required": [
-          "phone_number"
-        ],
-        "title": "SmsSetupRequest"
-      },
-      "SmsVerifyRequest": {
-        "properties": {
-          "code": {
-            "type": "string",
-            "title": "Code"
-          }
-        },
-        "type": "object",
-        "required": [
-          "code"
-        ],
-        "title": "SmsVerifyRequest"
-      },
-      "SovereignQueueRequest": {
-        "properties": {
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": true
-          },
-          "province": {
-            "type": "string",
-            "title": "Province"
-          },
-          "trust_tier": {
-            "type": "string",
-            "title": "Trust Tier"
-          }
-        },
-        "type": "object",
-        "title": "SovereignQueueRequest"
-      },
-      "SpotJobIn": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Name"
-          },
-          "vram_needed_gb": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Vram Needed Gb"
-          },
-          "max_bid": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Max Bid"
-          },
-          "priority": {
-            "type": "integer",
-            "maximum": 10.0,
-            "minimum": 0.0,
-            "title": "Priority",
-            "default": 0
-          },
-          "tier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tier"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "vram_needed_gb",
-          "max_bid"
-        ],
-        "title": "SpotJobIn"
-      },
-      "StatusUpdate": {
-        "properties": {
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "host_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Host Id"
-          },
-          "container_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Container Id"
-          },
-          "container_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Container Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "StatusUpdate"
-      },
-      "TelemetryPayload": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "timestamp": {
-            "type": "number",
-            "title": "Timestamp",
-            "default": 0
-          },
-          "metrics": {
+          "credential": {
             "additionalProperties": true,
             "type": "object",
-            "title": "Metrics",
-            "default": {}
+            "title": "Credential"
           }
         },
         "type": "object",
         "required": [
-          "host_id"
+          "state_id",
+          "credential"
         ],
-        "title": "TelemetryPayload"
+        "title": "PasskeyRegisterCompleteRequest"
+      },
+      "UpdateTeamMemberRoleRequest": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "UpdateTeamMemberRoleRequest"
+      },
+      "IncorporationUploadRequest": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id"
+        ],
+        "title": "IncorporationUploadRequest"
       },
       "TotpVerifyRequest": {
         "properties": {
@@ -11917,137 +9149,24 @@
         ],
         "title": "TotpVerifyRequest"
       },
-      "UpdateTeamMemberRoleRequest": {
+      "PasskeyAuthenticateCompleteRequest": {
         "properties": {
-          "role": {
+          "state_id": {
             "type": "string",
-            "title": "Role"
-          }
-        },
-        "type": "object",
-        "required": [
-          "role"
-        ],
-        "title": "UpdateTeamMemberRoleRequest"
-      },
-      "UploadRequest": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
+            "title": "State Id"
           },
-          "filename": {
-            "type": "string",
-            "title": "Filename"
-          },
-          "artifact_type": {
-            "type": "string",
-            "title": "Artifact Type",
-            "default": "job_output"
-          },
-          "residency_policy": {
-            "type": "string",
-            "title": "Residency Policy",
-            "default": "canada_only"
-          }
-        },
-        "type": "object",
-        "required": [
-          "job_id",
-          "filename"
-        ],
-        "title": "UploadRequest"
-      },
-      "V1InferenceRequest": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model",
-            "description": "Model name or HuggingFace repo"
-          },
-          "inputs": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "title": "Inputs",
-            "description": "Text input(s) for inference"
-          },
-          "max_tokens": {
-            "type": "integer",
-            "maximum": 8192.0,
-            "minimum": 1.0,
-            "title": "Max Tokens",
-            "default": 512
-          },
-          "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
-            "title": "Temperature",
-            "default": 1.0
-          },
-          "stream": {
-            "type": "boolean",
-            "title": "Stream",
-            "description": "Stream response via SSE",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "model",
-          "inputs"
-        ],
-        "title": "V1InferenceRequest",
-        "description": "OpenAI-compatible inference request for /v1/inference."
-      },
-      "ValidationError": {
-        "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
-            "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
+          "credential": {
+            "additionalProperties": true,
             "type": "object",
-            "title": "Context"
+            "title": "Credential"
           }
         },
         "type": "object",
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "state_id",
+          "credential"
         ],
-        "title": "ValidationError"
+        "title": "PasskeyAuthenticateCompleteRequest"
       },
       "VerificationGrant": {
         "properties": {
@@ -12066,166 +9185,104 @@
           "verification_type"
         ],
         "title": "VerificationGrant"
-      },
-      "VerificationReportPayload": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "report": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Report"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "report"
-        ],
-        "title": "VerificationReportPayload"
-      },
-      "VerifyEmailRequest": {
-        "properties": {
-          "token": {
-            "type": "string",
-            "title": "Token"
-          }
-        },
-        "type": "object",
-        "required": [
-          "token"
-        ],
-        "title": "VerifyEmailRequest"
-      },
-      "VerifyHostRequest": {
-        "properties": {
-          "gpu_info": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Gpu Info"
-          },
-          "network_info": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Network Info"
-          }
-        },
-        "type": "object",
-        "title": "VerifyHostRequest"
-      },
-      "VersionReport": {
-        "properties": {
-          "host_id": {
-            "type": "string",
-            "title": "Host Id"
-          },
-          "versions": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Versions"
-          }
-        },
-        "type": "object",
-        "required": [
-          "host_id",
-          "versions"
-        ],
-        "title": "VersionReport"
-      },
-      "VolumeAttachRequest": {
-        "properties": {
-          "instance_id": {
-            "type": "string",
-            "title": "Instance Id"
-          },
-          "mount_path": {
-            "type": "string",
-            "title": "Mount Path",
-            "default": "/workspace"
-          },
-          "mode": {
-            "type": "string",
-            "title": "Mode",
-            "default": "rw"
-          }
-        },
-        "type": "object",
-        "required": [
-          "instance_id"
-        ],
-        "title": "VolumeAttachRequest"
-      },
-      "VolumeCreate": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "size_gb": {
-            "type": "integer",
-            "title": "Size Gb",
-            "default": 50
-          },
-          "region": {
-            "type": "string",
-            "title": "Region",
-            "default": "ca-east"
-          },
-          "encrypted": {
-            "type": "boolean",
-            "title": "Encrypted",
-            "default": true
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "VolumeCreate"
-      },
-      "routes__privacy__ConsentRequest__1": {
-        "properties": {
-          "entity_id": {
-            "type": "string",
-            "title": "Entity Id"
-          },
-          "consent_type": {
-            "type": "string",
-            "title": "Consent Type"
-          },
-          "details": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Details"
-          }
-        },
-        "type": "object",
-        "required": [
-          "entity_id",
-          "consent_type"
-        ],
-        "title": "ConsentRequest"
-      },
-      "routes__privacy__ConsentRequest__2": {
-        "properties": {
-          "purpose": {
-            "type": "string",
-            "title": "Purpose"
-          },
-          "consent_type": {
-            "type": "string",
-            "title": "Consent Type",
-            "default": "express"
-          }
-        },
-        "type": "object",
-        "required": [
-          "purpose"
-        ],
-        "title": "ConsentRequest"
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "AI Assistant"
+    },
+    {
+      "name": "Artifacts",
+      "description": "Presigned upload/download URLs for model weights, checkpoints, outputs."
+    },
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Auth - MFA"
+    },
+    {
+      "name": "Billing",
+      "description": "Wallet management, invoicing, CAF exports, refunds. Credit-first CAD billing."
+    },
+    {
+      "name": "Chat"
+    },
+    {
+      "name": "Compliance",
+      "description": "Province compliance matrix, tax rates, Quebec PIA checks."
+    },
+    {
+      "name": "Events",
+      "description": "Event sourcing, state machine transitions, audit trail."
+    },
+    {
+      "name": "GPU"
+    },
+    {
+      "name": "Hosts",
+      "description": "GPU host registration, admission gating, and management."
+    },
+    {
+      "name": "Inference"
+    },
+    {
+      "name": "Inference v2"
+    },
+    {
+      "name": "Infrastructure",
+      "description": "Health checks, readiness probes, metrics, SSE streaming, dashboard."
+    },
+    {
+      "name": "Instances"
+    },
+    {
+      "name": "Jurisdiction",
+      "description": "Canada-first scheduling, province filtering, data residency traces."
+    },
+    {
+      "name": "Marketplace",
+      "description": "Rig listings, browsing, and marketplace billing."
+    },
+    {
+      "name": "Marketplace v2"
+    },
+    {
+      "name": "Notifications"
+    },
+    {
+      "name": "Privacy",
+      "description": "PIPEDA consent management, retention policies, privacy officer config."
+    },
+    {
+      "name": "Providers",
+      "description": "Stripe Connect onboarding, Canadian company registration, payouts."
+    },
+    {
+      "name": "Reputation",
+      "description": "Trust scoring, verification tiers (Bronze→Platinum), leaderboards."
+    },
+    {
+      "name": "SLA",
+      "description": "Service Level Agreement enforcement, uptime tracking, credit calculation."
+    },
+    {
+      "name": "SSH Keys"
+    },
+    {
+      "name": "Spot Pricing",
+      "description": "Dynamic spot pricing, interruptible jobs, preemption cycles."
+    },
+    {
+      "name": "Teams"
+    },
+    {
+      "name": "Verification",
+      "description": "Automated hardware attestation: GPU identity, CUDA, thermals, network."
+    },
+    {
+      "name": "Volumes"
+    }
+  ]
 }

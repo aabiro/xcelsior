@@ -531,6 +531,29 @@ export async function createPaymentIntent(customerId: string, amountCad: number,
   });
 }
 
+// ── PayPal ───────────────────────────────────────────────────────────
+
+export async function checkPayPalEnabled() {
+  return apiFetch<{ enabled: boolean }>("/api/billing/paypal/enabled");
+}
+
+export async function createPayPalOrder(customerId: string, amountCad: number) {
+  return apiFetch<{ ok: boolean; order_id: string }>("/api/billing/paypal/create-order", {
+    method: "POST",
+    body: JSON.stringify({ customer_id: customerId, amount_cad: amountCad }),
+  });
+}
+
+export async function capturePayPalOrder(customerId: string, orderId: string) {
+  return apiFetch<{ ok: boolean; balance_cad: number; amount_cad: number }>(
+    "/api/billing/paypal/capture-order",
+    {
+      method: "POST",
+      body: JSON.stringify({ customer_id: customerId, order_id: orderId }),
+    },
+  );
+}
+
 // ── Bitcoin Deposits ─────────────────────────────────────────────────
 
 export async function checkCryptoEnabled(opts?: RequestInit) {

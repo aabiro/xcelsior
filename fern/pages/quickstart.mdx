@@ -23,7 +23,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` with your configuration — at minimum set `XCELSIOR_API_TOKEN`.
+Edit `.env` with your configuration. For local API setup, the minimum auth setting is `XCELSIOR_API_TOKEN`.
 
 ## Start the API Server
 
@@ -43,8 +43,16 @@ In another terminal, start the worker agent:
 ```bash
 export XCELSIOR_HOST_ID=my-gpu-01
 export XCELSIOR_SCHEDULER_URL=http://localhost:8000
+# Option A: local API token
+export XCELSIOR_API_TOKEN=your-local-api-token
+
+# Option B: OAuth machine client
+export XCELSIOR_OAUTH_CLIENT_ID=your-client-id
+export XCELSIOR_OAUTH_CLIENT_SECRET=your-client-secret
 python worker_agent.py
 ```
+
+If both are set, the worker uses OAuth client credentials.
 
 The worker agent will:
 1. Gather local GPU info (CUDA driver, Docker version, runtimes)
@@ -53,6 +61,8 @@ The worker agent will:
 4. Start telemetry reporting every 5 seconds
 
 ## Submit a Job
+
+For the API examples below, set `XCELSIOR_BEARER_TOKEN` to an API key or OAuth access token.
 
 Using the CLI:
 
@@ -64,7 +74,7 @@ Or via the API:
 
 ```bash
 curl -X POST http://localhost:8000/instance \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "llama-inference", "vram_needed_gb": 8.0, "priority": 5}'
 ```
@@ -73,7 +83,7 @@ curl -X POST http://localhost:8000/instance \
 
 ```bash
 curl -X POST http://localhost:8000/queue/process \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN"
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN"
 ```
 
 The scheduler will allocate the job to an admitted host with sufficient VRAM.

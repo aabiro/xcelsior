@@ -537,6 +537,18 @@ const en: Record<string, string> = {
   "download.footer_create": "Create an account",
   "download.footer_signin": "Sign in",
 
+  /* ── PWA Install Banner ─────────────────────────────────────────────── */
+  "pwa.install_title": "Get the app",
+  "pwa.install_desc": "One tap, no browser clutter.",
+  "pwa.install_after_launch_title": "Nice — your instance is running",
+  "pwa.install_after_launch_desc": "Want Xcelsior as an app? Tray alerts when your pod finishes.",
+  "pwa.install_frequent_title": "You're here a lot",
+  "pwa.install_frequent_desc": "Skip the browser — get offline access and push notifications.",
+  "pwa.install_cta": "Install",
+  "pwa.install_desktop_title": "Desktop app available",
+  "pwa.install_desktop_desc": "Tray notifications, auto-updates, and deep links.",
+  "pwa.install_desktop_cta": "Download",
+
   /* ── Dashboard — Sidebar (already existed) ──────────────────────────── */
   "dash.overview": "Overview",
   "dash.hosts": "Hosts",

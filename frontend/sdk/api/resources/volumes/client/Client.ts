@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -17,7 +18,7 @@ export declare namespace VolumesClient {
 export class VolumesClient {
     protected readonly _options: NormalizedClientOptions<VolumesClient.Options>;
 
-    constructor(options: VolumesClient.Options) {
+    constructor(options: VolumesClient.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -38,7 +39,8 @@ export class VolumesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/volumes",
             ),
             method: "GET",
@@ -93,7 +95,8 @@ export class VolumesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/volumes",
             ),
             method: "POST",
@@ -160,7 +163,8 @@ export class VolumesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/volumes/${core.url.encodePathParam(volumeId)}`,
             ),
             method: "GET",
@@ -224,7 +228,8 @@ export class VolumesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/volumes/${core.url.encodePathParam(volumeId)}`,
             ),
             method: "DELETE",
@@ -294,7 +299,8 @@ export class VolumesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/volumes/${core.url.encodePathParam(volumeId)}/attach`,
             ),
             method: "POST",
@@ -366,7 +372,8 @@ export class VolumesClient {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/volumes/${core.url.encodePathParam(volumeId)}/detach`,
             ),
             method: "POST",

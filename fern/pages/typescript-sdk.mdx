@@ -6,7 +6,7 @@ slug: typescript-sdk
 
 ## Overview
 
-The Xcelsior TypeScript SDK is auto-generated from the OpenAPI specification using [Fern](https://buildwithfern.com). It provides type-safe access to all 175+ API endpoints.
+The Xcelsior TypeScript SDK is auto-generated from the public OpenAPI specification using [Fern](https://buildwithfern.com). It provides type-safe access to the client-facing Xcelsior API surface.
 
 ## Installation
 
@@ -26,7 +26,7 @@ import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 const client = new XcelsiorApiClient({
   environment: XcelsiorApiEnvironment.Production,
   headers: {
-    Authorization: `Bearer ${process.env.XCELSIOR_API_KEY}`,
+    Authorization: `Bearer ${process.env.XCELSIOR_BEARER_TOKEN}`,
   },
 });
 

@@ -537,6 +537,18 @@ const fr: Record<string, string> = {
   "download.footer_create": "Créer un compte",
   "download.footer_signin": "Connexion",
 
+  /* ── Bannière d'installation PWA ────────────────────────────────────── */
+  "pwa.install_title": "Obtenir l'appli",
+  "pwa.install_desc": "Un clic, fini le navigateur.",
+  "pwa.install_after_launch_title": "Super — votre instance tourne",
+  "pwa.install_after_launch_desc": "Xcelsior en appli ? Alertes système quand votre pod est prêt.",
+  "pwa.install_frequent_title": "Vous revenez souvent",
+  "pwa.install_frequent_desc": "Passez direct — accès hors ligne et notifications push.",
+  "pwa.install_cta": "Installer",
+  "pwa.install_desktop_title": "Appli de bureau disponible",
+  "pwa.install_desktop_desc": "Notifications système, mises à jour auto et liens profonds.",
+  "pwa.install_desktop_cta": "Télécharger",
+
   /* ── Tableau de bord — Barre latérale ────────────────────────────────── */
   "dash.overview": "Aperçu",
   "dash.hosts": "Hôtes",

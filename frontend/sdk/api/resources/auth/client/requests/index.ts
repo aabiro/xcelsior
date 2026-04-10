@@ -1,8 +1,5 @@
 export type { ChangePasswordRequest } from "./ChangePasswordRequest.js";
-export type { DeviceTokenRequest } from "./DeviceTokenRequest.js";
-export type { DeviceVerifyRequest } from "./DeviceVerifyRequest.js";
 export type { LoginRequest } from "./LoginRequest.js";
-export type { OauthCallbackAuthRequest } from "./OauthCallbackAuthRequest.js";
 export type { OauthInitiateAuthRequest } from "./OauthInitiateAuthRequest.js";
 export type { PasswordResetConfirm } from "./PasswordResetConfirm.js";
 export type { PasswordResetRequest } from "./PasswordResetRequest.js";

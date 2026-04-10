@@ -8,13 +8,15 @@ slug: hosts
 
 GPU hosts are the compute backbone of Xcelsior. Providers register their machines (consumer or data-center GPUs), and the platform handles admission gating, monitoring, and job allocation.
 
+Examples below use `XCELSIOR_BEARER_TOKEN`, which can be an API key or an OAuth access token.
+
 ## Host Registration
 
 Register a host via the API:
 
 ```bash
 curl -X PUT https://xcelsior.ca/host \
-  -H "Authorization: Bearer $XCELSIOR_API_TOKEN" \
+  -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "host_id": "my-gpu-01",

@@ -4,6 +4,7 @@ import type { BaseClientOptions, BaseRequestOptions } from "../../../../BaseClie
 import { type NormalizedClientOptions, normalizeClientOptions } from "../../../../BaseClient.js";
 import { mergeHeaders } from "../../../../core/headers.js";
 import * as core from "../../../../core/index.js";
+import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
 import * as XcelsiorApi from "../../../index.js";
@@ -17,7 +18,7 @@ export declare namespace MarketplaceV2Client {
 export class MarketplaceV2Client {
     protected readonly _options: NormalizedClientOptions<MarketplaceV2Client.Options>;
 
-    constructor(options: MarketplaceV2Client.Options) {
+    constructor(options: MarketplaceV2Client.Options = {}) {
         this._options = normalizeClientOptions(options);
     }
 
@@ -50,7 +51,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/marketplace/offers",
             ),
             method: "POST",
@@ -114,7 +116,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/marketplace/search",
             ),
             method: "POST",
@@ -171,7 +174,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/marketplace/spot-prices",
             ),
             method: "GET",
@@ -235,7 +239,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/marketplace/spot-prices/${core.url.encodePathParam(gpuModel)}/history`,
             ),
             method: "GET",
@@ -294,7 +299,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/marketplace/stats",
             ),
             method: "GET",
@@ -349,7 +355,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/marketplace/reservations",
             ),
             method: "POST",
@@ -423,7 +430,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/marketplace/reservations/${core.url.encodePathParam(reservationId)}`,
             ),
             method: "DELETE",
@@ -492,7 +500,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 "api/v2/marketplace/allocate",
             ),
             method: "POST",
@@ -559,7 +568,8 @@ export class MarketplaceV2Client {
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)),
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
                 `api/v2/marketplace/release/${core.url.encodePathParam(allocationId)}`,
             ),
             method: "POST",

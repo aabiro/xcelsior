@@ -21,4 +21,5 @@ export interface JobIn {
     interactive?: boolean;
     command?: string | null;
     ssh_port?: number;
+    max_bid?: number | null;
 }

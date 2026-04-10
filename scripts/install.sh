@@ -107,8 +107,8 @@ install_agent() {
         OAUTH_CLIENT_SECRET=""
         case "$AUTH_METHOD" in
             api-key|api|1)
-                read -rp "  API Token: " API_TOKEN
-                [ -z "$API_TOKEN" ] && fail "API token is required — generate one at $XCELSIOR_API/dashboard/settings"
+                read -rp "  API Key: " API_TOKEN
+                [ -z "$API_TOKEN" ] && fail "API key is required — create one in Dashboard -> Settings -> API & SSH at $XCELSIOR_API/dashboard/settings"
                 ;;
             oauth-client|oauth|2)
                 read -rp "  OAuth Client ID: " OAUTH_CLIENT_ID

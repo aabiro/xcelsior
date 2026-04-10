@@ -85,6 +85,27 @@ ask_input() {
     echo "${response:-$default}"
 }
 
+write_worker_env_file() {
+    local host_id="$1"
+    local scheduler_url="$2"
+    local cost_per_hour="$3"
+    local api_token="${4:-}"
+    local oauth_client_id="${5:-}"
+    local oauth_client_secret="${6:-}"
+
+    echo "export XCELSIOR_HOST_ID=$host_id" > worker_env.sh
+    echo "export XCELSIOR_SCHEDULER_URL=$scheduler_url" >> worker_env.sh
+    echo "export XCELSIOR_COST_PER_HOUR=$cost_per_hour" >> worker_env.sh
+    echo "export XCELSIOR_REPORT_INTERVAL=5" >> worker_env.sh
+    if [ -n "$api_token" ]; then
+        echo "export XCELSIOR_API_TOKEN=$api_token" >> worker_env.sh
+    fi
+    if [ -n "$oauth_client_id" ] && [ -n "$oauth_client_secret" ]; then
+        echo "export XCELSIOR_OAUTH_CLIENT_ID=$oauth_client_id" >> worker_env.sh
+        echo "export XCELSIOR_OAUTH_CLIENT_SECRET=$oauth_client_secret" >> worker_env.sh
+    fi
+}
+
 # ── System Detection ──────────────────────────────────────────────────
 
 detect_os() {
@@ -335,14 +356,14 @@ configure_environment() {
     cp .env.example .env
     print_success ".env file created from template."
     
-    # Generate API token
-    print_info "Generating API token..."
+    # Generate local control-plane token
+    print_info "Generating local API token..."
     API_TOKEN=$($PYTHON_CMD -c "import secrets; print(secrets.token_urlsafe(32))")
     sed -i "s/^XCELSIOR_API_TOKEN=.*/XCELSIOR_API_TOKEN=$API_TOKEN/" .env
-    print_success "API token generated and saved."
+    print_success "Local API token generated and saved."
     
-    echo -e "\n${GREEN}${BOLD}Your API Token:${NC} ${CYAN}$API_TOKEN${NC}"
-    echo -e "${YELLOW}Save this token! You'll need it to authenticate API requests.${NC}\n"
+    echo -e "\n${GREEN}${BOLD}Your Local API Token:${NC} ${CYAN}$API_TOKEN${NC}"
+    echo -e "${YELLOW}Save this token. It secures the local API and workers can use it directly. OAuth client credentials are also supported once the API is running.${NC}\n"
     
     # Ask for optional configuration
     if ask_yes_no "Would you like to configure email alerts?" "n"; then
@@ -520,12 +541,7 @@ register_local_host() {
     print_success "Host registered: $HOST_ID"
     
     # Save worker config
-    echo "export XCELSIOR_HOST_ID=$HOST_ID" > worker_env.sh
-    echo "export XCELSIOR_SCHEDULER_URL=http://localhost:8000" >> worker_env.sh
-    echo "export XCELSIOR_API_TOKEN=$API_TOKEN" >> worker_env.sh
-    echo "export XCELSIOR_COST_PER_HOUR=$COST_PER_HOUR" >> worker_env.sh
-    echo "export XCELSIOR_REPORT_INTERVAL=5" >> worker_env.sh
-    
+    write_worker_env_file "$HOST_ID" "http://localhost:8000" "$COST_PER_HOUR" "$API_TOKEN"
     print_success "Worker configuration saved to worker_env.sh"
 }
 
@@ -539,18 +555,37 @@ configure_worker() {
     SCHEDULER_URL=$(ask_input "Scheduler URL" "http://192.168.1.1:8000")
     
     echo ""
-    print_warning "You'll need the API token from your scheduler."
-    WORKER_API_TOKEN=$(ask_input "API Token")
+    print_info "Worker authentication supports either an API token or OAuth client credentials."
+    AUTH_METHOD=$(ask_input "Auth method (api-token/oauth-client)" "api-token")
+    WORKER_API_TOKEN=""
+    WORKER_OAUTH_CLIENT_ID=""
+    WORKER_OAUTH_CLIENT_SECRET=""
+    case "$AUTH_METHOD" in
+        api-token|api|token)
+            print_warning "You'll need the scheduler bearer token from your local .env or setup output."
+            WORKER_API_TOKEN=$(ask_input "API Token")
+            ;;
+        oauth-client|oauth|client)
+            print_info "Create a confidential OAuth client with grant type client_credentials after the scheduler is running."
+            WORKER_OAUTH_CLIENT_ID=$(ask_input "OAuth Client ID")
+            WORKER_OAUTH_CLIENT_SECRET=$(ask_input "OAuth Client Secret")
+            ;;
+        *)
+            print_error "Unknown auth method: $AUTH_METHOD"
+            exit 1
+            ;;
+    esac
     
     COST_PER_HOUR=$(ask_input "Cost per hour (USD)" "0.50")
     
     # Save worker config
-    echo "export XCELSIOR_HOST_ID=$HOST_ID" > worker_env.sh
-    echo "export XCELSIOR_SCHEDULER_URL=$SCHEDULER_URL" >> worker_env.sh
-    echo "export XCELSIOR_API_TOKEN=$WORKER_API_TOKEN" >> worker_env.sh
-    echo "export XCELSIOR_COST_PER_HOUR=$COST_PER_HOUR" >> worker_env.sh
-    echo "export XCELSIOR_REPORT_INTERVAL=5" >> worker_env.sh
-    
+    write_worker_env_file \
+        "$HOST_ID" \
+        "$SCHEDULER_URL" \
+        "$COST_PER_HOUR" \
+        "$WORKER_API_TOKEN" \
+        "$WORKER_OAUTH_CLIENT_ID" \
+        "$WORKER_OAUTH_CLIENT_SECRET"
     print_success "Worker configuration saved to worker_env.sh"
     
     # Register with scheduler
@@ -563,7 +598,32 @@ import requests
 import os
 
 url = os.environ['XCELSIOR_SCHEDULER_URL'] + '/host'
-headers = {'Authorization': f"Bearer {os.environ['XCELSIOR_API_TOKEN']}"}
+headers = {}
+api_token = os.environ.get('XCELSIOR_API_TOKEN', '').strip()
+oauth_client_id = os.environ.get('XCELSIOR_OAUTH_CLIENT_ID', '').strip()
+oauth_client_secret = os.environ.get('XCELSIOR_OAUTH_CLIENT_SECRET', '').strip()
+
+if api_token:
+    headers['Authorization'] = f"Bearer {api_token}"
+elif oauth_client_id and oauth_client_secret:
+    token_resp = requests.post(
+        os.environ['XCELSIOR_SCHEDULER_URL'].rstrip('/') + '/oauth/token',
+        data={
+            'grant_type': 'client_credentials',
+            'client_id': oauth_client_id,
+            'client_secret': oauth_client_secret,
+            'scope': 'api',
+        },
+        timeout=10,
+    )
+    token_resp.raise_for_status()
+    access_token = token_resp.json().get('access_token', '')
+    if not access_token:
+        raise RuntimeError('OAuth token response missing access_token')
+    headers['Authorization'] = f"Bearer {access_token}"
+else:
+    raise RuntimeError('No worker auth configured in worker_env.sh')
+
 data = {
     'host_id': os.environ['XCELSIOR_HOST_ID'],
     'ip': '$(hostname -I | awk '{print $1}')',
@@ -640,8 +700,9 @@ show_next_steps() {
             echo -e "2. ${BOLD}Configure workers to connect to:${NC}"
             echo -e "   ${CYAN}http://$(hostname -I | awk '{print $1}'):8000${NC}"
             echo ""
-            echo -e "3. ${BOLD}Your API Token:${NC}"
+            echo -e "3. ${BOLD}Your Local API Token:${NC}"
             echo -e "   ${MAGENTA}$API_TOKEN${NC}"
+            echo -e "   ${YELLOW}Workers can use this token directly, or you can create OAuth client credentials later from the dashboard or API.${NC}"
             echo ""
             echo -e "4. ${BOLD}Visit the dashboard:${NC}"
             echo -e "   ${YELLOW}http://$(hostname -I | awk '{print $1}'):8000/dashboard${NC}"
