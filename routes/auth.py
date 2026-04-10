@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -1727,3 +1727,41 @@ def api_set_user_preferences(request: Request, body: dict):
     if updates and _USE_PERSISTENT_AUTH:
         UserStore.update_user(user["email"], updates)
     return {"ok": True}
+
+
+# ── OAuth Client Management ──────────────────────────────────────────
+
+
+class OAuthClientUpdateRequest(BaseModel):
+    client_name: str | None = None
+    redirect_uris: list[str] | None = None
+    grant_types: list[str] | None = None
+    scopes: list[str] | None = None
+    status: str | None = Field(None, pattern="^(active|disabled)$")
+
+
+@router.patch("/api/oauth/clients/{client_id}", tags=["Auth"])
+def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, request: Request):
+    """Update an OAuth client's metadata (name, redirect URIs, scopes, status)."""
+    user = _require_user_grant(request)
+    updates = body.dict(exclude_unset=True)
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+    from db import OAuthStore
+    ok = OAuthStore.update_client(client_id, updates, None if _is_platform_admin(user) else user["email"])
+    if not ok:
+        raise HTTPException(404, "OAuth client not found or not permitted")
+    return {"ok": True}
+
+
+@router.post("/api/oauth/clients/{client_id}/rotate-secret", tags=["Auth"])
+def api_rotate_oauth_client_secret(client_id: str, request: Request):
+    """Rotate an OAuth client's secret. Returns the new plaintext secret once."""
+    user = _require_user_grant(request)
+    new_secret = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+    hash_, salt = _hash_password(new_secret)
+    from db import OAuthStore
+    ok = OAuthStore.rotate_client_secret(client_id, hash_, salt, None if _is_platform_admin(user) else user["email"])
+    if not ok:
+        raise HTTPException(404, "OAuth client not found or not permitted")
+    return {"ok": True, "client_id": client_id, "client_secret": new_secret}

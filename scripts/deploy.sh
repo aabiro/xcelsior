@@ -450,6 +450,17 @@ collect_frontend_build_args() {
     echo "${args[@]}"
 }
 
+# Compute a hash of all frontend source files (src/, public/, package.json, etc.)
+frontend_source_hash() {
+    (
+        find "$PROJECT_DIR/src" "$PROJECT_DIR/public" -type f -print0 2>/dev/null || true
+        find "$PROJECT_DIR/frontend/src" "$PROJECT_DIR/frontend/public" -type f -print0 2>/dev/null || true
+        [ -f "$PROJECT_DIR/package.json" ] && echo "$PROJECT_DIR/package.json" | tr '\n' '\0'
+        [ -f "$PROJECT_DIR/frontend/package.json" ] && echo "$PROJECT_DIR/frontend/package.json" | tr '\n' '\0'
+    ) \
+    | xargs -0 sha256sum 2>/dev/null | sort | sha256sum | cut -d' ' -f1
+}
+
 deploy_docker() {
     log "Deploying with Docker Compose ($TARGET_ENV)..."
     
@@ -476,26 +487,28 @@ deploy_docker() {
     local build_args
     build_args=$(collect_frontend_build_args)
 
-    # Hash current NEXT_PUBLIC_* values to detect changes
+    # Hash current NEXT_PUBLIC_* values and frontend source to detect changes
     local env_hash
     env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+    local src_hash
+    src_hash=$(frontend_source_hash)
+    local combined_hash
+    combined_hash=$(echo "$env_hash$src_hash" | sha256sum | cut -d' ' -f1)
     local prev_hash
-    # Keep hash outside release dir so sync_code swaps don't erase it and
-    # accidentally force --no-cache rebuilds every deploy.
     prev_hash=$(ssh_cmd "cat /opt/xcelsior-backups/.frontend_env_hash 2>/dev/null" || echo "")
 
     local cache_flag=""
-    if [[ "$env_hash" != "$prev_hash" ]]; then
-        warn "NEXT_PUBLIC_* env vars changed — rebuilding frontend with --no-cache"
+    if [[ "$combined_hash" != "$prev_hash" ]]; then
+        warn "Frontend env or source changed — rebuilding frontend with --no-cache"
         cache_flag="--no-cache"
     else
-        log "NEXT_PUBLIC_* env vars unchanged — using cache"
+        log "Frontend env and source unchanged — using cache"
     fi
 
     ssh_cmd "cd /opt/xcelsior && docker compose build $cache_flag $build_args frontend" || error "Frontend build failed"
     # Save hash so next deploy can compare
-    ssh_cmd "echo '$env_hash' > /opt/xcelsior-backups/.frontend_env_hash"
-    success "Frontend image built (env vars baked in)"
+    ssh_cmd "echo '$combined_hash' > /opt/xcelsior-backups/.frontend_env_hash"
+    success "Frontend image built (env+source hash baked in)"
 
     # Run Alembic migrations
     log "Running database migrations..."
