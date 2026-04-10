@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DesktopAppPreferences } from "@/components/settings/DesktopAppPreferences";
 import { NativeDesktopPreferences } from "@/components/settings/NativeDesktopPreferences";
+import { OAuthClientManager } from "@/components/settings/OAuthClientManager";
 import { COUNTRY_CODES } from "@/lib/country-codes";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
@@ -100,15 +101,6 @@ export default function SettingsPage() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [generatingKey, setGeneratingKey] = useState(false);
   const [oauthClients, setOauthClients] = useState<OAuthClientInfo[]>([]);
-  const [newOauthClientName, setNewOauthClientName] = useState("");
-  const [newOauthClientScopes, setNewOauthClientScopes] = useState("instances:read");
-  const [creatingOauthClient, setCreatingOauthClient] = useState(false);
-  const [generatedOauthClient, setGeneratedOauthClient] = useState<{
-    clientId: string;
-    clientSecret: string;
-    scopes: string[];
-  } | null>(null);
-
   // SSH
   const [sshPubKey, setSshPubKey] = useState("");
   const [generatingSsh, setGeneratingSsh] = useState(false);
@@ -304,40 +296,6 @@ export default function SettingsPage() {
       setApiKeys((keys) => keys.filter((k) => k.preview !== preview));
       toast.success("Key revoked");
     } catch { toast.error("Failed to revoke key"); }
-  };
-
-  const handleCreateOAuthClient = async () => {
-    const clientName = newOauthClientName.trim();
-    if (!clientName) { toast.error("Enter a client name"); return; }
-    const scopes = Array.from(new Set(newOauthClientScopes.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)));
-    if (scopes.length === 0) { toast.error("Enter at least one scope"); return; }
-    setCreatingOauthClient(true);
-    try {
-      const res = await api.createOAuthClient(clientName, scopes);
-      setGeneratedOauthClient(
-        res.client.client_secret
-          ? { clientId: res.client.client_id, clientSecret: res.client.client_secret, scopes: res.client.scopes || scopes }
-          : null,
-      );
-      setNewOauthClientName("");
-      const refreshed = await api.fetchOAuthClients();
-      setOauthClients(refreshed.clients || []);
-      toast.success("OAuth client created");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create OAuth client");
-    } finally {
-      setCreatingOauthClient(false);
-    }
-  };
-
-  const handleDeleteOAuthClient = async (clientId: string) => {
-    try {
-      await api.deleteOAuthClient(clientId);
-      setOauthClients((clients) => clients.filter((client) => client.client_id !== clientId));
-      toast.success("OAuth client deleted");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete OAuth client");
-    }
   };
 
   const handleGenerateSsh = async () => {
@@ -778,15 +736,7 @@ export default function SettingsPage() {
             <ApiKeysTab
               t={t}
               oauthClients={oauthClients}
-              newOauthClientName={newOauthClientName}
-              setNewOauthClientName={setNewOauthClientName}
-              newOauthClientScopes={newOauthClientScopes}
-              setNewOauthClientScopes={setNewOauthClientScopes}
-              creatingOauthClient={creatingOauthClient}
-              generatedOauthClient={generatedOauthClient}
-              setGeneratedOauthClient={setGeneratedOauthClient}
-              onCreateOAuthClient={handleCreateOAuthClient}
-              onDeleteOAuthClient={handleDeleteOAuthClient}
+              onOAuthClientsChange={setOauthClients}
               apiKeys={apiKeys} newKeyName={newKeyName} setNewKeyName={setNewKeyName}
               newKeyScope={newKeyScope} setNewKeyScope={setNewKeyScope}
               generatedKey={generatedKey} setGeneratedKey={setGeneratedKey}
@@ -1375,8 +1325,7 @@ function SecurityTab({
 // ═══════════════════════════════��════════════════════════════════════
 
 function ApiKeysTab({
-  t, oauthClients, newOauthClientName, setNewOauthClientName, newOauthClientScopes, setNewOauthClientScopes,
-  creatingOauthClient, generatedOauthClient, setGeneratedOauthClient, onCreateOAuthClient, onDeleteOAuthClient,
+  t, oauthClients, onOAuthClientsChange,
   apiKeys, newKeyName, setNewKeyName, newKeyScope, setNewKeyScope,
   generatedKey, setGeneratedKey, generatingKey, onGenerateKey, onRevokeKey,
   sshPubKey, generatingSsh, userSshKeys,
@@ -1385,12 +1334,7 @@ function ApiKeysTab({
 }: {
   t: (k: string) => string;
   oauthClients: OAuthClientInfo[];
-  newOauthClientName: string; setNewOauthClientName: (v: string) => void;
-  newOauthClientScopes: string; setNewOauthClientScopes: (v: string) => void;
-  creatingOauthClient: boolean;
-  generatedOauthClient: { clientId: string; clientSecret: string; scopes: string[] } | null;
-  setGeneratedOauthClient: (v: { clientId: string; clientSecret: string; scopes: string[] } | null) => void;
-  onCreateOAuthClient: () => void; onDeleteOAuthClient: (clientId: string) => void;
+  onOAuthClientsChange: (clients: OAuthClientInfo[]) => void;
   apiKeys: ApiKeyInfo[]; newKeyName: string; setNewKeyName: (v: string) => void;
   newKeyScope: "full-access" | "read-only"; setNewKeyScope: (v: "full-access" | "read-only") => void;
   generatedKey: string | null; setGeneratedKey: (v: string | null) => void;
@@ -1427,171 +1371,7 @@ function ApiKeysTab({
     <StaggerList className="space-y-5">
       {/* OAuth clients */}
       <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <IconBadge icon={KeyRound} color="text-accent-cyan" bg="bg-accent-cyan/10" />
-                <div>
-                  <h3 className="text-sm font-semibold">OAuth Clients</h3>
-                  <p className="text-xs text-text-muted">Preferred machine-to-machine credentials for service integrations</p>
-                </div>
-              </div>
-              {oauthClients.length > 0 && (
-                <span className="rounded-full bg-accent-cyan/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
-                  {oauthClients.length} client{oauthClients.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="p-5 space-y-4">
-            <div className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 p-3 text-xs text-text-secondary">
-              Create confidential OAuth clients for machine-to-machine integrations that want the OAuth 2.0 client credentials flow.
-            </div>
-
-            <div className="rounded-lg border border-dashed border-border/80 bg-navy-light/20 p-4 space-y-3">
-              <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Create Machine Client</p>
-              <div className="space-y-2">
-                <Input
-                  placeholder="Client name (e.g. CI deploy runner)"
-                  value={newOauthClientName}
-                  onChange={(e) => setNewOauthClientName(e.target.value)}
-                />
-                <Input
-                  placeholder="Scopes (space or comma separated, e.g. instances:read billing:read)"
-                  value={newOauthClientScopes}
-                  onChange={(e) => setNewOauthClientScopes(e.target.value)}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-text-muted">Creates a confidential client using `client_credentials`.</p>
-                <Button onClick={onCreateOAuthClient} disabled={creatingOauthClient} size="sm">
-                  {creatingOauthClient ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  Create Client
-                </Button>
-              </div>
-            </div>
-
-            <AnimatePresence>
-              {generatedOauthClient && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.97, y: -4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.97, y: -4 }}
-                  className="rounded-xl border border-accent-cyan/40 bg-gradient-to-b from-accent-cyan/8 to-accent-cyan/3 p-4 space-y-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-cyan/20">
-                      <AlertTriangle className="h-3.5 w-3.5 text-accent-cyan" />
-                    </div>
-                    <span className="text-sm font-semibold text-accent-cyan">Copy this client secret now — it will not be shown again</span>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-background/80 p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Client ID</span>
-                      <button
-                        onClick={() => copyWithFeedback(generatedOauthClient.clientId, "oauth-client-id")}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                          copiedId === "oauth-client-id" ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-                        )}
-                        title="Copy client id"
-                      >
-                        {copiedId === "oauth-client-id" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                    <code className="block break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs">
-                      {generatedOauthClient.clientId}
-                    </code>
-                    <div className="flex items-center justify-between gap-3 pt-1">
-                      <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Client Secret</span>
-                      <button
-                        onClick={() => copyWithFeedback(generatedOauthClient.clientSecret, "oauth-client-secret")}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                          copiedId === "oauth-client-secret" ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-                        )}
-                        title="Copy client secret"
-                      >
-                        {copiedId === "oauth-client-secret" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                    <code className="block break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs">
-                      {generatedOauthClient.clientSecret}
-                    </code>
-                  </div>
-                  <p className="text-xs text-text-muted">
-                    Scopes: {generatedOauthClient.scopes.join(", ")}
-                  </p>
-                  <button
-                    onClick={() => setGeneratedOauthClient(null)}
-                    className="text-xs text-text-muted hover:text-text-secondary transition-colors"
-                  >
-                    Dismiss
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {oauthClients.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover mb-3">
-                  <KeyRound className="h-5 w-5 text-text-muted" />
-                </div>
-                <p className="text-sm text-text-muted">No OAuth clients yet</p>
-                <p className="text-xs text-text-muted mt-1">Create your first machine client above to use OAuth 2.0 client credentials.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {oauthClients.map((client) => (
-                  <div
-                    key={client.client_id}
-                    className="group rounded-lg border border-border/60 bg-navy-light/30 overflow-hidden transition-all hover:border-border hover:bg-surface-hover"
-                  >
-                    <div className="flex items-center gap-3 p-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-cyan/8 ring-1 ring-accent-cyan/15">
-                        <KeyRound className="h-4 w-4 text-accent-cyan" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium truncate">{client.client_name}</p>
-                          <span className="shrink-0 rounded-full bg-accent-cyan/10 px-2 py-0.5 text-[10px] font-medium text-accent-cyan ring-1 ring-accent-cyan/20">
-                            {client.client_type}
-                          </span>
-                        </div>
-                        <code className="mt-0.5 block text-xs text-text-muted font-mono break-all">
-                          {client.client_id}
-                        </code>
-                        <p className="mt-1 text-xs text-text-muted">
-                          Grants: {(client.grant_types || []).join(", ") || "client_credentials"} · Scopes: {(client.scopes || []).join(", ")}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => copyWithFeedback(client.client_id, client.client_id)}
-                          className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                            copiedId === client.client_id ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-                          )}
-                          title="Copy client id"
-                        >
-                          {copiedId === client.client_id ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                        </button>
-                        <button
-                          onClick={() => onDeleteOAuthClient(client.client_id)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors"
-                          title="Delete client"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <OAuthClientManager clients={oauthClients} onClientsChange={onOAuthClientsChange} />
       </StaggerItem>
 
       {/* API Keys */}

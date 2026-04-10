@@ -10,15 +10,23 @@ from events import get_event_store, get_state_machine
 router = APIRouter()
 
 @router.get("/api/events/{entity_type}/{entity_id}", tags=["Events"])
-def api_get_events(entity_type: str, entity_id: str, limit: int = 50):
+def api_get_events(entity_type: str, entity_id: str, limit: int = 50, request: Request = None):
     """Get event history for a job or host."""
+    from routes._deps import _get_current_user, _require_scope
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "events:read")
     store = get_event_store()
     events = store.get_events(entity_type, entity_id, limit=limit)
     return {"ok": True, "entity_type": entity_type, "entity_id": entity_id, "events": events}
 
 @router.get("/api/events/leases/{job_id}", tags=["Events"])
-def api_get_lease(job_id: str):
+def api_get_lease(job_id: str, request: Request = None):
     """Get active lease for a job."""
+    from routes._deps import _get_current_user, _require_scope
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "events:read")
     store = get_event_store()
     lease = store.get_lease(job_id)
     if not lease:

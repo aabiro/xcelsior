@@ -29,9 +29,11 @@ class WebPushSubscriptionDeletePayload(BaseModel):
 @router.get("/api/notifications", tags=["Notifications"])
 def api_list_notifications(request: Request, unread: bool = False, limit: int = 50):
     """List notifications for the current user."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:read")
     notifications = NotificationStore.list_for_user(user["email"], unread_only=unread, limit=limit)
     unread_count = NotificationStore.unread_count(user["email"])
     return {"ok": True, "notifications": notifications, "unread_count": unread_count}
@@ -39,17 +41,21 @@ def api_list_notifications(request: Request, unread: bool = False, limit: int = 
 @router.get("/api/notifications/unread-count", tags=["Notifications"])
 def api_notification_unread_count(request: Request):
     """Get the unread notification count for the current user."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:read")
     return {"ok": True, "unread_count": NotificationStore.unread_count(user["email"])}
 
 @router.post("/api/notifications/{notification_id}/read", tags=["Notifications"])
 def api_mark_notification_read(request: Request, notification_id: str):
     """Mark a single notification as read."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:write")
     ok = NotificationStore.mark_read(notification_id, user["email"])
     if not ok:
         raise HTTPException(404, "Notification not found")
@@ -58,18 +64,22 @@ def api_mark_notification_read(request: Request, notification_id: str):
 @router.post("/api/notifications/read-all", tags=["Notifications"])
 def api_mark_all_read(request: Request):
     """Mark all notifications as read for the current user."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:write")
     count = NotificationStore.mark_all_read(user["email"])
     return {"ok": True, "marked": count}
 
 @router.delete("/api/notifications/{notification_id}", tags=["Notifications"])
 def api_delete_notification(request: Request, notification_id: str):
     """Delete a single notification."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:write")
     ok = NotificationStore.delete(notification_id, user["email"])
     if not ok:
         raise HTTPException(404, "Notification not found")
@@ -79,10 +89,11 @@ def api_delete_notification(request: Request, notification_id: str):
 @router.get("/api/notifications/push/subscription", tags=["Notifications"])
 def api_get_push_subscription_status(request: Request):
     """Get push subscription capability for the current user."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-
+    _require_scope(user, "notifications:read")
     configured = is_web_push_configured()
     return {
         "ok": True,
@@ -95,9 +106,11 @@ def api_get_push_subscription_status(request: Request):
 @router.post("/api/notifications/push/subscription", tags=["Notifications"])
 def api_upsert_push_subscription(request: Request, body: WebPushSubscriptionPayload):
     """Create or refresh the current browser's push subscription."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:write")
     if not is_web_push_configured():
         raise HTTPException(503, "Web push notifications are not configured")
 
@@ -114,9 +127,11 @@ def api_upsert_push_subscription(request: Request, body: WebPushSubscriptionPayl
 @router.delete("/api/notifications/push/subscription", tags=["Notifications"])
 def api_delete_push_subscription(request: Request, body: WebPushSubscriptionDeletePayload):
     """Revoke the current browser's push subscription."""
+    from routes._deps import _require_scope
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "notifications:write")
 
     revoked = WebPushSubscriptionStore.revoke(user["email"], body.endpoint)
     return {"ok": True, "revoked": revoked}

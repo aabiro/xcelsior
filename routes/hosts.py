@@ -94,7 +94,7 @@ class StatusUpdate(BaseModel):
     container_name: str | None = None
 
 @router.put("/host", tags=["Hosts"])
-def api_register_host(h: HostIn):
+def api_register_host(h: HostIn, request: Request = None):
     """Register or update a host with strict admission gating.
 
     Per REPORT_FEATURE_FINAL.md §62 and REPORT_FEATURE_2.md §37:
@@ -103,6 +103,10 @@ def api_register_host(h: HostIn):
     - Hosts register as 'pending' until agent completes benchmark + admission
     - If versions are provided inline, admission is checked immediately
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "hosts:write")
     from security import admit_node
 
     # Register the host with country/province metadata
@@ -200,8 +204,12 @@ def api_register_host(h: HostIn):
     return {"ok": True, "host": entry}
 
 @router.get("/host/{host_id}", tags=["Hosts"])
-def api_get_host(host_id: str):
+def api_get_host(host_id: str, request: Request = None):
     """Get a single host by ID."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "hosts:read")
     hosts = list_hosts(active_only=False)
     host = next((h for h in hosts if h["host_id"] == host_id), None)
     if not host:
@@ -209,8 +217,12 @@ def api_get_host(host_id: str):
     return {"ok": True, "host": host}
 
 @router.get("/hosts", tags=["Hosts"])
-def api_list_hosts(active_only: bool = True):
+def api_list_hosts(active_only: bool = True, request: Request = None):
     """List all hosts."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "hosts:read")
     return {"hosts": list_hosts(active_only=active_only)}
 
 
@@ -283,8 +295,12 @@ def api_undrain_host(host_id: str, request: Request):
     return {"ok": True, "host": updated}
 
 @router.delete("/host/{host_id}", tags=["Hosts"])
-def api_remove_host(host_id: str):
+def api_remove_host(host_id: str, request: Request = None):
     """Remove a host."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "hosts:write")
     hosts = list_hosts(active_only=False)
     if not any(h["host_id"] == host_id for h in hosts):
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
@@ -293,8 +309,12 @@ def api_remove_host(host_id: str):
     return {"ok": True, "removed": host_id}
 
 @router.post("/hosts/check", tags=["Hosts"])
-def api_check_hosts():
+def api_check_hosts(request: Request = None):
     """Ping all hosts and update status."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "hosts:write")
     results = check_hosts()
     return {"results": results}
 

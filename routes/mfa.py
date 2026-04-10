@@ -143,6 +143,8 @@ def api_mfa_list_methods(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:read")
     methods = MfaStore.list_methods(user["email"])
     backup_codes = MfaStore.list_backup_codes(user["email"])
     return {
@@ -169,6 +171,8 @@ def api_mfa_totp_setup(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     # Check if TOTP already enabled
     existing = MfaStore.get_method_by_type(user["email"], "totp")
@@ -197,8 +201,6 @@ def api_mfa_totp_setup(request: Request):
         "provisioning_uri": provisioning_uri,
         "method_id": method_id,
     }
-
-
 # ── Model: TotpVerifyRequest ──
 
 class TotpVerifyRequest(BaseModel):
@@ -211,6 +213,8 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     methods = MfaStore.list_methods(user["email"])
     totp_method = None
@@ -257,6 +261,8 @@ def api_mfa_totp_disable(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
     MfaStore.delete_methods_by_type(user["email"], "totp")
     _refresh_mfa_enabled(user["email"])
     return {"ok": True, "message": "TOTP disabled"}
@@ -274,6 +280,8 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     phone = req.phone_number.strip()
     if not re.match(r"^\+[1-9]\d{6,14}$", phone):
@@ -315,6 +323,8 @@ def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     sms_challenge_id = f"sms-setup:{user['email']}"
     pending = MfaStore.get_challenge(sms_challenge_id)
@@ -358,6 +368,8 @@ def api_mfa_sms_disable(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
     MfaStore.delete_methods_by_type(user["email"], "sms")
     _refresh_mfa_enabled(user["email"])
     return {"ok": True, "message": "SMS MFA disabled"}
@@ -411,6 +423,8 @@ def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Reque
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     from fido2.webauthn import PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor, PublicKeyCredentialType
 
@@ -464,6 +478,8 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     challenge = MfaStore.get_challenge(req.state_id)
     if not challenge or challenge["email"] != user["email"]:
@@ -548,6 +564,8 @@ def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
 
     method = MfaStore.get_method(req.method_id)
     if not method or method["email"] != user["email"] or method["method_type"] != "passkey":
@@ -790,6 +808,8 @@ def api_mfa_regenerate_backup_codes(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
     if not user.get("mfa_enabled"):
         raise HTTPException(400, "MFA is not enabled")
 
@@ -805,7 +825,8 @@ def api_mfa_disable_all(request: Request):
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
-
+    from routes._deps import _require_scope
+    _require_scope(user, "mfa:write")
     from db import auth_connection
     with auth_connection() as conn:
         conn.execute("DELETE FROM mfa_methods WHERE email = %s", (user["email"],))

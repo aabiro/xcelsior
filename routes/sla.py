@@ -28,11 +28,12 @@ def api_sla_enforce(req: SLAEnforceRequest, request: Request):
 
     Calculates uptime percentage, downtime incidents, and credits owed
     based on the SLA tier. Credits follow the Google Cloud / Azure model:
-    - 95–99% uptime → 10% credit
-    - 90–95% uptime → 25% credit
-    - <90% uptime   → 100% credit
+    - 9599% uptime 2 10% credit
+    - 9095% uptime 2 25% credit
+    - <90% uptime   2 100% credit
     """
-    _require_admin(request)
+    from routes._deps import _require_scope
+    _require_scope(_require_admin(request), "sla:write")
     engine = get_sla_engine()
     record = engine.enforce_monthly(
         req.host_id,
@@ -53,12 +54,16 @@ def api_sla_enforce(req: SLAEnforceRequest, request: Request):
     }
 
 @router.get("/api/sla/hosts-summary", tags=["SLA"])
-def api_sla_hosts_summary():
+def api_sla_hosts_summary(request: Request = None):
     """Get SLA status summary for all known hosts.
 
     Returns per-host cards with uptime %, violation count, and SLA tier.
     Used by dashboard UI-8.1 SLA Dashboard.
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "sla:read")
     try:
         engine = get_sla_engine()
     except Exception as e:

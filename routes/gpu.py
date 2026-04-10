@@ -9,13 +9,17 @@ from routes._deps import (
 router = APIRouter()
 
 @router.get("/api/v2/gpu/available", tags=["GPU"])
-def api_gpu_available():
+def api_gpu_available(request: 'Request' = None):
     """List available GPU types with regions, VRAM, pricing, and counts.
 
     Used by both Serverless and Volumes to populate GPU/region pickers.
     Queries gpu_offers first, then hosts table. If neither has data,
     returns an empty list — no fake inventory.
     """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "gpu:read")
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row

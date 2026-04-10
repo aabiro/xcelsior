@@ -45,7 +45,9 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     Schedules a short-lived GPU job that runs the specified model on the
     provided inputs. Returns a job_id to poll for results.
     """
+    from routes._deps import _require_scope
     user = _require_auth(request)
+    _require_scope(user, "inference:write")
     customer_id = user.get("customer_id", user.get("email", "anon"))
     inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
 
@@ -53,9 +55,9 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     from billing import get_billing_engine
     wallet = get_billing_engine().get_wallet(customer_id)
     if wallet.get("status") == "suspended":
-        raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
+        raise HTTPException(402, detail="Wallet suspended 2 please add funds to resume service")
     if wallet["balance_cad"] <= 0 and (wallet.get("grace_until") or 0) < time.time():
-        raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
+        raise HTTPException(402, detail="Insufficient wallet balance 2 please deposit credits")
 
     job = submit_job(
         name=f"inference:{req.model.replace('/', '--')}",
@@ -78,8 +80,12 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     return {"ok": True, "job_id": job_id, "model": req.model, "status": "queued"}
 
 @router.get("/api/inference/{job_id}", tags=["Inference"])
-def api_inference_result(job_id: str):
+def api_inference_result(job_id: str, request: Request = None):
     """Get inference results for a submitted request."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "inference:read")
     result = get_inference_result(job_id)
     if result:
         return {"ok": True, "status": "completed", **result}
@@ -103,8 +109,12 @@ def api_inference_result(job_id: str):
     raise HTTPException(404, f"Inference job {job_id} not found")
 
 @router.get("/api/inference/models/available", tags=["Inference"])
-def api_inference_models():
+def api_inference_models(request: Request = None):
     """List available inference models and their resource requirements."""
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request) if request else None
+    if user:
+        _require_scope(user, "inference:read")
     models = [
         {
             "name": "distilbert-base-uncased-finetuned-sst-2-english",

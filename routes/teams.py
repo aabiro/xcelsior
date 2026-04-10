@@ -116,7 +116,9 @@ class UpdateTeamMemberRoleRequest(BaseModel):
 @router.post("/api/teams", tags=["Teams"])
 def api_create_team(body: CreateTeamRequest, request: Request):
     """Create a new team/organization. Creator becomes team admin."""
+    from routes._deps import _require_scope
     user = _require_user_grant(request, allow_api_key=True)
+    _require_scope(user, "teams:write")
 
     team_id = f"team-{uuid.uuid4().hex[:8]}"
     max_members = {"free": 5, "pro": 25, "enterprise": 100}.get(body.plan, 5)

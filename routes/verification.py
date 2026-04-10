@@ -29,8 +29,13 @@ class VerifyHostRequest(BaseModel):
     network_info: dict = Field(default_factory=dict)
 
 @router.post("/api/verify/{host_id}", tags=["Verification"])
-def api_verify_host(host_id: str, req: VerifyHostRequest):
+def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
     """Run verification checks on a host."""
+    from routes._deps import _get_current_user, _require_scope
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "verification:write")
     ve = get_verification_engine()
     result = ve.run_verification(host_id, req.gpu_info, req.network_info)
     return {"ok": True, "host_id": host_id, "verification": result}
