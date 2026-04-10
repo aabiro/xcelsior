@@ -43,6 +43,15 @@ vi.mock("framer-motion", () => ({
   motion: {
     div: ({ children }: Record<string, unknown>) => <div>{children as React.ReactNode}</div>,
     aside: ({ children }: Record<string, unknown>) => <aside>{children as React.ReactNode}</aside>,
+    button: ({
+      children,
+      onClick,
+      ...rest
+    }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+      <button onClick={onClick} {...rest}>
+        {children}
+      </button>
+    ),
   },
 }));
 

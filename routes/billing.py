@@ -12,8 +12,10 @@ from routes._deps import (
     XCELSIOR_ENV,
     _USE_PERSISTENT_AUTH,
     _get_current_user,
+    _merge_auth_user,
     _require_admin,
     _require_auth,
+    _require_scope,
     _users_db,
     broadcast_sse,
     log,
@@ -82,7 +84,8 @@ def _analytics_customer_scope(user: dict) -> str:
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "billing:write")
     with otel_span("billing.bill_job", {"job.id": job_id}):
         record = bill_job(job_id)
         if not record:
@@ -92,7 +95,8 @@ def api_bill_instance(job_id: str, request: Request):
 @router.post("/billing/bill-all", tags=["Billing"])
 def api_bill_all(request: Request):
     """Bill all unbilled completed jobs."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "billing:write")
     try:
         bills = bill_all_completed()
     except Exception as exc:
@@ -540,7 +544,8 @@ def api_ln_enabled():
 @router.post("/api/billing/lightning/deposit", tags=["Billing"])
 def api_ln_create_deposit(req: LnDepositRequest, request: Request):
     """Create a Lightning invoice for depositing CAD credits."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "billing:write")
     if not _ln_mod or not _ln_mod.LN_ENABLED:
         raise HTTPException(503, "Lightning deposits are not enabled")
     try:
@@ -556,7 +561,8 @@ def api_ln_create_deposit(req: LnDepositRequest, request: Request):
 @router.get("/api/billing/lightning/deposit/{deposit_id}", tags=["Billing"])
 def api_ln_check_deposit(deposit_id: str, request: Request):
     """Check the status of a Lightning deposit."""
-    _require_auth(request)
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
     if not _ln_mod or not _ln_mod.LN_ENABLED:
         raise HTTPException(503, "Lightning deposits are not enabled")
     dep = _ln_mod.check_deposit(deposit_id)
@@ -728,6 +734,7 @@ def api_usage_analytics(
     - `group_by` — aggregation: `day`, `week`, `gpu_model`, `province`
     """
     user = _require_auth(request)
+    _require_scope(user, "billing:read")
 
     # Non-admin users are scoped to their own data automatically
     is_admin = bool(user.get("is_admin"))
@@ -840,6 +847,9 @@ def api_analytics_enhanced(
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    if user.get("email"):
+        full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
+        user = _merge_auth_user(user, full_user)
 
     is_admin = bool(user.get("is_admin"))
     customer_id = _analytics_customer_scope(user)

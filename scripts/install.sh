@@ -99,17 +99,42 @@ install_agent() {
         info "Configure your worker agent:"
         read -rp "  Host ID (hostname): " HOST_ID
         HOST_ID="${HOST_ID:-$(hostname)}"
-        read -rp "  API Token: " API_TOKEN
-        [ -z "$API_TOKEN" ] && fail "API token is required — generate one at $XCELSIOR_API/dashboard/settings"
+        info "Both API keys and OAuth client credentials are supported."
+        read -rp "  Auth method [api-key/oauth-client]: " AUTH_METHOD
+        AUTH_METHOD="${AUTH_METHOD:-api-key}"
+        API_TOKEN=""
+        OAUTH_CLIENT_ID=""
+        OAUTH_CLIENT_SECRET=""
+        case "$AUTH_METHOD" in
+            api-key|api|1)
+                read -rp "  API Token: " API_TOKEN
+                [ -z "$API_TOKEN" ] && fail "API token is required — generate one at $XCELSIOR_API/dashboard/settings"
+                ;;
+            oauth-client|oauth|2)
+                read -rp "  OAuth Client ID: " OAUTH_CLIENT_ID
+                read -rp "  OAuth Client Secret: " OAUTH_CLIENT_SECRET
+                [ -z "$OAUTH_CLIENT_ID" ] && fail "OAuth client ID is required"
+                [ -z "$OAUTH_CLIENT_SECRET" ] && fail "OAuth client secret is required"
+                ;;
+            *)
+                fail "Unknown auth method '$AUTH_METHOD' — use 'api-key' or 'oauth-client'"
+                ;;
+        esac
 
         detect_network
 
         cat > "$ENV_FILE" <<EOF
 XCELSIOR_HOST_ID=$HOST_ID
 XCELSIOR_SCHEDULER_URL=$XCELSIOR_API
-XCELSIOR_API_TOKEN=$API_TOKEN
 XCELSIOR_HOST_IP=$HOST_IP
 EOF
+        if [ -n "$API_TOKEN" ]; then
+            printf 'XCELSIOR_API_TOKEN=%s\n' "$API_TOKEN" >> "$ENV_FILE"
+        fi
+        if [ -n "$OAUTH_CLIENT_ID" ]; then
+            printf 'XCELSIOR_OAUTH_CLIENT_ID=%s\n' "$OAUTH_CLIENT_ID" >> "$ENV_FILE"
+            printf 'XCELSIOR_OAUTH_CLIENT_SECRET=%s\n' "$OAUTH_CLIENT_SECRET" >> "$ENV_FILE"
+        fi
         chmod 600 "$ENV_FILE"
         ok "Configuration saved to $ENV_FILE"
     else

@@ -20,52 +20,60 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+
     # Add mfa_enabled flag to users
-    op.add_column(
-        "users",
-        sa.Column("mfa_enabled", sa.Integer(), nullable=False, server_default="0"),
-    )
+    if "mfa_enabled" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("mfa_enabled", sa.Integer(), nullable=False, server_default="0"),
+        )
 
     # MFA methods — one row per method per user
-    op.create_table(
-        "mfa_methods",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("email", sa.Text(), nullable=False),
-        sa.Column("method_type", sa.Text(), nullable=False),       # totp | sms | passkey
-        sa.Column("secret", sa.Text()),                              # TOTP base32 secret (encrypted)
-        sa.Column("phone_number", sa.Text()),                        # SMS phone (E.164)
-        sa.Column("credential_id", sa.Text()),                       # passkey credential ID (base64url)
-        sa.Column("public_key", sa.Text()),                          # passkey public key (base64url)
-        sa.Column("sign_count", sa.Integer(), server_default="0"),   # passkey sign counter
-        sa.Column("device_name", sa.Text()),                         # passkey friendly name
-        sa.Column("enabled", sa.Integer(), nullable=False, server_default="1"),
-        sa.Column("created_at", sa.Float(), nullable=False),
-    )
-    op.create_index("idx_mfa_methods_email", "mfa_methods", ["email"])
-    op.create_index("idx_mfa_methods_credential", "mfa_methods", ["credential_id"])
+    if not inspector.has_table("mfa_methods"):
+        op.create_table(
+            "mfa_methods",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("email", sa.Text(), nullable=False),
+            sa.Column("method_type", sa.Text(), nullable=False),       # totp | sms | passkey
+            sa.Column("secret", sa.Text()),                              # TOTP base32 secret (encrypted)
+            sa.Column("phone_number", sa.Text()),                        # SMS phone (E.164)
+            sa.Column("credential_id", sa.Text()),                       # passkey credential ID (base64url)
+            sa.Column("public_key", sa.Text()),                          # passkey public key (base64url)
+            sa.Column("sign_count", sa.Integer(), server_default="0"),   # passkey sign counter
+            sa.Column("device_name", sa.Text()),                         # passkey friendly name
+            sa.Column("enabled", sa.Integer(), nullable=False, server_default="1"),
+            sa.Column("created_at", sa.Float(), nullable=False),
+        )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mfa_methods_email ON mfa_methods (email)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mfa_methods_credential ON mfa_methods (credential_id)")
 
     # Backup recovery codes
-    op.create_table(
-        "mfa_backup_codes",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("email", sa.Text(), nullable=False),
-        sa.Column("code_hash", sa.Text(), nullable=False),
-        sa.Column("used", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.Float(), nullable=False),
-    )
-    op.create_index("idx_mfa_backup_email", "mfa_backup_codes", ["email"])
+    if not inspector.has_table("mfa_backup_codes"):
+        op.create_table(
+            "mfa_backup_codes",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("email", sa.Text(), nullable=False),
+            sa.Column("code_hash", sa.Text(), nullable=False),
+            sa.Column("used", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("created_at", sa.Float(), nullable=False),
+        )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mfa_backup_email ON mfa_backup_codes (email)")
 
     # Pending MFA challenges (short-lived, for login flow)
-    op.create_table(
-        "mfa_challenges",
-        sa.Column("challenge_id", sa.Text(), primary_key=True),
-        sa.Column("email", sa.Text(), nullable=False),
-        sa.Column("session_token", sa.Text()),                       # partial session token
-        sa.Column("challenge_data", sa.Text()),                      # JSON for passkey challenge
-        sa.Column("created_at", sa.Float(), nullable=False),
-        sa.Column("expires_at", sa.Float(), nullable=False),
-    )
-    op.create_index("idx_mfa_challenge_email", "mfa_challenges", ["email"])
+    if not inspector.has_table("mfa_challenges"):
+        op.create_table(
+            "mfa_challenges",
+            sa.Column("challenge_id", sa.Text(), primary_key=True),
+            sa.Column("email", sa.Text(), nullable=False),
+            sa.Column("session_token", sa.Text()),                       # partial session token
+            sa.Column("challenge_data", sa.Text()),                      # JSON for passkey challenge
+            sa.Column("created_at", sa.Float(), nullable=False),
+            sa.Column("expires_at", sa.Float(), nullable=False),
+        )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_mfa_challenge_email ON mfa_challenges (email)")
 
 
 def downgrade() -> None:

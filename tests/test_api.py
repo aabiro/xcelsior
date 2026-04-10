@@ -110,7 +110,19 @@ def _submit_job(name="llama3", vram=16, **extra):
 
 
 @pytest.fixture(autouse=True)
-def clean_data():
+def clean_data(monkeypatch):
+    import api as api_mod
+    import routes._deps as _deps_mod
+    import routes.auth as _auth_mod
+    import routes.billing as _billing_mod
+    import routes.admin as _admin_mod
+
+    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
+    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
+    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
+    monkeypatch.setattr(_billing_mod, "_USE_PERSISTENT_AUTH", True)
+    monkeypatch.setattr(_admin_mod, "_USE_PERSISTENT_AUTH", True)
+
     # Clean PostgreSQL tables
     with scheduler._atomic_mutation() as conn:
         conn.execute("DELETE FROM hosts")
@@ -128,12 +140,33 @@ def clean_data():
     ):
         if os.path.exists(f):
             os.remove(f)
+    # Clean auth/OAuth tables and reset auth cache/cookies for test isolation
+    from oauth_service import reset_auth_cache_for_tests
+    from db import auth_connection
+    with auth_connection() as conn:
+        conn.execute("DELETE FROM oauth_refresh_tokens")
+        conn.execute("DELETE FROM oauth_clients")
+        conn.execute("DELETE FROM api_keys")
+        conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM notifications")
+        conn.execute("DELETE FROM team_members")
+        conn.execute("DELETE FROM teams")
+        conn.execute("DELETE FROM users")
+    reset_auth_cache_for_tests()
+    client.cookies.clear()
+
     # Clear in-memory telemetry and rate limit buckets
     from routes.agent import _host_telemetry
-    from routes._deps import _RATE_BUCKETS
+    from routes._deps import _RATE_BUCKETS, _AUTH_RATE_BUCKETS, _api_keys, _sessions, _users_db
+    from routes.auth import _oauth_states
 
     _host_telemetry.clear()
     _RATE_BUCKETS.clear()
+    _AUTH_RATE_BUCKETS.clear()
+    _users_db.clear()
+    _sessions.clear()
+    _api_keys.clear()
+    _oauth_states.clear()
     # Seed wallet for anonymous test user so wallet pre-flight checks pass
     from billing import get_billing_engine
     get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
@@ -263,7 +296,7 @@ class TestHostRegistrationFlow:
 
         r = _submit_job("llama3", 16, host_id="h1")
         assert r.status_code == 409
-        assert "draining" in r.json()["detail"]
+        assert "draining" in r.json()["error"]["message"]
 
     def test_host_maintenance_summary_blocks_until_interactive_jobs_clear(self):
         """Maintenance summary should expose active interactive instances."""
@@ -331,6 +364,69 @@ class TestHealthEndpoint:
         r = client.get("/metrics")
         assert r.status_code == 200
         assert "queue_depth" in r.json()["metrics"]
+        assert "web_push" in r.json()["metrics"]
+        assert "configured" in r.json()["metrics"]["web_push"]
+
+    def test_metrics_prometheus_includes_web_push_metrics(self):
+        r = client.get("/metrics/prometheus")
+        assert r.status_code == 200
+        assert "xcelsior_web_push_configured" in r.text
+        assert "xcelsior_web_push_delivery_attempts_total" in r.text
+
+
+class TestAdminPushSmoke:
+    def test_send_test_notification(self, monkeypatch):
+        import routes.admin as admin_routes
+
+        created: dict[str, object] = {}
+
+        class FakeNotificationStore:
+            @staticmethod
+            def create(user_email, notif_type, title, body="", data=None, **kwargs):
+                created.update({
+                    "user_email": user_email,
+                    "notif_type": notif_type,
+                    "title": title,
+                    "body": body,
+                    "data": data or {},
+                    **kwargs,
+                })
+                return "notif-smoke-123"
+
+        class FakeWebPushSubscriptionStore:
+            @staticmethod
+            def count_active_for_user(_user_email):
+                return 1
+
+        monkeypatch.setattr(admin_routes, "NotificationStore", FakeNotificationStore)
+        monkeypatch.setattr(admin_routes, "WebPushSubscriptionStore", FakeWebPushSubscriptionStore)
+        monkeypatch.setattr(admin_routes, "get_web_push_observability_snapshot", lambda: {
+            "configured": 1,
+            "active_subscriptions": 1,
+            "revoked_subscriptions": 0,
+            "stale_subscriptions": 0,
+            "delivery_attempts_total": 0,
+            "delivery_success_total": 0,
+            "delivery_failure_total": 0,
+            "delivery_revoked_total": 0,
+            "deliveries_skipped_unconfigured_total": 0,
+            "deliveries_skipped_no_subscriptions_total": 0,
+            "last_delivery_attempt_at": 0,
+            "last_delivery_success_at": 0,
+            "last_delivery_failure_at": 0,
+            "last_failure_status_code": 0,
+        })
+
+        r = client.post("/api/admin/web-push/test-notification")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["notification_id"] == "notif-smoke-123"
+        assert body["smoke_id"].startswith("smoke-")
+        assert body["action_url"].startswith("/dashboard/admin?push_smoke=1&smoke_id=")
+        assert body["active_subscription_count"] == 1
+        assert created["notif_type"] == "admin_web_push_smoke"
+        assert created["user_email"] == "anonymous"
+        assert created["data"]["smoke_test"] is True
 
 
 class TestHostEndpoints:
@@ -387,11 +483,10 @@ class TestJobEndpoints:
         assert r.status_code == 422
 
     def test_submit_job_validation_zero_vram(self):
-        """Zero VRAM should get a sane default (not fail)."""
+        """Zero VRAM is accepted for interactive launches."""
         r = client.post("/instance", json={"name": "test", "vram_needed_gb": 0})
         assert r.status_code == 200
-        # Default VRAM is based on available hosts; 4.0 when no hosts exist
-        assert r.json()["instance"]["vram_needed_gb"] > 0
+        assert r.json()["instance"]["vram_needed_gb"] >= 0
 
     def test_submit_job_validation_negative_vram(self):
         """Negative VRAM should fail validation."""
@@ -510,6 +605,38 @@ class TestAuth:
         r = client.post("/token/generate")
         assert r.status_code == 200
         assert "token" in r.json()
+
+    def test_protected_http_rejects_query_token_but_accepts_cookie(self, monkeypatch):
+        """Protected HTTP routes accept cookies/headers, not URL query tokens."""
+        import api as api_mod
+        import routes._deps as _deps_mod
+
+        monkeypatch.setattr(api_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "http-query-token-test")
+
+        with TestClient(app, cookies={}) as fresh:
+            fresh.cookies.set("xcelsior_session", "http-query-token-test")
+            ok = fresh.get("/api/analytics/usage")
+            assert ok.status_code == 200
+
+            header_ok = fresh.get(
+                "/api/analytics/usage",
+                headers={"Authorization": "Bearer http-query-token-test"},
+            )
+            assert header_ok.status_code == 200
+
+            fresh.cookies.clear()
+            bad = fresh.get("/api/analytics/usage?token=http-query-token-test")
+            assert bad.status_code == 401
+
+    def test_source_has_no_http_query_token_fallback(self):
+        """Main and legacy apps do not accept HTTP auth via ?token=."""
+        for rel_path in ("api.py", "api_old.py"):
+            path = os.path.join(os.path.dirname(__file__), "..", rel_path)
+            with open(path) as f:
+                content = f.read()
+            assert 'request.query_params.get("token", "")' not in content
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -747,6 +874,7 @@ class TestBillingEndpoints:
     def test_billing_wallet_reset_clears_balance_and_restores_promo(self, monkeypatch):
         """POST wallet reset zeroes the wallet and re-enables the signup promo."""
         import routes._deps as _deps_mod
+        from db import UserStore
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         email = "walletreset-admin@xcelsior.ca"
@@ -757,8 +885,7 @@ class TestBillingEndpoints:
         token = reg["access_token"]
         customer_id = reg["user"]["customer_id"]
 
-        with _deps_mod._user_lock:
-            _deps_mod._users_db[email]["is_admin"] = 1
+        UserStore.update_user(email, {"is_admin": 1})
 
         claim = client.post(
             f"/api/billing/free-credits/{customer_id}",
@@ -1174,17 +1301,18 @@ class TestSlurmEndpoints:
 class TestOAuthDeviceFlow:
     def test_device_code_request(self):
         """POST /api/auth/device returns device_code and user_code."""
-        r = client.post("/api/auth/device", json={"client_id": "cli-test"})
+        r = client.post("/api/auth/device", json={"client_id": "xcelsior-cli"})
         assert r.status_code == 200
         data = r.json()
         assert "device_code" in data
         assert "user_code" in data
         assert "verification_uri" in data
+        assert r.headers.get("Deprecation") == "true"
 
     def test_token_poll_pending(self):
         """POST /api/auth/token before verification → pending/precondition."""
         # First get a device code
-        dev = client.post("/api/auth/device", json={"client_id": "cli-test"})
+        dev = client.post("/api/auth/device", json={"client_id": "xcelsior-cli"})
         device_code = dev.json()["device_code"]
 
         # Poll without verifying — should be pending (428 Precondition Required)
@@ -1193,19 +1321,232 @@ class TestOAuthDeviceFlow:
             json={
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 "device_code": device_code,
-                "client_id": "cli-test",
+                "client_id": "xcelsior-cli",
             },
         )
         # RFC 8628: 428 indicates authorization_pending
         assert r.status_code == 428
-        err = r.json().get("error", {})
-        assert err.get("message") == "authorization_pending"
+        err = r.json()
+        assert err["error"] == "authorization_pending"
+        assert r.headers.get("Deprecation") == "true"
 
     def test_verify_page(self):
         """GET /api/auth/verify returns HTML verification page."""
         r = client.get("/api/auth/verify")
         assert r.status_code == 200
         assert "html" in r.headers.get("content-type", "").lower()
+
+    def test_discovery_document_exists(self):
+        r = client.get("/.well-known/oauth-authorization-server")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["authorization_endpoint"].endswith("/oauth/authorize")
+        assert body["token_endpoint"].endswith("/oauth/token")
+
+
+class TestOAuthServer:
+    def test_authorize_redirects_browser_to_login_when_unauthenticated(self):
+        r = client.get(
+            "/oauth/authorize",
+            params={
+                "response_type": "code",
+                "client_id": "xcelsior-web",
+                "redirect_uri": "https://xcelsior.ca/oauth/callback",
+                "code_challenge": "challenge",
+                "code_challenge_method": "S256",
+            },
+            headers={"Accept": "text/html"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 302
+        assert r.headers["location"].startswith("/login?redirect=")
+
+    def test_authorization_code_pkce_flow(self):
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "pkce@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        created = client.post(
+            "/api/oauth/clients",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "client_name": "Browser Test",
+                "client_type": "public",
+                "redirect_uris": ["https://app.example/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "scopes": ["profile", "email", "offline_access"],
+            },
+        )
+        assert created.status_code == 200
+        client_id = created.json()["client"]["client_id"]
+
+        verifier = "pkce-verifier-1234567890"
+        import base64 as _b64
+        import hashlib as _hashlib
+
+        challenge = _b64.urlsafe_b64encode(_hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        authz = client.get(
+            "/oauth/authorize",
+            params={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": "https://app.example/callback",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": "abc123",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            follow_redirects=False,
+        )
+        assert authz.status_code == 302
+        assert "code=" in authz.headers["location"]
+
+        from urllib.parse import parse_qs, urlparse
+
+        code = parse_qs(urlparse(authz.headers["location"]).query)["code"][0]
+        token_resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "code": code,
+                "redirect_uri": "https://app.example/callback",
+                "code_verifier": verifier,
+            },
+        )
+        assert token_resp.status_code == 200
+        body = token_resp.json()
+        assert body["token_type"] == "Bearer"
+        assert "access_token" in body
+        assert "refresh_token" in body
+
+    def test_first_party_web_token_exchange_sets_browser_cookies(self):
+        from oauth_service import get_client
+
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "browser-pkce@xcelsior.ca", "password": "testpass123"},
+        )
+        assert reg.status_code == 200
+        redirect_uri = str((get_client("xcelsior-web") or {}).get("redirect_uris", [""])[0])
+        assert redirect_uri
+
+        verifier = "browser-pkce-verifier-1234567890"
+        import base64 as _b64
+        import hashlib as _hashlib
+
+        challenge = _b64.urlsafe_b64encode(_hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        authz = client.get(
+            "/oauth/authorize",
+            params={
+                "response_type": "code",
+                "client_id": "xcelsior-web",
+                "redirect_uri": redirect_uri,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": "browser-state-1",
+            },
+            follow_redirects=False,
+        )
+        assert authz.status_code == 302
+
+        from urllib.parse import parse_qs, urlparse
+
+        code = parse_qs(urlparse(authz.headers["location"]).query)["code"][0]
+        token_client = TestClient(app)
+        token_resp = token_client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": "xcelsior-web",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": verifier,
+            },
+        )
+        assert token_resp.status_code == 200
+        assert token_client.cookies.get("xcelsior_session")
+        assert token_client.cookies.get("xcelsior_refresh")
+
+    def test_refresh_token_reuse_revokes_family(self):
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "reuser@xcelsior.ca", "password": "testpass123"},
+        )
+        assert reg.status_code == 200
+        old_refresh = client.cookies.get("xcelsior_refresh")
+        assert old_refresh
+
+        rotated = client.post("/api/auth/refresh")
+        assert rotated.status_code == 200
+        new_refresh = client.cookies.get("xcelsior_refresh")
+        assert new_refresh and new_refresh != old_refresh
+
+        stale = TestClient(app)
+        stale.cookies.set("xcelsior_refresh", old_refresh)
+        replay = stale.post("/api/auth/refresh")
+        assert replay.status_code == 401
+        assert replay.json()["code"] == "refresh_token_reused"
+
+        current = client.post("/api/auth/refresh")
+        assert current.status_code == 401
+        assert current.json()["error"] == "invalid_grant"
+
+    def test_client_credentials_cannot_call_user_profile(self):
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "machine-owner@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        created = client.post(
+            "/api/oauth/clients",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "client_name": "Machine Test",
+                "client_type": "confidential",
+                "redirect_uris": [],
+                "grant_types": ["client_credentials"],
+                "scopes": ["instances:read"],
+            },
+        )
+        assert created.status_code == 200
+        oauth_client = created.json()["client"]
+
+        token_resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_client["client_id"],
+                "client_secret": oauth_client["client_secret"],
+                "scope": "instances:read",
+            },
+        )
+        assert token_resp.status_code == 200
+        machine_token = token_resp.json()["access_token"]
+
+        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {machine_token}"})
+        assert me.status_code == 403
+
+    def test_oauth_access_token_fails_closed_when_auth_cache_is_unavailable(self, monkeypatch):
+        import routes._deps as _deps_mod
+        from oauth_service import AuthCacheUnavailableError
+
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "cachefail@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        def _boom(_token: str):
+            raise AuthCacheUnavailableError("redis unavailable")
+
+        monkeypatch.setattr(_deps_mod, "resolve_opaque_access_token", _boom)
+        r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 503
+        assert "auth cache unavailable" in r.json()["error"]["message"].lower()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1273,10 +1614,11 @@ class TestAnalytics:
         token = reg["access_token"]
         provider_id = f"prov-analytics-{os.urandom(4).hex()}"
         UserStore.update_user(email, {"provider_id": provider_id, "role": "provider"})
-        with _deps_mod._user_lock:
-            if email in _deps_mod._users_db:
-                _deps_mod._users_db[email]["provider_id"] = provider_id
-                _deps_mod._users_db[email]["role"] = "provider"
+
+        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code == 200
+        assert me.json()["user"]["provider_id"] == provider_id
+        assert me.json()["user"]["role"] == "provider"
 
         eng = get_billing_engine()
         job_id = f"provider-job-{os.urandom(4).hex()}"
@@ -1492,7 +1834,7 @@ class TestUserAuth:
         assert r.status_code == 403
 
     def test_refresh_token(self):
-        """POST /api/auth/refresh returns new token and invalidates old."""
+        """POST /api/auth/refresh rotates browser auth but existing access token remains valid until expiry."""
         reg = client.post(
             "/api/auth/register",
             json={"email": "refreshtest@xcelsior.ca", "password": "testpass123"},
@@ -1503,10 +1845,11 @@ class TestUserAuth:
         assert r.status_code == 200
         new_token = r.json()["access_token"]
         assert new_token != old_token
+        assert r.headers.get("Deprecation") == "true"
 
-        # Old token should be invalid
+        # Existing access token remains valid until its short expiry window elapses.
         r2 = client.get("/api/auth/me", headers={"Authorization": f"Bearer {old_token}"})
-        assert r2.status_code == 401
+        assert r2.status_code == 200
 
     def test_delete_account(self):
         """DELETE /api/auth/me removes account."""
@@ -1544,6 +1887,7 @@ class TestPlatformAdminSecurity:
 
     def test_submitter_with_admin_flag_can_access_admin_endpoints(self, monkeypatch):
         import routes._deps as _deps_mod
+        from db import UserStore
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         email = "aaryn.alexander@gmail.com"
@@ -1553,9 +1897,7 @@ class TestPlatformAdminSecurity:
         ).json()
         token = reg["access_token"]
 
-        with _deps_mod._user_lock:
-            _deps_mod._users_db[email]["is_admin"] = 1
-            _deps_mod._users_db[email]["role"] = "submitter"
+        UserStore.update_user(email, {"is_admin": 1, "role": "submitter"})
 
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
         assert me["user"]["role"] == "submitter"
@@ -1605,17 +1947,18 @@ class TestApiKeys:
         assert d["ok"] is True
         assert d["name"] == "test-key"
         assert d["key"].startswith("xcel_")
-        api_key = d["key"]
+        assert r.headers.get("Deprecation") == "true"
 
         # List keys
         r2 = client.get("/api/keys", headers={"Authorization": f"Bearer {token}"})
         assert r2.status_code == 200
+        assert r2.headers.get("Deprecation") == "true"
         keys = r2.json()["keys"]
         assert len(keys) >= 1
         assert keys[0]["name"] == "test-key"
 
     def test_api_key_as_bearer(self):
-        """API key can be used as Bearer token for /api/auth/me."""
+        """API keys are deprecated and cannot be used for interactive self-service endpoints."""
         reg = client.post(
             "/api/auth/register",
             json={"email": "apikeyauth@xcelsior.ca", "password": "testpass123"},
@@ -1629,8 +1972,7 @@ class TestApiKeys:
 
         # Use API key to access profile
         r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {key}"})
-        assert r.status_code == 200
-        assert r.json()["user"]["email"] == "apikeyauth@xcelsior.ca"
+        assert r.status_code == 403
 
     def test_revoke_key(self):
         """DELETE /api/keys/{preview} revokes the key."""
@@ -1648,6 +1990,7 @@ class TestApiKeys:
         # Revoke
         r = client.delete(f"/api/keys/{preview}", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
+        assert r.headers.get("Deprecation") == "true"
 
         # Key should no longer work
         r2 = client.get("/api/auth/me", headers={"Authorization": f"Bearer {gen['key']}"})

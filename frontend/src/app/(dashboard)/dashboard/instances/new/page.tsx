@@ -48,13 +48,13 @@ const PRIORITIES = [
   { label: "Urgent", value: 3 },
 ] as const;
 
-const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string }[] = [
-  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", vram: "24" },
-  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", vram: "24" },
-  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", vram: "24" },
-  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", vram: "12" },
-  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: "8" },
-  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: "8" },
+const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string; icon: string }[] = [
+  { id: "pytorch", label: "PyTorch", image: "nvcr.io/nvidia/pytorch:24.12-py3", vram: "24", icon: "pytorch" },
+  { id: "tensorflow", label: "TensorFlow", image: "nvcr.io/nvidia/tensorflow:24.12-tf2-py3", vram: "24", icon: "tensorflow" },
+  { id: "vllm", label: "vLLM", image: "vllm/vllm-openai:v0.6.6.post1", vram: "24", icon: "vllm" },
+  { id: "comfyui", label: "ComfyUI", image: "runpod/comfyui:1.3.0-cuda12.8", vram: "12", icon: "comfyui" },
+  { id: "jupyter", label: "Jupyter Lab", image: "quay.io/jupyter/pytorch-notebook:cuda12-latest", vram: "8", icon: "jupyter" },
+  { id: "ubuntu", label: "Ubuntu + CUDA", image: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: "8", icon: "ubuntu" },
 ];
 
 export default function NewInstancePage() {

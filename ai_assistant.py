@@ -3312,7 +3312,7 @@ CONTEXT: User has submitted jobs but has no hosts. They are primarily a renter.
 
     # ── Provider wizard instructions ──────────────────────────────────
     provider_wizard = """
-PROVIDER ONBOARDING:
+PROVIDER ONBOARDING WIZARD:
 When a user wants to provide GPUs, guide them step-by-step:
 1. Ask what hardware they have (GPU model, count, VRAM). If unsure, ask for `nvidia-smi` output.
 2. Use `search_marketplace` to show current prices for similar GPUs.
@@ -3357,7 +3357,10 @@ Requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04
 2. Create `~/.xcelsior/worker.env` with:
    - XCELSIOR_HOST_ID=<host-id from dashboard>
    - XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
-   - XCELSIOR_API_TOKEN=<api-token from Settings → API Keys>
+   - Choose one auth method:
+   - XCELSIOR_API_TOKEN=<api-token from Settings → API & SSH>
+   - or XCELSIOR_OAUTH_CLIENT_ID=<client-id from Settings → API & SSH>
+   - and XCELSIOR_OAUTH_CLIENT_SECRET=<client-secret from Settings → API & SSH>
    - XCELSIOR_COST_PER_HOUR=0.50
 3. Create systemd service at `/etc/systemd/system/xcelsior-worker.service`:
    ```

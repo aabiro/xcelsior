@@ -19,33 +19,44 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+
     # Email verification on users
-    op.add_column(
-        "users",
-        sa.Column("email_verified", sa.Integer(), nullable=False, server_default="0"),
-    )
-    op.add_column(
-        "users",
-        sa.Column("email_verification_token", sa.Text(), nullable=True),
-    )
-    op.add_column(
-        "users",
-        sa.Column("email_verification_expires", sa.Float(), nullable=True),
-    )
+    if "email_verified" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("email_verified", sa.Integer(), nullable=False, server_default="0"),
+        )
+    if "email_verification_token" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("email_verification_token", sa.Text(), nullable=True),
+        )
+    if "email_verification_expires" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("email_verification_expires", sa.Float(), nullable=True),
+        )
 
     # Session tracking columns
-    op.add_column(
-        "sessions",
-        sa.Column("ip_address", sa.Text(), nullable=True),
-    )
-    op.add_column(
-        "sessions",
-        sa.Column("user_agent", sa.Text(), nullable=True),
-    )
-    op.add_column(
-        "sessions",
-        sa.Column("last_active", sa.Float(), nullable=True),
-    )
+    if "ip_address" not in session_columns:
+        op.add_column(
+            "sessions",
+            sa.Column("ip_address", sa.Text(), nullable=True),
+        )
+    if "user_agent" not in session_columns:
+        op.add_column(
+            "sessions",
+            sa.Column("user_agent", sa.Text(), nullable=True),
+        )
+    if "last_active" not in session_columns:
+        op.add_column(
+            "sessions",
+            sa.Column("last_active", sa.Float(), nullable=True),
+        )
 
     # Mark all existing users as verified (they signed up before verification was required)
     op.execute("UPDATE users SET email_verified = 1")

@@ -640,7 +640,10 @@ Create \`~/.xcelsior/worker.env\`:
 \`\`\`bash
 XCELSIOR_HOST_ID=<your-host-id>            # From dashboard after registering
 XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
-XCELSIOR_API_TOKEN=<your-api-token>        # Settings → API Keys
+# Choose one auth method below. If both are set, the worker prefers OAuth.
+XCELSIOR_API_TOKEN=<your-api-token>        # Settings → API & SSH
+XCELSIOR_OAUTH_CLIENT_ID=<your-client-id>  # Settings → API & SSH
+XCELSIOR_OAUTH_CLIENT_SECRET=<your-client-secret>
 XCELSIOR_HOST_IP=<your-host-ip>            # Tailscale/Headscale mesh or public
 \`\`\`
 
@@ -1046,7 +1049,10 @@ function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCop
 
   const envTemplate = `XCELSIOR_HOST_ID=<your-host-id>
 XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
+# Choose one auth method below. If both are set, the worker prefers OAuth.
 XCELSIOR_API_TOKEN=<your-api-token>
+XCELSIOR_OAUTH_CLIENT_ID=<your-client-id>
+XCELSIOR_OAUTH_CLIENT_SECRET=<your-client-secret>
 XCELSIOR_HOST_IP=<your-host-ip>`;
 
 

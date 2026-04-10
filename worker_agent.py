@@ -91,6 +91,14 @@ SCHEDULER_URL = os.environ.get("XCELSIOR_SCHEDULER_URL")
 
 # Auth
 API_TOKEN = os.environ.get("XCELSIOR_API_TOKEN", "")
+OAUTH_CLIENT_ID = os.environ.get("XCELSIOR_OAUTH_CLIENT_ID", "")
+OAUTH_CLIENT_SECRET = os.environ.get("XCELSIOR_OAUTH_CLIENT_SECRET", "")
+OAUTH_SCOPE = os.environ.get("XCELSIOR_OAUTH_SCOPE", "api").strip()
+OAUTH_TOKEN_URL = os.environ.get("XCELSIOR_OAUTH_TOKEN_URL", "")
+OAUTH_TOKEN_TIMEOUT_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_TIMEOUT_SEC", "10"))
+OAUTH_TOKEN_REFRESH_SKEW_SEC = int(
+    os.environ.get("XCELSIOR_OAUTH_TOKEN_REFRESH_SKEW_SEC", "60")
+)
 
 # Optional tuning
 COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
@@ -124,6 +132,9 @@ _shutdown = threading.Event()
 _active_containers = {}  # job_id -> container_name
 _adopted_containers = set()  # job_ids of containers adopted from scheduler (don't stop on shutdown)
 _active_lock = threading.Lock()
+_oauth_lock = threading.Lock()
+_oauth_access_token = ""
+_oauth_access_token_expires_at = 0.0
 
 
 def _signal_handler(signum, frame):
@@ -493,10 +504,96 @@ def setup_tailscale():
 # ── Scheduler Communication (Pull-Based) ────────────────────────────
 
 
+def _oauth_client_credentials_enabled():
+    """Return True when the worker is configured for OAuth client_credentials."""
+    return bool(OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET)
+
+
+def _clear_oauth_access_token_cache():
+    """Reset the cached OAuth access token."""
+    global _oauth_access_token, _oauth_access_token_expires_at
+    with _oauth_lock:
+        _oauth_access_token = ""
+        _oauth_access_token_expires_at = 0.0
+
+
+def _oauth_token_endpoint():
+    """Resolve the OAuth token endpoint for client_credentials exchange."""
+    if OAUTH_TOKEN_URL.strip():
+        return OAUTH_TOKEN_URL.strip()
+    return _api_url("/oauth/token")
+
+
+def _oauth_access_token_is_fresh(now=None):
+    """Return True when the cached OAuth access token is still usable."""
+    now = time.time() if now is None else now
+    refresh_skew = max(5, OAUTH_TOKEN_REFRESH_SKEW_SEC)
+    return bool(_oauth_access_token) and (_oauth_access_token_expires_at - now) > refresh_skew
+
+
+def _request_oauth_access_token():
+    """Exchange OAuth client credentials for a short-lived bearer token."""
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": OAUTH_CLIENT_ID,
+        "client_secret": OAUTH_CLIENT_SECRET,
+    }
+    if OAUTH_SCOPE:
+        data["scope"] = OAUTH_SCOPE
+
+    resp = requests.post(
+        _oauth_token_endpoint(),
+        data=data,
+        timeout=OAUTH_TOKEN_TIMEOUT_SEC,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    access_token = str(payload.get("access_token", "")).strip()
+    token_type = str(payload.get("token_type", "Bearer")).strip().lower()
+    try:
+        expires_in = int(payload.get("expires_in", 0) or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if token_type != "bearer":
+        raise RuntimeError("OAuth token endpoint returned a non-bearer token")
+    if not access_token or expires_in <= 0:
+        raise RuntimeError("OAuth token response missing access_token or expires_in")
+    return access_token, time.time() + expires_in
+
+
+def _get_oauth_access_token(force_refresh=False):
+    """Fetch and cache an OAuth access token for worker API calls."""
+    global _oauth_access_token, _oauth_access_token_expires_at
+    if not _oauth_client_credentials_enabled():
+        return ""
+
+    now = time.time()
+    if not force_refresh and _oauth_access_token_is_fresh(now):
+        return _oauth_access_token
+
+    with _oauth_lock:
+        now = time.time()
+        if not force_refresh and _oauth_access_token_is_fresh(now):
+            return _oauth_access_token
+        try:
+            access_token, expires_at = _request_oauth_access_token()
+        except Exception as exc:
+            _oauth_access_token = ""
+            _oauth_access_token_expires_at = 0.0
+            log.warning("OAuth client_credentials token request failed: %s", exc)
+            return ""
+        _oauth_access_token = access_token
+        _oauth_access_token_expires_at = expires_at
+        return access_token
+
+
 def _api_headers():
     """Build standard API headers."""
     headers = {"Content-Type": "application/json"}
-    if API_TOKEN:
+    access_token = _get_oauth_access_token() if _oauth_client_credentials_enabled() else ""
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    elif API_TOKEN:
         headers["Authorization"] = f"Bearer {API_TOKEN}"
     return headers
 
@@ -1654,6 +1751,11 @@ def run_job(job):
             runtime=runtime_name,
             environment=env_vars,
             volumes=volumes,
+            labels={
+                "xcelsior.managed": "true",
+                "xcelsior.job_id": job_id,
+                "xcelsior.container_name": container_name,
+            },
             command=effective_command,
             extra_args=extra_docker_args if extra_docker_args else None,
             interactive=is_interactive,
@@ -2419,6 +2521,11 @@ def validate_config():
 
 def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     """Print startup banner with configuration info."""
+    auth_mode = "none"
+    if _oauth_client_credentials_enabled():
+        auth_mode = f"oauth-client ({OAUTH_CLIENT_ID})"
+    elif API_TOKEN:
+        auth_mode = "api-token"
     log.info("=" * 64)
     log.info("  Xcelsior Worker Agent v%s (pull-based)", VERSION)
     log.info("=" * 64)
@@ -2432,6 +2539,7 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     log.info("  Poll interval:  %ds", POLL_INTERVAL)
     log.info("  Heartbeat:      %ds", HEARTBEAT_INTERVAL)
     log.info("  Runtime:        %s", runtime)
+    log.info("  Auth:           %s", auth_mode)
     log.info("  Admitted:       %s", "YES" if admitted else "NO (limited to heartbeats)")
     log.info("  Tailscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
     log.info("=" * 64)

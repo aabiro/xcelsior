@@ -3,14 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { PasswordRequirements } from "@/components/auth/password-requirements";
 import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
-import { register as apiRegister, oauthInitiate, resendVerification } from "@/lib/api";
+import { beginBrowserOAuthLogin, register as apiRegister, normalizeAuthRedirectPath, oauthInitiate, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import {
@@ -24,8 +24,10 @@ const OAUTH_PROVIDERS = ["github", "google", "huggingface"] as const;
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login } = useAuth();
   const { t } = useLocale();
+  const redirectTarget = normalizeAuthRedirectPath(searchParams.get("redirect"), "/dashboard");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -48,6 +50,15 @@ export default function RegisterPage() {
     { key: "match", label: t("auth.pw_match"), satisfied: matchingPasswords },
   ];
 
+  async function completeBrowserLogin() {
+    try {
+      await beginBrowserOAuthLogin(redirectTarget);
+    } catch {
+      await login();
+      router.replace(redirectTarget);
+    }
+  }
+
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     if (!passwordValidation.isValid || !matchingPasswords) {
@@ -63,8 +74,7 @@ export default function RegisterPage() {
         return;
       }
       // Fallback: if server returns a token directly (e.g. test mode)
-      await login();
-      router.push("/dashboard");
+      await completeBrowserLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -153,14 +163,14 @@ export default function RegisterPage() {
               <Button
                 key={provider}
                 variant="outline"
-                className="h-auto w-full justify-start gap-3 rounded-xl border-border/70 bg-background/40 px-4 py-3.5 hover:bg-surface-hover/70"
+                className="h-auto w-full justify-start gap-3 rounded-xl border-border/70 bg-background/40 px-4 py-2.5 hover:bg-surface-hover/70"
                 onClick={() => handleOAuth(provider)}
               >
                 <ProviderLogo
                   provider={provider}
                   framed
-                  size={40}
-                  className="rounded-xl border-border/60 bg-navy/70 shadow-none"
+                  size={28}
+                  className="rounded-lg border-border/60 bg-navy/70 shadow-none"
                 />
                 <span className="flex-1 text-left">{labels[provider]}</span>
               </Button>

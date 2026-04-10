@@ -21,6 +21,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const TYPE_META: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
+  instance:             { icon: <Cpu className="h-4 w-4" />,            color: "text-blue-400",   label: "Instance" },
+  host:                 { icon: <Server className="h-4 w-4" />,         color: "text-green-400",  label: "Host" },
+  billing:              { icon: <DollarSign className="h-4 w-4" />,     color: "text-yellow-400", label: "Billing" },
+  security:             { icon: <Shield className="h-4 w-4" />,         color: "text-red-400",    label: "Security" },
   job_submitted:        { icon: <Cpu className="h-4 w-4" />,            color: "text-blue-400",   label: "Job Submitted" },
   job_completed:        { icon: <Cpu className="h-4 w-4" />,            color: "text-green-400",  label: "Job Completed" },
   job_failed:           { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-red-400",    label: "Job Failed" },
@@ -49,6 +53,7 @@ function formatTimestamp(epoch: number): string {
 }
 
 function notificationHref(n: Notification): string | null {
+  if (n.action_url) return n.action_url;
   const data = n.data ?? {};
   if (data.job_id) return `/dashboard/instances/${data.job_id}`;
   if (data.host_id) return `/dashboard/hosts/${data.host_id}`;

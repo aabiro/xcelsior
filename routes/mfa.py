@@ -15,16 +15,17 @@ from routes._deps import (
     SESSION_EXPIRY,
     XCELSIOR_ENV,
     _check_auth_rate_limit,
-    _create_session,
-    _get_current_user,
+    _get_current_user as _deps_get_current_user,
     _is_platform_admin,
-    _set_auth_cookie,
+    _require_user_grant as _deps_require_user_grant,
+    _set_session_cookies,
     log,
 )
 from scheduler import (
     log,
 )
 from db import MfaStore, UserStore
+from oauth_service import issue_user_tokens
 import base64 as _b64
 
 router = APIRouter()
@@ -32,6 +33,14 @@ router = APIRouter()
 # WebAuthn configuration
 _WEBAUTHN_RP_ID = os.environ.get("XCELSIOR_WEBAUTHN_RP_ID", "xcelsior.ca")
 _WEBAUTHN_RP_NAME = "Xcelsior"
+
+
+def _get_current_user(request: Request) -> dict | None:
+    """Wrapper that rejects machine/API-key principals for MFA routes.
+
+    MFA management is inherently an interactive-user operation.
+    """
+    return _deps_require_user_grant(request)
 
 
 # ── Helper: _verify_totp_code ──
@@ -80,12 +89,12 @@ def _complete_mfa_login(email: str, challenge_id: str, request: Request | None =
     if not user:
         raise HTTPException(400, "User not found")
 
-    session = _create_session(email, user, request)
+    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
     body = {
         "ok": True,
-        "access_token": session["token"],
+        "access_token": token_bundle["access_token"],
         "token_type": "Bearer",
-        "expires_in": SESSION_EXPIRY,
+        "expires_in": token_bundle.get("expires_in", SESSION_EXPIRY),
         "user": {
             "user_id": user["user_id"],
             "email": email,
@@ -97,7 +106,7 @@ def _complete_mfa_login(email: str, challenge_id: str, request: Request | None =
         },
     }
     resp = JSONResponse(content=body)
-    _set_auth_cookie(resp, session["token"])
+    _set_session_cookies(resp, token_bundle)
     return resp
 
 
@@ -804,4 +813,3 @@ def api_mfa_disable_all(request: Request):
 
     UserStore.update_user(user["email"], {"mfa_enabled": 0})
     return {"ok": True, "message": "All MFA methods disabled"}
-

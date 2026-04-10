@@ -740,6 +740,80 @@ class PgEventBus:
 
 # Legacy compat — kept for tests that monkeypatch this value
 AUTH_DB_FILE = os.environ.get("XCELSIOR_AUTH_DB_PATH", "data/auth.db")
+_auth_schema_lock = threading.Lock()
+_auth_schema_ensured = False
+
+
+def _ensure_oauth_auth_tables(conn) -> None:
+    """Ensure incremental OAuth auth tables/columns exist."""
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS oauth_clients (
+            client_id TEXT PRIMARY KEY,
+            client_name TEXT NOT NULL,
+            client_type TEXT NOT NULL,
+            redirect_uris JSONB NOT NULL DEFAULT '[]'::jsonb,
+            grant_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+            scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+            client_secret_hash TEXT,
+            client_secret_salt TEXT,
+            created_by_email TEXT,
+            is_first_party INTEGER NOT NULL DEFAULT 0,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+            token_id TEXT PRIMARY KEY,
+            token_hash TEXT NOT NULL UNIQUE,
+            family_id TEXT NOT NULL,
+            parent_token_id TEXT,
+            session_token TEXT UNIQUE,
+            client_id TEXT NOT NULL,
+            email TEXT,
+            user_id TEXT,
+            session_type TEXT NOT NULL DEFAULT 'browser',
+            scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+            created_at DOUBLE PRECISION NOT NULL,
+            expires_at DOUBLE PRECISION NOT NULL,
+            consumed_at DOUBLE PRECISION,
+            revoked_at DOUBLE PRECISION,
+            replaced_by_token_id TEXT,
+            reuse_detected_at DOUBLE PRECISION
+        )
+        """
+    )
+    cur.execute(
+        "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_type TEXT NOT NULL DEFAULT 'legacy'"
+    )
+    cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_id TEXT")
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner ON oauth_clients (created_by_email)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_tokens (family_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_email ON oauth_refresh_tokens (email)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_session ON oauth_refresh_tokens (session_token)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires ON oauth_refresh_tokens (expires_at)"
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_session_type ON sessions (session_type)")
+
+
+def _ensure_auth_schema(conn) -> None:
+    global _auth_schema_ensured
+    if _auth_schema_ensured:
+        return
+    with _auth_schema_lock:
+        if _auth_schema_ensured:
+            return
+        _ensure_oauth_auth_tables(conn)
+        _auth_schema_ensured = True
 
 
 @contextmanager
@@ -750,6 +824,7 @@ def auth_connection():
     with pool.connection() as conn:
         conn.row_factory = dict_row
         try:
+            _ensure_auth_schema(conn)
             yield conn
             conn.commit()
         except Exception:
@@ -850,6 +925,8 @@ class UserStore:
             conn.execute("DELETE FROM users WHERE email = %s", (email,))
             conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
             conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE email = %s", (email,))
+            conn.execute("DELETE FROM web_push_subscriptions WHERE user_email = %s", (email,))
 
     @staticmethod
     def user_exists(email: str) -> bool:
@@ -873,8 +950,11 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO sessions (token, email, user_id, role, is_admin, name, created_at, expires_at, ip_address, user_agent, last_active)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sessions (
+                    token, email, user_id, role, is_admin, name, created_at, expires_at,
+                    ip_address, user_agent, last_active, session_type, client_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     session["token"],
@@ -888,6 +968,8 @@ class UserStore:
                     session.get("ip_address"),
                     session.get("user_agent"),
                     session.get("last_active", session.get("created_at", time.time())),
+                    session.get("session_type", "legacy"),
+                    session.get("client_id"),
                 ),
             )
 
@@ -904,30 +986,33 @@ class UserStore:
     def delete_session(token: str) -> None:
         with auth_connection() as conn:
             conn.execute("DELETE FROM sessions WHERE token = %s", (token,))
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE session_token = %s", (token,))
 
     @staticmethod
     def delete_user_sessions(email: str) -> None:
         with auth_connection() as conn:
             conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE email = %s", (email,))
 
     @staticmethod
     def cleanup_expired_sessions() -> int:
         now = time.time()
-        max_lifetime = 86400 * 7  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
+        max_lifetime = 86400 * 30  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
         with auth_connection() as conn:
             cursor = conn.execute(
                 "DELETE FROM sessions WHERE expires_at < %s OR created_at < %s",
                 (now, now - max_lifetime),
             )
+            conn.execute("DELETE FROM oauth_refresh_tokens WHERE expires_at < %s", (now,))
             return cursor.rowcount
 
     @staticmethod
     def list_user_sessions(email: str) -> list[dict]:
         now = time.time()
-        max_lifetime = 86400 * 7  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
+        max_lifetime = 86400 * 30  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
         with auth_connection() as conn:
             rows = conn.execute(
-                "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active "
+                "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active, session_type, client_id "
                 "FROM sessions WHERE email = %s AND expires_at > %s AND created_at > %s ORDER BY last_active DESC",
                 (email, now, now - max_lifetime),
             ).fetchall()
@@ -939,6 +1024,35 @@ class UserStore:
             conn.execute(
                 "UPDATE sessions SET last_active = %s WHERE token = %s",
                 (time.time(), token),
+            )
+
+    @staticmethod
+    def rotate_session_token(old_token: str, new_session: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE token = %s", (old_token,))
+            conn.execute(
+                """
+                INSERT INTO sessions (
+                    token, email, user_id, role, is_admin, name, created_at, expires_at,
+                    ip_address, user_agent, last_active, session_type, client_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    new_session["token"],
+                    new_session["email"],
+                    new_session["user_id"],
+                    new_session.get("role", "submitter"),
+                    int(new_session.get("is_admin", 0)),
+                    new_session.get("name", ""),
+                    new_session.get("created_at", time.time()),
+                    new_session["expires_at"],
+                    new_session.get("ip_address"),
+                    new_session.get("user_agent"),
+                    new_session.get("last_active", time.time()),
+                    new_session.get("session_type", "legacy"),
+                    new_session.get("client_id"),
+                ),
             )
 
     # ── API Keys ──
@@ -1154,18 +1268,77 @@ class NotificationStore:
     """Per-user in-app notification storage backed by PostgreSQL."""
 
     @staticmethod
-    def create(user_email: str, notif_type: str, title: str, body: str = "",
-               data: dict | None = None) -> str:
+    def create(
+        user_email: str,
+        notif_type: str,
+        title: str,
+        body: str = "",
+        data: dict | None = None,
+        *,
+        action_url: str = "",
+        entity_type: str = "",
+        entity_id: str = "",
+        priority: int = 0,
+    ) -> str:
         from psycopg.types.json import Jsonb
         import uuid as _uuid
+
         nid = f"notif-{_uuid.uuid4().hex[:12]}"
+        payload = dict(data or {})
         with auth_connection() as conn:
             conn.execute(
-                "INSERT INTO notifications (id, user_email, type, title, body, data, read, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, 0, %s)",
-                (nid, user_email, notif_type, title, body,
-                 Jsonb(data or {}), time.time()),
+                """
+                INSERT INTO notifications (
+                    id,
+                    user_email,
+                    type,
+                    title,
+                    body,
+                    data,
+                    read,
+                    created_at,
+                    action_url,
+                    entity_type,
+                    entity_id,
+                    priority
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, %s)
+                """,
+                (
+                    nid,
+                    user_email,
+                    notif_type,
+                    title,
+                    body,
+                    Jsonb(payload),
+                    time.time(),
+                    action_url,
+                    entity_type,
+                    entity_id,
+                    priority,
+                ),
             )
+
+        try:
+            from web_push import deliver_web_push_notification
+
+            deliver_web_push_notification(
+                user_email,
+                {
+                    "id": nid,
+                    "type": notif_type,
+                    "title": title,
+                    "body": body,
+                    "data": payload,
+                    "action_url": action_url,
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "priority": priority,
+                },
+            )
+        except Exception as exc:
+            log.debug("Web push delivery error for %s: %s", user_email, exc)
+
         return nid
 
     @staticmethod
@@ -1189,6 +1362,12 @@ class NotificationStore:
                 (user_email,),
             ).fetchone()
             return row["c"] if row else 0
+
+    @staticmethod
+    def total_count() -> int:
+        with auth_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) as c FROM notifications").fetchone()
+            return int(row["c"]) if row else 0
 
     @staticmethod
     def mark_read(notification_id: str, user_email: str) -> bool:
@@ -1223,6 +1402,166 @@ class NotificationStore:
                 (notification_id, user_email),
             )
             return cur.rowcount > 0
+
+
+class WebPushSubscriptionStore:
+    """Stores active web push subscriptions for authenticated users."""
+
+    @staticmethod
+    def upsert(
+        user_email: str,
+        endpoint: str,
+        p256dh: str,
+        auth: str,
+        *,
+        user_agent: str = "",
+    ) -> str:
+        import uuid as _uuid
+
+        subscription_id = f"wps-{_uuid.uuid4().hex[:12]}"
+        now = time.time()
+
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO web_push_subscriptions (
+                    id,
+                    user_email,
+                    endpoint,
+                    p256dh,
+                    auth,
+                    user_agent,
+                    created_at,
+                    last_used_at,
+                    revoked_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                ON CONFLICT (endpoint) DO UPDATE
+                SET user_email = EXCLUDED.user_email,
+                    p256dh = EXCLUDED.p256dh,
+                    auth = EXCLUDED.auth,
+                    user_agent = EXCLUDED.user_agent,
+                    last_used_at = EXCLUDED.last_used_at,
+                    revoked_at = NULL
+                RETURNING id
+                """,
+                (subscription_id, user_email, endpoint, p256dh, auth, user_agent, now, now),
+            ).fetchone()
+            return row["id"] if row else subscription_id
+
+    @staticmethod
+    def list_active_for_user(user_email: str) -> list[dict]:
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM web_push_subscriptions
+                WHERE user_email = %s AND revoked_at IS NULL
+                ORDER BY last_used_at DESC, created_at DESC
+                """,
+                (user_email,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def count_active_for_user(user_email: str) -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE user_email = %s AND revoked_at IS NULL
+                """,
+                (user_email,),
+            ).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def count_active() -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE revoked_at IS NULL
+                """
+            ).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def count_revoked() -> int:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE revoked_at IS NOT NULL
+                """
+            ).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def count_stale_active(max_age_days: int = 30) -> int:
+        cutoff = time.time() - max(max_age_days, 1) * 86400
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM web_push_subscriptions
+                WHERE revoked_at IS NULL
+                  AND last_used_at < %s
+                """,
+                (cutoff,),
+            ).fetchone()
+            return int(row["count"]) if row else 0
+
+    @staticmethod
+    def revoke(user_email: str, endpoint: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE web_push_subscriptions
+                SET revoked_at = %s
+                WHERE user_email = %s AND endpoint = %s AND revoked_at IS NULL
+                """,
+                (time.time(), user_email, endpoint),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_revoked_older_than(days: int = 30) -> int:
+        cutoff = time.time() - max(days, 1) * 86400
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM web_push_subscriptions
+                WHERE revoked_at IS NOT NULL
+                  AND revoked_at < %s
+                """,
+                (cutoff,),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def revoke_endpoint(endpoint: str) -> bool:
+        with auth_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE web_push_subscriptions
+                SET revoked_at = %s
+                WHERE endpoint = %s AND revoked_at IS NULL
+                """,
+                (time.time(), endpoint),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def touch(endpoint: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE web_push_subscriptions SET last_used_at = %s WHERE endpoint = %s",
+                (time.time(), endpoint),
+            )
 
 
 # Global event bus instance
@@ -1463,3 +1802,182 @@ class MfaStore:
     def cleanup_expired_challenges() -> None:
         with auth_connection() as conn:
             conn.execute("DELETE FROM mfa_challenges WHERE expires_at < %s", (time.time(),))
+
+
+class OAuthStore:
+    """Persistent OAuth clients and refresh-token rotation state."""
+
+    @staticmethod
+    def create_client(client: dict) -> None:
+        from psycopg.types.json import Jsonb
+
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_clients (
+                    client_id,
+                    client_name,
+                    client_type,
+                    redirect_uris,
+                    grant_types,
+                    scopes,
+                    client_secret_hash,
+                    client_secret_salt,
+                    created_by_email,
+                    is_first_party,
+                    created_at,
+                    updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (client_id) DO UPDATE SET
+                    client_name = EXCLUDED.client_name,
+                    client_type = EXCLUDED.client_type,
+                    redirect_uris = EXCLUDED.redirect_uris,
+                    grant_types = EXCLUDED.grant_types,
+                    scopes = EXCLUDED.scopes,
+                    client_secret_hash = EXCLUDED.client_secret_hash,
+                    client_secret_salt = EXCLUDED.client_secret_salt,
+                    created_by_email = EXCLUDED.created_by_email,
+                    is_first_party = EXCLUDED.is_first_party,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (
+                    client["client_id"],
+                    client["client_name"],
+                    client["client_type"],
+                    Jsonb(list(client.get("redirect_uris") or [])),
+                    Jsonb(list(client.get("grant_types") or [])),
+                    Jsonb(list(client.get("scopes") or [])),
+                    client.get("client_secret_hash"),
+                    client.get("client_secret_salt"),
+                    client.get("created_by_email"),
+                    int(client.get("is_first_party", 0)),
+                    client.get("created_at", time.time()),
+                    client.get("updated_at", time.time()),
+                ),
+            )
+
+    @staticmethod
+    def get_client(client_id: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM oauth_clients WHERE client_id = %s",
+                (client_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def list_clients(created_by_email: str | None = None) -> list[dict]:
+        with auth_connection() as conn:
+            if created_by_email:
+                rows = conn.execute(
+                    "SELECT * FROM oauth_clients WHERE created_by_email = %s OR is_first_party = 1 ORDER BY created_at DESC",
+                    (created_by_email,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM oauth_clients ORDER BY created_at DESC"
+                ).fetchall()
+            return [dict(row) for row in rows]
+
+    @staticmethod
+    def delete_client(client_id: str, created_by_email: str | None = None) -> bool:
+        with auth_connection() as conn:
+            if created_by_email:
+                cur = conn.execute(
+                    "DELETE FROM oauth_clients WHERE client_id = %s AND created_by_email = %s AND is_first_party = 0",
+                    (client_id, created_by_email),
+                )
+            else:
+                cur = conn.execute("DELETE FROM oauth_clients WHERE client_id = %s", (client_id,))
+            return cur.rowcount > 0
+
+    @staticmethod
+    def create_refresh_token(token_data: dict) -> None:
+        from psycopg.types.json import Jsonb
+
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_refresh_tokens (
+                    token_id,
+                    token_hash,
+                    family_id,
+                    parent_token_id,
+                    session_token,
+                    client_id,
+                    email,
+                    user_id,
+                    session_type,
+                    scopes,
+                    created_at,
+                    expires_at,
+                    consumed_at,
+                    revoked_at,
+                    replaced_by_token_id,
+                    reuse_detected_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    token_data["token_id"],
+                    token_data["token_hash"],
+                    token_data["family_id"],
+                    token_data.get("parent_token_id"),
+                    token_data.get("session_token"),
+                    token_data["client_id"],
+                    token_data.get("email"),
+                    token_data.get("user_id"),
+                    token_data.get("session_type", "browser"),
+                    Jsonb(list(token_data.get("scopes") or [])),
+                    token_data.get("created_at", time.time()),
+                    token_data["expires_at"],
+                    token_data.get("consumed_at"),
+                    token_data.get("revoked_at"),
+                    token_data.get("replaced_by_token_id"),
+                    token_data.get("reuse_detected_at"),
+                ),
+            )
+
+    @staticmethod
+    def get_refresh_token(token_hash: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM oauth_refresh_tokens WHERE token_hash = %s",
+                (token_hash,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def mark_refresh_token_rotated(token_id: str, replaced_by_token_id: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_refresh_tokens
+                SET consumed_at = %s, replaced_by_token_id = %s
+                WHERE token_id = %s
+                """,
+                (time.time(), replaced_by_token_id, token_id),
+            )
+
+    @staticmethod
+    def revoke_refresh_family(family_id: str, *, reuse_detected: bool = False) -> None:
+        now = time.time()
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                UPDATE oauth_refresh_tokens
+                SET revoked_at = COALESCE(revoked_at, %s),
+                    reuse_detected_at = CASE WHEN %s THEN COALESCE(reuse_detected_at, %s) ELSE reuse_detected_at END
+                WHERE family_id = %s
+                """,
+                (now, reuse_detected, now, family_id),
+            )
+
+    @staticmethod
+    def delete_refresh_token_by_session(session_token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                "DELETE FROM oauth_refresh_tokens WHERE session_token = %s",
+                (session_token,),
+            )

@@ -33,6 +33,7 @@ from db import UserStore, auth_connection
 def isolated_auth_db(tmp_path, monkeypatch):
     """Clean auth-related tables before each test for isolation."""
     import api as api_mod
+    from oauth_service import reset_auth_cache_for_tests
     monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
     # Patch _USE_PERSISTENT_AUTH in all modules that import it
     import routes._deps as _deps_mod
@@ -45,6 +46,8 @@ def isolated_auth_db(tmp_path, monkeypatch):
     from db import _get_pg_pool
     pool = _get_pg_pool()
     with pool.connection() as conn:
+        conn.execute("DELETE FROM oauth_refresh_tokens")
+        conn.execute("DELETE FROM oauth_clients")
         conn.execute("DELETE FROM team_members")
         conn.execute("DELETE FROM api_keys")
         conn.execute("DELETE FROM sessions")
@@ -52,6 +55,7 @@ def isolated_auth_db(tmp_path, monkeypatch):
         conn.execute("DELETE FROM teams")
         conn.execute("DELETE FROM notifications")
         conn.commit()
+    reset_auth_cache_for_tests()
     yield
 
 
@@ -654,9 +658,12 @@ class TestPersistentAuthEndpoints:
         assert r.status_code == 200
         d = r.json()
         assert "access_token" in d
-        # Session should be in persistent store
-        sess = UserStore.get_session(d["access_token"])
+        refresh_token = r.cookies.get("xcelsior_refresh")
+        assert refresh_token
+        # The persistent session store now tracks the rotating refresh session.
+        sess = UserStore.get_session(refresh_token)
         assert sess is not None
+        assert sess["session_type"] == "browser"
 
     def test_me_endpoint_uses_persistent_auth(self, client):
         client.post(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Instance } from "@/lib/api";
+import { ApiError, createInstanceStreamTicket, type Instance } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -34,6 +34,7 @@ export interface InstanceWebSocketState {
 const MAX_RETRIES = 20;
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30_000;
+const NON_RETRYABLE_WS_CLOSE_CODES = new Set([1000, 1008, 4001, 4003, 4004, 4429]);
 
 export function useInstanceWebSocket(
   jobId: string | undefined,
@@ -54,25 +55,63 @@ export function useInstanceWebSocket(
 
   useEffect(() => {
     if (!enabled || !jobId) return;
+    const streamJobId = jobId;
 
     let ws: WebSocket | null = null;
     let retries = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let unmounted = false;
 
-    function getUrl(): string {
+    function getUrl(ticket: string): string {
       // Allow explicit override for local dev (e.g. NEXT_PUBLIC_WS_URL=ws://localhost:9500)
       const override = process.env.NEXT_PUBLIC_WS_URL;
       if (override) {
-        return `${override.replace(/\/$/, "")}/ws/instances/${encodeURIComponent(jobId!)}`;
+        return `${override.replace(/\/$/, "")}/ws/instances/${encodeURIComponent(streamJobId)}?ticket=${encodeURIComponent(ticket)}`;
       }
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      return `${proto}//${window.location.host}/ws/instances/${encodeURIComponent(jobId!)}`;
+      return `${proto}//${window.location.host}/ws/instances/${encodeURIComponent(streamJobId)}?ticket=${encodeURIComponent(ticket)}`;
     }
 
-    function connect() {
+    function scheduleReconnect(message?: string) {
+      if (retries < MAX_RETRIES) {
+        const delay = Math.min(BASE_DELAY_MS * 2 ** retries, MAX_DELAY_MS);
+        retries++;
+        setState((s) => ({
+          ...s,
+          connected: false,
+          reconnecting: true,
+          error: message ?? s.error,
+        }));
+        timer = setTimeout(() => {
+          void connect();
+        }, delay);
+      } else {
+        setState({
+          connected: false,
+          reconnecting: false,
+          error: message || "Max reconnection attempts reached",
+        });
+      }
+    }
+
+    async function connect() {
       if (unmounted) return;
-      ws = new WebSocket(getUrl());
+      let ticketResp: { ok: boolean; ticket: string; expires_in: number };
+      try {
+        ticketResp = await createInstanceStreamTicket(streamJobId);
+      } catch (err) {
+        if (unmounted) return;
+        const message = err instanceof Error ? err.message : "Failed to open instance stream";
+        if (err instanceof ApiError && [401, 403, 404].includes(err.status)) {
+          setState({ connected: false, reconnecting: false, error: message });
+          return;
+        }
+        scheduleReconnect(message);
+        return;
+      }
+      if (unmounted) return;
+
+      ws = new WebSocket(getUrl(ticketResp.ticket));
 
       ws.onopen = () => {
         if (unmounted) return;
@@ -121,20 +160,15 @@ export function useInstanceWebSocket(
         setState((s) => ({ ...s, connected: false }));
         ws = null;
 
-        // Auth rejection or clean close — don't reconnect
-        if (e.code === 4001 || e.code === 4004 || e.code === 1000) {
-          setState((s) => ({ ...s, reconnecting: false }));
+        if (NON_RETRYABLE_WS_CLOSE_CODES.has(e.code)) {
+          setState((s) => ({
+            ...s,
+            reconnecting: false,
+            error: e.code === 1000 ? s.error : e.reason || s.error,
+          }));
           return;
         }
-
-        if (retries < MAX_RETRIES) {
-          const delay = Math.min(BASE_DELAY_MS * 2 ** retries, MAX_DELAY_MS);
-          retries++;
-          setState((s) => ({ ...s, reconnecting: true }));
-          timer = setTimeout(connect, delay);
-        } else {
-          setState({ connected: false, reconnecting: false, error: "Max reconnection attempts reached" });
-        }
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
@@ -145,7 +179,7 @@ export function useInstanceWebSocket(
       };
     }
 
-    connect();
+    void connect();
 
     return () => {
       unmounted = true;

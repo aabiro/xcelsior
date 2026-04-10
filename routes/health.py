@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -129,7 +129,7 @@ class DeviceTokenRequest(BaseModel):
     device_code: str
     grant_type: str = "urn:ietf:params:oauth:grant-type:device_code"
 
-@router.post("/api/auth/device", tags=["Infrastructure"])
+@router.post("/_internal/legacy-auth/device", tags=["Infrastructure"])
 def api_auth_device_code(request: Request):
     """Initiate OAuth2 device authorization flow (RFC 8628).
 
@@ -171,7 +171,7 @@ def api_auth_device_code(request: Request):
         verification_uri=verification_uri,
     )
 
-@router.post("/api/auth/token", tags=["Infrastructure"])
+@router.post("/_internal/legacy-auth/token", tags=["Infrastructure"])
 def api_auth_device_token(body: DeviceTokenRequest):
     """Poll for device authorization result (RFC 8628 §3.4).
 
@@ -213,7 +213,7 @@ def api_auth_device_token(body: DeviceTokenRequest):
 class DeviceVerifyRequest(BaseModel):
     user_code: str
 
-@router.post("/api/auth/verify", tags=["Infrastructure"])
+@router.post("/_internal/legacy-auth/verify", tags=["Infrastructure"])
 def api_auth_verify_device(body: DeviceVerifyRequest, request: Request):
     """Verify a device code by entering the user_code shown in the CLI.
 
@@ -253,7 +253,7 @@ def api_auth_verify_device(body: DeviceVerifyRequest, request: Request):
 
     raise HTTPException(status_code=404, detail="Invalid or expired user code")
 
-@router.get("/api/auth/verify", response_class=HTMLResponse, tags=["Infrastructure"])
+@router.get("/_internal/legacy-auth/verify", response_class=HTMLResponse, tags=["Infrastructure"])
 def api_auth_verify_page():
     """Browser-facing page where users enter their device code."""
     return HTMLResponse("""<!DOCTYPE html>
@@ -360,8 +360,8 @@ def _require_provider_or_admin(request: Request) -> dict:
 # ── Model: SlurmSubmitIn ──
 
 class SlurmSubmitIn(BaseModel):
-    name: str
-    vram_needed_gb: float = 0
+    name: str = Field(min_length=1, max_length=128)
+    vram_needed_gb: float = Field(gt=0)
     priority: int = 0
     tier: str | None = None
     num_gpus: int = 1
@@ -600,6 +600,50 @@ def metrics_prometheus():
         f'xcelsior_billing_records_total {snap.get("billing_totals", {}).get("records", 0)}',
     ]
 
+    notifications = snap.get("notifications", {})
+    lines.extend([
+        "",
+        "# HELP xcelsior_notifications_retained_total Total retained in-app notifications",
+        "# TYPE xcelsior_notifications_retained_total gauge",
+        f'xcelsior_notifications_retained_total {notifications.get("retained_total", 0)}',
+    ])
+
+    web_push = snap.get("web_push", {})
+    lines.extend([
+        "",
+        "# HELP xcelsior_web_push_configured Whether web push is configured for this API instance",
+        "# TYPE xcelsior_web_push_configured gauge",
+        f'xcelsior_web_push_configured {web_push.get("configured", 0)}',
+        "",
+        "# HELP xcelsior_web_push_active_subscriptions Active web push subscriptions",
+        "# TYPE xcelsior_web_push_active_subscriptions gauge",
+        f'xcelsior_web_push_active_subscriptions {web_push.get("active_subscriptions", 0)}',
+        "",
+        "# HELP xcelsior_web_push_revoked_subscriptions Revoked web push subscriptions awaiting cleanup",
+        "# TYPE xcelsior_web_push_revoked_subscriptions gauge",
+        f'xcelsior_web_push_revoked_subscriptions {web_push.get("revoked_subscriptions", 0)}',
+        "",
+        "# HELP xcelsior_web_push_stale_subscriptions Active subscriptions not touched within the stale window",
+        "# TYPE xcelsior_web_push_stale_subscriptions gauge",
+        f'xcelsior_web_push_stale_subscriptions {web_push.get("stale_subscriptions", 0)}',
+        "",
+        "# HELP xcelsior_web_push_delivery_attempts_total Web push delivery attempts",
+        "# TYPE xcelsior_web_push_delivery_attempts_total counter",
+        f'xcelsior_web_push_delivery_attempts_total {web_push.get("delivery_attempts_total", 0)}',
+        "",
+        "# HELP xcelsior_web_push_delivery_success_total Successful web push deliveries",
+        "# TYPE xcelsior_web_push_delivery_success_total counter",
+        f'xcelsior_web_push_delivery_success_total {web_push.get("delivery_success_total", 0)}',
+        "",
+        "# HELP xcelsior_web_push_delivery_failure_total Failed web push deliveries",
+        "# TYPE xcelsior_web_push_delivery_failure_total counter",
+        f'xcelsior_web_push_delivery_failure_total {web_push.get("delivery_failure_total", 0)}',
+        "",
+        "# HELP xcelsior_web_push_delivery_revoked_total Deliveries that revoked stale endpoints",
+        "# TYPE xcelsior_web_push_delivery_revoked_total counter",
+        f'xcelsior_web_push_delivery_revoked_total {web_push.get("delivery_revoked_total", 0)}',
+    ])
+
     # GPU telemetry if available
     try:
         from nvml_telemetry import get_all_gpu_stats
@@ -797,4 +841,3 @@ def api_slurm_list_instances(request: Request):
     for xcelsior_id, slurm_id in job_map.items():
         jobs.append({"job_id": xcelsior_id, "slurm_job_id": slurm_id})
     return {"ok": True, "jobs": jobs}
-

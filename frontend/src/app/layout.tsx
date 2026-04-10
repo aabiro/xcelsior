@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Toaster } from "sonner";
 import { Providers } from "./providers";
+import { DesktopAppRuntime } from "@/components/DesktopAppRuntime";
 import { InstallBanner } from "@/components/InstallBanner";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import "./globals.css";
@@ -24,6 +25,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  applicationName: "Xcelsior",
   title: {
     default: "Xcelsior — Sovereign GPU Compute for Canada",
     template: "%s | Xcelsior",
@@ -74,6 +76,11 @@ export const metadata: Metadata = {
     title: "Xcelsior — Sovereign GPU Compute for Canada",
     description: "Canada-first GPU compute marketplace. Ever upward.",
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Xcelsior",
+  },
   robots: { index: true, follow: true },
   verification: {
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
@@ -84,6 +91,7 @@ export const metadata: Metadata = {
       { url: "/xcelsior_icon_180x180.png", sizes: "180x180", type: "image/png" },
     ],
   },
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({
@@ -145,6 +153,7 @@ export default function RootLayout({
       >
         <Providers>
           {children}
+          <DesktopAppRuntime />
           <InstallBanner />
           <ServiceWorkerRegistrar />
         </Providers>

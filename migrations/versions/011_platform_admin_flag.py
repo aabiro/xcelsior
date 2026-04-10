@@ -19,18 +19,28 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("is_admin", sa.Integer(), nullable=False, server_default="0"),
-    )
-    op.add_column(
-        "sessions",
-        sa.Column("is_admin", sa.Integer(), nullable=False, server_default="0"),
-    )
-    op.add_column(
-        "api_keys",
-        sa.Column("is_admin", sa.Integer(), nullable=False, server_default="0"),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+    api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
+
+    if "is_admin" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("is_admin", sa.Integer(), nullable=False, server_default="0"),
+        )
+    if "is_admin" not in session_columns:
+        op.add_column(
+            "sessions",
+            sa.Column("is_admin", sa.Integer(), nullable=False, server_default="0"),
+        )
+    if "is_admin" not in api_key_columns:
+        op.add_column(
+            "api_keys",
+            sa.Column("is_admin", sa.Integer(), nullable=False, server_default="0"),
+        )
 
     # Preserve any legacy accounts that used role='admin' for platform access.
     op.execute("UPDATE users SET is_admin = 1 WHERE LOWER(role) = 'admin'")

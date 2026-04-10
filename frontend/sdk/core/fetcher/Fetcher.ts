@@ -85,13 +85,22 @@ const SENSITIVE_HEADERS = new Set([
 
 function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
     const filtered: Record<string, string> = {};
-    for (const [key, value] of headers instanceof Headers ? headers.entries() : Object.entries(headers)) {
+
+    if (headers instanceof Headers) {
+        headers.forEach((value, key) => {
+            filtered[key] = SENSITIVE_HEADERS.has(key.toLowerCase()) ? "[REDACTED]" : value;
+        });
+        return filtered;
+    }
+
+    for (const [key, value] of Object.entries(headers)) {
         if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
             filtered[key] = "[REDACTED]";
         } else {
             filtered[key] = value;
         }
     }
+
     return filtered;
 }
 
@@ -310,7 +319,7 @@ export async function fetcherImpl<R = unknown>(args: Fetcher.Args): Promise<APIR
                     method: args.method,
                     url: redactUrl(url),
                     statusCode: response.status,
-                    responseHeaders: redactHeaders(Object.fromEntries(response.headers.entries())),
+                    responseHeaders: redactHeaders(response.headers),
                 };
                 logger.error("HTTP request failed with error status", metadata);
             }

@@ -16,21 +16,21 @@ describe("Badge", () => {
 
 describe("StatusBadge", () => {
   it.each([
-    ["active", "active"],
-    ["dead", "dead"],
-    ["draining", "draining"],
-    ["queued", "queued"],
-    ["running", "running"],
-    ["completed", "completed"],
-    ["failed", "failed"],
-    ["cancelled", "cancelled"],
-  ])("renders status '%s'", (status) => {
+    ["active", "Active"],
+    ["dead", "Dead"],
+    ["draining", "Draining"],
+    ["queued", "Queued"],
+    ["running", "Running"],
+    ["completed", "Completed"],
+    ["failed", "Failed"],
+    ["cancelled", "Cancelled"],
+  ])("renders status '%s'", (status, label) => {
     render(<StatusBadge status={status} />);
-    expect(screen.getByText(status)).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 
   it("falls back to default for unknown status", () => {
     render(<StatusBadge status="unknown_status" />);
-    expect(screen.getByText("unknown_status")).toBeInTheDocument();
+    expect(screen.getByText("Unknown_status")).toBeInTheDocument();
   });
 });

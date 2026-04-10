@@ -36,6 +36,7 @@ from routes._deps import (
     _RATE_BUCKETS,
     _USE_PERSISTENT_AUTH,
     _api_keys,
+    _get_current_user,
     _get_real_client_ip,
     _sessions,
     _user_lock,
@@ -270,7 +271,35 @@ def _start_background_tasks():
             log.error("Job log cleanup error: %s", e)
     tasks.append(("job_log_cleanup", _job_log_cleanup, 86400))
 
-    # 12. Lightning Network deposit watcher — runs its own thread (every 5s)
+    # 12. Notification + push retention cleanup (every 6 hours)
+    def _notification_cleanup():
+        try:
+            from db import NotificationStore, WebPushSubscriptionStore
+
+            notification_retention_days = max(
+                int(os.environ.get("XCELSIOR_NOTIFICATION_RETENTION_DAYS", "30")),
+                1,
+            )
+            revoked_retention_days = max(
+                int(os.environ.get("XCELSIOR_WEB_PUSH_REVOKED_RETENTION_DAYS", "30")),
+                1,
+            )
+
+            deleted_notifications = NotificationStore.delete_old(notification_retention_days)
+            deleted_revoked_subscriptions = WebPushSubscriptionStore.delete_revoked_older_than(
+                revoked_retention_days,
+            )
+            if deleted_notifications or deleted_revoked_subscriptions:
+                log.info(
+                    "Notification cleanup: purged %d notifications and %d revoked push subscriptions",
+                    deleted_notifications,
+                    deleted_revoked_subscriptions,
+                )
+        except Exception as e:
+            log.error("Notification cleanup error: %s", e)
+    tasks.append(("notification_cleanup", _notification_cleanup, 21600))
+
+    # 13. Lightning Network deposit watcher — runs its own thread (every 5s)
     try:
         import lightning as _ln
         if _ln.LN_ENABLED:
@@ -502,38 +531,33 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in PUBLIC_PATHS or request.url.path.startswith(PUBLIC_PATH_PREFIXES):
             return await call_next(request)
 
+        user = _get_current_user(request)
+        if user:
+            request.state.user_id = user.get("user_id", "")
+            request.state.customer_id = user.get("customer_id", user.get("user_id", ""))
+            request.state.auth_type = user.get("auth_type", "")
+            response = await call_next(request)
+            if user.get("auth_type") == "api_key":
+                log.info(
+                    "auth.api_key.deprecated path=%s email=%s method=%s",
+                    request.url.path,
+                    user.get("email", ""),
+                    request.method,
+                )
+                for key, value in (user.get("deprecation_headers") or {}).items():
+                    response.headers[key] = value
+            return response
+
         auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-        else:
-            token = request.query_params.get("token", "")
+        token = auth[7:] if auth.startswith("Bearer ") else ""
         if not token:
             token = request.cookies.get(_AUTH_COOKIE_NAME, "")
 
         if not token or not hmac.compare_digest(token, api_token):
-            if token:
-                if _USE_PERSISTENT_AUTH:
-                    session = UserStore.get_session(token)
-                    if session:
-                        request.state.user_id = session.get("user_id", "")
-                        request.state.customer_id = session.get("customer_id", session.get("user_id", ""))
-                        return await call_next(request)
-                    api_key = UserStore.get_api_key(token)
-                    if api_key:
-                        request.state.user_id = api_key.get("user_id", "")
-                        request.state.customer_id = api_key.get("customer_id", api_key.get("user_id", ""))
-                        return await call_next(request)
-                else:
-                    with _user_lock:
-                        if token in _sessions and _sessions[token]["expires_at"] > time.time():
-                            return await call_next(request)
-                        if token in _api_keys:
-                            return await call_next(request)
             return JSONResponse(
                 status_code=401,
                 content={"ok": False, "error": {"code": "unauthorized", "message": "Unauthorized"}},
             )
-
         return await call_next(request)
 
 

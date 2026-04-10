@@ -274,7 +274,16 @@ export default function InstanceDetailPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">{instance.name || instance.job_id}</h1>
-            <p className="text-sm font-mono text-text-muted">{instance.job_id}</p>
+            <p className="text-sm font-mono text-text-muted flex items-center gap-1.5">
+              {instance.job_id}
+              <button
+                onClick={() => { navigator.clipboard.writeText(instance.job_id); toast.success("Copied"); }}
+                className="text-text-muted hover:text-text-primary transition-colors"
+                title="Copy instance ID"
+              >
+                <Copy className="h-3 w-3" />
+              </button>
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -549,7 +558,16 @@ export default function InstanceDetailPage() {
           </div>
           <div className="flex justify-between sm:block">
             <dt className="text-text-muted">{t("dash.instances.job_id")}</dt>
-            <dd className="font-mono text-text-muted">{instance.job_id}</dd>
+            <dd className="font-mono text-text-muted flex items-center gap-1.5">
+              {instance.job_id}
+              <button
+                onClick={() => { navigator.clipboard.writeText(instance.job_id); toast.success("Copied"); }}
+                className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+                title="Copy instance ID"
+              >
+                <Copy className="h-3 w-3" />
+              </button>
+            </dd>
           </div>
           {instance.host_gpu && (
             <div className="flex justify-between sm:block">

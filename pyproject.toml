@@ -28,6 +28,7 @@ dependencies = [
     "stripe>=8.0.0",
     "rich>=13.7.0",
     "cryptography>=42.0.0",
+    "pywebpush>=2.1.2",
 ]
 
 [project.optional-dependencies]

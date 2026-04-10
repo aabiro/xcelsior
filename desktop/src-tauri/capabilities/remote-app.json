@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-app",
+  "description": "Capability set for the hosted Xcelsior web app inside the native shell.",
+  "local": false,
+  "remote": {
+    "urls": [
+      "https://xcelsior.ca/*",
+      "https://www.xcelsior.ca/*",
+      "http://localhost:3000/*"
+    ]
+  },
+  "windows": ["main-app"],
+  "permissions": [
+    "core:default",
+    "default"
+  ]
+}

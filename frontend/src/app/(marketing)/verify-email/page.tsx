@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
-import { verifyEmail } from "@/lib/api";
+import { beginBrowserOAuthLogin, verifyEmail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import Link from "next/link";
@@ -28,9 +28,14 @@ function VerifyEmailContent() {
 
     verifyEmail(token)
       .then(async () => {
-        setStatus("success");
-        await login();
-        setTimeout(() => router.push("/dashboard"), 2000);
+        try {
+          await beginBrowserOAuthLogin("/dashboard");
+          return;
+        } catch {
+          setStatus("success");
+          await login();
+          setTimeout(() => router.push("/dashboard"), 2000);
+        }
       })
       .catch((err) => {
         setStatus("error");

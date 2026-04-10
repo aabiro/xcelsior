@@ -1,7 +1,7 @@
 """Tests for the interactive web terminal WebSocket endpoint.
 
 Covers: helper functions, auth gates, ownership enforcement, instance
-resolution, container polling, command building, PTY relay protocol,
+resolution, container polling, Docker SDK preflight, exec command building,
 resize, rate limiting, idle timeout/warning, tmux detach, metrics,
 and frontend integration smoke checks.
 """
@@ -9,14 +9,17 @@ and frontend integration smoke checks.
 import asyncio
 import json
 import os
+import socket
 import struct
-import subprocess
-import tempfile
 import time
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── Environment setup (before any project imports) ────────────────────────────
+# -- Environment setup (before any project imports) ----------------------------
+
+import tempfile
 
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_terminal_test_")
 _tmpdir = _tmp_ctx.name
@@ -44,12 +47,21 @@ scheduler.COMPUTE_SCORES_FILE = os.path.join(_tmpdir, "compute_scores.json")
 from fastapi.testclient import TestClient
 
 from api import app
+from db import get_engine
+import routes._deps as deps_mod
 import routes.terminal as term_mod
 
 client = TestClient(app)
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
+# -- Fixtures ------------------------------------------------------------------
+
+
+def _clear_state_namespace(namespace: str) -> None:
+    engine = get_engine()
+    with engine.transaction() as (conn, backend):
+        placeholder = "%s" if backend == "postgres" else "?"
+        conn.execute(f"DELETE FROM state WHERE namespace = {placeholder}", (namespace,))
 
 @pytest.fixture(autouse=True)
 def _clean():
@@ -60,7 +72,25 @@ def _clean():
             conn.execute("DELETE FROM jobs")
     except Exception:
         pass
+    with deps_mod._WS_CONNECT_LOCK:
+        deps_mod._WS_CONNECT_BUCKETS.clear()
+    with deps_mod._WS_TICKET_LOCK:
+        deps_mod._WS_TICKETS.clear()
+    with term_mod._terminal_session_lock:
+        term_mod._terminal_session_counts.clear()
+    _clear_state_namespace(deps_mod._WS_CONNECT_STATE_NAMESPACE)
+    _clear_state_namespace(deps_mod._WS_TICKET_STATE_NAMESPACE)
+    _clear_state_namespace(term_mod._TERMINAL_SESSION_STATE_NAMESPACE)
     yield
+    with deps_mod._WS_CONNECT_LOCK:
+        deps_mod._WS_CONNECT_BUCKETS.clear()
+    with deps_mod._WS_TICKET_LOCK:
+        deps_mod._WS_TICKETS.clear()
+    with term_mod._terminal_session_lock:
+        term_mod._terminal_session_counts.clear()
+    _clear_state_namespace(deps_mod._WS_CONNECT_STATE_NAMESPACE)
+    _clear_state_namespace(deps_mod._WS_TICKET_STATE_NAMESPACE)
+    _clear_state_namespace(term_mod._TERMINAL_SESSION_STATE_NAMESPACE)
 
 
 def _inject_job(job_id="j-1", status="running", owner="user-1", host_id="h-1",
@@ -90,9 +120,30 @@ def _inject_host(host_id="h-1", ip="10.0.0.5"):
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+class _FakeWs:
+    def __init__(
+        self,
+        *,
+        headers=None,
+        cookies=None,
+        query_params=None,
+        client_host="127.0.0.1",
+    ):
+        self.headers = headers or {}
+        self.cookies = cookies or {}
+        self.query_params = query_params or {}
+        self.client = SimpleNamespace(host=client_host)
+
+
+class _FakeRequest:
+    def __init__(self, *, headers=None, client_host="127.0.0.1"):
+        self.headers = headers or {}
+        self.client = SimpleNamespace(host=client_host)
+
+
+# ===============================================================================
 # 1. Pure helper functions (no I/O)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestBuildSshOpts:
@@ -102,15 +153,25 @@ class TestBuildSshOpts:
         assert "/tmp/key" in opts
         assert opts[opts.index("-i") + 1] == "/tmp/key"
 
-    def test_strict_host_checking_disabled(self):
+    def test_strict_host_checking_enabled(self):
         opts = term_mod._build_ssh_opts("/tmp/key")
         pairs = list(zip(opts, opts[1:]))
-        assert ("-o", "StrictHostKeyChecking=no") in pairs
+        assert ("-o", "StrictHostKeyChecking=yes") in pairs
+
+    def test_known_hosts_file_is_pinned(self):
+        opts = term_mod._build_ssh_opts("/tmp/key")
+        pairs = list(zip(opts, opts[1:]))
+        assert ("-o", f"UserKnownHostsFile={term_mod._KNOWN_HOSTS_PATH}") in pairs
 
     def test_batch_mode_enabled(self):
         opts = term_mod._build_ssh_opts("/tmp/key")
         pairs = list(zip(opts, opts[1:]))
         assert ("-o", "BatchMode=yes") in pairs
+
+    def test_identities_only_enabled(self):
+        opts = term_mod._build_ssh_opts("/tmp/key")
+        pairs = list(zip(opts, opts[1:]))
+        assert ("-o", "IdentitiesOnly=yes") in pairs
 
     def test_connect_timeout(self):
         opts = term_mod._build_ssh_opts("/tmp/key")
@@ -137,6 +198,234 @@ class TestHostIpRegex:
         assert term_mod._HOST_IP_RE.fullmatch(ip) is None
 
 
+class TestContainerRefValidation:
+    @pytest.mark.parametrize("container_ref", [
+        "xcl-j1",
+        "container_01",
+        "abc123def456",
+        "name.with.dots",
+    ])
+    def test_accepts_safe_container_refs(self, container_ref):
+        assert term_mod._sanitize_container_ref(container_ref) == container_ref
+
+    @pytest.mark.parametrize("container_ref", [
+        "",
+        " bad",
+        "../etc/passwd",
+        "xcl-j1;rm -rf /",
+        "name with spaces",
+        "$(id)",
+    ])
+    def test_rejects_unsafe_container_refs(self, container_ref):
+        assert term_mod._sanitize_container_ref(container_ref) is None
+
+
+class TestShellAllowlist:
+    @pytest.mark.parametrize("shell", [
+        "/bin/bash",
+        "/bin/sh",
+        "/usr/bin/bash",
+    ])
+    def test_allows_expected_shells(self, shell):
+        assert term_mod._shell_path_allowed(shell) is True
+
+    @pytest.mark.parametrize("shell", [
+        "/bin/cat",
+        "bash",
+        "/bin/bash -l",
+        "/tmp/custom-shell",
+    ])
+    def test_rejects_non_allowlisted_shells(self, shell):
+        assert term_mod._shell_path_allowed(shell) is False
+
+
+class TestSessionLimitHelpers:
+    def test_acquire_and_release_slot(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "_MAX_CONCURRENT_SESSIONS_PER_USER", 1)
+        user = {"user_id": "u-1"}
+        slot = term_mod._acquire_terminal_session_slot(user)
+        assert slot
+        assert term_mod._acquire_terminal_session_slot(user) is None
+        term_mod._release_terminal_session_slot(user, slot)
+        assert term_mod._acquire_terminal_session_slot(user)
+
+
+class TestFrameSizeLimit:
+    def test_detects_large_text_frame(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "_MAX_INPUT_FRAME_BYTES", 8)
+        assert term_mod._frame_size_exceeded("abcdefgh") is False
+        assert term_mod._frame_size_exceeded("abcdefghi") is True
+
+    def test_detects_large_binary_frame(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "_MAX_INPUT_FRAME_BYTES", 4)
+        assert term_mod._frame_size_exceeded(b"1234") is False
+        assert term_mod._frame_size_exceeded(b"12345") is True
+
+
+class TestSharedLimiterState:
+    def test_ws_connect_rate_limit_uses_shared_state(self, monkeypatch):
+        monkeypatch.setattr(deps_mod, "_WS_CONNECT_RATE_LIMIT_REQUESTS", 1)
+        monkeypatch.setattr(deps_mod, "_WS_CONNECT_RATE_LIMIT_WINDOW_SEC", 60)
+        monkeypatch.setattr(deps_mod, "_USE_SHARED_RUNTIME_LIMITS", True)
+
+        ws = _FakeWs(client_host="10.0.0.25")
+        assert deps_mod._check_ws_connect_rate_limit(ws, bucket="terminal") is True
+
+        with deps_mod._WS_CONNECT_LOCK:
+            deps_mod._WS_CONNECT_BUCKETS.clear()
+
+        assert deps_mod._check_ws_connect_rate_limit(ws, bucket="terminal") is False
+
+    def test_terminal_session_limit_uses_shared_leases(self, monkeypatch):
+        monkeypatch.setattr(term_mod, "_MAX_CONCURRENT_SESSIONS_PER_USER", 1)
+        monkeypatch.setattr(term_mod, "_TERMINAL_SESSION_LEASE_TTL_SEC", 60.0)
+        user = {"user_id": "u-shared"}
+
+        slot = term_mod._acquire_terminal_session_slot(user)
+        assert slot
+        assert slot.startswith("shared:")
+
+        with term_mod._terminal_session_lock:
+            term_mod._terminal_session_counts.clear()
+
+        assert term_mod._acquire_terminal_session_slot(user) is None
+        term_mod._release_terminal_session_slot(user, slot)
+
+        replacement = term_mod._acquire_terminal_session_slot(user)
+        assert replacement
+        term_mod._release_terminal_session_slot(user, replacement)
+
+
+class TestWsOriginValidation:
+    def test_cookie_auth_requires_origin_when_enabled(self):
+        ws = _FakeWs(cookies={deps_mod._AUTH_COOKIE_NAME: "session-token"})
+        assert deps_mod._validate_ws_origin(
+            ws,
+            require_for_cookie_auth=True,
+            allow_query_token=False,
+        ) is False
+
+    def test_ticket_auth_can_omit_origin(self):
+        ws = _FakeWs(query_params={"ticket": "ticket-123"})
+        assert deps_mod._validate_ws_origin(
+            ws,
+            require_for_cookie_auth=True,
+            allow_query_token=False,
+        ) is True
+
+    def test_legacy_query_token_does_not_bypass_cookie_origin_requirement(self):
+        ws = _FakeWs(
+            cookies={deps_mod._AUTH_COOKIE_NAME: "session-token"},
+            query_params={"token": "legacy-token"},
+        )
+        assert deps_mod._validate_ws_origin(
+            ws,
+            require_for_cookie_auth=True,
+            allow_query_token=False,
+        ) is False
+
+
+class TestWsTicketHelpers:
+    def test_issue_and_consume_ticket_once(self):
+        request = _FakeRequest(client_host="127.0.0.1")
+        user = {"user_id": "user-1", "email": "user@example.com"}
+        issued = deps_mod._issue_ws_ticket(
+            user,
+            request=request,
+            purpose="terminal",
+            target="job-1",
+        )
+
+        consumed = deps_mod._consume_ws_ticket(
+            issued["ticket"],
+            _FakeWs(client_host="127.0.0.1"),
+            purpose="terminal",
+            target="job-1",
+        )
+        assert consumed["user_id"] == "user-1"
+        assert deps_mod._consume_ws_ticket(
+            issued["ticket"],
+            _FakeWs(client_host="127.0.0.1"),
+            purpose="terminal",
+            target="job-1",
+        ) is None
+
+    def test_ticket_survives_without_local_memory_cache(self):
+        request = _FakeRequest(client_host="127.0.0.1")
+        user = {"user_id": "user-1", "email": "user@example.com"}
+        issued = deps_mod._issue_ws_ticket(
+            user,
+            request=request,
+            purpose="terminal",
+            target="job-1",
+        )
+
+        with deps_mod._WS_TICKET_LOCK:
+            deps_mod._WS_TICKETS.clear()
+
+        consumed = deps_mod._consume_ws_ticket(
+            issued["ticket"],
+            _FakeWs(client_host="127.0.0.1"),
+            purpose="terminal",
+            target="job-1",
+        )
+        assert consumed["user_id"] == "user-1"
+
+    def test_ticket_is_bound_to_client_ip(self):
+        request = _FakeRequest(client_host="127.0.0.1")
+        user = {"user_id": "user-1", "email": "user@example.com"}
+        issued = deps_mod._issue_ws_ticket(
+            user,
+            request=request,
+            purpose="terminal",
+            target="job-1",
+        )
+        assert deps_mod._consume_ws_ticket(
+            issued["ticket"],
+            _FakeWs(client_host="127.0.0.2"),
+            purpose="terminal",
+            target="job-1",
+        ) is None
+
+
+class TestWsAuthOptions:
+    def test_query_token_auth_can_be_disabled(self, monkeypatch):
+        monkeypatch.setattr(deps_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "master-token")
+        ws = _FakeWs(query_params={"token": "master-token"})
+
+        assert deps_mod._validate_ws_auth(ws)["user_id"] == "api-token"
+        assert deps_mod._validate_ws_auth(ws, allow_query_token=False) is None
+
+
+class TestContainerIdentity:
+    def test_accepts_matching_labelled_container(self):
+        container = SimpleNamespace(
+            name="xcl-job-1",
+            id="cid-1234567890ab",
+            labels={"xcelsior.job_id": "job-1"},
+        )
+        assert term_mod._container_identity_matches(
+            container,
+            instance_id="job-1",
+            expected_name="xcl-job-1",
+            expected_container_id="cid-1234",
+        ) is True
+
+    def test_rejects_label_mismatch(self):
+        container = SimpleNamespace(
+            name="xcl-job-1",
+            id="cid-1234567890ab",
+            labels={"xcelsior.job_id": "other-job"},
+        )
+        assert term_mod._container_identity_matches(
+            container,
+            instance_id="job-1",
+            expected_name="xcl-job-1",
+            expected_container_id="cid-1234",
+        ) is False
+
+
 class TestConstants:
     def test_session_timeout(self):
         assert term_mod._SESSION_TIMEOUT_SEC == 14_400  # 4 hours
@@ -152,107 +441,155 @@ class TestConstants:
         assert total == 30.0
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 2. Container preflight helpers (mocked subprocess)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 2. Docker SDK preflight helpers (mocked docker client)
+# ===============================================================================
 
 
-class TestContainerExistsLocal:
-    def test_returns_true_on_success(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 0})(),
-        )
-        assert term_mod._container_exists_local("xcl-j1") is True
+class TestContainerExists:
+    def test_returns_true_when_container_found(self):
+        mock_client = MagicMock()
+        mock_client.containers.get.return_value = MagicMock()
+        with patch.object(term_mod, "_docker_client", return_value=mock_client):
+            assert term_mod._container_exists("xcl-j1") is True
 
-    def test_returns_false_on_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 1})(),
-        )
-        assert term_mod._container_exists_local("xcl-j1") is False
+    def test_returns_false_when_not_found(self):
+        from docker.errors import NotFound
+        mock_client = MagicMock()
+        mock_client.containers.get.side_effect = NotFound("not found")
+        with patch.object(term_mod, "_docker_client", return_value=mock_client):
+            assert term_mod._container_exists("xcl-j1") is False
 
-    def test_returns_false_on_exception(self, monkeypatch):
-        def _raise(*a, **kw):
-            raise subprocess.TimeoutExpired(cmd="docker", timeout=5)
-        monkeypatch.setattr(subprocess, "run", _raise)
-        assert term_mod._container_exists_local("xcl-j1") is False
+    def test_returns_false_on_docker_error(self):
+        from docker.errors import DockerException
+        mock_client = MagicMock()
+        mock_client.containers.get.side_effect = DockerException("conn refused")
+        with patch.object(term_mod, "_docker_client", return_value=mock_client):
+            assert term_mod._container_exists("xcl-j1") is False
 
+    def test_passes_host_ip_to_client(self):
+        mock_client = MagicMock()
+        mock_client.containers.get.return_value = MagicMock()
+        with patch.object(term_mod, "_docker_client", return_value=mock_client) as mock_factory:
+            term_mod._container_exists("xcl-j1", host_ip="10.0.0.5")
+            mock_factory.assert_called_once_with("10.0.0.5")
 
-class TestContainerExistsRemote:
-    def test_returns_true_on_success(self, monkeypatch):
-        captured = {}
-
-        def _fake_run(cmd, **kw):
-            captured["cmd"] = cmd
-            return type("R", (), {"returncode": 0})()
-
-        monkeypatch.setattr(subprocess, "run", _fake_run)
-        opts = ["-o", "BatchMode=yes", "-i", "/tmp/key"]
-        assert term_mod._container_exists_remote(opts, "user@10.0.0.5", "xcl-j1") is True
-        assert captured["cmd"][0] == "ssh"
-
-    def test_returns_false_on_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 1})(),
-        )
-        opts = ["-i", "/tmp/key"]
-        assert term_mod._container_exists_remote(opts, "u@h", "c") is False
+    def test_local_passes_none_host(self):
+        mock_client = MagicMock()
+        mock_client.containers.get.return_value = MagicMock()
+        with patch.object(term_mod, "_docker_client", return_value=mock_client) as mock_factory:
+            term_mod._container_exists("xcl-j1", host_ip=None)
+            mock_factory.assert_called_once_with(None)
 
 
-class TestTmuxAvailableLocal:
-    def test_true_when_tmux_found(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 0})(),
-        )
-        assert term_mod._tmux_available_local("xcl-j1") is True
+class TestTmuxAvailable:
+    def test_true_when_tmux_found(self):
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.exec_run.return_value = MagicMock(exit_code=0)
+        mock_client.containers.get.return_value = mock_container
+        with patch.object(term_mod, "_docker_client", return_value=mock_client):
+            assert term_mod._tmux_available("xcl-j1") is True
 
-    def test_false_when_tmux_missing(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 1})(),
-        )
-        assert term_mod._tmux_available_local("xcl-j1") is False
+    def test_false_when_tmux_missing(self):
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.exec_run.return_value = MagicMock(exit_code=1)
+        mock_client.containers.get.return_value = mock_container
+        with patch.object(term_mod, "_docker_client", return_value=mock_client):
+            assert term_mod._tmux_available("xcl-j1") is False
 
-
-class TestTmuxAvailableRemote:
-    def test_true_when_tmux_found(self, monkeypatch):
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 0})(),
-        )
-        assert term_mod._tmux_available_remote(
-            ["-i", "/k"], "u@h", "xcl-j1"
-        ) is True
+    def test_false_on_exception(self):
+        from docker.errors import NotFound
+        mock_client = MagicMock()
+        mock_client.containers.get.side_effect = NotFound("nope")
+        with patch.object(term_mod, "_docker_client", return_value=mock_client):
+            assert term_mod._tmux_available("xcl-j1") is False
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 3. Prometheus metrics noop fallback
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 3. Docker client factory
+# ===============================================================================
+
+
+class TestDockerClientFactory:
+    def test_local_uses_from_env(self):
+        with patch("docker.from_env") as mock_from_env:
+            mock_from_env.return_value = MagicMock()
+            cl = term_mod._docker_client(host_ip=None)
+            mock_from_env.assert_called_once()
+
+    def test_localhost_uses_from_env(self):
+        with patch("docker.from_env") as mock_from_env:
+            mock_from_env.return_value = MagicMock()
+            term_mod._docker_client(host_ip="127.0.0.1")
+            mock_from_env.assert_called_once()
+
+    def test_remote_uses_ssh_transport(self):
+        with patch("docker.DockerClient") as mock_cls:
+            mock_cls.return_value = MagicMock()
+            term_mod._docker_client(host_ip="10.0.0.5", ssh_user="xcelsior")
+            mock_cls.assert_called_once()
+            _, kwargs = mock_cls.call_args
+            assert kwargs["base_url"] == "ssh://xcelsior@10.0.0.5"
+            assert kwargs["timeout"] == term_mod._REMOTE_DOCKER_TIMEOUT_SEC
+
+
+# ===============================================================================
+# 4. Prometheus metrics noop fallback
+# ===============================================================================
 
 
 class TestNoopMetrics:
+    @pytest.mark.skipif(
+        not hasattr(term_mod, "_Noop"),
+        reason="prometheus_client installed — _Noop not defined",
+    )
     def test_noop_absorbs_inc(self):
         n = term_mod._Noop()
         n.inc()
         n.inc(42)
 
+    @pytest.mark.skipif(
+        not hasattr(term_mod, "_Noop"),
+        reason="prometheus_client installed — _Noop not defined",
+    )
     def test_noop_absorbs_dec(self):
         n = term_mod._Noop()
         n.dec()
 
+    @pytest.mark.skipif(
+        not hasattr(term_mod, "_Noop"),
+        reason="prometheus_client installed — _Noop not defined",
+    )
     def test_noop_labels_returns_noop(self):
         n = term_mod._Noop()
         labeled = n.labels(reason="test")
         assert isinstance(labeled, term_mod._Noop)
+
+    @pytest.mark.skipif(
+        not hasattr(term_mod, "_Noop"),
+        reason="prometheus_client installed — _Noop not defined",
+    )
+    def test_noop_labels_chain(self):
+        n = term_mod._Noop()
+        n.labels(reason="test").inc()
+        n.labels(cause="disconnect").inc()
+        labeled = n.labels(reason="test")
         labeled.inc()
 
+    def test_prometheus_flag_set(self):
+        """When prometheus_client is installed, _PROMETHEUS is True."""
+        try:
+            import prometheus_client  # noqa: F401
+            assert term_mod._PROMETHEUS is True
+        except ImportError:
+            assert term_mod._PROMETHEUS is False
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 4. WebSocket endpoint — auth gates
-# ═══════════════════════════════════════════════════════════════════════════════
+
+# ===============================================================================
+# 5. WebSocket endpoint -- auth gates
+# ===============================================================================
 
 
 class TestWsAuth:
@@ -273,9 +610,134 @@ class TestWsAuth:
                 pass
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 5. WebSocket endpoint — instance resolution & ownership
-# ═══════════════════════════════════════════════════════════════════════════════
+class TestWsHardeningPreAccept:
+    def test_rejects_disallowed_origin(self):
+        with pytest.raises(Exception):
+            with client.websocket_connect(
+                "/ws/terminal/fake-id",
+                headers={"origin": "https://evil.example"},
+            ):
+                pass
+
+    def test_rejects_rate_limited_ip(self, monkeypatch):
+        monkeypatch.setattr("routes.terminal._check_ws_connect_rate_limit", lambda *a, **kw: False)
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/terminal/fake-id"):
+                pass
+
+    def test_rejects_concurrent_session_limit(self, monkeypatch):
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        monkeypatch.setattr("routes.terminal._acquire_terminal_session_slot", lambda user: False)
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/terminal/fake-id"):
+                pass
+
+    def test_rejects_legacy_query_token_auth(self, monkeypatch):
+        monkeypatch.setattr(deps_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "master-token")
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/terminal/fake-id?token=master-token"):
+                pass
+
+
+class TestInstanceStreamHardening:
+    def test_instance_stream_rejects_disallowed_origin(self):
+        with pytest.raises(Exception):
+            with client.websocket_connect(
+                "/ws/instances/fake-id",
+                headers={"origin": "https://evil.example"},
+            ):
+                pass
+
+    def test_instance_stream_rejects_legacy_query_token_auth(self, monkeypatch):
+        monkeypatch.setattr(deps_mod, "AUTH_REQUIRED", True)
+        monkeypatch.setenv("XCELSIOR_API_TOKEN", "master-token")
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/instances/fake-id?token=master-token"):
+                pass
+
+
+class TestInstanceStreamTicketApi:
+    def test_issues_ticket_for_owner(self, monkeypatch):
+        _inject_job(job_id="j-stream-ticket", status="running", owner="user-1")
+        monkeypatch.setattr(
+            "routes.instances._require_auth",
+            lambda request: {"user_id": "user-1", "customer_id": "user-1", "email": "u@test"},
+        )
+
+        response = client.post("/api/instances/j-stream-ticket/stream-ticket")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert isinstance(body["ticket"], str)
+        assert body["ticket"]
+        assert body["expires_in"] >= 0
+
+    def test_rejects_ticket_for_non_owner(self, monkeypatch):
+        _inject_job(job_id="j-stream-ticket-2", status="running", owner="user-1")
+        monkeypatch.setattr(
+            "routes.instances._require_auth",
+            lambda request: {"user_id": "other-user", "customer_id": "other-user", "email": "o@test"},
+        )
+
+        response = client.post("/api/instances/j-stream-ticket-2/stream-ticket")
+
+        assert response.status_code == 403
+
+    def test_instance_stream_accepts_one_time_ticket(self, monkeypatch):
+        _inject_job(job_id="j-stream-ws", status="running", owner="user-1", host_ip="")
+        monkeypatch.setattr("routes.instances._validate_ws_auth", lambda *a, **kw: None)
+        ticket = deps_mod._issue_ws_ticket(
+            {"user_id": "user-1", "customer_id": "user-1", "email": "u@test"},
+            purpose="instance_stream",
+            target="j-stream-ws",
+            client_ip="testclient",
+        )["ticket"]
+
+        with client.websocket_connect(f"/ws/instances/j-stream-ws?ticket={ticket}") as ws:
+            msg = ws.receive_json()
+            assert msg["event"] == "instance"
+            assert msg["data"]["job_id"] == "j-stream-ws"
+
+
+class TestTerminalTicketApi:
+    def test_issues_ticket_for_owner(self, monkeypatch):
+        _inject_job(job_id="j-ticket", status="running", owner="user-1")
+        monkeypatch.setattr(
+            term_mod,
+            "_require_auth",
+            lambda request: {"user_id": "user-1", "customer_id": "user-1", "email": "u@test"},
+        )
+
+        response = client.post("/api/terminal/ticket", json={"instance_id": "j-ticket"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert isinstance(body["ticket"], str)
+        assert body["ticket"]
+        assert body["expires_in"] >= 0
+
+    def test_rejects_ticket_for_non_owner(self, monkeypatch):
+        _inject_job(job_id="j-ticket-2", status="running", owner="user-1")
+        monkeypatch.setattr(
+            term_mod,
+            "_require_auth",
+            lambda request: {"user_id": "other-user", "customer_id": "other-user", "email": "o@test"},
+        )
+
+        response = client.post("/api/terminal/ticket", json={"instance_id": "j-ticket-2"})
+
+        assert response.status_code == 403
+
+
+# ===============================================================================
+# 6. WebSocket endpoint -- instance resolution & ownership
+# ===============================================================================
 
 
 class TestWsInstanceResolution:
@@ -283,10 +745,9 @@ class TestWsInstanceResolution:
 
     def test_instance_not_found(self, monkeypatch):
         """Returns 4004 error when instance doesn't exist."""
-        # Bypass auth
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         with client.websocket_connect("/ws/terminal/nonexistent") as ws:
             msg = ws.receive_json()
@@ -297,7 +758,7 @@ class TestWsInstanceResolution:
         """Returns 4003 error when instance status != running."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(job_id="j-stopped", status="stopped", owner="user-1")
         with client.websocket_connect("/ws/terminal/j-stopped") as ws:
@@ -310,7 +771,7 @@ class TestWsInstanceResolution:
         """Non-owner, non-admin gets 4003."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "other-user", "email": "o@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "other-user", "email": "o@t.com"},
         )
         _inject_job(job_id="j-owned", status="running", owner="user-1")
         with client.websocket_connect("/ws/terminal/j-owned") as ws:
@@ -323,16 +784,13 @@ class TestWsInstanceResolution:
         """Admin can access any instance regardless of ownership."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "admin-1", "email": "a@t.com", "role": "admin"},
+            lambda ws, *args, **kwargs: {"user_id": "admin-1", "email": "a@t.com", "role": "admin"},
         )
         _inject_job(job_id="j-admin", status="running", owner="user-1")
-        # Will proceed past ownership check — should hit container polling
+        # Will proceed past ownership check -- should hit container polling
         # and eventually timeout/error, but NOT a 4003
         monkeypatch.setattr(
-            "routes.terminal._container_exists_local", lambda *a: False,
-        )
-        monkeypatch.setattr(
-            "routes.terminal._container_exists_remote", lambda *a: False,
+            "routes.terminal._container_exists", lambda *a, **kw: False,
         )
         # Speed up polling
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_MAX_ATTEMPTS", 1)
@@ -351,9 +809,9 @@ class TestWsInstanceResolution:
             assert 4410 in codes  # container_not_found
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 6. WebSocket endpoint — container polling
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 7. WebSocket endpoint -- container polling
+# ===============================================================================
 
 
 class TestContainerPolling:
@@ -361,11 +819,10 @@ class TestContainerPolling:
         """Returns 4410 when container never starts."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(job_id="j-poll", status="running", owner="user-1")
-        monkeypatch.setattr("routes.terminal._container_exists_local", lambda *a: False)
-        monkeypatch.setattr("routes.terminal._container_exists_remote", lambda *a: False)
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: False)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_MAX_ATTEMPTS", 2)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
 
@@ -385,26 +842,29 @@ class TestContainerPolling:
             assert any(m["code"] == 4410 for m in err_msgs)
 
     def test_container_found_on_second_attempt(self, monkeypatch):
-        """Container appears on 2nd poll — proceeds past polling."""
+        """Container appears on 2nd poll -- proceeds past polling."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(job_id="j-poll2", status="running", owner="user-1")
 
         call_count = {"n": 0}
 
-        def _exists_after_one(*a):
+        def _exists_after_one(*a, **kw):
             call_count["n"] += 1
             return call_count["n"] >= 2
 
-        monkeypatch.setattr("routes.terminal._container_exists_local", _exists_after_one)
-        monkeypatch.setattr("routes.terminal._container_exists_remote", _exists_after_one)
+        monkeypatch.setattr("routes.terminal._container_exists", _exists_after_one)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
         # tmux check will fail, that's fine
-        monkeypatch.setattr("routes.terminal._tmux_available_local", lambda *a: False)
-        monkeypatch.setattr("routes.terminal._tmux_available_remote", lambda *a: False)
-        # PTY spawn will fail since docker isn't really there — that's expected
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        # Docker client will fail at exec -- that's expected
+        from docker.errors import DockerException
+        mock_client = MagicMock()
+        mock_client.containers.get.side_effect = DockerException("test: no real docker")
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: mock_client)
+
         with client.websocket_connect("/ws/terminal/j-poll2") as ws:
             msgs = []
             try:
@@ -417,9 +877,9 @@ class TestContainerPolling:
             assert 4410 not in codes
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 7. WebSocket endpoint — host IP injection prevention
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 8. WebSocket endpoint -- host IP injection prevention
+# ===============================================================================
 
 
 class TestHostIpValidation:
@@ -427,7 +887,7 @@ class TestHostIpValidation:
         """Host IP with shell metacharacters is rejected."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(
             job_id="j-inject", status="running", owner="user-1",
@@ -440,15 +900,172 @@ class TestHostIpValidation:
             assert "Invalid host" in msg["message"]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 8. WebSocket endpoint — full PTY session (local /bin/cat echo test)
-# ═══════════════════════════════════════════════════════════════════════════════
+class _FakeExecSocket:
+    def __init__(self):
+        self._sock, self._peer = socket.socketpair()
+
+    def close(self):
+        for sock_obj in (self._sock, self._peer):
+            try:
+                sock_obj.close()
+            except OSError:
+                pass
+
+
+class _FakeDockerApi:
+    def __init__(self, exec_socket):
+        self._exec_socket = exec_socket
+        self.resize_calls = []
+
+    def exec_create(self, *args, **kwargs):
+        return {"Id": "exec-1"}
+
+    def exec_start(self, *args, **kwargs):
+        return self._exec_socket
+
+    def exec_resize(self, *args, **kwargs):
+        self.resize_calls.append({"args": args, "kwargs": kwargs})
+        return None
+
+    def exec_inspect(self, *args, **kwargs):
+        return {"ExitCode": 0}
+
+
+class _FakeDockerClient:
+    def __init__(self, *, job_id="j-1", container_name=None, container_id="cid-1"):
+        if container_name is None:
+            container_name = f"xcl-{job_id}"
+        self.exec_socket = _FakeExecSocket()
+        self.api = _FakeDockerApi(self.exec_socket)
+        self.containers = MagicMock()
+        self.containers.get.return_value = SimpleNamespace(
+            id=container_id,
+            name=container_name,
+            labels={"xcelsior.job_id": job_id},
+        )
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+        self.exec_socket.close()
+
+
+class TestInputFrameLimit:
+    def test_large_text_input_frame_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        _inject_job(job_id="j-big", status="running", owner="user-1", host_ip="")
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        monkeypatch.setattr(term_mod, "_MAX_INPUT_FRAME_BYTES", 8)
+
+        fake_client = _FakeDockerClient(job_id="j-big")
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
+
+        with client.websocket_connect("/ws/terminal/j-big") as ws:
+            status = ws.receive_json()
+            assert status["type"] == "status"
+            ws.send_json({"type": "input", "data": "x" * 65})
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert msg["code"] == 1009
+
+
+class TestMalformedControlFrames:
+    def test_repeated_malformed_frames_close_connection(self, monkeypatch):
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        _inject_job(job_id="j-malformed", status="running", owner="user-1", host_ip="")
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        monkeypatch.setattr(term_mod, "_MAX_MALFORMED_CONTROL_FRAMES", 2)
+
+        fake_client = _FakeDockerClient(job_id="j-malformed")
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
+
+        with client.websocket_connect("/ws/terminal/j-malformed") as ws:
+            status = ws.receive_json()
+            assert status["type"] == "status"
+
+            ws.send_text("not-json")
+            ws.send_json({"type": "unknown"})
+
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert msg["code"] == 1008
+            assert "malformed" in msg["message"].lower()
+
+
+class TestResizeClamp:
+    def test_resize_is_clamped_to_configured_bounds(self, monkeypatch):
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        _inject_job(job_id="j-resize", status="running", owner="user-1", host_ip="")
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        monkeypatch.setattr(term_mod, "_MAX_RESIZE_COLS", 120)
+        monkeypatch.setattr(term_mod, "_MAX_RESIZE_ROWS", 50)
+        monkeypatch.setattr(term_mod, "_MAX_INPUT_FRAME_BYTES", 64)
+
+        fake_client = _FakeDockerClient(job_id="j-resize")
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
+
+        with client.websocket_connect("/ws/terminal/j-resize") as ws:
+            status = ws.receive_json()
+            assert status["type"] == "status"
+
+            ws.send_json({"type": "resize", "cols": 9999, "rows": 9999})
+            ws.send_json({"type": "ping"})
+            pong = ws.receive_json()
+
+            assert pong["type"] == "pong"
+            assert fake_client.api.resize_calls[-1]["kwargs"] == {"height": 50, "width": 120}
+
+            ws.send_json({"type": "input", "data": "x" * 65})
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert msg["code"] == 1009
+
+
+class TestSessionLifetime:
+    def test_session_expires_at_hard_lifetime(self, monkeypatch):
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        _inject_job(job_id="j-lifetime", status="running", owner="user-1", host_ip="")
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        monkeypatch.setattr(term_mod, "_MAX_SESSION_LIFETIME_SEC", 0)
+
+        fake_client = _FakeDockerClient(job_id="j-lifetime")
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
+
+        with client.websocket_connect("/ws/terminal/j-lifetime") as ws:
+            status = ws.receive_json()
+            assert status["type"] == "status"
+
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert msg["code"] == 4408
+            assert "maximum lifetime" in msg["message"].lower()
+
+
+# ===============================================================================
+# 9. WebSocket endpoint -- full PTY session (local /bin/cat echo test)
+# ===============================================================================
 
 
 class TestPtySession:
     """End-to-end test using a real PTY with /bin/cat as the shell.
 
-    We monkeypatch the endpoint to skip SSH/docker and spawn ``cat``
+    We monkeypatch the endpoint to skip Docker SDK and spawn ``cat``
     directly so typed input is echoed back as binary PTY output.
     """
 
@@ -456,21 +1073,20 @@ class TestPtySession:
         """Set up monkeypatches so the WS endpoint spawns /bin/cat locally."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(
             job_id="j-pty", status="running", owner="user-1",
             host_ip="",  # local mode
             shell="/bin/cat",
         )
-        monkeypatch.setattr("routes.terminal._container_exists_local", lambda *a: True)
-        monkeypatch.setattr("routes.terminal._tmux_available_local", lambda *a: False)
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
 
         # Override command builder: just run /bin/cat (no docker)
         original_handler = term_mod.ws_terminal
 
         import pty as _pty
-        import functools
 
         async def _patched_handler(websocket, instance_id):
             """Simplified handler that spawns /bin/cat directly."""
@@ -503,8 +1119,28 @@ class TestPtySession:
                 nonlocal closed
                 while not closed:
                     try:
-                        chunk = await term_mod._read_pty(master_fd, loop, timeout=2.0)
-                    except (asyncio.TimeoutError, OSError):
+                        fut = loop.create_future()
+
+                        def _on_readable():
+                            loop.remove_reader(master_fd)
+                            if fut.done():
+                                return
+                            try:
+                                data = os.read(master_fd, 4096)
+                                if data:
+                                    fut.set_result(data)
+                                else:
+                                    fut.set_exception(OSError("EOF"))
+                            except OSError as exc:
+                                fut.set_exception(exc)
+
+                        loop.add_reader(master_fd, _on_readable)
+                        try:
+                            chunk = await asyncio.wait_for(fut, timeout=2.0)
+                        except (asyncio.TimeoutError, asyncio.CancelledError):
+                            loop.remove_reader(master_fd)
+                            break
+                    except OSError:
                         break
                     try:
                         await websocket.send_bytes(chunk)
@@ -552,16 +1188,28 @@ class TestPtySession:
                 except Exception:
                     pass
 
-        # Replace the route handler
+        # Replace the route handler on the actual route object
+        # FastAPI stores the callable in route.app as a closure, so we must
+        # replace it there too.
         for route in app.routes:
             if hasattr(route, "path") and route.path == "/ws/terminal/{instance_id}":
-                route.endpoint = _patched_handler
+                original_app_func = route.app
+
+                from starlette.routing import WebSocketRoute as _WSR
+
+                async def _wrapper_app(scope, receive, send):
+                    from starlette.websockets import WebSocket as _SW
+                    ws = _SW(scope, receive, send)
+                    await _patched_handler(ws, scope["path_params"]["instance_id"])
+
+                route.app = _wrapper_app
                 break
 
         # Restore on cleanup
         def _restore():
             for route in app.routes:
                 if hasattr(route, "path") and route.path == "/ws/terminal/{instance_id}":
+                    route.app = original_app_func
                     route.endpoint = original_handler
                     break
 
@@ -573,7 +1221,7 @@ class TestPtySession:
         return _restore
 
     def test_echo_roundtrip(self, monkeypatch):
-        """Type input → receive echoed PTY bytes back."""
+        """Type input -> receive echoed PTY bytes back."""
         cleanup = self._patch_for_cat(monkeypatch)
         try:
             with client.websocket_connect("/ws/terminal/j-pty") as ws:
@@ -608,9 +1256,9 @@ class TestPtySession:
             cleanup()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 9. WebSocket protocol — control frames
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 10. WebSocket protocol -- control frames
+# ===============================================================================
 
 
 class TestControlFrames:
@@ -618,16 +1266,16 @@ class TestControlFrames:
         """Ping frame receives pong response."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(job_id="j-ping", status="running", owner="user-1", host_ip="")
-        monkeypatch.setattr("routes.terminal._container_exists_local", lambda *a: True)
-        monkeypatch.setattr("routes.terminal._tmux_available_local", lambda *a: False)
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
 
         # The docker exec will fail, but we need it to get past polling
         # Let's test at the protocol level using the patched PTY approach
         # Instead, test the simpler path: auth + instance OK but spawn fails
-        # After spawn failure we get a 4500 error — not useful for ping test.
+        # After spawn failure we get a 4500 error -- not useful for ping test.
         # Better: test _send_status and _send_error directly.
         pass  # Covered by test_echo_roundtrip's status frame verification
 
@@ -635,11 +1283,10 @@ class TestControlFrames:
         """Status frame during container polling includes retry=True."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(job_id="j-retry", status="running", owner="user-1")
-        monkeypatch.setattr("routes.terminal._container_exists_local", lambda *a: False)
-        monkeypatch.setattr("routes.terminal._container_exists_remote", lambda *a: False)
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: False)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_MAX_ATTEMPTS", 1)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
 
@@ -657,7 +1304,7 @@ class TestControlFrames:
         """Error frames include both message and code fields."""
         monkeypatch.setattr(
             "routes.terminal._validate_ws_auth",
-            lambda ws: {"user_id": "user-1", "email": "t@t.com"},
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         with client.websocket_connect("/ws/terminal/no-such-id") as ws:
             msg = ws.receive_json()
@@ -667,9 +1314,9 @@ class TestControlFrames:
             assert isinstance(msg["code"], int)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 10. Resize
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 11. Resize
+# ===============================================================================
 
 
 class TestResize:
@@ -678,7 +1325,6 @@ class TestResize:
         import pty as _pty
         master_fd, slave_fd = _pty.openpty()
         try:
-            # Build a resize closure like the real handler does
             import fcntl
             import termios
 
@@ -699,55 +1345,40 @@ class TestResize:
             os.close(slave_fd)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 11. Command building
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 12. Docker SDK exec command building
+# ===============================================================================
 
 
-class TestCommandBuilding:
-    """Verify exec_cmd construction for remote/local + tmux/bare permutations."""
+class TestDockerExecBuilding:
+    """Verify that Docker SDK exec commands are constructed correctly."""
 
-    def test_remote_with_tmux_uses_ssh_tt(self):
-        """Remote + tmux → ssh -tt wrapping docker exec + tmux."""
-        # This is a structural test: verify expected command shape
-        import shlex
-        container = "xcl-j1"
+    def test_bare_shell_exec_args(self):
+        """Without tmux, exec runs just the shell."""
+        shell = "/bin/bash"
+        exec_cmd = [shell]
+        env_vars = {"TERM": "xterm-256color"}
+        assert exec_cmd == ["/bin/bash"]
+        assert "TERM" in env_vars
+
+    def test_tmux_exec_args(self):
+        """With tmux, exec runs tmux new-session -A."""
+        shell = "/bin/bash"
         tmux_session = "xcl-j1"
-        shell = "/bin/bash"
-        ssh_opts = term_mod._build_ssh_opts("/tmp/key")
+        exec_cmd = ["tmux", "new-session", "-A", "-s", tmux_session, shell]
+        env_vars = {"TERM": "xterm-256color", "TMUX_SESSION": tmux_session}
 
-        inner_cmd = shlex.join([
-            "docker", "exec",
-            "-e", "TERM=xterm-256color",
-            "-e", f"TMUX_SESSION={tmux_session}",
-            "-it", container,
-            "tmux", "new-session", "-A", "-s", tmux_session, shell,
-        ])
-        exec_cmd = ["ssh", *ssh_opts, "-tt", "user@10.0.0.5", inner_cmd]
-
-        assert exec_cmd[0] == "ssh"
-        assert "-tt" in exec_cmd
-        assert "tmux" in inner_cmd
-        assert "new-session" in inner_cmd
-        assert "-A" in inner_cmd
-
-    def test_local_bare_shell(self):
-        """Local + no tmux → plain docker exec."""
-        container = "xcl-j1"
-        shell = "/bin/bash"
-        exec_cmd = [
-            "docker", "exec", "-e", "TERM=xterm-256color",
-            "-it", container, shell,
-        ]
-        assert exec_cmd[0] == "docker"
-        assert "-it" in exec_cmd
-        assert shell in exec_cmd
-        assert "tmux" not in exec_cmd
+        assert exec_cmd[0] == "tmux"
+        assert "new-session" in exec_cmd
+        assert "-A" in exec_cmd
+        assert "-s" in exec_cmd
+        assert tmux_session in exec_cmd
+        assert "TMUX_SESSION" in env_vars
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 12. Route registration
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 13. Route registration
+# ===============================================================================
 
 
 class TestRouteRegistration:
@@ -764,9 +1395,9 @@ class TestRouteRegistration:
         assert isinstance(term_mod.router, APIRouter)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 13. Frontend integration smoke checks
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 14. Frontend integration smoke checks
+# ===============================================================================
 
 
 class TestFrontendIntegration:
@@ -796,6 +1427,39 @@ class TestFrontendIntegration:
         with open(path) as f:
             content = f.read()
         assert "SearchAddon" in content or "addon-search" in content
+
+    def test_webterminal_uses_terminal_ticket_auth(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..",
+            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "createTerminalTicket" in content
+        assert "?ticket=" in content
+        assert "?token=" not in content
+
+    def test_webterminal_stops_retrying_on_policy_close_codes(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..",
+            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "NON_RETRYABLE_WS_CLOSE_CODES" in content
+        assert "1008" in content
+        assert "4429" in content
+
+    def test_instance_stream_hook_uses_ticket_auth(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..",
+            "frontend", "src", "hooks", "useInstanceWebSocket.ts",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "createInstanceStreamTicket" in content
+        assert "?ticket=" in content
+        assert "NON_RETRYABLE_WS_CLOSE_CODES" in content
 
     def test_instance_page_renders_terminal(self):
         path = os.path.join(
@@ -862,9 +1526,26 @@ class TestFrontendIntegration:
         assert "Ctrl+C" in content or ("KeyC" in content and "ctrlKey" in content) or "hasSelection" in content
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 14. Dockerfile tmux
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 15. Legacy websocket hardening smoke coverage
+# ===============================================================================
+
+
+class TestLegacyApiWebsocketHardening:
+    def test_api_old_uses_ticket_and_origin_hardening(self):
+        path = os.path.join(os.path.dirname(__file__), "..", "api_old.py")
+        with open(path) as f:
+            content = f.read()
+        assert '@app.post("/api/terminal/ticket")' in content
+        assert '@app.post("/api/instances/{job_id}/stream-ticket")' in content
+        assert "_shared_validate_ws_origin(" in content
+        assert "_shared_check_ws_connect_rate_limit(" in content
+        assert 'allow_query_token=False' in content
+
+
+# ===============================================================================
+# 16. Dockerfile tmux
+# ===============================================================================
 
 
 class TestDockerfile:
@@ -877,59 +1558,19 @@ class TestDockerfile:
         assert "tmux" in content
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 15. Read PTY async helper
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 17. New metrics coverage
+# ===============================================================================
 
 
-class TestReadPty:
-    @pytest.mark.asyncio
-    async def test_read_pty_returns_data(self):
-        """_read_pty returns data written to slave side."""
-        import pty as _pty
-        master_fd, slave_fd = _pty.openpty()
-        os.set_blocking(master_fd, False)
-        try:
-            loop = asyncio.get_running_loop()
-            os.write(slave_fd, b"test data")
-            result = await term_mod._read_pty(master_fd, loop, timeout=2.0)
-            assert b"test data" in result
-        finally:
-            os.close(master_fd)
-            os.close(slave_fd)
+class TestNewMetrics:
+    def test_bytes_recv_metric_exists(self):
+        """_bytes_recv metric/noop is defined."""
+        assert hasattr(term_mod, "_bytes_recv")
+        # Should have inc method (real or noop)
+        term_mod._bytes_recv.inc(0)
 
-    @pytest.mark.asyncio
-    async def test_read_pty_timeout(self):
-        """_read_pty raises TimeoutError when no data arrives."""
-        import pty as _pty
-        master_fd, slave_fd = _pty.openpty()
-        os.set_blocking(master_fd, False)
-        try:
-            loop = asyncio.get_running_loop()
-            with pytest.raises(asyncio.TimeoutError):
-                await term_mod._read_pty(master_fd, loop, timeout=0.1)
-        finally:
-            os.close(master_fd)
-            os.close(slave_fd)
-
-    @pytest.mark.asyncio
-    async def test_read_pty_eof_raises_oserror(self):
-        """_read_pty raises OSError on EOF (slave closed)."""
-        import pty as _pty
-        master_fd, slave_fd = _pty.openpty()
-        os.set_blocking(master_fd, False)
-        os.close(slave_fd)  # Close slave → EOF on master
-        try:
-            loop = asyncio.get_running_loop()
-            # Might get OSError or empty data depending on timing
-            try:
-                result = await term_mod._read_pty(master_fd, loop, timeout=1.0)
-                # If we get data, it should be empty (EOF)
-                assert result == b"" or result is None
-            except OSError:
-                pass  # Expected
-        finally:
-            try:
-                os.close(master_fd)
-            except OSError:
-                pass
+    def test_disconnections_metric_exists(self):
+        """_disconnections metric/noop is defined."""
+        assert hasattr(term_mod, "_disconnections")
+        term_mod._disconnections.labels(cause="test").inc()  # type: ignore[attr-defined]

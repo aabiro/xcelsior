@@ -148,6 +148,26 @@ class TestBuildSecureDockerArgs:
         assert "--privileged" not in args
         assert any("gpus" in a.lower() for a in args)
 
+    def test_includes_container_identity_labels(self):
+        args = build_secure_docker_args(
+            "python:3.12",
+            "test-job",
+            runtime="runc",
+            labels={"xcelsior.job_id": "job-1", "xcelsior.managed": "true"},
+        )
+        assert "--label" in args
+        assert "xcelsior.job_id=job-1" in args
+        assert "xcelsior.managed=true" in args
+
+    def test_rejects_invalid_label_name(self):
+        with pytest.raises(ValueError):
+            build_secure_docker_args(
+                "python:3.12",
+                "test-job",
+                runtime="runc",
+                labels={"bad label": "value"},
+            )
+
 
 # ── Egress Rules ─────────────────────────────────────────────────────
 

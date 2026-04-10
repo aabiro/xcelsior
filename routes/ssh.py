@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from routes._deps import (
-    _get_current_user,
+    _require_user_grant,
 )
 from db import UserStore
 import hashlib as _hashlib
@@ -55,9 +55,7 @@ def _ssh_key_fingerprint(key_str: str) -> str:
 @router.post("/api/ssh/keys", tags=["SSH Keys"])
 async def api_add_ssh_key(request: Request):
     """Upload a user SSH public key. Like GitHub/AWS key management."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
     body = await request.json()
     name = body.get("name", "").strip() or "default"
     public_key = body.get("public_key", "").strip()
@@ -103,9 +101,7 @@ async def api_add_ssh_key(request: Request):
 @router.get("/api/ssh/keys", tags=["SSH Keys"])
 def api_list_ssh_keys(request: Request):
     """List the authenticated user's SSH public keys."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
     keys = UserStore.list_ssh_keys(user["email"])
     return {
         "ok": True,
@@ -124,9 +120,7 @@ def api_list_ssh_keys(request: Request):
 @router.delete("/api/ssh/keys/{key_id}", tags=["SSH Keys"])
 def api_delete_ssh_key(key_id: str, request: Request):
     """Delete a user SSH public key by ID."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
+    user = _require_user_grant(request, allow_api_key=True)
     deleted = UserStore.delete_ssh_key(user["email"], key_id)
     if not deleted:
         raise HTTPException(404, "SSH key not found")

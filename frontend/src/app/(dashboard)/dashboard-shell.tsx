@@ -21,10 +21,13 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AiPanel } from "@/components/AiPanel";
+import { DesktopStatusStrip } from "@/components/DesktopStatusStrip";
 import { NotificationBell } from "@/components/NotificationBell";
 import { CreditsButton } from "@/components/CreditsButton";
+import { useDesktopRuntime } from "@/lib/desktop/runtime";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
+const SIDEBAR_COLLAPSED_KEY = "xcelsior-sidebar-collapsed";
 
 const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[]; badge?: string }[] = [
   { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
@@ -62,14 +65,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
+  const { state: desktopState, openControlCenter } = useDesktopRuntime();
+  const desktopMode = desktopState.isNativeDesktop || desktopState.isStandalonePwa;
 
   // Restore AI panel state from localStorage
   useEffect(() => {
     try {
       const stored = localStorage.getItem(AI_PANEL_KEY);
       if (stored === "true") setAiPanelOpen(true);
+      const storedSidebarState = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+      if (storedSidebarState === "1") setCollapsed(true);
     } catch { /* SSR */ }
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch { /* noop */ }
+  }, [collapsed]);
 
   const toggleAiPanel = useCallback(() => {
     setAiPanelOpen((prev) => {
@@ -130,6 +143,39 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     if (profileOpen || gearOpen) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [profileOpen, gearOpen]);
+
+  useEffect(() => {
+    if (!desktopMode) return;
+
+    const handleKeydown = (event: KeyboardEvent) => {
+      const modifier = event.metaKey || event.ctrlKey;
+      if (!modifier) return;
+
+      const key = event.key.toLowerCase();
+      if (event.shiftKey && key === "m") {
+        event.preventDefault();
+        router.push("/dashboard/marketplace");
+      } else if (event.shiftKey && key === "i") {
+        event.preventDefault();
+        router.push("/dashboard/instances");
+      } else if (event.shiftKey && key === "n") {
+        event.preventDefault();
+        router.push("/dashboard/notifications");
+      } else if (event.shiftKey && key === "d" && desktopState.isNativeDesktop) {
+        event.preventDefault();
+        void openControlCenter("/desktop");
+      } else if (!event.shiftKey && key === "b") {
+        event.preventDefault();
+        setCollapsed((current) => !current);
+      } else if (!event.shiftKey && key === "k") {
+        event.preventDefault();
+        toggleAiPanel();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [desktopMode, desktopState.isNativeDesktop, openControlCenter, router, toggleAiPanel]);
 
   // Show loading state while checking auth
   if (authLoading || !user) {
@@ -362,11 +408,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-navy">
+    <div className={cn("flex h-screen overflow-hidden bg-navy", desktopMode && "desktop-shell-root")}>
       {/* Desktop Sidebar */}
       <aside
         className={cn(
           "hidden md:flex flex-col border-r border-border/60 glass transition-all duration-200",
+          desktopMode && "desktop-sidebar-surface",
           collapsed ? "w-16" : "w-60"
         )}
       >
@@ -404,7 +451,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <SessionExpiryBanner />
 
         {/* Topbar */}
-        <header className="flex h-[72px] items-center justify-between glass px-4 md:px-6 relative">
+        <header className={cn("flex h-[72px] items-center justify-between glass px-4 md:px-6 relative", desktopMode && "desktop-topbar")}>
           <div className="brand-line absolute bottom-0 left-0 right-0" />
           {/* Mobile menu button */}
           <button
@@ -414,10 +461,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-6 w-6" />
           </button>
-          <div className="hidden md:block">
+          <div className="hidden md:block min-w-0">
             <Breadcrumb />
           </div>
-          <div className="flex items-center gap-4">
+          <DesktopStatusStrip className="hidden xl:flex" />
+          <div className={cn("flex items-center gap-4", desktopMode && "desktop-topbar-actions")}>
             <LocaleToggle />
             <ThemeToggle />
             <div className="h-6 w-px bg-border hidden sm:block" />
@@ -497,7 +545,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
+        <main className={cn("flex-1 overflow-y-auto p-4 md:p-6", desktopMode && "desktop-main-surface")}>{children}</main>
       </div>
 
       {/* AI Context Panel (right side) */}
