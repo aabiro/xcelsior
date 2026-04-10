@@ -354,6 +354,7 @@ paths:
       x-fern-sdk-method-name: oauthInitiate
   /api/auth/oauth/{provider}/callback:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: oauthCallback
   /api/keys:
@@ -572,6 +573,7 @@ paths:
       x-fern-sdk-method-name: register
   /api/providers/webhook:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: providers
       x-fern-sdk-method-name: webhook
   /api/providers/{provider_id}:
@@ -1068,17 +1070,21 @@ paths:
       x-fern-sdk-method-name: legacyDashboardPath
   /api/auth/device:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: deviceCode
   /api/auth/token:
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: deviceToken
   /api/auth/verify:
     get:
+      x-fern-ignore: true
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: verifyPage
     post:
+      x-fern-ignore: true
       x-fern-sdk-group-name: auth
       x-fern-sdk-method-name: verifyDevice
   /api/slurm/submit:

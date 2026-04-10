@@ -13,6 +13,7 @@ const navKeys = [
   { href: "/pricing", key: "nav.pricing" },
   { href: "/gpu-availability", key: "nav.gpus" },
   { href: "/sovereignty", key: "nav.sovereignty" },
+  { href: "/download", key: "nav.download" },
   { href: "https://docs.xcelsior.ca", key: "nav.docs", external: true },
 ];
 

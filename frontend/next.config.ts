@@ -65,6 +65,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${BACKEND}/api/:path*` },
+      { source: "/oauth/:path*", destination: `${BACKEND}/oauth/:path*` },
+      { source: "/.well-known/:path*", destination: `${BACKEND}/.well-known/:path*` },
       { source: "/hosts", destination: `${BACKEND}/hosts` },
       { source: "/host", destination: `${BACKEND}/host` },
       { source: "/host/:path*", destination: `${BACKEND}/host/:path*` },
