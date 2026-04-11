@@ -21,8 +21,12 @@ export default function ForgotPasswordPage() {
     setError("");
     setLoading(true);
     try {
-      await requestPasswordReset(email);
-      setSent(true);
+      const res = await requestPasswordReset(email);
+      if (res.account_exists === false) {
+        setError(t("auth.forgot_no_account"));
+      } else {
+        setSent(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send reset email");
     } finally {

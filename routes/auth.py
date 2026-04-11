@@ -616,15 +616,41 @@ def api_auth_register(body: RegisterRequest, request: Request):
     if requested_role not in VALID_ACCOUNT_ROLES:
         raise HTTPException(400, "Role must be submitter or provider")
 
+    # Check for existing accounts
+    existing_user = None
     if _USE_PERSISTENT_AUTH:
-        if UserStore.user_exists(email):
-            raise HTTPException(409, "Email already registered")
+        existing_user = UserStore.get_user(email)
     else:
         with _user_lock:
-            if email in _users_db:
-                raise HTTPException(409, "Email already registered")
+            existing_user = _users_db.get(email)
+
+    # If account exists with a password already set, reject
+    if existing_user and existing_user.get("password_hash"):
+        raise HTTPException(409, "Email already registered")
 
     password_hash, salt = _hash_password(body.password)
+
+    if existing_user and not existing_user.get("password_hash"):
+        # OAuth-only account — link password to existing account
+        if _USE_PERSISTENT_AUTH:
+            UserStore.update_user(email, {
+                "password_hash": password_hash,
+                "salt": salt,
+                "email_verified": 1,  # Already verified via OAuth
+            })
+        else:
+            existing_user["password_hash"] = password_hash
+            existing_user["salt"] = salt
+            existing_user["email_verified"] = 1
+            with _user_lock:
+                _users_db[email] = existing_user
+        user = existing_user
+        user["password_hash"] = password_hash
+        user["salt"] = salt
+
+        token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+        return _build_auth_response(token_bundle, user=user)
+
     user_id = f"user-{uuid.uuid4().hex[:12]}"
     customer_id = f"cust-{uuid.uuid4().hex[:8]}"
 
@@ -742,6 +768,19 @@ def api_auth_login(body: LoginRequest, request: Request):
 
     if not user:
         raise HTTPException(401, "Invalid email or password")
+
+    # OAuth-only account — no password has been set yet
+    if not user.get("password_hash") or not user.get("salt"):
+        provider = user.get("oauth_provider", "OAuth")
+        return JSONResponse(status_code=403, content={
+            "ok": False,
+            "oauth_account": True,
+            "oauth_provider": provider,
+            "error": {
+                "code": "oauth_only",
+                "message": f"This account was created with {provider.title()}. Please sign in with {provider.title()}, or use 'Forgot password' to set a password.",
+            },
+        })
 
     password_hash, _ = _hash_password(body.password, user["salt"])
     if not hmac.compare_digest(password_hash, user["password_hash"]):
@@ -1316,7 +1355,7 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
     if _USE_PERSISTENT_AUTH:
         user = UserStore.get_user(req.email)
         if not user:
-            return {"ok": True, "message": "If the email exists, a reset link has been sent."}
+            return {"ok": False, "account_exists": False, "message": "No account found for this email address."}
         reset_token = secrets.token_urlsafe(32)
         UserStore.update_user(
             req.email,
@@ -1329,7 +1368,7 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
         with _user_lock:
             user = _users_db.get(req.email)
             if not user:
-                return {"ok": True, "message": "If the email exists, a reset link has been sent."}
+                return {"ok": False, "account_exists": False, "message": "No account found for this email address."}
             reset_token = secrets.token_urlsafe(32)
             user["reset_token"] = reset_token
             user["reset_token_expires"] = time.time() + 3600
@@ -1353,7 +1392,8 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
 
     return {
         "ok": True,
-        "message": "If the email exists, a reset link has been sent.",
+        "account_exists": True,
+        "message": "Password reset instructions have been sent to your email.",
         "reset_token": reset_token if os.environ.get("XCELSIOR_ENV") == "test" else None,
     }
 
