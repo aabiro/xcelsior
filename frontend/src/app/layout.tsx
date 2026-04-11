@@ -27,11 +27,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   applicationName: "Xcelsior",
   title: {
-    default: "Xcelsior — Sovereign GPU Compute for Canada",
+    default: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
     template: "%s | Xcelsior",
   },
   description:
-    "Canada-first GPU compute marketplace with data sovereignty, compliance automation, and competitive pricing. Ever upward.",
+    "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide. Ever upward.",
   keywords: [
     "GPU compute",
     "Canada",
@@ -58,12 +58,12 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Xcelsior — Sovereign GPU Compute for Canada",
+        alt: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
       },
     ],
-    title: "Xcelsior — Sovereign GPU Compute for Canada",
+    title: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
     description:
-      "Canada-first GPU compute marketplace. Data sovereignty, compliance automation, competitive pricing.",
+      "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -73,8 +73,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     images: ["/og-image.png"],
-    title: "Xcelsior — Sovereign GPU Compute for Canada",
-    description: "Canada-first GPU compute marketplace. Ever upward.",
+    title: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
+    description: "Canada-first GPU compute marketplace for teams worldwide. Ever upward.",
   },
   appleWebApp: {
     capable: true,
@@ -127,7 +127,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: "https://xcelsior.ca/xcelsior_icon_512x512.png",
               description:
-                "Canadian-owned GPU compute marketplace with data sovereignty, compliance automation, and CAD pricing.",
+                "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",

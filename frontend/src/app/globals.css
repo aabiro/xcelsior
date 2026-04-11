@@ -52,10 +52,10 @@ html.light {
   --color-accent-gold-hover: #b45309;
   --color-accent-orange: #ea580c;
   --color-accent-orange-hover: #c2410c;
-  --color-ice-blue: #0284c7;
-  --color-accent-cyan: #0284c7;
-  --color-accent-violet: #6d28d9;
-  --color-emerald: #059669;
+  --color-ice-blue: #0891b2;
+  --color-accent-cyan: #0891b2;
+  --color-accent-violet: #5b21b6;
+  --color-emerald: #047857;
   --color-text-primary: #0f172a;
   --color-text-secondary: #475569;
   --color-text-muted: #94a3b8;
@@ -63,9 +63,9 @@ html.light {
   --color-border-light: #cbd5e1;
   --color-surface: #f1f5f9;
   --color-surface-hover: #e2e8f0;
-  --color-glow-cyan: rgba(2, 132, 199, 0.08);
-  --color-glow-violet: rgba(109, 40, 217, 0.06);
-  --color-glow-red: rgba(220, 38, 38, 0.06);
+  --color-glow-cyan: rgba(8, 145, 178, 0.12);
+  --color-glow-violet: rgba(91, 33, 182, 0.09);
+  --color-glow-red: rgba(220, 38, 38, 0.08);
 }
 
 html.light body {
@@ -84,8 +84,8 @@ html[data-desktop-mode="1"] body {
 
 html.light[data-desktop-mode="1"] body {
   background:
-    radial-gradient(circle at top, rgba(2, 132, 199, 0.08), transparent 30%),
-    radial-gradient(circle at 80% 20%, rgba(109, 40, 217, 0.06), transparent 25%),
+    radial-gradient(circle at top, rgba(8, 145, 178, 0.12), transparent 30%),
+    radial-gradient(circle at 80% 20%, rgba(91, 33, 182, 0.09), transparent 25%),
     #ffffff;
 }
 
@@ -254,9 +254,9 @@ html.light .aurora-gradient {
   background: linear-gradient(
     135deg,
     #f8fafc 0%,
-    #ede9fe 25%,
-    #e0f2fe 50%,
-    #fef3c7 75%,
+    #e9d5ff 25%,
+    #dbeafe 50%,
+    #ffedd5 75%,
     #f8fafc 100%
   );
 }
@@ -287,6 +287,11 @@ html.light .aurora-gradient {
   background:
     linear-gradient(180deg, rgba(0, 212, 255, 0.04), transparent 14%),
     linear-gradient(90deg, rgba(124, 58, 237, 0.04), transparent 22%, transparent 78%, rgba(0, 212, 255, 0.04));
+}
+html.light .desktop-shell-root::before {
+  background:
+    linear-gradient(180deg, rgba(8, 145, 178, 0.06), transparent 14%),
+    linear-gradient(90deg, rgba(91, 33, 182, 0.05), transparent 22%, transparent 78%, rgba(8, 145, 178, 0.06));
 }
 
 .desktop-sidebar-surface {
@@ -341,6 +346,9 @@ html.light .aurora-gradient {
   opacity: 0;
   transition: opacity 0.3s ease;
 }
+html.light .glow-card::before {
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.24), rgba(91, 33, 182, 0.18), transparent 60%);
+}
 .glow-card:hover::before {
   opacity: 1;
 }
@@ -351,8 +359,10 @@ html.light .aurora-gradient {
     0 8px 32px rgba(0, 0, 0, 0.4);
 }
 html.light .glow-card:hover {
-  border-color: rgba(2, 132, 199, 0.3);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+  border-color: rgba(8, 145, 178, 0.36);
+  box-shadow:
+    0 0 20px rgba(8, 145, 178, 0.1),
+    0 8px 25px rgba(0, 0, 0, 0.08);
 }
 
 /* ── Stat Card Glow Variants ───────────────────────────────────────── */
@@ -423,7 +433,7 @@ html.light .glass {
   );
   opacity: 0.18;
 }
-html.light .brand-line { opacity: 0.22; }
+html.light .brand-line { opacity: 0.28; }
 
 /* Top-edge accent for cards: a 2px gradient strip across the top */
 .brand-top-accent {
@@ -449,7 +459,7 @@ html.light .brand-line { opacity: 0.22; }
   opacity: 0.25;
   pointer-events: none;
 }
-html.light .brand-top-accent::after { opacity: 0.3; }
+html.light .brand-top-accent::after { opacity: 0.38; }
 
 /* ── Active nav indicator ──────────────────────────────────────────── */
 .nav-active {
@@ -465,6 +475,9 @@ html.light .brand-top-accent::after { opacity: 0.3; }
   height: 60%;
   border-radius: 0 4px 4px 0;
   background: linear-gradient(180deg, #00d4ff, #7c3aed);
+}
+html.light .nav-active::before {
+  background: linear-gradient(180deg, var(--color-accent-cyan), var(--color-accent-violet));
 }
 
 /* ── Analytics Dashboard ───────────────────────────────────────────── */
