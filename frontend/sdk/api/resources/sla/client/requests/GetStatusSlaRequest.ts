@@ -8,5 +8,4 @@
  */
 export interface GetStatusSlaRequest {
     host_id: string;
-    month?: string;
 }

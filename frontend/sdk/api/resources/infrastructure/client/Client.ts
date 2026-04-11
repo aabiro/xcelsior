@@ -14,9 +14,6 @@ export declare namespace InfrastructureClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Health checks, readiness probes, metrics, SSE streaming, dashboard.
- */
 export class InfrastructureClient {
     protected readonly _options: NormalizedClientOptions<InfrastructureClient.Options>;
 
@@ -25,67 +22,16 @@ export class InfrastructureClient {
     }
 
     /**
-     * Get the public key to add to hosts' authorized_keys.
-     *
-     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.infrastructure.getSshPubkey()
-     */
-    public getSshPubkey(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getSshPubkey(requestOptions));
-    }
-
-    private async __getSshPubkey(
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/ssh/pubkey",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/ssh/pubkey");
-    }
-
-    /**
-     * Health check — verifies database connectivity and returns real system status.
-     *
      * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.infrastructure.healthz()
      */
-    public healthz(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public healthz(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__healthz(requestOptions));
     }
 
-    private async __healthz(
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __healthz(requestOptions?: InfrastructureClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -104,7 +50,7 @@ export class InfrastructureClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -124,13 +70,11 @@ export class InfrastructureClient {
      * @example
      *     await client.infrastructure.readyz()
      */
-    public readyz(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public readyz(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__readyz(requestOptions));
     }
 
-    private async __readyz(
-        requestOptions?: InfrastructureClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __readyz(requestOptions?: InfrastructureClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -149,7 +93,7 @@ export class InfrastructureClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -161,5 +105,50 @@ export class InfrastructureClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/readyz");
+    }
+
+    /**
+     * @param {InfrastructureClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.infrastructure.getSshPubkey()
+     */
+    public getSshPubkey(requestOptions?: InfrastructureClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getSshPubkey(requestOptions));
+    }
+
+    private async __getSshPubkey(
+        requestOptions?: InfrastructureClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/ssh/pubkey",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/ssh/pubkey");
     }
 }

@@ -1,11 +1,5 @@
-export type { ChangePasswordRequest } from "./ChangePasswordRequest.js";
 export type { LoginRequest } from "./LoginRequest.js";
 export type { OauthInitiateAuthRequest } from "./OauthInitiateAuthRequest.js";
-export type { PasswordResetConfirm } from "./PasswordResetConfirm.js";
-export type { PasswordResetRequest } from "./PasswordResetRequest.js";
-export type { ProfileUpdateRequest } from "./ProfileUpdateRequest.js";
 export type { RegisterRequest } from "./RegisterRequest.js";
-export type { ResendVerificationRequest } from "./ResendVerificationRequest.js";
 export type { RevokeApiKeyAuthRequest } from "./RevokeApiKeyAuthRequest.js";
 export type { RevokeSessionAuthRequest } from "./RevokeSessionAuthRequest.js";
-export type { VerifyEmailRequest } from "./VerifyEmailRequest.js";

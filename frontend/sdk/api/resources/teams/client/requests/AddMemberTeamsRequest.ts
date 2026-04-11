@@ -3,9 +3,9 @@
 /**
  * @example
  *     {
- *         challenge_id: "challenge_id"
+ *         team_id: "team_id"
  *     }
  */
-export interface MfaSendSmsRequest {
-    challenge_id: string;
+export interface AddMemberTeamsRequest {
+    team_id: string;
 }

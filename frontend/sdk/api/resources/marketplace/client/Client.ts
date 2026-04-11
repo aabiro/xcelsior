@@ -108,141 +108,6 @@ export class MarketplaceClient {
     }
 
     /**
-     * List a rig on the marketplace.
-     *
-     * @param {XcelsiorApi.RigListing} request
-     * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.marketplace.createListing({
-     *         host_id: "host_id",
-     *         gpu_model: "gpu_model",
-     *         vram_gb: 1.1,
-     *         price_per_hour: 1.1
-     *     })
-     */
-    public createListing(
-        request: XcelsiorApi.RigListing,
-        requestOptions?: MarketplaceClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__createListing(request, requestOptions));
-    }
-
-    private async __createListing(
-        request: XcelsiorApi.RigListing,
-        requestOptions?: MarketplaceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "marketplace/list",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/marketplace/list");
-    }
-
-    /**
-     * Remove a rig from the marketplace.
-     *
-     * @param {XcelsiorApi.UnlistMarketplaceRequest} request
-     * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.marketplace.unlist({
-     *         host_id: "host_id"
-     *     })
-     */
-    public unlist(
-        request: XcelsiorApi.UnlistMarketplaceRequest,
-        requestOptions?: MarketplaceClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__unlist(request, requestOptions));
-    }
-
-    private async __unlist(
-        request: XcelsiorApi.UnlistMarketplaceRequest,
-        requestOptions?: MarketplaceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `marketplace/${core.url.encodePathParam(hostId)}`,
-            ),
-            method: "DELETE",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/marketplace/{host_id}");
-    }
-
-    /**
      * Browse marketplace listings.
      *
      * @param {XcelsiorApi.ListMarketplaceRequest} request
@@ -353,5 +218,103 @@ export class MarketplaceClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/marketplace/stats");
+    }
+
+    /**
+     * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.marketplace.createListing()
+     */
+    public createListing(requestOptions?: MarketplaceClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__createListing(requestOptions));
+    }
+
+    private async __createListing(
+        requestOptions?: MarketplaceClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "marketplace/list",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/marketplace/list");
+    }
+
+    /**
+     * @param {XcelsiorApi.UnlistMarketplaceRequest} request
+     * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.marketplace.unlist({
+     *         host_id: "host_id"
+     *     })
+     */
+    public unlist(
+        request: XcelsiorApi.UnlistMarketplaceRequest,
+        requestOptions?: MarketplaceClient.RequestOptions,
+    ): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__unlist(request, requestOptions));
+    }
+
+    private async __unlist(
+        request: XcelsiorApi.UnlistMarketplaceRequest,
+        requestOptions?: MarketplaceClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const { host_id: hostId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `marketplace/${core.url.encodePathParam(hostId)}`,
+            ),
+            method: "DELETE",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/marketplace/{host_id}");
     }
 }

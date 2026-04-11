@@ -6,6 +6,6 @@
  *         provider_id: "provider_id"
  *     }
  */
-export interface PayoutProvidersRequest {
+export interface UploadIncorporationProvidersRequest {
     provider_id: string;
 }

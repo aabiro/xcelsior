@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace EventsClient {
     export type Options = BaseClientOptions;
@@ -15,9 +15,6 @@ export declare namespace EventsClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Event sourcing, state machine transitions, audit trail.
- */
 export class EventsClient {
     protected readonly _options: NormalizedClientOptions<EventsClient.Options>;
 
@@ -26,12 +23,51 @@ export class EventsClient {
     }
 
     /**
-     * Get event history for a job or host.
-     *
-     * @param {XcelsiorApi.GetByEntityEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     * @example
+     *     await client.events.list()
+     */
+    public list(requestOptions?: EventsClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__list(requestOptions));
+    }
+
+    private async __list(requestOptions?: EventsClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/events",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/events");
+    }
+
+    /**
+     * @param {XcelsiorApi.GetByEntityEventsRequest} request
+     * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.events.getByEntity({
@@ -42,18 +78,15 @@ export class EventsClient {
     public getByEntity(
         request: XcelsiorApi.GetByEntityEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getByEntity(request, requestOptions));
     }
 
     private async __getByEntity(
         request: XcelsiorApi.GetByEntityEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { entity_type: entityType, entity_id: entityId, limit } = request;
-        const _queryParams: Record<string, unknown> = {
-            limit,
-        };
+    ): Promise<core.WithRawResponse<void>> {
+        const { entity_type: entityType, entity_id: entityId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -64,7 +97,7 @@ export class EventsClient {
             ),
             method: "GET",
             headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
+            queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -72,23 +105,15 @@ export class EventsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(
@@ -100,12 +125,8 @@ export class EventsClient {
     }
 
     /**
-     * Get active lease for a job.
-     *
      * @param {XcelsiorApi.GetLeaseEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.events.getLease({
@@ -115,14 +136,14 @@ export class EventsClient {
     public getLease(
         request: XcelsiorApi.GetLeaseEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getLease(request, requestOptions));
     }
 
     private async __getLease(
         request: XcelsiorApi.GetLeaseEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { job_id: jobId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -142,63 +163,7 @@ export class EventsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/events/leases/{job_id}");
-    }
-
-    /**
-     * Verify the tamper-evident hash chain on all events.
-     *
-     * Returns chain integrity status. If any event was modified after
-     * being written, the chain will report the break point.
-     *
-     * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.events.verifyChain()
-     */
-    public verifyChain(requestOptions?: EventsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__verifyChain(requestOptions));
-    }
-
-    private async __verifyChain(requestOptions?: EventsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/audit/verify-chain",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -209,19 +174,12 @@ export class EventsClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/audit/verify-chain");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/events/leases/{job_id}");
     }
 
     /**
-     * Full auditable trail for a job — every event with hash chain.
-     *
-     * This is the dispute-resolution artifact: every state change,
-     * lease renewal, billing event, ordered by time with tamper-evident hashes.
-     *
      * @param {XcelsiorApi.GetAuditTrailEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.events.getAuditTrail({
@@ -231,14 +189,14 @@ export class EventsClient {
     public getAuditTrail(
         request: XcelsiorApi.GetAuditTrailEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getAuditTrail(request, requestOptions));
     }
 
     private async __getAuditTrail(
         request: XcelsiorApi.GetAuditTrailEventsRequest,
         requestOptions?: EventsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { job_id: jobId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -258,65 +216,42 @@ export class EventsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/audit/instance/{job_id}");
     }
 
     /**
-     * Get recent events across all entities.
-     *
-     * @param {XcelsiorApi.ListEventsRequest} request
      * @param {EventsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.events.list()
+     *     await client.events.verifyChain()
      */
-    public list(
-        request: XcelsiorApi.ListEventsRequest = {},
-        requestOptions?: EventsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
+    public verifyChain(requestOptions?: EventsClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__verifyChain(requestOptions));
     }
 
-    private async __list(
-        request: XcelsiorApi.ListEventsRequest = {},
-        requestOptions?: EventsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { limit } = request;
-        const _queryParams: Record<string, unknown> = {
-            limit,
-        };
+    private async __verifyChain(requestOptions?: EventsClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/events",
+                "api/audit/verify-chain",
             ),
             method: "GET",
             headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
+            queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -324,25 +259,17 @@ export class EventsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/events");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/audit/verify-chain");
     }
 }

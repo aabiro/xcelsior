@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace ProvidersClient {
     export type Options = BaseClientOptions;
@@ -15,9 +15,6 @@ export declare namespace ProvidersClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Stripe Connect onboarding, Canadian company registration, payouts.
- */
 export class ProvidersClient {
     protected readonly _options: NormalizedClientOptions<ProvidersClient.Options>;
 
@@ -26,39 +23,59 @@ export class ProvidersClient {
     }
 
     /**
-     * Register a GPU provider with Stripe Connect onboarding.
-     *
-     * For Canadian companies, include corporation_name, business_number,
-     * and gst_hst_number. Returns a Stripe onboarding URL for KYC completion.
-     *
-     * Per Report #1.B "Five Pillars of Compliance":
-     * 1. Identity Verification (Stripe Identity)
-     * 2. Financial Enrollment (bank details via Stripe Express)
-     * 3. Credentialing (GPU/bandwidth checked at admission)
-     * 4. Tax Compliance (GST/HST auto-collected per province)
-     *
-     * @param {XcelsiorApi.ProviderRegisterRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.providers.register({
-     *         provider_id: "provider_id",
-     *         email: "email"
-     *     })
+     *     await client.providers.list()
      */
-    public register(
-        request: XcelsiorApi.ProviderRegisterRequest,
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__register(request, requestOptions));
+    public list(requestOptions?: ProvidersClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__list(requestOptions));
     }
 
-    private async __register(
-        request: XcelsiorApi.ProviderRegisterRequest,
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __list(requestOptions?: ProvidersClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/providers",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/providers");
+    }
+
+    /**
+     * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.providers.register()
+     */
+    public register(requestOptions?: ProvidersClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__register(requestOptions));
+    }
+
+    private async __register(requestOptions?: ProvidersClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -69,10 +86,7 @@ export class ProvidersClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -80,35 +94,23 @@ export class ProvidersClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/providers/register");
     }
 
     /**
-     * Get provider account details including company info and payout status.
-     *
      * @param {XcelsiorApi.GetProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.providers.get({
@@ -118,14 +120,14 @@ export class ProvidersClient {
     public get(
         request: XcelsiorApi.GetProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
     private async __get(
         request: XcelsiorApi.GetProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { provider_id: providerId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -145,178 +147,23 @@ export class ProvidersClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/providers/{provider_id}");
     }
 
     /**
-     * List all provider accounts, optionally filtered by status.
-     *
-     * @param {XcelsiorApi.ListProvidersRequest} request
-     * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.providers.list()
-     */
-    public list(
-        request: XcelsiorApi.ListProvidersRequest = {},
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
-    }
-
-    private async __list(
-        request: XcelsiorApi.ListProvidersRequest = {},
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { status } = request;
-        const _queryParams: Record<string, unknown> = {
-            status,
-        };
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/providers",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/providers");
-    }
-
-    /**
-     * Link an uploaded incorporation document to a provider account.
-     *
-     * The file itself should first be uploaded via POST /api/artifacts/upload
-     * with artifact_type='incorporation_doc'. Then pass the resulting file_id here.
-     *
-     * @param {XcelsiorApi.IncorporationUploadRequest} request
-     * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.providers.uploadIncorporation({
-     *         provider_id: "provider_id",
-     *         file_id: "file_id"
-     *     })
-     */
-    public uploadIncorporation(
-        request: XcelsiorApi.IncorporationUploadRequest,
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__uploadIncorporation(request, requestOptions));
-    }
-
-    private async __uploadIncorporation(
-        request: XcelsiorApi.IncorporationUploadRequest,
-        requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { provider_id: providerId, ..._body } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/providers/${core.url.encodePathParam(providerId)}/incorporation`,
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: _body,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "POST",
-            "/api/providers/{provider_id}/incorporation",
-        );
-    }
-
-    /**
-     * Get aggregate earnings and payout history for a provider.
-     *
      * @param {XcelsiorApi.GetEarningsProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.providers.getEarnings({
@@ -326,14 +173,14 @@ export class ProvidersClient {
     public getEarnings(
         request: XcelsiorApi.GetEarningsProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getEarnings(request, requestOptions));
     }
 
     private async __getEarnings(
         request: XcelsiorApi.GetEarningsProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { provider_id: providerId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -353,23 +200,15 @@ export class ProvidersClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(
@@ -381,15 +220,66 @@ export class ProvidersClient {
     }
 
     /**
-     * Split a job payment between provider (85%) and platform (15%).
-     *
-     * Applies province-specific GST/HST. If Stripe is configured,
-     * creates a real Transfer to the provider's connected account.
-     *
-     * @param {XcelsiorApi.PayoutProvidersRequest} request
+     * @param {XcelsiorApi.UploadIncorporationProvidersRequest} request
      * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     * @example
+     *     await client.providers.uploadIncorporation({
+     *         provider_id: "provider_id"
+     *     })
+     */
+    public uploadIncorporation(
+        request: XcelsiorApi.UploadIncorporationProvidersRequest,
+        requestOptions?: ProvidersClient.RequestOptions,
+    ): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__uploadIncorporation(request, requestOptions));
+    }
+
+    private async __uploadIncorporation(
+        request: XcelsiorApi.UploadIncorporationProvidersRequest,
+        requestOptions?: ProvidersClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const { provider_id: providerId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/providers/${core.url.encodePathParam(providerId)}/incorporation`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "POST",
+            "/api/providers/{provider_id}/incorporation",
+        );
+    }
+
+    /**
+     * @param {XcelsiorApi.PayoutProvidersRequest} request
+     * @param {ProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.providers.payout({
@@ -399,19 +289,15 @@ export class ProvidersClient {
     public payout(
         request: XcelsiorApi.PayoutProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__payout(request, requestOptions));
     }
 
     private async __payout(
         request: XcelsiorApi.PayoutProvidersRequest,
         requestOptions?: ProvidersClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { provider_id: providerId, job_id: jobId, total_cad: totalCad } = request;
-        const _queryParams: Record<string, unknown> = {
-            job_id: jobId,
-            total_cad: totalCad,
-        };
+    ): Promise<core.WithRawResponse<void>> {
+        const { provider_id: providerId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -422,7 +308,7 @@ export class ProvidersClient {
             ),
             method: "POST",
             headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
+            queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -430,23 +316,15 @@ export class ProvidersClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(

@@ -3,9 +3,9 @@
 /**
  * @example
  *     {
- *         token: "token"
+ *         host_id: "host_id"
  *     }
  */
-export interface VerifyEmailRequest {
-    token: string;
+export interface VerifyHostVerificationRequest {
+    host_id: string;
 }

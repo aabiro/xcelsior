@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace SlaClient {
     export type Options = BaseClientOptions;
@@ -15,9 +15,6 @@ export declare namespace SlaClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Service Level Agreement enforcement, uptime tracking, credit calculation.
- */
 export class SlaClient {
     protected readonly _options: NormalizedClientOptions<SlaClient.Options>;
 
@@ -26,60 +23,8 @@ export class SlaClient {
     }
 
     /**
-     * Get SLA status summary for all known hosts.
-     *
-     * Returns per-host cards with uptime %, violation count, and SLA tier.
-     * Used by dashboard UI-8.1 SLA Dashboard.
-     *
-     * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.sla.getHostsSummary()
-     */
-    public getHostsSummary(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getHostsSummary(requestOptions));
-    }
-
-    private async __getHostsSummary(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/sla/hosts-summary",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/hosts-summary");
-    }
-
-    /**
-     * Get SLA record and rolling uptime for a host.
-     *
      * @param {XcelsiorApi.GetStatusSlaRequest} request
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.sla.getStatus({
@@ -89,18 +34,15 @@ export class SlaClient {
     public getStatus(
         request: XcelsiorApi.GetStatusSlaRequest,
         requestOptions?: SlaClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getStatus(request, requestOptions));
     }
 
     private async __getStatus(
         request: XcelsiorApi.GetStatusSlaRequest,
         requestOptions?: SlaClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId, month } = request;
-        const _queryParams: Record<string, unknown> = {
-            month,
-        };
+    ): Promise<core.WithRawResponse<void>> {
+        const { host_id: hostId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -111,127 +53,6 @@ export class SlaClient {
             ),
             method: "GET",
             headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/{host_id}");
-    }
-
-    /**
-     * Get SLA violation history for a host.
-     *
-     * @param {XcelsiorApi.GetViolationsSlaRequest} request
-     * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.sla.getViolations({
-     *         host_id: "host_id"
-     *     })
-     */
-    public getViolations(
-        request: XcelsiorApi.GetViolationsSlaRequest,
-        requestOptions?: SlaClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getViolations(request, requestOptions));
-    }
-
-    private async __getViolations(
-        request: XcelsiorApi.GetViolationsSlaRequest,
-        requestOptions?: SlaClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId, since } = request;
-        const _queryParams: Record<string, unknown> = {
-            since,
-        };
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/sla/violations/${core.url.encodePathParam(hostId)}`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/violations/{host_id}");
-    }
-
-    /**
-     * Get all currently-open downtime periods across all hosts.
-     *
-     * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.sla.getDowntimes()
-     */
-    public getDowntimes(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getDowntimes(requestOptions));
-    }
-
-    private async __getDowntimes(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/sla/downtimes",
-            ),
-            method: "GET",
-            headers: _headers,
             queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
@@ -240,7 +61,7 @@ export class SlaClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -251,22 +72,20 @@ export class SlaClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/downtimes");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/{host_id}");
     }
 
     /**
-     * Get SLA target definitions for all tiers.
-     *
      * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.sla.getTargets()
      */
-    public getTargets(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public getTargets(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getTargets(requestOptions));
     }
 
-    private async __getTargets(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __getTargets(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -285,7 +104,7 @@ export class SlaClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -297,5 +116,144 @@ export class SlaClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/targets");
+    }
+
+    /**
+     * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.sla.getDowntimes()
+     */
+    public getDowntimes(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getDowntimes(requestOptions));
+    }
+
+    private async __getDowntimes(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/sla/downtimes",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/downtimes");
+    }
+
+    /**
+     * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.sla.getHostsSummary()
+     */
+    public getHostsSummary(requestOptions?: SlaClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getHostsSummary(requestOptions));
+    }
+
+    private async __getHostsSummary(requestOptions?: SlaClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/sla/hosts-summary",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/hosts-summary");
+    }
+
+    /**
+     * @param {XcelsiorApi.GetViolationsSlaRequest} request
+     * @param {SlaClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.sla.getViolations({
+     *         host_id: "host_id"
+     *     })
+     */
+    public getViolations(
+        request: XcelsiorApi.GetViolationsSlaRequest,
+        requestOptions?: SlaClient.RequestOptions,
+    ): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getViolations(request, requestOptions));
+    }
+
+    private async __getViolations(
+        request: XcelsiorApi.GetViolationsSlaRequest,
+        requestOptions?: SlaClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const { host_id: hostId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/sla/violations/${core.url.encodePathParam(hostId)}`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/sla/violations/{host_id}");
     }
 }

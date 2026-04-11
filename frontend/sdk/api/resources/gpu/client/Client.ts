@@ -22,22 +22,16 @@ export class GpuClient {
     }
 
     /**
-     * List available GPU types with regions, VRAM, pricing, and counts.
-     *
-     * Used by both Serverless and Volumes to populate GPU/region pickers.
-     * Queries gpu_offers first, then hosts table. If neither has data,
-     * returns an empty list — no fake inventory.
-     *
      * @param {GpuClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.gpu.listAvailable()
      */
-    public listAvailable(requestOptions?: GpuClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public listAvailable(requestOptions?: GpuClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__listAvailable(requestOptions));
     }
 
-    private async __listAvailable(requestOptions?: GpuClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __listAvailable(requestOptions?: GpuClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -56,7 +50,7 @@ export class GpuClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {

@@ -3,9 +3,11 @@
 /**
  * @example
  *     {
+ *         team_id: "team_id",
  *         email: "email"
  *     }
  */
-export interface ResendVerificationRequest {
+export interface UpdateMemberRoleTeamsRequest {
+    team_id: string;
     email: string;
 }

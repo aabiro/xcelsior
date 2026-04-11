@@ -57,11 +57,12 @@ function LoginPageContent() {
   }
 
   async function completeBrowserLogin() {
+    const finalTarget = `/setup-2fa?redirect=${encodeURIComponent(redirectTarget)}`;
     try {
-      await beginBrowserOAuthLogin(redirectTarget);
+      await beginBrowserOAuthLogin(finalTarget);
     } catch {
       await login();
-      router.replace(redirectTarget);
+      router.replace(finalTarget);
     }
   }
 

@@ -3,9 +3,9 @@
 /**
  * @example
  *     {
- *         method_id: 1
+ *         job_id: "job_id"
  *     }
  */
-export interface PasskeyDeleteRequest {
-    method_id: number;
+export interface UpdateInstancesRequest {
+    job_id: string;
 }

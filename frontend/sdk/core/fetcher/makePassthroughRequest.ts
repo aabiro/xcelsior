@@ -6,12 +6,12 @@ import { makeRequest } from "./makeRequest.js";
 import { requestWithRetries } from "./requestWithRetries.js";
 import { Supplier } from "./Supplier.js";
 
-function headersToObject(headers: Headers): Record<string, string> {
-    const values: Record<string, string> = {};
+function headersToRecord(headers: Headers): Record<string, string> {
+    const record: Record<string, string> = {};
     headers.forEach((value, key) => {
-        values[key] = value;
+        record[key] = value;
     });
-    return values;
+    return record;
 }
 
 export declare namespace PassthroughRequest {
@@ -79,7 +79,7 @@ export async function makePassthroughRequest(
         if (init == null) {
             effectiveInit = {
                 method: input.method,
-                headers: headersToObject(input.headers),
+                headers: headersToRecord(input.headers),
                 body: input.body,
                 signal: input.signal,
                 credentials: input.credentials,
@@ -134,7 +134,7 @@ export async function makePassthroughRequest(
     if (effectiveInit?.headers != null) {
         const initHeaders =
             effectiveInit.headers instanceof Headers
-                ? headersToObject(effectiveInit.headers)
+                ? headersToRecord(effectiveInit.headers)
                 : Array.isArray(effectiveInit.headers)
                   ? Object.fromEntries(effectiveInit.headers)
                   : effectiveInit.headers;

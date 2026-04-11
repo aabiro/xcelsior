@@ -28,13 +28,14 @@ function VerifyEmailContent() {
 
     verifyEmail(token)
       .then(async () => {
+        const finalTarget = `/setup-2fa?redirect=${encodeURIComponent("/dashboard")}`;
         try {
-          await beginBrowserOAuthLogin("/dashboard");
+          await beginBrowserOAuthLogin(finalTarget);
           return;
         } catch {
           setStatus("success");
           await login();
-          setTimeout(() => router.push("/dashboard"), 2000);
+          setTimeout(() => router.push(finalTarget), 2000);
         }
       })
       .catch((err) => {
