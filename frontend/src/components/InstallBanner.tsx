@@ -91,7 +91,7 @@ export function InstallBanner() {
   // Desktop variant → link to /download instead of PWA prompt
   if (variant === "desktop") {
     return (
-      <div className="fixed bottom-4 right-4 z-50 hidden md:block animate-in slide-in-from-bottom-4 fade-in duration-300 max-w-sm">
+      <div className="fixed bottom-24 right-4 z-40 hidden md:block animate-in slide-in-from-bottom-4 fade-in duration-300 max-w-sm">
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-elevated p-4 shadow-lg backdrop-blur-sm">
           <img
             src="/xcelsior_icon_192x192.png"

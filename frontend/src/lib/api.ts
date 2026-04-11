@@ -1033,7 +1033,7 @@ export async function fetchTrustTierRequirements() {
 
 // ── Password Reset ────────────────────────────────────────────────────
 export async function requestPasswordReset(email: string) {
-  return apiFetch<{ ok: boolean; message: string }>("/api/auth/password-reset", {
+  return apiFetch<{ ok: boolean; message: string; account_exists?: boolean }>("/api/auth/password-reset", {
     method: "POST",
     body: JSON.stringify({ email }),
   });

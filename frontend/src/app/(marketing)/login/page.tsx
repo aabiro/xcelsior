@@ -87,10 +87,14 @@ function LoginPageContent() {
       await completeBrowserLogin();
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        const body = err.body as { email_verification_required?: boolean; email?: string } | undefined;
+        const body = err.body as { email_verification_required?: boolean; email?: string; oauth_account?: boolean; error?: { message?: string } } | undefined;
         if (body?.email_verification_required) {
           setEmailNotVerified(true);
           setUnverifiedEmail(body.email || email);
+          return;
+        }
+        if (body?.oauth_account) {
+          setError(body.error?.message || "This account uses OAuth. Please sign in with your OAuth provider or use 'Forgot password' to set a password.");
           return;
         }
       }
@@ -369,7 +373,7 @@ function LoginPageContent() {
                 <ProviderLogo
                   provider={provider}
                   framed
-                  size={28}
+                  size={22}
                   className="rounded-lg border-border/60 bg-navy/70 shadow-none"
                 />
                 <span className="flex-1 text-left">{labels[provider]}</span>
