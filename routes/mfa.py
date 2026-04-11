@@ -492,20 +492,20 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
     stored_state = challenge_data["state"]
     device_name = challenge_data.get("device_name", "Security Key")
 
-    # Reconstruct state with bytes
+    # Reconstruct state — fido2 v2.x expects base64url string for challenge
     state = {
-        "challenge": _b64url_decode(stored_state["challenge"]),
+        "challenge": stored_state["challenge"],
         "user_verification": stored_state.get("user_verification"),
     }
 
-    # Reconstruct credential response with bytes
+    # Pass credential response as-is — fido2 v2.x from_dict handles b64url decoding
     cred = req.credential
     response_data = {
         "id": cred["id"],
-        "rawId": _b64url_decode(cred["rawId"]),
+        "rawId": cred["rawId"],
         "response": {
-            "clientDataJSON": _b64url_decode(cred["response"]["clientDataJSON"]),
-            "attestationObject": _b64url_decode(cred["response"]["attestationObject"]),
+            "clientDataJSON": cred["response"]["clientDataJSON"],
+            "attestationObject": cred["response"]["attestationObject"],
         },
         "type": cred.get("type", "public-key"),
     }
@@ -654,26 +654,26 @@ def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteReques
     if not login_challenge or login_challenge["email"] != email:
         raise HTTPException(400, "Invalid MFA login challenge")
 
-    # Reconstruct state
+    # Reconstruct state — fido2 v2.x expects base64url string for challenge
     state = {
-        "challenge": _b64url_decode(stored_state["challenge"]),
+        "challenge": stored_state["challenge"],
         "user_verification": stored_state.get("user_verification"),
     }
 
-    # Reconstruct credential response
+    # Pass credential response as-is — fido2 v2.x from_dict handles b64url decoding
     cred = req.credential
     response_data = {
         "id": cred["id"],
-        "rawId": _b64url_decode(cred["rawId"]),
+        "rawId": cred["rawId"],
         "response": {
-            "authenticatorData": _b64url_decode(cred["response"]["authenticatorData"]),
-            "clientDataJSON": _b64url_decode(cred["response"]["clientDataJSON"]),
-            "signature": _b64url_decode(cred["response"]["signature"]),
+            "authenticatorData": cred["response"]["authenticatorData"],
+            "clientDataJSON": cred["response"]["clientDataJSON"],
+            "signature": cred["response"]["signature"],
         },
         "type": cred.get("type", "public-key"),
     }
     if cred["response"].get("userHandle"):
-        response_data["response"]["userHandle"] = _b64url_decode(cred["response"]["userHandle"])
+        response_data["response"]["userHandle"] = cred["response"]["userHandle"]
 
     # Reconstruct stored credentials for verification
     from fido2.webauthn import AttestedCredentialData
