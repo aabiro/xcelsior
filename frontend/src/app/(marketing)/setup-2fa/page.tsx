@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { CheckCircle, Shield, Key, Smartphone, AlertTriangle, Loader2, Copy, Download } from "lucide-react";
 import QRCode from "qrcode";
+import { toast } from "sonner";
 import * as api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -230,7 +231,7 @@ function Setup2FAPageContent() {
               <div className="text-sm">
                 <p className="font-medium text-accent-red mb-1">Save these backup codes</p>
                 <p className="text-accent-red/80">
-                  If you lose your device, these codes are the ONLY way to access your account.
+                  If you lose your device, these codes are the only way to access your account.
                   Each code can only be used once.
                 </p>
               </div>
@@ -246,7 +247,7 @@ function Setup2FAPageContent() {
           </div>
 
           <div className="flex gap-3 mb-8">
-            <Button variant="outline" className="flex-1" onClick={() => navigator.clipboard.writeText(backupCodes.join("\n"))}>
+            <Button variant="outline" className="flex-1" onClick={() => { navigator.clipboard.writeText(backupCodes.join("\n")); toast.success("Copied to clipboard"); }}>
               <Copy className="h-4 w-4 mr-2" /> Copy
             </Button>
             <Button variant="outline" className="flex-1" onClick={handleDownloadBackupCodes}>

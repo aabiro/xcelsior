@@ -194,19 +194,46 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     <>
       {/* Logo */}
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className={cn("hidden dark:block", collapsed && !mobile ? "h-[60px] w-[60px] object-left object-cover overflow-hidden" : "h-[64px]")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className={cn("block dark:hidden", collapsed && !mobile ? "h-[60px] w-[60px] object-left object-cover overflow-hidden" : "h-[64px]")} style={collapsed && !mobile ? { clipPath: "inset(0 74% 0 0)" } : undefined} />
-          {(mobile || !collapsed) && (
-            <span className={cn(
-              "shrink-0 rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan",
-              "ml-1"
-            )}>
-              Beta
-            </span>
-          )}
+        <Link href="/dashboard" className="flex items-center gap-2 overflow-hidden">
+          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 40 : undefined }}>
+            {/* Rounded icon — visible when collapsed */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/xcelsior-logo-rounded.svg"
+              alt="Xcelsior"
+              className={cn(
+                "h-[40px] w-[40px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
+                collapsed && !mobile
+                  ? "opacity-100 scale-100 -translate-y-1/2"
+                  : "opacity-0 scale-75 -translate-y-1/2 pointer-events-none"
+              )}
+            />
+            {/* Wordmark — visible when expanded */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/xcelsior-logo-wordmark-iconbg.svg"
+              alt="Xcelsior"
+              className={cn(
+                "hidden dark:block h-[64px] transition-all duration-300 ease-in-out",
+                collapsed && !mobile ? "opacity-0 scale-90 w-0" : "opacity-100 scale-100"
+              )}
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/xcelsior-logo-wordmark-iconbg-light.svg"
+              alt="Xcelsior"
+              className={cn(
+                "block dark:hidden h-[64px] transition-all duration-300 ease-in-out",
+                collapsed && !mobile ? "opacity-0 scale-90 w-0" : "opacity-100 scale-100"
+              )}
+            />
+          </div>
+          <span className={cn(
+            "shrink-0 rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan transition-all duration-300",
+            collapsed && !mobile ? "opacity-0 w-0 overflow-hidden px-0" : "opacity-100 ml-1"
+          )}>
+            Beta
+          </span>
         </Link>
         {mobile && (
           <button onClick={() => setMobileOpen(false)} className="text-text-muted hover:text-text-primary" aria-label="Close menu">

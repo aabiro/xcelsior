@@ -170,7 +170,7 @@ function RegisterPageContent() {
                 <ProviderLogo
                   provider={provider}
                   framed
-                  size={28}
+                  size={22}
                   className="rounded-lg border-border/60 bg-navy/70 shadow-none"
                 />
                 <span className="flex-1 text-left">{labels[provider]}</span>
