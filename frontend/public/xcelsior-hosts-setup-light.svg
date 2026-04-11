@@ -6,201 +6,228 @@
       <stop offset="100%" stop-color="#FFF3EF"/>
     </linearGradient>
 
-    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(404 84) rotate(90) scale(340 560)">
-      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.18"/>
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(320 160) rotate(90) scale(420 540)">
+      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.12"/>
       <stop offset="100%" stop-color="#0EA5E9" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(830 128) rotate(90) scale(320 560)">
-      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.14"/>
+    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(760 280) rotate(90) scale(380 500)">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.10"/>
       <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="redGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1018 172) rotate(90) scale(260 420)">
-      <stop offset="0%" stop-color="#DC2626" stop-opacity="0.10"/>
+    <radialGradient id="redGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1020 540) rotate(90) scale(300 380)">
+      <stop offset="0%" stop-color="#DC2626" stop-opacity="0.07"/>
       <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
     </radialGradient>
 
     <pattern id="majorGrid" width="64" height="64" patternUnits="userSpaceOnUse">
-      <path d="M64 0H0V64" stroke="#CBD5E1" stroke-opacity="0.32" stroke-width="1"/>
+      <path d="M64 0H0V64" stroke="#CBD5E1" stroke-opacity="0.28" stroke-width="0.8"/>
     </pattern>
     <pattern id="minorGrid" width="22" height="22" patternUnits="userSpaceOnUse">
-      <path d="M22 0H0V22" stroke="#E2E8F0" stroke-opacity="0.42" stroke-width="1"/>
+      <path d="M22 0H0V22" stroke="#E2E8F0" stroke-opacity="0.32" stroke-width="0.5"/>
     </pattern>
 
-    <!-- Asymmetric grid fade — heavier top-left, lighter drift bottom-right -->
-    <radialGradient id="gridFade" cx="0.32" cy="0.18" r="0.82" gradientUnits="objectBoundingBox">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.94"/>
-      <stop offset="62%" stop-color="#FFFFFF" stop-opacity="0.55"/>
-      <stop offset="80%" stop-color="#FFFFFF" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
+    <!-- Asymmetric fade — denser top-left, dissolves unevenly toward bottom-right -->
+    <linearGradient id="gridFadeV" x1="0" y1="0" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="35%" stop-color="white" stop-opacity="0.85"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0.45"/>
+      <stop offset="72%" stop-color="white" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gridFadeH" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.2"/>
+      <stop offset="18%" stop-color="white"/>
+      <stop offset="60%" stop-color="white" stop-opacity="0.7"/>
+      <stop offset="85%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.08"/>
+    </linearGradient>
     <mask id="gridMask">
-      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFade)"/>
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeV)"/>
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeH)" style="mix-blend-mode:multiply"/>
     </mask>
 
-    <linearGradient id="brandH" x1="80" y1="0" x2="1120" y2="0" gradientUnits="userSpaceOnUse">
+    <linearGradient id="brandH" x1="60" y1="0" x2="1140" y2="0" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0"/>
-      <stop offset="14%" stop-color="#0EA5E9" stop-opacity="0.72"/>
-      <stop offset="51%" stop-color="#7C3AED" stop-opacity="0.60"/>
-      <stop offset="84%" stop-color="#DC2626" stop-opacity="0.54"/>
+      <stop offset="12%" stop-color="#0EA5E9" stop-opacity="0.48"/>
+      <stop offset="48%" stop-color="#7C3AED" stop-opacity="0.36"/>
+      <stop offset="82%" stop-color="#DC2626" stop-opacity="0.28"/>
       <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="brandV" x1="0" y1="40" x2="0" y2="812" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.82"/>
-      <stop offset="44%" stop-color="#7C3AED" stop-opacity="0.56"/>
-      <stop offset="76%" stop-color="#DC2626" stop-opacity="0.32"/>
+    <linearGradient id="brandV" x1="0" y1="30" x2="0" y2="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.52"/>
+      <stop offset="40%" stop-color="#7C3AED" stop-opacity="0.32"/>
+      <stop offset="75%" stop-color="#DC2626" stop-opacity="0.14"/>
       <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
     </linearGradient>
 
-    <linearGradient id="serverStroke" x1="710" y1="382" x2="1158" y2="866" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#0EA5E9"/>
-      <stop offset="52%" stop-color="#7C3AED"/>
-      <stop offset="100%" stop-color="#DC2626"/>
+    <!-- Server defs -->
+    <linearGradient id="rackStroke" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.55"/>
+      <stop offset="50%" stop-color="#7C3AED" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#DC2626" stop-opacity="0.3"/>
     </linearGradient>
-    <linearGradient id="serverFill" x1="706" y1="404" x2="1132" y2="844" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.92"/>
-      <stop offset="100%" stop-color="#F8FAFC" stop-opacity="0.72"/>
-    </linearGradient>
-    <radialGradient id="serverHalo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(980 708) rotate(90) scale(244 232)">
-      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.18"/>
-      <stop offset="52%" stop-color="#7C3AED" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#DC2626" stop-opacity="0"/>
+    <radialGradient id="serverHalo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(980 680) rotate(90) scale(280 260)">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.10"/>
+      <stop offset="50%" stop-color="#0EA5E9" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#0EA5E9" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="serverMaskFill" x1="768" y1="440" x2="1158" y2="900" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="white" stop-opacity="0.92"/>
-      <stop offset="62%" stop-color="white" stop-opacity="0.88"/>
-      <stop offset="100%" stop-color="white" stop-opacity="0.24"/>
+    <linearGradient id="serverMaskG" x1="740" y1="420" x2="1180" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.95"/>
+      <stop offset="45%" stop-color="white" stop-opacity="0.75"/>
+      <stop offset="75%" stop-color="white" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
     </linearGradient>
     <mask id="serverMask">
       <rect x="0" y="0" width="1200" height="900" fill="black"/>
-      <rect x="700" y="352" width="500" height="548" rx="20" fill="url(#serverMaskFill)"/>
+      <rect x="690" y="380" width="520" height="520" rx="8" fill="url(#serverMaskG)"/>
     </mask>
 
-    <filter id="softShadow" x="668" y="338" width="576" height="608" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="32" stdDeviation="36" flood-color="#0F172A" flood-opacity="0.12"/>
-    </filter>
-    <filter id="ledGlow" x="-300%" y="-300%" width="700%" height="700%">
-      <feGaussianBlur stdDeviation="4" result="b"/>
+    <filter id="dotGlow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+
+    <style>
+      .twinkle{animation:twinkle 3s ease-in-out infinite}
+      .twinkle-slow{animation:twinkle 4.8s ease-in-out infinite}
+      .twinkle-fast{animation:twinkle 2s ease-in-out infinite}
+      .twinkle-drift{animation:twinkle 6.5s ease-in-out infinite}
+      .pulse-city{animation:twinkle 3.6s ease-in-out infinite}
+      .pulse-city-alt{animation:twinkle 5.2s ease-in-out infinite}
+      @keyframes twinkle{0%,100%{opacity:1}50%{opacity:.25}}
+    </style>
   </defs>
 
+  <!-- Background -->
   <rect width="1200" height="900" rx="40" fill="url(#bg)"/>
   <rect width="1200" height="900" rx="40" fill="url(#cyanGlow)"/>
   <rect width="1200" height="900" rx="40" fill="url(#violetGlow)"/>
   <rect width="1200" height="900" rx="40" fill="url(#redGlow)"/>
 
+  <!-- Grid — asymmetric fade -->
   <g mask="url(#gridMask)">
-    <rect width="1200" height="900" rx="40" fill="url(#majorGrid)" opacity="0.92"/>
-    <rect width="1200" height="900" rx="40" fill="url(#minorGrid)" opacity="0.8"/>
+    <rect width="1200" height="900" fill="url(#majorGrid)" opacity="0.75"/>
+    <rect width="1200" height="900" fill="url(#minorGrid)" opacity="0.55"/>
 
-    <g opacity="0.92">
-      <path d="M80 108H1120" stroke="url(#brandH)" stroke-width="1.6"/>
-      <path d="M80 172H1120" stroke="url(#brandH)" stroke-width="1.6"/>
-      <path d="M80 236H1120" stroke="url(#brandH)" stroke-width="1.6"/>
-      <path d="M80 300H1120" stroke="url(#brandH)" stroke-width="1.9"/>
-      <path d="M80 364H1120" stroke="url(#brandH)" stroke-width="1.6"/>
-      <path d="M80 428H1120" stroke="url(#brandH)" stroke-width="1.6"/>
-      <path d="M80 492H1120" stroke="url(#brandH)" stroke-width="1.6"/>
+    <!-- Branded accent lines — irregular spacing, varied weight -->
+    <g opacity="0.65">
+      <path d="M60 96H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+      <path d="M60 192H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+      <path d="M60 256H1140" stroke="url(#brandH)" stroke-width="1.4"/>
+      <path d="M60 352H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+      <path d="M60 416H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+      <path d="M60 512H1140" stroke="url(#brandH)" stroke-width="0.8"/>
     </g>
 
-    <g opacity="0.88">
-      <path d="M190 40V812" stroke="url(#brandV)" stroke-width="1.6"/>
-      <path d="M350 40V812" stroke="url(#brandV)" stroke-width="1.6"/>
-      <path d="M510 40V812" stroke="url(#brandV)" stroke-width="1.6"/>
-      <path d="M670 40V812" stroke="url(#brandV)" stroke-width="2"/>
-      <path d="M830 40V812" stroke="url(#brandV)" stroke-width="1.6"/>
-      <path d="M990 40V812" stroke="url(#brandV)" stroke-width="1.6"/>
+    <g opacity="0.6">
+      <path d="M160 30V760" stroke="url(#brandV)" stroke-width="1.0"/>
+      <path d="M320 30V760" stroke="url(#brandV)" stroke-width="1.0"/>
+      <path d="M480 30V760" stroke="url(#brandV)" stroke-width="1.4"/>
+      <path d="M640 30V760" stroke="url(#brandV)" stroke-width="1.0"/>
+      <path d="M800 30V760" stroke="url(#brandV)" stroke-width="0.8"/>
+      <path d="M960 30V760" stroke="url(#brandV)" stroke-width="0.8"/>
     </g>
 
-    <g opacity="0.44">
-      <circle cx="350" cy="236" r="5.5" fill="#0EA5E9"/>
-      <circle cx="510" cy="300" r="5.5" fill="#7C3AED"/>
-      <circle cx="670" cy="172" r="5.5" fill="#7C3AED"/>
-      <circle cx="830" cy="364" r="5.5" fill="#DC2626"/>
-      <circle cx="190" cy="428" r="5.5" fill="#0EA5E9"/>
-      <circle cx="990" cy="236" r="5.5" fill="#DC2626"/>
+    <!-- Node dots — like the map's city dots with glow, varied twinkle -->
+    <g filter="url(#dotGlow)" opacity="0.55">
+      <circle cx="320" cy="192" r="4" fill="#0EA5E9" class="pulse-city"/>
+      <circle cx="480" cy="256" r="4" fill="#7C3AED" class="pulse-city-alt"/>
+      <circle cx="640" cy="96" r="4" fill="#7C3AED" class="twinkle-drift"/>
+      <circle cx="800" cy="352" r="4" fill="#DC2626" class="pulse-city"/>
+      <circle cx="160" cy="416" r="4" fill="#0EA5E9" class="twinkle-slow"/>
+      <circle cx="960" cy="192" r="4" fill="#DC2626" class="pulse-city-alt"/>
+    </g>
+
+    <!-- Faint connection arcs between nodes — like the map -->
+    <g opacity="0.16" fill="none" stroke-width="1" stroke-linecap="round">
+      <path d="M320 192 Q400 140 480 256" stroke="#0EA5E9"/>
+      <path d="M480 256 Q560 160 640 96" stroke="#7C3AED"/>
+      <path d="M640 96 Q720 200 800 352" stroke="#7C3AED"/>
+      <path d="M160 416 Q240 300 320 192" stroke="#0EA5E9"/>
     </g>
   </g>
 
-  <ellipse cx="978" cy="712" rx="238" ry="226" fill="url(#serverHalo)"/>
+  <!-- Server halo -->
+  <ellipse cx="976" cy="680" rx="260" ry="250" fill="url(#serverHalo)"/>
 
-  <g filter="url(#softShadow)" mask="url(#serverMask)">
-    <g transform="translate(744 392)">
-      <!-- Rear chassis (offset shadow) -->
-      <rect x="58" y="18" width="382" height="506" rx="12" fill="#F1F5F9" fill-opacity="0.5" stroke="url(#serverStroke)" stroke-opacity="0.18" stroke-width="1.2"/>
-      <!-- Main chassis -->
-      <rect x="18" y="0" width="382" height="506" rx="12" fill="url(#serverFill)" stroke="url(#serverStroke)" stroke-width="1.6"/>
+  <!-- Server rack — wireframe style, transparent, matching map tone -->
+  <g mask="url(#serverMask)">
+    <g transform="translate(740 460)">
+      <!-- Rear chassis hint -->
+      <rect x="48" y="14" width="370" height="500" rx="6" fill="none" stroke="#7C3AED" stroke-opacity="0.08" stroke-width="0.8"/>
+
+      <!-- Main chassis — transparent with thin brand-colored stroke -->
+      <rect x="14" y="0" width="370" height="500" rx="6" fill="white" fill-opacity="0.3" stroke="url(#rackStroke)" stroke-width="1.2"/>
 
       <!-- Bay 1 -->
-      <rect x="38" y="32" width="342" height="86" rx="6" fill="white" fill-opacity="0.44" stroke="url(#serverStroke)" stroke-opacity="0.34" stroke-width="1.0"/>
-      <!-- Ventilation slits -->
-      <g stroke="#CBD5E1" stroke-opacity="0.5" stroke-width="0.8">
-        <path d="M56 52H138"/><path d="M56 60H138"/><path d="M56 68H138"/><path d="M56 76H138"/><path d="M56 84H138"/><path d="M56 92H138"/><path d="M56 100H138"/>
+      <rect x="30" y="24" width="338" height="78" rx="4" fill="white" fill-opacity="0.22" stroke="#0EA5E9" stroke-opacity="0.18" stroke-width="0.8"/>
+      <g stroke="#CBD5E1" stroke-opacity="0.3" stroke-width="0.5">
+        <path d="M44 42H110"/><path d="M44 49H110"/><path d="M44 56H110"/><path d="M44 63H110"/><path d="M44 70H110"/><path d="M44 77H110"/><path d="M44 84H110"/>
       </g>
-      <!-- Activity bar -->
-      <path d="M158 74H296" stroke="#0EA5E9" stroke-opacity="0.72" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M158 86H260" stroke="#0EA5E9" stroke-opacity="0.32" stroke-width="1.2" stroke-linecap="round"/>
-      <!-- LEDs -->
-      <g filter="url(#ledGlow)">
-        <circle cx="330" cy="58" r="3.5" fill="#0EA5E9" fill-opacity="0.85"/>
-        <circle cx="344" cy="58" r="3.5" fill="#7C3AED" fill-opacity="0.7"/>
-        <circle cx="358" cy="58" r="3.5" fill="#0EA5E9" fill-opacity="0.35"/>
+      <path d="M128 58H280" stroke="#0EA5E9" stroke-opacity="0.5" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M128 68H242" stroke="#0EA5E9" stroke-opacity="0.16" stroke-width="0.8" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="46" r="2.5" fill="#0EA5E9" fill-opacity="0.8" class="twinkle-fast"/>
+        <circle cx="330" cy="46" r="2.5" fill="#7C3AED" fill-opacity="0.55"/>
+        <circle cx="344" cy="46" r="2.5" fill="#0EA5E9" fill-opacity="0.2"/>
       </g>
-      <!-- Port indicators -->
-      <rect x="316" y="82" width="12" height="6" rx="1.5" fill="#0EA5E9" fill-opacity="0.2" stroke="#0EA5E9" stroke-opacity="0.38" stroke-width="0.6"/>
-      <rect x="334" y="82" width="12" height="6" rx="1.5" fill="#7C3AED" fill-opacity="0.16" stroke="#7C3AED" stroke-opacity="0.32" stroke-width="0.6"/>
-      <rect x="352" y="82" width="12" height="6" rx="1.5" fill="none" stroke="#CBD5E1" stroke-opacity="0.4" stroke-width="0.6"/>
+      <rect x="306" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#0EA5E9" stroke-opacity="0.25" stroke-width="0.5"/>
+      <rect x="320" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#7C3AED" stroke-opacity="0.2" stroke-width="0.5"/>
+      <rect x="334" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#CBD5E1" stroke-opacity="0.18" stroke-width="0.5"/>
 
       <!-- Bay 2 -->
-      <rect x="38" y="138" width="342" height="86" rx="6" fill="white" fill-opacity="0.36" stroke="url(#serverStroke)" stroke-opacity="0.30" stroke-width="1.0"/>
-      <g stroke="#CBD5E1" stroke-opacity="0.4" stroke-width="0.8">
-        <path d="M56 158H138"/><path d="M56 166H138"/><path d="M56 174H138"/><path d="M56 182H138"/><path d="M56 190H138"/><path d="M56 198H138"/><path d="M56 206H138"/>
+      <rect x="30" y="118" width="338" height="78" rx="4" fill="white" fill-opacity="0.16" stroke="#7C3AED" stroke-opacity="0.14" stroke-width="0.8"/>
+      <g stroke="#CBD5E1" stroke-opacity="0.22" stroke-width="0.5">
+        <path d="M44 136H110"/><path d="M44 143H110"/><path d="M44 150H110"/><path d="M44 157H110"/><path d="M44 164H110"/><path d="M44 171H110"/><path d="M44 178H110"/>
       </g>
-      <path d="M158 180H310" stroke="#7C3AED" stroke-opacity="0.68" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M158 192H244" stroke="#7C3AED" stroke-opacity="0.28" stroke-width="1.2" stroke-linecap="round"/>
-      <g filter="url(#ledGlow)">
-        <circle cx="330" cy="164" r="3.5" fill="#0EA5E9" fill-opacity="0.5"/>
-        <circle cx="344" cy="164" r="3.5" fill="#7C3AED" fill-opacity="0.85"/>
-        <circle cx="358" cy="164" r="3.5" fill="#0EA5E9" fill-opacity="0.3"/>
+      <path d="M128 152H296" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M128 162H226" stroke="#7C3AED" stroke-opacity="0.12" stroke-width="0.8" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="140" r="2.5" fill="#0EA5E9" fill-opacity="0.4"/>
+        <circle cx="330" cy="140" r="2.5" fill="#7C3AED" fill-opacity="0.75" class="twinkle"/>
+        <circle cx="344" cy="140" r="2.5" fill="#0EA5E9" fill-opacity="0.18"/>
       </g>
-      <rect x="316" y="188" width="12" height="6" rx="1.5" fill="#7C3AED" fill-opacity="0.18" stroke="#7C3AED" stroke-opacity="0.34" stroke-width="0.6"/>
-      <rect x="334" y="188" width="12" height="6" rx="1.5" fill="#0EA5E9" fill-opacity="0.14" stroke="#0EA5E9" stroke-opacity="0.28" stroke-width="0.6"/>
-      <rect x="352" y="188" width="12" height="6" rx="1.5" fill="#7C3AED" fill-opacity="0.14" stroke="#7C3AED" stroke-opacity="0.28" stroke-width="0.6"/>
+      <rect x="306" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#7C3AED" stroke-opacity="0.2" stroke-width="0.5"/>
+      <rect x="320" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#0EA5E9" stroke-opacity="0.16" stroke-width="0.5"/>
+      <rect x="334" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#7C3AED" stroke-opacity="0.14" stroke-width="0.5"/>
 
       <!-- Bay 3 -->
-      <rect x="38" y="244" width="342" height="86" rx="6" fill="white" fill-opacity="0.28" stroke="url(#serverStroke)" stroke-opacity="0.26" stroke-width="1.0"/>
-      <g stroke="#CBD5E1" stroke-opacity="0.3" stroke-width="0.8">
-        <path d="M56 264H138"/><path d="M56 272H138"/><path d="M56 280H138"/><path d="M56 288H138"/><path d="M56 296H138"/><path d="M56 304H138"/><path d="M56 312H138"/>
+      <rect x="30" y="212" width="338" height="78" rx="4" fill="white" fill-opacity="0.1" stroke="#DC2626" stroke-opacity="0.1" stroke-width="0.8"/>
+      <g stroke="#CBD5E1" stroke-opacity="0.16" stroke-width="0.5">
+        <path d="M44 230H110"/><path d="M44 237H110"/><path d="M44 244H110"/><path d="M44 251H110"/><path d="M44 258H110"/><path d="M44 265H110"/><path d="M44 272H110"/>
       </g>
-      <path d="M158 286H278" stroke="#DC2626" stroke-opacity="0.62" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M158 298H232" stroke="#DC2626" stroke-opacity="0.24" stroke-width="1.2" stroke-linecap="round"/>
-      <g filter="url(#ledGlow)">
-        <circle cx="330" cy="270" r="3.5" fill="#0EA5E9" fill-opacity="0.3"/>
-        <circle cx="344" cy="270" r="3.5" fill="#7C3AED" fill-opacity="0.5"/>
-        <circle cx="358" cy="270" r="3.5" fill="#DC2626" fill-opacity="0.8"/>
+      <path d="M128 246H264" stroke="#DC2626" stroke-opacity="0.38" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M128 256H210" stroke="#DC2626" stroke-opacity="0.1" stroke-width="0.8" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="234" r="2.5" fill="#0EA5E9" fill-opacity="0.18"/>
+        <circle cx="330" cy="234" r="2.5" fill="#7C3AED" fill-opacity="0.35"/>
+        <circle cx="344" cy="234" r="2.5" fill="#DC2626" fill-opacity="0.7" class="twinkle-slow"/>
       </g>
-      <rect x="316" y="294" width="12" height="6" rx="1.5" fill="#DC2626" fill-opacity="0.18" stroke="#DC2626" stroke-opacity="0.32" stroke-width="0.6"/>
-      <rect x="334" y="294" width="12" height="6" rx="1.5" fill="none" stroke="#CBD5E1" stroke-opacity="0.32" stroke-width="0.6"/>
-      <rect x="352" y="294" width="12" height="6" rx="1.5" fill="#DC2626" fill-opacity="0.12" stroke="#DC2626" stroke-opacity="0.24" stroke-width="0.6"/>
+      <rect x="306" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#DC2626" stroke-opacity="0.18" stroke-width="0.5"/>
+      <rect x="320" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#CBD5E1" stroke-opacity="0.12" stroke-width="0.5"/>
+      <rect x="334" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#DC2626" stroke-opacity="0.12" stroke-width="0.5"/>
 
-      <!-- Bay 4 (partial, fading out) -->
-      <rect x="38" y="350" width="342" height="86" rx="6" fill="white" fill-opacity="0.16" stroke="url(#serverStroke)" stroke-opacity="0.14" stroke-width="1.0"/>
-      <g stroke="#CBD5E1" stroke-opacity="0.18" stroke-width="0.8">
-        <path d="M56 370H138"/><path d="M56 378H138"/><path d="M56 386H138"/><path d="M56 394H138"/><path d="M56 402H138"/><path d="M56 410H138"/><path d="M56 418H138"/>
+      <!-- Bay 4 — fading out -->
+      <rect x="30" y="306" width="338" height="78" rx="4" fill="white" fill-opacity="0.05" stroke="#DC2626" stroke-opacity="0.06" stroke-width="0.8"/>
+      <g stroke="#CBD5E1" stroke-opacity="0.08" stroke-width="0.5">
+        <path d="M44 324H110"/><path d="M44 331H110"/><path d="M44 338H110"/><path d="M44 345H110"/><path d="M44 352H110"/><path d="M44 359H110"/><path d="M44 366H110"/>
       </g>
-      <path d="M158 392H266" stroke="#DC2626" stroke-opacity="0.30" stroke-width="2.4" stroke-linecap="round"/>
-      <g filter="url(#ledGlow)" opacity="0.45">
-        <circle cx="330" cy="376" r="3.5" fill="#DC2626" fill-opacity="0.4"/>
-        <circle cx="344" cy="376" r="3.5" fill="#7C3AED" fill-opacity="0.3"/>
-        <circle cx="358" cy="376" r="3.5" fill="#DC2626" fill-opacity="0.5"/>
+      <path d="M128 340H240" stroke="#DC2626" stroke-opacity="0.16" stroke-width="1.6" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)" opacity="0.3">
+        <circle cx="316" cy="328" r="2.5" fill="#DC2626" fill-opacity="0.25"/>
+        <circle cx="330" cy="328" r="2.5" fill="#7C3AED" fill-opacity="0.18"/>
+        <circle cx="344" cy="328" r="2.5" fill="#DC2626" fill-opacity="0.35"/>
       </g>
 
-      <!-- Bottom detail lines -->
-      <path d="M34 470H200" stroke="url(#serverStroke)" stroke-opacity="0.22" stroke-width="1.2" stroke-linecap="round"/>
-      <path d="M54 484H180" stroke="url(#serverStroke)" stroke-opacity="0.12" stroke-width="1.0" stroke-linecap="round"/>
+      <!-- Bay 5 — barely visible -->
+      <rect x="30" y="400" width="338" height="78" rx="4" fill="none" stroke="#DC2626" stroke-opacity="0.03" stroke-width="0.6"/>
+      <path d="M128 434H200" stroke="#DC2626" stroke-opacity="0.06" stroke-width="1.2" stroke-linecap="round"/>
+
+      <!-- Bottom trace lines -->
+      <path d="M30 488H180" stroke="url(#rackStroke)" stroke-opacity="0.12" stroke-width="0.8" stroke-linecap="round"/>
     </g>
   </g>
 
-  <rect x="14" y="14" width="1172" height="872" rx="28" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- Outer frame -->
+  <rect x="14" y="14" width="1172" height="872" rx="28" stroke="#E2E8F0" stroke-opacity="0.5" stroke-width="1"/>
 </svg>
