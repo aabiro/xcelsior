@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate the public/client-facing OpenAPI spec consumed by Fern.
+"""Generate the public/client-facing OpenAPI spec.
 
-The FastAPI app exposes internal worker, admin, maintenance, and callback
-endpoints that should not appear in public docs or the client SDK.  Fern's
-override file already acts as the curated surface, so this script treats
-non-ignored override entries as the allowlist for the generated public spec.
+The FastAPI app exposes many internal worker, admin, maintenance, and callback
+endpoints that should not appear in customer-facing docs or the public SDK.
+This generator keeps a small, curated operation allowlist and intersects it
+with the Fern override file so only explicitly published routes remain.
 """
 
 from __future__ import annotations
@@ -21,6 +21,67 @@ FERN_DIR = ROOT / "fern"
 OVERRIDES_PATH = FERN_DIR / "openapi-overrides.yml"
 OUTPUT_PATH = FERN_DIR / "openapi.json"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
+CLIENT_OPERATION_ALLOWLIST = {
+    ("/.well-known/oauth-authorization-server", "get"),
+    ("/oauth/authorize", "get"),
+    ("/oauth/token", "post"),
+    ("/oauth/device/authorize", "post"),
+    ("/api/auth/register", "post"),
+    ("/api/auth/login", "post"),
+    ("/api/auth/me", "get"),
+    ("/api/auth/logout", "post"),
+    ("/api/artifacts/upload", "post"),
+    ("/api/artifacts/download", "post"),
+    ("/api/artifacts/{job_id}", "get"),
+    ("/api/artifacts/{job_id}/expiry", "get"),
+    ("/api/billing/payment-intent", "post"),
+    ("/api/billing/paypal/enabled", "get"),
+    ("/api/billing/paypal/create-order", "post"),
+    ("/api/billing/paypal/capture-order", "post"),
+    ("/api/billing/wallet/{customer_id}", "get"),
+    ("/api/billing/wallet/{customer_id}/deposit", "post"),
+    ("/api/billing/wallet/{customer_id}/history", "get"),
+    ("/api/billing/wallet/{customer_id}/depletion", "get"),
+    ("/api/billing/usage/{customer_id}", "get"),
+    ("/api/billing/invoices/{customer_id}", "get"),
+    ("/api/billing/invoice/{customer_id}", "get"),
+    ("/api/billing/invoice/{customer_id}/download", "get"),
+    ("/api/pricing/estimate", "post"),
+    ("/api/pricing/reference", "get"),
+    ("/api/v2/billing/auto-topup", "get"),
+    ("/api/v2/billing/auto-topup", "post"),
+    ("/instance", "post"),
+    ("/instances", "get"),
+    ("/instance/{job_id}", "get"),
+    ("/instances/{job_id}/cancel", "post"),
+    ("/instances/{job_id}/logs", "get"),
+    ("/tiers", "get"),
+    ("/marketplace/search", "get"),
+    ("/marketplace", "get"),
+    ("/marketplace/stats", "get"),
+    ("/api/v2/marketplace/search", "post"),
+    ("/api/v2/marketplace/spot-prices", "get"),
+    ("/api/v2/marketplace/spot-prices/{gpu_model}/history", "get"),
+    ("/api/v2/marketplace/stats", "get"),
+    ("/api/v2/marketplace/reservations", "post"),
+    ("/api/v2/marketplace/reservations/{reservation_id}", "delete"),
+    ("/api/v2/volumes", "get"),
+    ("/api/v2/volumes", "post"),
+    ("/api/v2/volumes/{volume_id}", "get"),
+    ("/api/v2/volumes/{volume_id}", "delete"),
+    ("/api/v2/volumes/{volume_id}/attach", "post"),
+    ("/api/v2/volumes/{volume_id}/detach", "post"),
+    ("/v1/inference", "post"),
+    ("/v1/inference/async", "post"),
+    ("/v1/inference/{job_id}", "get"),
+    ("/v1/chat/completions", "post"),
+    ("/api/v2/inference/endpoints", "get"),
+    ("/api/v2/inference/endpoints", "post"),
+    ("/api/v2/inference/endpoints/{endpoint_id}", "get"),
+    ("/api/v2/inference/endpoints/{endpoint_id}", "delete"),
+    ("/api/v2/inference/endpoints/{endpoint_id}/health", "get"),
+    ("/api/v2/inference/endpoints/{endpoint_id}/usage", "get"),
+}
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -112,11 +173,16 @@ def build_public_spec() -> dict:
     for path, path_item in (full_spec.get("paths") or {}).items():
         if not isinstance(path_item, dict):
             continue
-        kept_ops = {
-            method: operation
-            for method, operation in path_item.items()
-            if method.lower() in HTTP_METHODS and (path, method.lower()) in allowlist
-        }
+        kept_ops: dict[str, dict] = {}
+        for method, operation in path_item.items():
+            method_lc = method.lower()
+            if (
+                method_lc not in HTTP_METHODS
+                or (path, method_lc) not in allowlist
+                or (path, method_lc) not in CLIENT_OPERATION_ALLOWLIST
+            ):
+                continue
+            kept_ops[method] = operation
         if kept_ops:
             filtered_paths[path] = kept_ops
 
@@ -145,8 +211,8 @@ def build_public_spec() -> dict:
     if description:
         info["description"] = (
             f"{description}\n\n"
-            "This published OpenAPI document contains the client-facing/public API surface only. "
-            "Internal worker, admin, maintenance, and callback endpoints are intentionally omitted."
+            "This published OpenAPI document contains the public developer surface only. "
+            "Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted."
         )
 
     _prune_components(full_spec)

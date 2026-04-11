@@ -1,6 +1,6 @@
 """Routes: gpu."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from routes._deps import (
     log,
@@ -9,7 +9,7 @@ from routes._deps import (
 router = APIRouter()
 
 @router.get("/api/v2/gpu/available", tags=["GPU"])
-def api_gpu_available(request: 'Request' = None):
+def api_gpu_available(request: Request):
     """List available GPU types with regions, VRAM, pricing, and counts.
 
     Used by both Serverless and Volumes to populate GPU/region pickers.
@@ -82,4 +82,3 @@ def api_gpu_available(request: 'Request' = None):
     except Exception as e:
         log.error("GPU availability query failed: %s", e)
         raise HTTPException(503, f"GPU availability service unavailable: {e}")
-

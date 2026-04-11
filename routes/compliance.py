@@ -20,7 +20,7 @@ router = APIRouter()
 GST_SMALL_SUPPLIER_THRESHOLD_CAD = 30_000.00
 
 @router.get("/api/billing/gst-threshold", tags=["Compliance"])
-def api_gst_threshold_status(request: Request = None):
+def api_gst_threshold_status(request: Request):
     """Check platform-wide GST/HST small-supplier threshold status.
 
     Under the Excise Tax Act, a distribution platform operator **must**
@@ -318,4 +318,3 @@ def api_quebec_pia_check(req: PIACheckRequest):
         req.processing_province,
         req.data_contains_pi,
     )
-

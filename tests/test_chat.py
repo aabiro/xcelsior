@@ -256,7 +256,11 @@ class TestConversationHistory:
         append_message(cid, "assistant", "Trust tiers are...")
 
         client = TestClient(app)
-        resp = client.get(f"/api/chat/history/{cid}")
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "chat-history@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
+        resp = client.get(f"/api/chat/history/{cid}", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
@@ -268,7 +272,14 @@ class TestConversationHistory:
         from api import app
 
         client = TestClient(app)
-        resp = client.get("/api/chat/history/does-not-exist")
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "chat-missing@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
+        resp = client.get(
+            "/api/chat/history/does-not-exist",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert resp.status_code == 404
 
     def test_history_endpoint_empty_conversation(self):
@@ -277,7 +288,11 @@ class TestConversationHistory:
 
         cid, _ = get_or_create_conversation(ip="10.0.0.1")
         client = TestClient(app)
-        resp = client.get(f"/api/chat/history/{cid}")
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "chat-empty@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
+        resp = client.get(f"/api/chat/history/{cid}", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True

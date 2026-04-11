@@ -42,7 +42,7 @@ _TIER_DESCRIPTIONS = {
 
 
 @router.get("/api/trust-tiers", tags=["Reputation"])
-def api_trust_tiers(request: Request = None):
+def api_trust_tiers(request: Request):
     """Return all six trust tiers with thresholds, perks, and unlock requirements."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -62,7 +62,7 @@ def api_trust_tiers(request: Request = None):
     return {"ok": True, "tiers": tiers}
 
 @router.get("/api/reputation/leaderboard", tags=["Reputation"])
-def api_reputation_leaderboard(entity_type: str = "host", limit: int = 20, request: Request = None):
+def api_reputation_leaderboard(request: Request, entity_type: str = "host", limit: int = 20):
     """Top hosts/users by reputation score."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -101,7 +101,7 @@ def api_reputation_me(request: Request):
     return {"ok": True, **score.to_dict()}
 
 @router.get("/api/reputation/{entity_id}", tags=["Reputation"])
-def api_get_reputation(entity_id: str, request: Request = None):
+def api_get_reputation(entity_id: str, request: Request):
     """Get reputation score and tier for a host or user."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -112,7 +112,7 @@ def api_get_reputation(entity_id: str, request: Request = None):
     return {"ok": True, "reputation": score.to_dict()}
 
 @router.get("/api/reputation/{entity_id}/history", tags=["Reputation"])
-def api_reputation_history(entity_id: str, limit: int = 50, request: Request = None):
+def api_reputation_history(entity_id: str, request: Request, limit: int = 50):
     """Get reputation event history."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -130,7 +130,7 @@ class VerificationGrant(BaseModel):
     verification_type: str  # email, phone, gov_id, hardware_audit, incorporation, data_center
 
 @router.post("/api/reputation/verify", tags=["Reputation"])
-def api_grant_verification(req: VerificationGrant, request: Request = None):
+def api_grant_verification(req: VerificationGrant, request: Request):
     """Grant a verification badge to a host/user."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -147,7 +147,7 @@ def api_grant_verification(req: VerificationGrant, request: Request = None):
     return {"ok": True, "reputation": score.to_dict()}
 
 @router.get("/api/reputation/{entity_id}/breakdown", tags=["Reputation"])
-def api_reputation_breakdown(entity_id: str, request: Request = None):
+def api_reputation_breakdown(entity_id: str, request: Request):
     """Get a detailed breakdown of how a reputation score is calculated."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None

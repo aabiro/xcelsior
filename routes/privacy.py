@@ -13,7 +13,7 @@ from privacy import PrivacyConfig, RETENTION_POLICIES, execute_right_to_erasure,
 router = APIRouter()
 
 @router.get("/api/privacy/retention-policies", tags=["Privacy"])
-def api_retention_policies(request: Request = None):
+def api_retention_policies(request: Request):
     """Data retention policies per PIPEDA fair information principles."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -30,7 +30,7 @@ def api_retention_policies(request: Request = None):
     return {"policies": policies}
 
 @router.get("/api/privacy/retention-summary", tags=["Privacy"])
-def api_retention_summary(request: Request = None):
+def api_retention_summary(request: Request):
     """Current retention status across all data categories."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -40,7 +40,7 @@ def api_retention_summary(request: Request = None):
     return lm.get_retention_summary()
 
 @router.post("/api/privacy/purge-expired", tags=["Privacy"])
-def api_purge_expired(request: Request = None):
+def api_purge_expired(request: Request):
     """Purge all expired retention records (daily maintenance)."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -68,7 +68,7 @@ class PrivacyConfigRequest(BaseModel):
     telemetry_retention_days: int = None
 
 @router.post("/api/privacy/config", tags=["Privacy"])
-def api_save_privacy_config(req: PrivacyConfigRequest, request: Request = None):
+def api_save_privacy_config(req: PrivacyConfigRequest, request: Request):
     """Save privacy configuration for an organization."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -93,7 +93,7 @@ def api_save_privacy_config(req: PrivacyConfigRequest, request: Request = None):
     return {"ok": True, "org_id": req.org_id, "privacy_level": req.privacy_level}
 
 @router.get("/api/privacy/config/{org_id}", tags=["Privacy"])
-def api_get_privacy_config(org_id: str, request: Request = None):
+def api_get_privacy_config(org_id: str, request: Request):
     """Get privacy configuration for an organization (defaults to STRICT)."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -112,7 +112,7 @@ class ConsentRequest(BaseModel):
     details: dict = None
 
 @router.post("/api/privacy/consent", tags=["Privacy"])
-def api_record_consent(req: ConsentRequest, request: Request = None):
+def api_record_consent(req: ConsentRequest, request: Request):
     """Record explicit consent (PIPEDA principle: Consent)."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -123,7 +123,7 @@ def api_record_consent(req: ConsentRequest, request: Request = None):
     return {"ok": True, "consent_id": consent_id}
 
 @router.delete("/api/privacy/consent/{entity_id}/{consent_type}", tags=["Privacy"])
-def api_revoke_consent(entity_id: str, consent_type: str, request: Request = None):
+def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
     """Revoke consent (PIPEDA: individuals can withdraw consent)."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -134,7 +134,7 @@ def api_revoke_consent(entity_id: str, consent_type: str, request: Request = Non
     return {"ok": True, "revoked": consent_type}
 
 @router.get("/api/privacy/consent/{entity_id}", tags=["Privacy"])
-def api_get_consents(entity_id: str, request: Request = None):
+def api_get_consents(entity_id: str, request: Request):
     """Get all consent records for an entity (PIPEDA: Individual Access)."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -188,4 +188,3 @@ def api_privacy_right_to_erasure(request: Request):
     user = _require_user_grant(request)
     summary = execute_right_to_erasure(user.get("user_id", user.get("email", "")))
     return {"ok": True, "erasure": summary}
-
