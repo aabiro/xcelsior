@@ -104,6 +104,12 @@ frontend/test-results/
 !frontend/public/xcelsior-og-card.svg
 !frontend/public/xcelsior_icon_*.png
 !frontend/public/xcelsior_og_card_1200x630.png
+!frontend/public/xcelsior-bmc-cover-light.svg
+!frontend/public/xcelsior-bmc-cover-light.png
+!frontend/public/xcelsior-hosts-setup-light.svg
+!frontend/public/xcelsior-hosts-setup-light.png
+!frontend/public/xcelsior-hosts-setup-dark.svg
+!frontend/public/xcelsior-hosts-setup-dark.png
 
 # ── Checkpoints (test artifacts) ─────────────────────────────────────────
 checkpoints/

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -173,9 +174,6 @@ export default function HostsPage() {
       >
         <InstallWorkerSection />
       </Dialog>
-
-      {/* How It Works — multi-state tips & getting started */}
-      <ProviderTipsCard hosts={hosts} />
 
       {/* Architecture — always visible */}
       <ArchitectureCard />
@@ -382,6 +380,8 @@ export default function HostsPage() {
           )}
         </Card>
       )}
+
+      <ProviderTipsCard hosts={hosts} />
     </div>
   );
 }
@@ -706,13 +706,13 @@ function CodeSnippet({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(5,11,22,0.98),rgba(4,8,18,0.94))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+        "relative overflow-hidden rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(242,247,255,0.96))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_8px_24px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(5,11,22,0.98),rgba(4,8,18,0.94))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
         className,
       )}
     >
       <button
         onClick={() => onCopy(label, text)}
-        className="absolute right-3 top-3 flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent-cyan/30 hover:text-accent-cyan"
+        className="absolute right-3 top-3 flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white/80 px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent-cyan/35 hover:text-accent-cyan dark:border-white/10 dark:bg-white/5"
       >
         {copied === label ? (
           <>
@@ -724,7 +724,7 @@ function CodeSnippet({
           </>
         )}
       </button>
-      <pre className="overflow-x-auto pr-20 text-[13px] font-mono leading-relaxed text-[#d9e8ff]">{text}</pre>
+      <pre className="overflow-x-auto pr-20 text-[13px] font-mono leading-relaxed text-slate-800 dark:text-[#d9e8ff]">{text}</pre>
     </div>
   );
 }
@@ -745,19 +745,19 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
     <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04] p-0">
       <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
       <div className="absolute bottom-0 left-12 h-32 w-32 rounded-full bg-accent-violet/10 blur-3xl" />
-      <div className="relative grid gap-4 p-6 xl:grid-cols-[0.92fr_1.04fr_1.04fr]">
-        <div className="rounded-2xl border border-border/60 bg-background/20 p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-accent-cyan">How to</p>
-          <h2 className="mt-3 text-xl font-semibold text-text-primary">Become a host</h2>
-          <div className="mt-6 space-y-4">
-            <div className="rounded-2xl border border-accent-cyan/20 bg-accent-cyan/8 p-4">
-              <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-accent-cyan/25 bg-accent-cyan/10 text-sm font-semibold text-accent-cyan">
+      <div className="relative grid xl:grid-cols-[0.98fr_1.02fr]">
+        <div className="p-6 md:p-7">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-accent-cyan">Become a Host</p>
+
+          <div className="mt-5 space-y-4">
+            <div className="rounded-[24px] border border-accent-cyan/20 bg-accent-cyan/[0.07] p-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-accent-cyan/25 bg-accent-cyan/10 text-sm font-semibold text-accent-cyan">
                   1
                 </span>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-text-primary">Register host</p>
-                  <p className="text-xs text-text-muted">Create the machine record first.</p>
+                  <p className="text-xs text-text-muted">Create the machine record.</p>
                 </div>
               </div>
               <Button
@@ -768,33 +768,55 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
                 Register Host
               </Button>
             </div>
+
+            <div className="rounded-[24px] border border-accent-violet/[0.18] bg-accent-violet/[0.06] p-4">
+              <div className="mb-3 flex items-start gap-3">
+                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-accent-violet/25 bg-accent-violet/10 text-sm font-semibold text-accent-violet">
+                  2
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">Install SDK</p>
+                  <p className="text-xs text-text-muted">Add the setup tools globally.</p>
+                </div>
+              </div>
+              <CodeSnippet label="host-card-sdk" text={sdkInstall} copied={copied} onCopy={handleCopy} />
+            </div>
+
+            <div className="rounded-[24px] border border-accent-gold/[0.18] bg-accent-gold/[0.05] p-4">
+              <div className="mb-3 flex items-start gap-3">
+                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-accent-gold/25 bg-accent-gold/10 text-sm font-semibold text-accent-gold">
+                  3
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
+                  <p className="text-xs text-text-muted">Detect, register, and configure.</p>
+                </div>
+              </div>
+              <CodeSnippet label="host-card-wizard" text={wizardCmd} copied={copied} onCopy={handleCopy} />
+            </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border/60 bg-background/20 p-5">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-accent-violet/25 bg-accent-violet/10 text-sm font-semibold text-accent-violet">
-              2
-            </span>
-            <div>
-              <p className="text-sm font-medium text-text-primary">Install SDK</p>
-              <p className="text-xs text-text-muted">Global tools for setup and control.</p>
-            </div>
-          </div>
-          <CodeSnippet label="host-card-sdk" text={sdkInstall} copied={copied} onCopy={handleCopy} />
-        </div>
-
-        <div className="rounded-2xl border border-border/60 bg-background/20 p-5">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-accent-gold/25 bg-accent-gold/10 text-sm font-semibold text-accent-gold">
-              3
-            </span>
-            <div>
-              <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
-              <p className="text-xs text-text-muted">Let the flow detect, register, and configure.</p>
-            </div>
-          </div>
-          <CodeSnippet label="host-card-wizard" text={wizardCmd} copied={copied} onCopy={handleCopy} />
+        <div className="relative min-h-[360px] overflow-hidden border-t border-border/60 bg-background/30 xl:border-l xl:border-t-0">
+          <Image
+            src="/xcelsior-hosts-setup-light.svg"
+            alt=""
+            aria-hidden
+            width={1200}
+            height={900}
+            className="h-full w-full object-cover dark:hidden"
+            priority
+          />
+          <Image
+            src="/xcelsior-hosts-setup-dark.svg"
+            alt=""
+            aria-hidden
+            width={1200}
+            height={900}
+            className="hidden h-full w-full object-cover dark:block"
+            priority
+          />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/25 to-transparent xl:bg-gradient-to-l xl:from-transparent xl:via-background/5 xl:to-background/10" />
         </div>
       </div>
     </Card>
