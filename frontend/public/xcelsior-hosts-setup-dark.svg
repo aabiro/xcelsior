@@ -26,12 +26,14 @@
       <path d="M22 0H0V22" stroke="#1A2235" stroke-opacity="0.78" stroke-width="1"/>
     </pattern>
 
-    <linearGradient id="gridFade" x1="0" y1="24" x2="0" y2="818" gradientUnits="userSpaceOnUse">
+    <!-- Asymmetric grid fade — heavier top-left, lighter drift bottom-right -->
+    <radialGradient id="gridFade" cx="0.32" cy="0.18" r="0.82" gradientUnits="objectBoundingBox">
       <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="62%" stop-color="#FFFFFF" stop-opacity="0.88"/>
-      <stop offset="86%" stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="62%" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="80%" stop-color="#FFFFFF" stop-opacity="0.18"/>
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
+    </radialGradient>
     <mask id="gridMask">
       <rect x="0" y="0" width="1200" height="900" fill="url(#gridFade)"/>
     </mask>
@@ -71,11 +73,15 @@
     </linearGradient>
     <mask id="serverMask">
       <rect x="0" y="0" width="1200" height="900" fill="black"/>
-      <rect x="700" y="352" width="500" height="548" rx="48" fill="url(#serverMaskFill)"/>
+      <rect x="700" y="352" width="500" height="548" rx="20" fill="url(#serverMaskFill)"/>
     </mask>
 
     <filter id="softShadow" x="666" y="334" width="584" height="614" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
       <feDropShadow dx="0" dy="36" stdDeviation="42" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="ledGlow" x="-300%" y="-300%" width="700%" height="700%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
 
@@ -121,31 +127,78 @@
 
   <g filter="url(#softShadow)" mask="url(#serverMask)">
     <g transform="translate(744 392)">
-      <rect x="64" y="20" width="402" height="522" rx="50" fill="url(#serverFill)" stroke="url(#serverStroke)" stroke-width="3.2"/>
-      <rect x="18" y="0" width="402" height="522" rx="50" fill="url(#serverFill)" stroke="url(#serverStroke)" stroke-width="3.2"/>
+      <!-- Rear chassis (offset shadow) -->
+      <rect x="58" y="18" width="382" height="506" rx="12" fill="#080E1A" fill-opacity="0.6" stroke="url(#serverStroke)" stroke-opacity="0.22" stroke-width="1.2"/>
+      <!-- Main chassis -->
+      <rect x="18" y="0" width="382" height="506" rx="12" fill="url(#serverFill)" stroke="url(#serverStroke)" stroke-width="1.6"/>
 
-      <rect x="58" y="84" width="322" height="104" rx="28" fill="#0D1729" fill-opacity="0.86" stroke="url(#serverStroke)" stroke-opacity="0.76" stroke-width="2.2"/>
-      <rect x="58" y="220" width="322" height="104" rx="28" fill="#0B1526" fill-opacity="0.82" stroke="url(#serverStroke)" stroke-opacity="0.72" stroke-width="2.2"/>
-      <rect x="58" y="356" width="322" height="104" rx="28" fill="#091320" fill-opacity="0.78" stroke="url(#serverStroke)" stroke-opacity="0.70" stroke-width="2.2"/>
+      <!-- Bay 1 -->
+      <rect x="38" y="32" width="342" height="86" rx="6" fill="#0D1729" fill-opacity="0.86" stroke="url(#serverStroke)" stroke-opacity="0.38" stroke-width="1.0"/>
+      <!-- Ventilation slits -->
+      <g stroke="#1A2844" stroke-opacity="0.6" stroke-width="0.8">
+        <path d="M56 52H138"/><path d="M56 60H138"/><path d="M56 68H138"/><path d="M56 76H138"/><path d="M56 84H138"/><path d="M56 92H138"/><path d="M56 100H138"/>
+      </g>
+      <!-- Activity bar -->
+      <path d="M158 74H296" stroke="#00D4FF" stroke-opacity="0.72" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M158 86H260" stroke="#00D4FF" stroke-opacity="0.32" stroke-width="1.2" stroke-linecap="round"/>
+      <!-- LEDs -->
+      <g filter="url(#ledGlow)">
+        <circle cx="330" cy="58" r="3.5" fill="#00D4FF" fill-opacity="0.9"/>
+        <circle cx="344" cy="58" r="3.5" fill="#7C3AED" fill-opacity="0.7"/>
+        <circle cx="358" cy="58" r="3.5" fill="#00D4FF" fill-opacity="0.35"/>
+      </g>
+      <!-- Port indicators -->
+      <rect x="316" y="82" width="12" height="6" rx="1.5" fill="#00D4FF" fill-opacity="0.28" stroke="#00D4FF" stroke-opacity="0.42" stroke-width="0.6"/>
+      <rect x="334" y="82" width="12" height="6" rx="1.5" fill="#7C3AED" fill-opacity="0.22" stroke="#7C3AED" stroke-opacity="0.36" stroke-width="0.6"/>
+      <rect x="352" y="82" width="12" height="6" rx="1.5" fill="none" stroke="#2A3548" stroke-opacity="0.4" stroke-width="0.6"/>
 
-      <path d="M108 136H290" stroke="#00D4FF" stroke-opacity="0.92" stroke-width="6" stroke-linecap="round"/>
-      <path d="M108 272H300" stroke="#7C3AED" stroke-opacity="0.88" stroke-width="6" stroke-linecap="round"/>
-      <path d="M108 408H280" stroke="#DC2626" stroke-opacity="0.82" stroke-width="6" stroke-linecap="round"/>
+      <!-- Bay 2 -->
+      <rect x="38" y="138" width="342" height="86" rx="6" fill="#0B1526" fill-opacity="0.82" stroke="url(#serverStroke)" stroke-opacity="0.34" stroke-width="1.0"/>
+      <g stroke="#1A2844" stroke-opacity="0.5" stroke-width="0.8">
+        <path d="M56 158H138"/><path d="M56 166H138"/><path d="M56 174H138"/><path d="M56 182H138"/><path d="M56 190H138"/><path d="M56 198H138"/><path d="M56 206H138"/>
+      </g>
+      <path d="M158 180H310" stroke="#7C3AED" stroke-opacity="0.68" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M158 192H244" stroke="#7C3AED" stroke-opacity="0.28" stroke-width="1.2" stroke-linecap="round"/>
+      <g filter="url(#ledGlow)">
+        <circle cx="330" cy="164" r="3.5" fill="#00D4FF" fill-opacity="0.55"/>
+        <circle cx="344" cy="164" r="3.5" fill="#7C3AED" fill-opacity="0.9"/>
+        <circle cx="358" cy="164" r="3.5" fill="#00D4FF" fill-opacity="0.3"/>
+      </g>
+      <rect x="316" y="188" width="12" height="6" rx="1.5" fill="#7C3AED" fill-opacity="0.24" stroke="#7C3AED" stroke-opacity="0.38" stroke-width="0.6"/>
+      <rect x="334" y="188" width="12" height="6" rx="1.5" fill="#00D4FF" fill-opacity="0.18" stroke="#00D4FF" stroke-opacity="0.32" stroke-width="0.6"/>
+      <rect x="352" y="188" width="12" height="6" rx="1.5" fill="#7C3AED" fill-opacity="0.2" stroke="#7C3AED" stroke-opacity="0.34" stroke-width="0.6"/>
 
-      <circle cx="330" cy="136" r="10" fill="#00D4FF" fill-opacity="0.82"/>
-      <circle cx="356" cy="136" r="10" fill="#7C3AED" fill-opacity="0.68"/>
-      <circle cx="382" cy="136" r="10" fill="#DC2626" fill-opacity="0.56"/>
+      <!-- Bay 3 -->
+      <rect x="38" y="244" width="342" height="86" rx="6" fill="#091320" fill-opacity="0.78" stroke="url(#serverStroke)" stroke-opacity="0.30" stroke-width="1.0"/>
+      <g stroke="#1A2844" stroke-opacity="0.4" stroke-width="0.8">
+        <path d="M56 264H138"/><path d="M56 272H138"/><path d="M56 280H138"/><path d="M56 288H138"/><path d="M56 296H138"/><path d="M56 304H138"/><path d="M56 312H138"/>
+      </g>
+      <path d="M158 286H278" stroke="#DC2626" stroke-opacity="0.62" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M158 298H232" stroke="#DC2626" stroke-opacity="0.24" stroke-width="1.2" stroke-linecap="round"/>
+      <g filter="url(#ledGlow)">
+        <circle cx="330" cy="270" r="3.5" fill="#00D4FF" fill-opacity="0.3"/>
+        <circle cx="344" cy="270" r="3.5" fill="#7C3AED" fill-opacity="0.5"/>
+        <circle cx="358" cy="270" r="3.5" fill="#DC2626" fill-opacity="0.85"/>
+      </g>
+      <rect x="316" y="294" width="12" height="6" rx="1.5" fill="#DC2626" fill-opacity="0.22" stroke="#DC2626" stroke-opacity="0.36" stroke-width="0.6"/>
+      <rect x="334" y="294" width="12" height="6" rx="1.5" fill="none" stroke="#2A3548" stroke-opacity="0.36" stroke-width="0.6"/>
+      <rect x="352" y="294" width="12" height="6" rx="1.5" fill="#DC2626" fill-opacity="0.16" stroke="#DC2626" stroke-opacity="0.28" stroke-width="0.6"/>
 
-      <circle cx="330" cy="272" r="10" fill="#00D4FF" fill-opacity="0.60"/>
-      <circle cx="356" cy="272" r="10" fill="#7C3AED" fill-opacity="0.84"/>
-      <circle cx="382" cy="272" r="10" fill="#DC2626" fill-opacity="0.56"/>
+      <!-- Bay 4 (partial, fading out) -->
+      <rect x="38" y="350" width="342" height="86" rx="6" fill="#081020" fill-opacity="0.5" stroke="url(#serverStroke)" stroke-opacity="0.18" stroke-width="1.0"/>
+      <g stroke="#1A2844" stroke-opacity="0.24" stroke-width="0.8">
+        <path d="M56 370H138"/><path d="M56 378H138"/><path d="M56 386H138"/><path d="M56 394H138"/><path d="M56 402H138"/><path d="M56 410H138"/><path d="M56 418H138"/>
+      </g>
+      <path d="M158 392H266" stroke="#DC2626" stroke-opacity="0.34" stroke-width="2.4" stroke-linecap="round"/>
+      <g filter="url(#ledGlow)" opacity="0.5">
+        <circle cx="330" cy="376" r="3.5" fill="#DC2626" fill-opacity="0.4"/>
+        <circle cx="344" cy="376" r="3.5" fill="#7C3AED" fill-opacity="0.3"/>
+        <circle cx="358" cy="376" r="3.5" fill="#DC2626" fill-opacity="0.55"/>
+      </g>
 
-      <circle cx="330" cy="408" r="10" fill="#00D4FF" fill-opacity="0.48"/>
-      <circle cx="356" cy="408" r="10" fill="#7C3AED" fill-opacity="0.66"/>
-      <circle cx="382" cy="408" r="10" fill="#DC2626" fill-opacity="0.88"/>
-
-      <path d="M34 512H284" stroke="url(#serverStroke)" stroke-opacity="0.46" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M74 548H296" stroke="url(#serverStroke)" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+      <!-- Bottom detail lines -->
+      <path d="M34 470H200" stroke="url(#serverStroke)" stroke-opacity="0.26" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M54 484H180" stroke="url(#serverStroke)" stroke-opacity="0.14" stroke-width="1.0" stroke-linecap="round"/>
     </g>
   </g>
 

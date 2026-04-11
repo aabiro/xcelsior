@@ -3,6 +3,16 @@ import type { NextRequest } from "next/server";
 
 const AUTH_COOKIE = "xcelsior_session";
 
+const CSP_HEADER =
+  "default-src 'self'; " +
+  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data: blob: https:; " +
+  "font-src 'self' data:; " +
+  "connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com https://static.cloudflareinsights.com wss://xcelsior.ca https://api.web3modal.org https://*.walletconnect.org wss://relay.walletconnect.org https://pulse.walletconnect.org https://api.stripe.com https://js.stripe.com; " +
+  "frame-src 'self' https://js.stripe.com https://verify.walletconnect.org; " +
+  "frame-ancestors 'self';";
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = request.cookies.has(AUTH_COOKIE);
@@ -14,15 +24,21 @@ export function proxy(request: NextRequest) {
       loginUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set("Content-Security-Policy", CSP_HEADER);
+    return response;
   }
 
   // Allow auth pages to load (login page handles redirect if already authenticated)
   if (pathname === "/login" || pathname === "/register") {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set("Content-Security-Policy", CSP_HEADER);
+    return response;
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  response.headers.set("Content-Security-Policy", CSP_HEADER);
+  return response;
 }
 
 export const config = {
