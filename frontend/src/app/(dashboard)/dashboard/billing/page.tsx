@@ -69,8 +69,8 @@ export default function BillingPage() {
   const [showLightningDeposit, setShowLightningDeposit] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [btcStatus, setBtcStatus] = useState({
-    enabled: true,
-    available: true,
+    enabled: false,
+    available: false,
     reason: "",
   });
   const [lnStatus, setLnStatus] = useState({
@@ -166,7 +166,9 @@ export default function BillingPage() {
         });
       })
       .catch((e) => {
-        console.error("Failed to check crypto status", e);
+        if (!(e instanceof DOMException && e.name === "AbortError")) {
+          console.warn("Failed to check crypto status", e);
+        }
         setBtcStatus({ enabled: false, available: false, reason: "" });
       })
       .finally(() => clearTimeout(timer));

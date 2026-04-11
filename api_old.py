@@ -6707,6 +6707,9 @@ def api_reputation_me(request: Request):
                 user_id = session.get("user_id", "")
     if not user_id:
         return {"ok": True, "score": 0, "tier": "bronze"}
+    if user:
+        from routes._deps import _require_scope
+        _require_scope(user, "reputation:read")
     re = get_reputation_engine()
     score = re.compute_score(user_id)
     return {"ok": True, **score.to_dict()}

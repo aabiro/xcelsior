@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
+import { Dialog } from "@/components/ui/dialog";
+import { LaunchInstanceForm } from "@/components/instances/launch-instance-form";
 import {
   Briefcase, Plus, Search, RefreshCw, XCircle, ArrowUpDown, ArrowUp, ArrowDown,
   MoreVertical, Square, Play, RotateCcw, Zap,
@@ -143,21 +146,38 @@ export default function InstancesPage() {
   const [pendingAction, setPendingAction] = useState<ActionPending>(null);
   const api = useApi();
   const { t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     api.fetchInstances()
       .then((res) => setInstances(res.instances || []))
       .catch(() => toast.error("Failed to load instances"))
       .finally(() => setLoading(false));
-  };
+  }, [api]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   useEventStream({
     eventTypes: ["job_status", "job_submitted"],
     onEvent: () => { load(); },
   });
+
+  const launchOpen = searchParams.get("launch") === "true";
+
+  const openLaunchModal = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("launch", "true");
+    router.push(`/dashboard/instances?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const closeLaunchModal = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("launch");
+    const query = next.toString();
+    router.replace(query ? `/dashboard/instances?${query}` : "/dashboard/instances", { scroll: false });
+  }, [router, searchParams]);
 
   function requestAction(id: string, action: NonNullable<ActionPending>["action"]) {
     setPendingAction({ id, action });
@@ -232,9 +252,9 @@ export default function InstancesPage() {
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>
-          <Link href="/dashboard/instances/new">
-            <Button size="sm"><Plus className="h-3.5 w-3.5" /> {t("dash.instances.submit")}</Button>
-          </Link>
+          <Button size="sm" onClick={openLaunchModal}>
+            <Plus className="h-3.5 w-3.5" /> {t("dash.instances.submit")}
+          </Button>
         </div>
       </div>
 
@@ -369,6 +389,25 @@ export default function InstancesPage() {
           onCancel={() => setPendingAction(null)}
         />
       )}
+
+      <Dialog
+        open={launchOpen}
+        onClose={closeLaunchModal}
+        title={t("dash.newinstance.title")}
+        description={t("dash.newinstance.subtitle")}
+        maxWidth="max-w-5xl"
+        className="h-[88vh]"
+        bodyClassName="overflow-y-auto px-6 pb-6"
+      >
+        <LaunchInstanceForm
+          className="pt-6"
+          onCancel={closeLaunchModal}
+          onSubmitted={() => {
+            closeLaunchModal();
+            load();
+          }}
+        />
+      </Dialog>
     </div>
   );
 }

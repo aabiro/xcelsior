@@ -27,8 +27,8 @@ export function getDesktopState() {
 
 export function usePwaInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [isDesktopDevice, setIsDesktopDevice] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(() => getInstalledState());
+  const [isDesktopDevice] = useState(() => getDesktopState());
 
   useEffect(() => {
     const updateInstalledState = () => {
@@ -41,7 +41,7 @@ export function usePwaInstallPrompt() {
     };
 
     updateInstalledState();
-    setIsDesktopDevice(getDesktopState());
+    const desktopDevice = getDesktopState();
 
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
     const handleDisplayModeChange = () => updateInstalledState();
@@ -55,12 +55,16 @@ export function usePwaInstallPrompt() {
     };
 
     mediaQuery.addEventListener("change", handleDisplayModeChange);
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     window.addEventListener("appinstalled", handleInstalled);
+    if (!desktopDevice) {
+      window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    }
 
     return () => {
       mediaQuery.removeEventListener("change", handleDisplayModeChange);
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      if (!desktopDevice) {
+        window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      }
       window.removeEventListener("appinstalled", handleInstalled);
     };
   }, []);

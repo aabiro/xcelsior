@@ -5,6 +5,12 @@ const _BROWSER_OAUTH_STATE_KEY = "xcelsior.browser_oauth";
 const _BROWSER_OAUTH_CLIENT_ID = "xcelsior-web";
 const _BROWSER_OAUTH_SCOPE = "profile email offline_access";
 const _BROWSER_OAUTH_MAX_AGE_MS = 10 * 60 * 1000;
+const _EVENT_STREAM_PROBE_TTL_MS = 30_000;
+const _EVENT_STREAM_PROBE_TIMEOUT_MS = 4_000;
+const _eventStreamAvailability = new Map<string, {
+  expiresAt: number;
+  promise: Promise<boolean>;
+}>();
 
 async function _tryRefresh(): Promise<boolean> {
   try {
@@ -1637,6 +1643,50 @@ export async function cancelSlurmJob(slurmJobId: string) {
 // ── Events SSE ────────────────────────────────────────────────────────
 export function createEventSource(url: string = "/api/stream"): EventSource {
   return new EventSource(url, { withCredentials: true });
+}
+
+async function _probeEventStream(url: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), _EVENT_STREAM_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "text/event-stream" },
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    void response.body?.cancel?.().catch(() => undefined);
+    return response.ok && contentType.includes("text/event-stream");
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export async function isEventStreamAvailable(
+  url: string = "/api/stream",
+  opts: { force?: boolean } = {},
+): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const cacheKey = new URL(url, window.location.origin).href;
+  const cached = _eventStreamAvailability.get(cacheKey);
+  if (!opts.force && cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+
+  const promise = _probeEventStream(url);
+  _eventStreamAvailability.set(cacheKey, {
+    expiresAt: Date.now() + _EVENT_STREAM_PROBE_TTL_MS,
+    promise,
+  });
+  return promise;
 }
 
 // ── Notifications ─────────────────────────────────────────────────────

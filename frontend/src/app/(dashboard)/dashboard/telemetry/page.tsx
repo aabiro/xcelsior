@@ -10,7 +10,7 @@ import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-} from "recharts";
+} from "@/lib/recharts";
 import { cn } from "@/lib/utils";
 
 // Normalised per-host telemetry entry

@@ -95,7 +95,8 @@ def api_reputation_me(request: Request):
         user_id = getattr(request.state, "provider_id", "")
     if not user_id:
         return {"ok": True, "score": 0, "tier": "new_user"}
-    _require_scope(user, "reputation:read")
+    if user:
+        _require_scope(user, "reputation:read")
     re_engine = get_reputation_engine()
     score = re_engine.compute_score(user_id)
     return {"ok": True, **score.to_dict()}

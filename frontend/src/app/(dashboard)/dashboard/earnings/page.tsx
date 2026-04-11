@@ -17,7 +17,7 @@ import type { Payout } from "@/lib/api";
 import { toast } from "sonner";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-} from "recharts";
+} from "@/lib/recharts";
 
 interface ProviderInfo {
   provider_id: string;

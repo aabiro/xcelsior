@@ -148,6 +148,8 @@ export default function HostsPage() {
         <StatCard label="Total VRAM" value={`${totalVram} GB`} icon={HardDrive} glow="violet" />
       </div>
 
+      <HostSetupGuideCard onRegister={() => setShowRegister(true)} />
+
       {/* Register Host Modal */}
       <Dialog
         open={showRegister}
@@ -688,6 +690,117 @@ journalctl -u xcelsior-worker -f
 - Can't connect → check firewall allows outbound HTTPS to xcelsior.ca:443
 - Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
 
+function CodeSnippet({
+  label,
+  text,
+  copied,
+  onCopy,
+  className,
+}: {
+  label: string;
+  text: string;
+  copied: string | null;
+  onCopy: (label: string, text: string) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(5,11,22,0.98),rgba(4,8,18,0.94))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+        className,
+      )}
+    >
+      <button
+        onClick={() => onCopy(label, text)}
+        className="absolute right-3 top-3 flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent-cyan/30 hover:text-accent-cyan"
+      >
+        {copied === label ? (
+          <>
+            <Check className="h-3 w-3 text-emerald" /> Copied
+          </>
+        ) : (
+          <>
+            <Copy className="h-3 w-3" /> Copy
+          </>
+        )}
+      </button>
+      <pre className="overflow-x-auto pr-20 text-[13px] font-mono leading-relaxed text-[#d9e8ff]">{text}</pre>
+    </div>
+  );
+}
+
+function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const sdkInstall = "npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard";
+  const wizardCmd = "xcelsior-wizard setup";
+
+  function handleCopy(label: string, text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    toast.success("Copied to clipboard");
+    setTimeout(() => setCopied((current) => current === label ? null : current), 2000);
+  }
+
+  return (
+    <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04] p-0">
+      <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
+      <div className="absolute bottom-0 left-12 h-32 w-32 rounded-full bg-accent-violet/10 blur-3xl" />
+      <div className="relative grid gap-4 p-6 xl:grid-cols-[0.92fr_1.04fr_1.04fr]">
+        <div className="rounded-2xl border border-border/60 bg-background/20 p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-accent-cyan">How to</p>
+          <h2 className="mt-3 text-xl font-semibold text-text-primary">Become a host</h2>
+          <div className="mt-6 space-y-4">
+            <div className="rounded-2xl border border-accent-cyan/20 bg-accent-cyan/8 p-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-accent-cyan/25 bg-accent-cyan/10 text-sm font-semibold text-accent-cyan">
+                  1
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Register host</p>
+                  <p className="text-xs text-text-muted">Create the machine record first.</p>
+                </div>
+              </div>
+              <Button
+                className="mt-4 h-10 rounded-full bg-accent-cyan px-4 text-navy hover:bg-accent-cyan/90"
+                onClick={onRegister}
+              >
+                <Plus className="h-4 w-4" />
+                Register Host
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-background/20 p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-accent-violet/25 bg-accent-violet/10 text-sm font-semibold text-accent-violet">
+              2
+            </span>
+            <div>
+              <p className="text-sm font-medium text-text-primary">Install SDK</p>
+              <p className="text-xs text-text-muted">Global tools for setup and control.</p>
+            </div>
+          </div>
+          <CodeSnippet label="host-card-sdk" text={sdkInstall} copied={copied} onCopy={handleCopy} />
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-background/20 p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-accent-gold/25 bg-accent-gold/10 text-sm font-semibold text-accent-gold">
+              3
+            </span>
+            <div>
+              <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
+              <p className="text-xs text-text-muted">Let the flow detect, register, and configure.</p>
+            </div>
+          </div>
+          <CodeSnippet label="host-card-wizard" text={wizardCmd} copied={copied} onCopy={handleCopy} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("xcelsior_tips_dismissed") === "1";
@@ -950,17 +1063,6 @@ xcelsior diagnostics --full
 # View earnings summary
 xcelsior earnings --period 30d`;
 
-  function CopyBtn({ label, text }: { label: string; text: string }) {
-    return (
-      <button
-        onClick={() => onCopy(label, text)}
-        className="absolute top-2 right-2 flex items-center gap-1 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
-      >
-        {copied === label ? <><Check className="h-3 w-3 text-emerald" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
-      </button>
-    );
-  }
-
   return (
     <div className="space-y-5 mt-2">
       {/* Header pill */}
@@ -978,10 +1080,7 @@ xcelsior earnings --period 30d`;
         <p className="text-xs text-text-secondary mb-2">
           Install the Xcelsior CLI tools globally. Requires Node.js &ge; 18.
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{sdkInstall}</pre>
-          <CopyBtn label="sdk-install" text={sdkInstall} />
-        </div>
+        <CodeSnippet label="sdk-install" text={sdkInstall} copied={copied} onCopy={onCopy} />
       </div>
 
       {/* Step 2: Run AI Onboarding Wizard */}
@@ -990,10 +1089,7 @@ xcelsior earnings --period 30d`;
         <p className="text-xs text-text-secondary mb-2">
           The AI Onboarding Wizard walks you through setup — it will ask whether you want to rent, provide, or both, then handle everything from there.
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{wizardCmd}</pre>
-          <CopyBtn label="wizard-cmd" text={wizardCmd} />
-        </div>
+        <CodeSnippet label="wizard-cmd" text={wizardCmd} copied={copied} onCopy={onCopy} />
       </div>
 
       {/* What the wizard does */}
@@ -1017,10 +1113,7 @@ xcelsior earnings --period 30d`;
         <p className="text-xs text-text-secondary mb-2">
           After setup, use these SDK commands to manage your worker:
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-[13px] font-mono overflow-x-auto leading-relaxed">{quickCmds}</pre>
-          <CopyBtn label="quick-cmds" text={quickCmds} />
-        </div>
+        <CodeSnippet label="quick-cmds" text={quickCmds} copied={copied} onCopy={onCopy} />
       </div>
 
       {/* Pre-install requirements */}
@@ -1078,17 +1171,6 @@ WantedBy=multi-user.target`;
 sudo systemctl enable --now xcelsior-worker
 sudo systemctl status xcelsior-worker`;
 
-  function CopyBtn({ label, text }: { label: string; text: string }) {
-    return (
-      <button
-        onClick={() => onCopy(label, text)}
-        className="absolute top-2 right-2 flex items-center gap-1 text-xs px-2 py-1 rounded bg-surface border border-border hover:bg-surface-hover transition-colors"
-      >
-        {copied === label ? <><Check className="h-3 w-3 text-emerald" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
-      </button>
-    );
-  }
-
   return (
     <div className="space-y-5 mt-2">
       {/* Header pill */}
@@ -1105,10 +1187,7 @@ sudo systemctl status xcelsior-worker`;
         <p className="text-xs text-text-secondary mb-2">
           Execute this on your GPU host to auto-detect hardware and register with Xcelsior:
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{installCmd}</pre>
-          <CopyBtn label="install" text={installCmd} />
-        </div>
+        <CodeSnippet label="install" text={installCmd} copied={copied} onCopy={onCopy} />
       </div>
 
       <div>
@@ -1117,10 +1196,7 @@ sudo systemctl status xcelsior-worker`;
           The AI Onboarding Wizard handles this automatically. To configure manually, create{" "}
           <code className="text-xs bg-surface-hover px-1 py-0.5 rounded">~/.xcelsior/worker.env</code>:
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto">{envTemplate}</pre>
-          <CopyBtn label="env" text={envTemplate} />
-        </div>
+        <CodeSnippet label="env" text={envTemplate} copied={copied} onCopy={onCopy} />
       </div>
 
       <div>
@@ -1128,10 +1204,7 @@ sudo systemctl status xcelsior-worker`;
         <p className="text-xs text-text-secondary mb-2">
           Set up automatic startup with systemd:
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-[13px] font-mono overflow-x-auto leading-relaxed">{systemdUnit}</pre>
-          <CopyBtn label="systemd" text={systemdUnit} />
-        </div>
+        <CodeSnippet label="systemd" text={systemdUnit} copied={copied} onCopy={onCopy} />
       </div>
 
       <div>
@@ -1139,10 +1212,7 @@ sudo systemctl status xcelsior-worker`;
         <p className="text-xs text-text-secondary mb-2">
           Enable the service and confirm it&apos;s running:
         </p>
-        <div className="relative">
-          <pre className="bg-surface-hover rounded-lg p-3 text-sm font-mono overflow-x-auto leading-relaxed">{verifyCmd}</pre>
-          <CopyBtn label="verify" text={verifyCmd} />
-        </div>
+        <CodeSnippet label="verify" text={verifyCmd} copied={copied} onCopy={onCopy} />
       </div>
     </div>
   );

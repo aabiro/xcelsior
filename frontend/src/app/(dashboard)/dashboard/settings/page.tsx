@@ -944,6 +944,16 @@ function SecurityTab({
     { key: "match", label: t("auth.pw_match"), satisfied: matchingPasswords },
   ];
 
+  const handleChangePasswordSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void onChangePassword();
+  };
+
+  const handlePasskeyAddSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void onPasskeyAdd();
+  };
+
   return (
     <StaggerList className="space-y-5">
       {/* Change Password */}
@@ -958,11 +968,16 @@ function SecurityTab({
               </div>
             </div>
           </div>
-          <div className="p-5 space-y-4">
+          <form className="p-5 space-y-4" onSubmit={handleChangePasswordSubmit}>
             <div className="space-y-2">
               <Label>{t("dash.settings.current_pw")}</Label>
               <div className="relative">
-                <Input type={showPw ? "text" : "password"} value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
+                <Input
+                  type={showPw ? "text" : "password"}
+                  value={currentPw}
+                  onChange={(e) => setCurrentPw(e.target.value)}
+                  autoComplete="current-password"
+                />
                 <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
                   {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -1009,10 +1024,10 @@ function SecurityTab({
               </div>
             </div>
             <PasswordRequirements items={passwordRequirements} />
-            <Button onClick={onChangePassword} disabled={changingPw || !currentPw || !newPasswordValidation.isValid || !matchingPasswords}>
+            <Button type="submit" disabled={changingPw || !currentPw || !newPasswordValidation.isValid || !matchingPasswords}>
               {changingPw ? <><Loader2 className="h-4 w-4 animate-spin" /> Changing...</> : t("dash.settings.change_pw")}
             </Button>
-          </div>
+          </form>
         </div>
       </StaggerItem>
 
@@ -1213,13 +1228,19 @@ function SecurityTab({
                 </div>
               ))}
 
-              <div className="flex gap-2">
-                <Input value={passkeyName} onChange={(e) => setPasskeyName(e.target.value)} placeholder={t("dash.settings.mfa_passkey_name_placeholder")} className="flex-1" />
-                <Button onClick={onPasskeyAdd} disabled={passkeyRegistering}>
+              <form className="flex gap-2" onSubmit={handlePasskeyAddSubmit}>
+                <Input
+                  value={passkeyName}
+                  onChange={(e) => setPasskeyName(e.target.value)}
+                  placeholder={t("dash.settings.mfa_passkey_name_placeholder")}
+                  className="flex-1"
+                  autoComplete="off"
+                />
+                <Button type="submit" disabled={passkeyRegistering}>
                   {passkeyRegistering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                   {passkeyRegistering ? t("dash.settings.mfa_passkey_registering") : t("dash.settings.mfa_passkey_add")}
                 </Button>
-              </div>
+              </form>
             </div>
 
             {/* Backup Codes */}

@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
+} from "@/lib/recharts";
 import { cn } from "@/lib/utils";
 
 // ── Tier config (self-contained — matches backend TIER_THRESHOLDS) ──────────
