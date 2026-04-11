@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
-import { ProviderLogo, hasProviderLogo } from "@/components/ui/provider-logo";
+import { TemplateArtwork } from "@/components/instances/template-artwork";
 import {
   launchInstance,
   fetchPricingReference,
@@ -250,11 +250,7 @@ export function LaunchInstanceForm({
                   : "border-border/80 bg-background/30 hover:border-text-muted/50 hover:bg-background/60",
               )}
             >
-              {hasProviderLogo(template.id) ? (
-                <ProviderLogo provider={template.id} size={42} className="transition-transform group-hover:scale-105" />
-              ) : (
-                <Box className="h-7 w-7 text-text-secondary transition-transform group-hover:scale-105" />
-              )}
+              <TemplateArtwork template={template.id} size={54} className="transition-transform duration-300 group-hover:scale-[1.03]" />
               <span className="font-semibold text-text-primary">{template.label}</span>
               <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{template.vram} GB VRAM</span>
             </button>

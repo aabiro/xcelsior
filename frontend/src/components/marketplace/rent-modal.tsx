@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { ProviderLogo, hasProviderLogo } from "@/components/ui/provider-logo";
+import { ProviderLogo } from "@/components/ui/provider-logo";
+import { TemplateArtwork } from "@/components/instances/template-artwork";
 import {
   X, Cpu, MapPin, Zap, DollarSign, Loader2, CheckCircle, TrendingDown, Activity,
   AlertTriangle, CreditCard, Box, RefreshCw,
@@ -214,11 +215,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                             : "border-border bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary"
                         )}
                       >
-                        {hasProviderLogo(tpl.id) ? (
-                          <ProviderLogo provider={tpl.id} size={34} className="transition-transform group-hover:scale-105" />
-                        ) : (
-                          <Box className="h-6 w-6 text-text-secondary transition-transform group-hover:scale-105" />
-                        )}
+                        <TemplateArtwork template={tpl.id} size={44} className="transition-transform duration-300 group-hover:scale-[1.03]" />
                         <span className="font-medium text-text-primary">{tpl.label}</span>
                       </button>
                     ))}
