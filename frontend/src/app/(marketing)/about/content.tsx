@@ -49,8 +49,8 @@ export function AboutContent() {
           </span>
         </motion.div>
         <motion.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl lg:text-6xl">
-          {t("about.title").split(/(truly Canadian|véritablement canadien)/i).map((part, i) =>
-            /truly Canadian|véritablement canadien/i.test(part) ? (
+          {t("about.title").split(/(open to the world|ouvert au monde)/i).map((part, i) =>
+            /open to the world|ouvert au monde/i.test(part) ? (
               <span key={i} className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
                 {part}
               </span>

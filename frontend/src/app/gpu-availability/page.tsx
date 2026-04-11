@@ -105,7 +105,7 @@ export default function GPUAvailabilityPage() {
               GPU Availability
             </h1>
             <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-              Real-time GPU availability and pricing across our Canadian compute network.
+              Real-time GPU availability and pricing across our Canada-first compute network, built for teams worldwide.
               All prices in CAD. Eligible for the AI Compute Access Fund rebate.
             </p>
           </div>

@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "Xcelsior — Sovereign GPU Compute for Canada";
+export const alt = "Xcelsior — Canada-First GPU Compute for Teams Worldwide";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -61,7 +61,7 @@ export default function TwitterImage() {
           </span>
         </div>
         <p style={{ fontSize: 28, color: "#94a3b8", marginTop: 0 }}>
-          Sovereign GPU Compute for Canada
+          Canada-First GPU Compute for Teams Worldwide
         </p>
         <p
           style={{ position: "absolute", bottom: 32, fontSize: 20, color: "#64748b" }}

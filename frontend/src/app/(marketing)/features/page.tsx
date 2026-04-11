@@ -4,18 +4,18 @@ import { FeaturesContent } from "./content";
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "Explore Xcelsior's GPU compute features: data sovereignty, PIPEDA compliance, Slurm HPC, real-time telemetry, and AI Compute Access Fund rebates.",
+    "Explore Xcelsior's Canada-first GPU compute platform: transparent pricing, compliance-aware operations, sovereignty controls, telemetry, and provider tooling for teams worldwide.",
   alternates: { canonical: "https://xcelsior.ca/features" },
   openGraph: {
     title: "Features | Xcelsior",
     description:
-      "Data sovereignty, compliance automation, Slurm HPC, real-time telemetry, and 67% federal rebates.",
+      "Transparent pricing, compliance-aware operations, sovereignty controls, telemetry, and provider tooling.",
     url: "https://xcelsior.ca/features",
   },
   twitter: {
     title: "Features | Xcelsior",
     description:
-      "Data sovereignty, compliance automation, Slurm HPC, real-time telemetry, and 67% federal rebates.",
+      "Transparent pricing, compliance-aware operations, sovereignty controls, telemetry, and provider tooling.",
   },
 };
 

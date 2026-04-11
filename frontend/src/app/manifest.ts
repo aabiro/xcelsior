@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Xcelsior — Sovereign GPU Compute",
     short_name: "Xcelsior",
     description:
-      "Canada-first GPU compute marketplace with data sovereignty, compliance automation, and competitive pricing.",
+      "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
     id: "/",
     start_url: "/",
     scope: "/",
