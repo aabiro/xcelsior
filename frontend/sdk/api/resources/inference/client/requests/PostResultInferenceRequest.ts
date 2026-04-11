@@ -6,9 +6,6 @@
  *         job_id: "job_id"
  *     }
  */
-export interface InferenceResultCallback {
+export interface PostResultInferenceRequest {
     job_id: string;
-    outputs?: unknown[];
-    model?: string;
-    latency_ms?: number;
 }

@@ -225,31 +225,26 @@ export class InstancesClient {
     }
 
     /**
-     * Update a job's status.
-     *
-     * @param {XcelsiorApi.StatusUpdate} request
+     * @param {XcelsiorApi.UpdateInstancesRequest} request
      * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.instances.update({
-     *         job_id: "job_id",
-     *         status: "status"
+     *         job_id: "job_id"
      *     })
      */
     public update(
-        request: XcelsiorApi.StatusUpdate,
+        request: XcelsiorApi.UpdateInstancesRequest,
         requestOptions?: InstancesClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__update(request, requestOptions));
     }
 
     private async __update(
-        request: XcelsiorApi.StatusUpdate,
+        request: XcelsiorApi.UpdateInstancesRequest,
         requestOptions?: InstancesClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { job_id: jobId, ..._body } = request;
+    ): Promise<core.WithRawResponse<void>> {
+        const { job_id: jobId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -260,10 +255,7 @@ export class InstancesClient {
             ),
             method: "PATCH",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: _body,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -271,23 +263,15 @@ export class InstancesClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "PATCH", "/instance/{job_id}");
@@ -356,150 +340,6 @@ export class InstancesClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/instances/{job_id}/cancel");
-    }
-
-    /**
-     * Manually requeue a failed or stuck job.
-     *
-     * @param {XcelsiorApi.RequeueInstancesRequest} request
-     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.instances.requeue({
-     *         job_id: "job_id"
-     *     })
-     */
-    public requeue(
-        request: XcelsiorApi.RequeueInstancesRequest,
-        requestOptions?: InstancesClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__requeue(request, requestOptions));
-    }
-
-    private async __requeue(
-        request: XcelsiorApi.RequeueInstancesRequest,
-        requestOptions?: InstancesClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { job_id: jobId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `instance/${core.url.encodePathParam(jobId)}/requeue`,
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/instance/{job_id}/requeue");
-    }
-
-    /**
-     * Stream real-time logs for a specific job via Server-Sent Events.
-     *
-     * Connect with `EventSource('/jobs/{job_id}/logs/stream')` in the browser
-     * or `curl -N` from the CLI. Replays buffered log lines on connect, then
-     * live-tails new log entries until the client disconnects or the job completes.
-     *
-     * Events emitted:
-     * - `job_log` — individual log line (data: {job_id, timestamp, line, level})
-     * - `job_status` — status change (data: {job_id, status})
-     * - `connected` — initial handshake (data: {job_id, status: "streaming"})
-     *
-     * @param {XcelsiorApi.StreamLogsInstancesRequest} request
-     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.instances.streamLogs({
-     *         job_id: "job_id"
-     *     })
-     */
-    public streamLogs(
-        request: XcelsiorApi.StreamLogsInstancesRequest,
-        requestOptions?: InstancesClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__streamLogs(request, requestOptions));
-    }
-
-    private async __streamLogs(
-        request: XcelsiorApi.StreamLogsInstancesRequest,
-        requestOptions?: InstancesClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { job_id: jobId } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `instances/${core.url.encodePathParam(jobId)}/logs/stream`,
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "GET",
-            "/instances/{job_id}/logs/stream",
-        );
     }
 
     /**
@@ -617,5 +457,116 @@ export class InstancesClient {
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/tiers");
+    }
+
+    /**
+     * @param {XcelsiorApi.RequeueInstancesRequest} request
+     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.instances.requeue({
+     *         job_id: "job_id"
+     *     })
+     */
+    public requeue(
+        request: XcelsiorApi.RequeueInstancesRequest,
+        requestOptions?: InstancesClient.RequestOptions,
+    ): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__requeue(request, requestOptions));
+    }
+
+    private async __requeue(
+        request: XcelsiorApi.RequeueInstancesRequest,
+        requestOptions?: InstancesClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const { job_id: jobId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `instance/${core.url.encodePathParam(jobId)}/requeue`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/instance/{job_id}/requeue");
+    }
+
+    /**
+     * @param {XcelsiorApi.StreamLogsInstancesRequest} request
+     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.instances.streamLogs({
+     *         job_id: "job_id"
+     *     })
+     */
+    public streamLogs(
+        request: XcelsiorApi.StreamLogsInstancesRequest,
+        requestOptions?: InstancesClient.RequestOptions,
+    ): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__streamLogs(request, requestOptions));
+    }
+
+    private async __streamLogs(
+        request: XcelsiorApi.StreamLogsInstancesRequest,
+        requestOptions?: InstancesClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const { job_id: jobId } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `instances/${core.url.encodePathParam(jobId)}/logs/stream`,
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "GET",
+            "/instances/{job_id}/logs/stream",
+        );
     }
 }

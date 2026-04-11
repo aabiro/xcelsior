@@ -8,5 +8,4 @@
  */
 export interface GetHistoryReputationRequest {
     entity_id: string;
-    limit?: number;
 }

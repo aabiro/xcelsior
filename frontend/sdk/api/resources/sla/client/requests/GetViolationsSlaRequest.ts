@@ -8,5 +8,4 @@
  */
 export interface GetViolationsSlaRequest {
     host_id: string;
-    since?: number;
 }

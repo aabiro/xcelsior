@@ -1246,9 +1246,25 @@ function SecurityTab({
                         <code key={i} className="text-xs font-mono text-text-primary select-all">{code}</code>
                       ))}
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(backupCodes.join("\n")); toast.success("Backup codes copied"); }}>
-                      <Copy className="h-3.5 w-3.5" /> Copy All
-                    </Button>
+                    <div className="flex gap-2 mt-2">
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => { navigator.clipboard.writeText(backupCodes.join("\n")); toast.success("Backup codes copied"); }}>
+                        <Copy className="h-3.5 w-3.5 mr-2" /> Copy
+                      </Button>
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                        const text = `Xcelsior Backup Codes\n\n${backupCodes.join("\n")}\n\nKeep these safe. Each code can only be used once.\nGenerated on: ${new Date().toLocaleDateString()}`;
+                        const blob = new Blob([text], { type: "text/plain" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "xcelsior-backup-codes.txt";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}>
+                        <Download className="h-3.5 w-3.5 mr-2" /> Download
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>

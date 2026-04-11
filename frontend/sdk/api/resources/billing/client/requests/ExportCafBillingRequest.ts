@@ -8,7 +8,4 @@
  */
 export interface ExportCafBillingRequest {
     customer_id: string;
-    period_start?: number;
-    period_end?: number;
-    format?: string;
 }

@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace HostsClient {
     export type Options = BaseClientOptions;
@@ -15,9 +15,6 @@ export declare namespace HostsClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * GPU host registration, admission gating, and management.
- */
 export class HostsClient {
     protected readonly _options: NormalizedClientOptions<HostsClient.Options>;
 
@@ -26,39 +23,59 @@ export class HostsClient {
     }
 
     /**
-     * Register or update a host with strict admission gating.
-     *
-     * Per REPORT_FEATURE_FINAL.md §62 and REPORT_FEATURE_2.md §37:
-     * - Hosts must pass node admission (version gating) before accepting work
-     * - Country/province recorded for jurisdiction-aware scheduling
-     * - Hosts register as 'pending' until agent completes benchmark + admission
-     * - If versions are provided inline, admission is checked immediately
-     *
-     * @param {XcelsiorApi.HostIn} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.hosts.register({
-     *         host_id: "host_id",
-     *         ip: "ip",
-     *         gpu_model: "gpu_model",
-     *         total_vram_gb: 1.1,
-     *         free_vram_gb: 1.1
-     *     })
+     *     await client.hosts.list()
      */
-    public register(
-        request: XcelsiorApi.HostIn,
-        requestOptions?: HostsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__register(request, requestOptions));
+    public list(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__list(requestOptions));
     }
 
-    private async __register(
-        request: XcelsiorApi.HostIn,
-        requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __list(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "hosts",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/hosts");
+    }
+
+    /**
+     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.hosts.register()
+     */
+    public register(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__register(requestOptions));
+    }
+
+    private async __register(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -69,10 +86,7 @@ export class HostsClient {
             ),
             method: "PUT",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -80,35 +94,23 @@ export class HostsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "PUT", "/host");
     }
 
     /**
-     * Get a single host by ID.
-     *
      * @param {XcelsiorApi.GetHostsRequest} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.hosts.get({
@@ -118,14 +120,14 @@ export class HostsClient {
     public get(
         request: XcelsiorApi.GetHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__get(request, requestOptions));
     }
 
     private async __get(
         request: XcelsiorApi.GetHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { host_id: hostId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -145,35 +147,23 @@ export class HostsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/host/{host_id}");
     }
 
     /**
-     * Remove a host.
-     *
      * @param {XcelsiorApi.RemoveHostsRequest} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.hosts.remove({
@@ -183,14 +173,14 @@ export class HostsClient {
     public remove(
         request: XcelsiorApi.RemoveHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__remove(request, requestOptions));
     }
 
     private async __remove(
         request: XcelsiorApi.RemoveHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { host_id: hostId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -210,65 +200,42 @@ export class HostsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/host/{host_id}");
     }
 
     /**
-     * List all hosts.
-     *
-     * @param {XcelsiorApi.ListHostsRequest} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.hosts.list()
+     *     await client.hosts.listCanadian()
      */
-    public list(
-        request: XcelsiorApi.ListHostsRequest = {},
-        requestOptions?: HostsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__list(request, requestOptions));
+    public listCanadian(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__listCanadian(requestOptions));
     }
 
-    private async __list(
-        request: XcelsiorApi.ListHostsRequest = {},
-        requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { active_only: activeOnly } = request;
-        const _queryParams: Record<string, unknown> = {
-            active_only: activeOnly,
-        };
+    private async __listCanadian(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "hosts",
+                "hosts/ca",
             ),
             method: "GET",
             headers: _headers,
-            queryParameters: { ..._queryParams, ...requestOptions?.queryParams },
+            queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -276,35 +243,68 @@ export class HostsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/hosts");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/hosts/ca");
     }
 
     /**
-     * Get the compute score (XCU) for a host.
-     *
-     * @param {XcelsiorApi.GetComputeScoreHostsRequest} request
      * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     * @example
+     *     await client.hosts.listComputeScores()
+     */
+    public listComputeScores(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__listComputeScores(requestOptions));
+    }
+
+    private async __listComputeScores(
+        requestOptions?: HostsClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "compute-scores",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/compute-scores");
+    }
+
+    /**
+     * @param {XcelsiorApi.GetComputeScoreHostsRequest} request
+     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.hosts.getComputeScore({
@@ -314,14 +314,14 @@ export class HostsClient {
     public getComputeScore(
         request: XcelsiorApi.GetComputeScoreHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getComputeScore(request, requestOptions));
     }
 
     private async __getComputeScore(
         request: XcelsiorApi.GetComputeScoreHostsRequest,
         requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { host_id: hostId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -341,117 +341,17 @@ export class HostsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/compute-score/{host_id}");
-    }
-
-    /**
-     * List compute scores for all hosts.
-     *
-     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.hosts.listComputeScores()
-     */
-    public listComputeScores(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__listComputeScores(requestOptions));
-    }
-
-    private async __listComputeScores(
-        requestOptions?: HostsClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "compute-scores",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/compute-scores");
-    }
-
-    /**
-     * List only Canadian hosts.
-     *
-     * @param {HostsClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.hosts.listCanadian()
-     */
-    public listCanadian(requestOptions?: HostsClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__listCanadian(requestOptions));
-    }
-
-    private async __listCanadian(requestOptions?: HostsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "hosts/ca",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/hosts/ca");
     }
 }

@@ -8,6 +8,4 @@
  */
 export interface PayoutProvidersRequest {
     provider_id: string;
-    job_id?: string;
-    total_cad?: number;
 }

@@ -7,7 +7,6 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
 
 export declare namespace SpotPricingClient {
     export type Options = BaseClientOptions;
@@ -15,9 +14,6 @@ export declare namespace SpotPricingClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Dynamic spot pricing, interruptible jobs, preemption cycles.
- */
 export class SpotPricingClient {
     protected readonly _options: NormalizedClientOptions<SpotPricingClient.Options>;
 
@@ -26,18 +22,16 @@ export class SpotPricingClient {
     }
 
     /**
-     * Get current spot prices for all GPU models.
-     *
      * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.spotPricing.get()
      */
-    public get(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public get(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__get(requestOptions));
     }
 
-    private async __get(requestOptions?: SpotPricingClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __get(requestOptions?: SpotPricingClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -56,7 +50,7 @@ export class SpotPricingClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -71,31 +65,18 @@ export class SpotPricingClient {
     }
 
     /**
-     * Submit a spot job — delegates to unified POST /instance.
-     *
-     * @param {XcelsiorApi.SpotJobIn} request
      * @param {SpotPricingClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.spotPricing.submitSpotInstance({
-     *         name: "name",
-     *         vram_needed_gb: 1.1,
-     *         max_bid: 1.1
-     *     })
+     *     await client.spotPricing.submitSpotInstance()
      */
-    public submitSpotInstance(
-        request: XcelsiorApi.SpotJobIn,
-        requestOptions?: SpotPricingClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__submitSpotInstance(request, requestOptions));
+    public submitSpotInstance(requestOptions?: SpotPricingClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__submitSpotInstance(requestOptions));
     }
 
     private async __submitSpotInstance(
-        request: XcelsiorApi.SpotJobIn,
         requestOptions?: SpotPricingClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -106,10 +87,7 @@ export class SpotPricingClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -117,23 +95,15 @@ export class SpotPricingClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/spot/instance");

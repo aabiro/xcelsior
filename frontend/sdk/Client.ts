@@ -42,30 +42,30 @@ export class XcelsiorApiClient {
     protected _artifacts: ArtifactsClient | undefined;
     protected _auth: AuthClient | undefined;
     protected _billing: BillingClient | undefined;
-    protected _chat: ChatClient | undefined;
-    protected _aiAssistant: AiAssistantClient | undefined;
-    protected _compliance: ComplianceClient | undefined;
-    protected _events: EventsClient | undefined;
-    protected _gpu: GpuClient | undefined;
-    protected _infrastructure: InfrastructureClient | undefined;
-    protected _hosts: HostsClient | undefined;
-    protected _inference: InferenceClient | undefined;
     protected _inferenceV2: InferenceV2Client | undefined;
     protected _instances: InstancesClient | undefined;
-    protected _jurisdiction: JurisdictionClient | undefined;
     protected _marketplace: MarketplaceClient | undefined;
     protected _marketplaceV2: MarketplaceV2Client | undefined;
-    protected _mfa: MfaClient | undefined;
-    protected _notifications: NotificationsClient | undefined;
-    protected _privacy: PrivacyClient | undefined;
-    protected _providers: ProvidersClient | undefined;
-    protected _reputation: ReputationClient | undefined;
-    protected _sla: SlaClient | undefined;
-    protected _spotPricing: SpotPricingClient | undefined;
-    protected _sshKeys: SshKeysClient | undefined;
-    protected _teams: TeamsClient | undefined;
-    protected _verification: VerificationClient | undefined;
     protected _volumes: VolumesClient | undefined;
+    protected _hosts: HostsClient | undefined;
+    protected _reputation: ReputationClient | undefined;
+    protected _teams: TeamsClient | undefined;
+    protected _compliance: ComplianceClient | undefined;
+    protected _privacy: PrivacyClient | undefined;
+    protected _sla: SlaClient | undefined;
+    protected _providers: ProvidersClient | undefined;
+    protected _inference: InferenceClient | undefined;
+    protected _notifications: NotificationsClient | undefined;
+    protected _chat: ChatClient | undefined;
+    protected _aiAssistant: AiAssistantClient | undefined;
+    protected _sshKeys: SshKeysClient | undefined;
+    protected _spotPricing: SpotPricingClient | undefined;
+    protected _events: EventsClient | undefined;
+    protected _verification: VerificationClient | undefined;
+    protected _jurisdiction: JurisdictionClient | undefined;
+    protected _infrastructure: InfrastructureClient | undefined;
+    protected _mfa: MfaClient | undefined;
+    protected _gpu: GpuClient | undefined;
 
     constructor(options: XcelsiorApiClient.Options = {}) {
         this._options = normalizeClientOptions(options);
@@ -83,48 +83,12 @@ export class XcelsiorApiClient {
         return (this._billing ??= new BillingClient(this._options));
     }
 
-    public get chat(): ChatClient {
-        return (this._chat ??= new ChatClient(this._options));
-    }
-
-    public get aiAssistant(): AiAssistantClient {
-        return (this._aiAssistant ??= new AiAssistantClient(this._options));
-    }
-
-    public get compliance(): ComplianceClient {
-        return (this._compliance ??= new ComplianceClient(this._options));
-    }
-
-    public get events(): EventsClient {
-        return (this._events ??= new EventsClient(this._options));
-    }
-
-    public get gpu(): GpuClient {
-        return (this._gpu ??= new GpuClient(this._options));
-    }
-
-    public get infrastructure(): InfrastructureClient {
-        return (this._infrastructure ??= new InfrastructureClient(this._options));
-    }
-
-    public get hosts(): HostsClient {
-        return (this._hosts ??= new HostsClient(this._options));
-    }
-
-    public get inference(): InferenceClient {
-        return (this._inference ??= new InferenceClient(this._options));
-    }
-
     public get inferenceV2(): InferenceV2Client {
         return (this._inferenceV2 ??= new InferenceV2Client(this._options));
     }
 
     public get instances(): InstancesClient {
         return (this._instances ??= new InstancesClient(this._options));
-    }
-
-    public get jurisdiction(): JurisdictionClient {
-        return (this._jurisdiction ??= new JurisdictionClient(this._options));
     }
 
     public get marketplace(): MarketplaceClient {
@@ -135,48 +99,84 @@ export class XcelsiorApiClient {
         return (this._marketplaceV2 ??= new MarketplaceV2Client(this._options));
     }
 
-    public get mfa(): MfaClient {
-        return (this._mfa ??= new MfaClient(this._options));
+    public get volumes(): VolumesClient {
+        return (this._volumes ??= new VolumesClient(this._options));
     }
 
-    public get notifications(): NotificationsClient {
-        return (this._notifications ??= new NotificationsClient(this._options));
-    }
-
-    public get privacy(): PrivacyClient {
-        return (this._privacy ??= new PrivacyClient(this._options));
-    }
-
-    public get providers(): ProvidersClient {
-        return (this._providers ??= new ProvidersClient(this._options));
+    public get hosts(): HostsClient {
+        return (this._hosts ??= new HostsClient(this._options));
     }
 
     public get reputation(): ReputationClient {
         return (this._reputation ??= new ReputationClient(this._options));
     }
 
+    public get teams(): TeamsClient {
+        return (this._teams ??= new TeamsClient(this._options));
+    }
+
+    public get compliance(): ComplianceClient {
+        return (this._compliance ??= new ComplianceClient(this._options));
+    }
+
+    public get privacy(): PrivacyClient {
+        return (this._privacy ??= new PrivacyClient(this._options));
+    }
+
     public get sla(): SlaClient {
         return (this._sla ??= new SlaClient(this._options));
     }
 
-    public get spotPricing(): SpotPricingClient {
-        return (this._spotPricing ??= new SpotPricingClient(this._options));
+    public get providers(): ProvidersClient {
+        return (this._providers ??= new ProvidersClient(this._options));
+    }
+
+    public get inference(): InferenceClient {
+        return (this._inference ??= new InferenceClient(this._options));
+    }
+
+    public get notifications(): NotificationsClient {
+        return (this._notifications ??= new NotificationsClient(this._options));
+    }
+
+    public get chat(): ChatClient {
+        return (this._chat ??= new ChatClient(this._options));
+    }
+
+    public get aiAssistant(): AiAssistantClient {
+        return (this._aiAssistant ??= new AiAssistantClient(this._options));
     }
 
     public get sshKeys(): SshKeysClient {
         return (this._sshKeys ??= new SshKeysClient(this._options));
     }
 
-    public get teams(): TeamsClient {
-        return (this._teams ??= new TeamsClient(this._options));
+    public get spotPricing(): SpotPricingClient {
+        return (this._spotPricing ??= new SpotPricingClient(this._options));
+    }
+
+    public get events(): EventsClient {
+        return (this._events ??= new EventsClient(this._options));
     }
 
     public get verification(): VerificationClient {
         return (this._verification ??= new VerificationClient(this._options));
     }
 
-    public get volumes(): VolumesClient {
-        return (this._volumes ??= new VolumesClient(this._options));
+    public get jurisdiction(): JurisdictionClient {
+        return (this._jurisdiction ??= new JurisdictionClient(this._options));
+    }
+
+    public get infrastructure(): InfrastructureClient {
+        return (this._infrastructure ??= new InfrastructureClient(this._options));
+    }
+
+    public get mfa(): MfaClient {
+        return (this._mfa ??= new MfaClient(this._options));
+    }
+
+    public get gpu(): GpuClient {
+        return (this._gpu ??= new GpuClient(this._options));
     }
 
     /**

@@ -202,7 +202,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {(mobile || !collapsed) && (
             <span className={cn(
               "shrink-0 rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan",
-              mobile ? "-ml-1" : "-ml-4",
+              "ml-1"
             )}>
               Beta
             </span>

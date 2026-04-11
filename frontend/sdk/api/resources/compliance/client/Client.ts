@@ -14,9 +14,6 @@ export declare namespace ComplianceClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Province compliance matrix, tax rates, Quebec PIA checks.
- */
 export class ComplianceClient {
     protected readonly _options: NormalizedClientOptions<ComplianceClient.Options>;
 
@@ -25,71 +22,18 @@ export class ComplianceClient {
     }
 
     /**
-     * Return high-level compliance check summary with live verification.
-     *
-     * Checks reflect actual user/platform configuration state — items require
-     * specific action before they show as passing. Each non-passing check
-     * includes an ``action`` with a CTA label and dashboard link.
-     *
-     * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.compliance.getStatus()
-     */
-    public getStatus(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getStatus(requestOptions));
-    }
-
-    private async __getStatus(
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/compliance/status",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/compliance/status");
-    }
-
-    /**
-     * Province-specific compliance matrix for scheduling guidance.
-     *
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.compliance.getProvinces()
      */
-    public getProvinces(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public getProvinces(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getProvinces(requestOptions));
     }
 
     private async __getProvinces(
         requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -108,7 +52,7 @@ export class ComplianceClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -123,20 +67,59 @@ export class ComplianceClient {
     }
 
     /**
-     * Canadian GST/HST/PST rates by province for billing.
+     * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
+     * @example
+     *     await client.compliance.getStatus()
+     */
+    public getStatus(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getStatus(requestOptions));
+    }
+
+    private async __getStatus(requestOptions?: ComplianceClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/compliance/status",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/compliance/status");
+    }
+
+    /**
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.compliance.getTaxRates()
      */
-    public getTaxRates(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public getTaxRates(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getTaxRates(requestOptions));
     }
 
-    private async __getTaxRates(
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getTaxRates(requestOptions?: ComplianceClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -155,7 +138,7 @@ export class ComplianceClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -170,22 +153,18 @@ export class ComplianceClient {
     }
 
     /**
-     * Full trust tier requirements matrix.
-     *
      * @param {ComplianceClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.compliance.getTrustTierRequirements()
      */
-    public getTrustTierRequirements(
-        requestOptions?: ComplianceClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    public getTrustTierRequirements(requestOptions?: ComplianceClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getTrustTierRequirements(requestOptions));
     }
 
     private async __getTrustTierRequirements(
         requestOptions?: ComplianceClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -204,7 +183,7 @@ export class ComplianceClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {

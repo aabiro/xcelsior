@@ -10,5 +10,4 @@
 export interface GetByEntityEventsRequest {
     entity_type: string;
     entity_id: string;
-    limit?: number;
 }

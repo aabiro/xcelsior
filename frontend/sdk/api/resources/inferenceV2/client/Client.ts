@@ -693,12 +693,8 @@ export class InferenceV2Client {
     }
 
     /**
-     * Worker callback: mark inference request as completed with results.
-     *
      * @param {XcelsiorApi.CompleteInferenceV2Request} request
      * @param {InferenceV2Client.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.inferenceV2.complete({
@@ -708,14 +704,14 @@ export class InferenceV2Client {
     public complete(
         request: XcelsiorApi.CompleteInferenceV2Request,
         requestOptions?: InferenceV2Client.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__complete(request, requestOptions));
     }
 
     private async __complete(
         request: XcelsiorApi.CompleteInferenceV2Request,
         requestOptions?: InferenceV2Client.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { request_id: requestId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -735,23 +731,15 @@ export class InferenceV2Client {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(

@@ -300,18 +300,16 @@ export class ArtifactsClient {
     }
 
     /**
-     * List all artifacts (no job filter).
-     *
      * @param {ArtifactsClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.artifacts.listAll()
      */
-    public listAll(requestOptions?: ArtifactsClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public listAll(requestOptions?: ArtifactsClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__listAll(requestOptions));
     }
 
-    private async __listAll(requestOptions?: ArtifactsClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __listAll(requestOptions?: ArtifactsClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -330,7 +328,7 @@ export class ArtifactsClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {

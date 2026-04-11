@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace SshKeysClient {
     export type Options = BaseClientOptions;
@@ -23,18 +23,16 @@ export class SshKeysClient {
     }
 
     /**
-     * List the authenticated user's SSH public keys.
-     *
      * @param {SshKeysClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.sshKeys.list()
      */
-    public list(requestOptions?: SshKeysClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public list(requestOptions?: SshKeysClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__list(requestOptions));
     }
 
-    private async __list(requestOptions?: SshKeysClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __list(requestOptions?: SshKeysClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -53,7 +51,7 @@ export class SshKeysClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -68,18 +66,16 @@ export class SshKeysClient {
     }
 
     /**
-     * Upload a user SSH public key. Like GitHub/AWS key management.
-     *
      * @param {SshKeysClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.sshKeys.add()
      */
-    public add(requestOptions?: SshKeysClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public add(requestOptions?: SshKeysClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__add(requestOptions));
     }
 
-    private async __add(requestOptions?: SshKeysClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __add(requestOptions?: SshKeysClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -98,7 +94,7 @@ export class SshKeysClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -113,12 +109,8 @@ export class SshKeysClient {
     }
 
     /**
-     * Delete a user SSH public key by ID.
-     *
      * @param {XcelsiorApi.DeleteSshKeysRequest} request
      * @param {SshKeysClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.sshKeys.delete({
@@ -128,14 +120,14 @@ export class SshKeysClient {
     public delete(
         request: XcelsiorApi.DeleteSshKeysRequest,
         requestOptions?: SshKeysClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__delete(request, requestOptions));
     }
 
     private async __delete(
         request: XcelsiorApi.DeleteSshKeysRequest,
         requestOptions?: SshKeysClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { key_id: keyId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -155,23 +147,15 @@ export class SshKeysClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/api/ssh/keys/{key_id}");

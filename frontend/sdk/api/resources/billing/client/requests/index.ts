@@ -1,6 +1,5 @@
 export type { AutoTopupConfig } from "./AutoTopupConfig.js";
 export type { ClaimFreeCreditsBillingRequest } from "./ClaimFreeCreditsBillingRequest.js";
-export type { CryptoDepositRequest } from "./CryptoDepositRequest.js";
 export type { CryptoDepositStatusBillingRequest } from "./CryptoDepositStatusBillingRequest.js";
 export type { CryptoRefreshBillingRequest } from "./CryptoRefreshBillingRequest.js";
 export type { DepositRequest } from "./DepositRequest.js";
@@ -18,5 +17,3 @@ export type { ListInvoicesBillingRequest } from "./ListInvoicesBillingRequest.js
 export type { PaymentIntentRequest } from "./PaymentIntentRequest.js";
 export type { PayPalCaptureRequest } from "./PayPalCaptureRequest.js";
 export type { PayPalCreateOrderRequest } from "./PayPalCreateOrderRequest.js";
-export type { RefundRequest } from "./RefundRequest.js";
-export type { ReservedCommitmentRequest } from "./ReservedCommitmentRequest.js";

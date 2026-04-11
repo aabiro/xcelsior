@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace ChatClient {
     export type Options = BaseClientOptions;
@@ -23,29 +23,16 @@ export class ChatClient {
     }
 
     /**
-     * Stream an AI chat response about Xcelsior via SSE.
-     *
-     * @param {XcelsiorApi.ChatRequest} request
      * @param {ChatClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.chat.send({
-     *         message: "message"
-     *     })
+     *     await client.chat.send()
      */
-    public send(
-        request: XcelsiorApi.ChatRequest,
-        requestOptions?: ChatClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__send(request, requestOptions));
+    public send(requestOptions?: ChatClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__send(requestOptions));
     }
 
-    private async __send(
-        request: XcelsiorApi.ChatRequest,
-        requestOptions?: ChatClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __send(requestOptions?: ChatClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -56,10 +43,7 @@ export class ChatClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -67,48 +51,38 @@ export class ChatClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/chat");
     }
 
     /**
-     * Return suggested starter questions for the chat widget.
-     *
      * @param {ChatClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.chat.getSuggestions()
+     *     await client.chat.listConversations()
      */
-    public getSuggestions(requestOptions?: ChatClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getSuggestions(requestOptions));
+    public listConversations(requestOptions?: ChatClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__listConversations(requestOptions));
     }
 
-    private async __getSuggestions(requestOptions?: ChatClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __listConversations(requestOptions?: ChatClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/chat/suggestions",
+                "api/chat/conversations",
             ),
             method: "GET",
             headers: _headers,
@@ -120,7 +94,7 @@ export class ChatClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -131,16 +105,12 @@ export class ChatClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/chat/suggestions");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/chat/conversations");
     }
 
     /**
-     * Return message history for an existing conversation.
-     *
      * @param {XcelsiorApi.GetHistoryChatRequest} request
      * @param {ChatClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.chat.getHistory({
@@ -150,14 +120,14 @@ export class ChatClient {
     public getHistory(
         request: XcelsiorApi.GetHistoryChatRequest,
         requestOptions?: ChatClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getHistory(request, requestOptions));
     }
 
     private async __getHistory(
         request: XcelsiorApi.GetHistoryChatRequest,
         requestOptions?: ChatClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { conversation_id: conversationId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -177,23 +147,15 @@ export class ChatClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(
@@ -205,27 +167,23 @@ export class ChatClient {
     }
 
     /**
-     * List recent conversations for the authenticated user.
-     *
      * @param {ChatClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.chat.listConversations()
+     *     await client.chat.getSuggestions()
      */
-    public listConversations(requestOptions?: ChatClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__listConversations(requestOptions));
+    public getSuggestions(requestOptions?: ChatClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getSuggestions(requestOptions));
     }
 
-    private async __listConversations(
-        requestOptions?: ChatClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getSuggestions(requestOptions?: ChatClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/chat/conversations",
+                "api/chat/suggestions",
             ),
             method: "GET",
             headers: _headers,
@@ -237,7 +195,7 @@ export class ChatClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -248,34 +206,20 @@ export class ChatClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/chat/conversations");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/chat/suggestions");
     }
 
     /**
-     * Record thumbs-up / thumbs-down feedback on a chat message.
-     *
-     * @param {XcelsiorApi.ChatFeedbackRequest} request
      * @param {ChatClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.chat.sendFeedback({
-     *         message_id: "message_id",
-     *         vote: "vote"
-     *     })
+     *     await client.chat.sendFeedback()
      */
-    public sendFeedback(
-        request: XcelsiorApi.ChatFeedbackRequest,
-        requestOptions?: ChatClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__sendFeedback(request, requestOptions));
+    public sendFeedback(requestOptions?: ChatClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__sendFeedback(requestOptions));
     }
 
-    private async __sendFeedback(
-        request: XcelsiorApi.ChatFeedbackRequest,
-        requestOptions?: ChatClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __sendFeedback(requestOptions?: ChatClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -286,10 +230,7 @@ export class ChatClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -297,23 +238,15 @@ export class ChatClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/chat/feedback");

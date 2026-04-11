@@ -7,7 +7,7 @@ import * as core from "../../../../core/index.js";
 import * as environments from "../../../../environments.js";
 import { handleNonStatusCodeError } from "../../../../errors/handleNonStatusCodeError.js";
 import * as errors from "../../../../errors/index.js";
-import * as XcelsiorApi from "../../../index.js";
+import type * as XcelsiorApi from "../../../index.js";
 
 export declare namespace VerificationClient {
     export type Options = BaseClientOptions;
@@ -15,9 +15,6 @@ export declare namespace VerificationClient {
     export interface RequestOptions extends BaseRequestOptions {}
 }
 
-/**
- * Automated hardware attestation: GPU identity, CUDA, thermals, network.
- */
 export class VerificationClient {
     protected readonly _options: NormalizedClientOptions<VerificationClient.Options>;
 
@@ -26,12 +23,8 @@ export class VerificationClient {
     }
 
     /**
-     * Run verification checks on a host.
-     *
-     * @param {XcelsiorApi.VerifyHostRequest} request
+     * @param {XcelsiorApi.VerifyHostVerificationRequest} request
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.verification.verifyHost({
@@ -39,17 +32,17 @@ export class VerificationClient {
      *     })
      */
     public verifyHost(
-        request: XcelsiorApi.VerifyHostRequest,
+        request: XcelsiorApi.VerifyHostVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__verifyHost(request, requestOptions));
     }
 
     private async __verifyHost(
-        request: XcelsiorApi.VerifyHostRequest,
+        request: XcelsiorApi.VerifyHostVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { host_id: hostId, ..._body } = request;
+    ): Promise<core.WithRawResponse<void>> {
+        const { host_id: hostId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -60,10 +53,7 @@ export class VerificationClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: _body,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -71,35 +61,23 @@ export class VerificationClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/verify/{host_id}");
     }
 
     /**
-     * Get current verification status for a host.
-     *
      * @param {XcelsiorApi.GetStatusVerificationRequest} request
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.verification.getStatus({
@@ -109,14 +87,14 @@ export class VerificationClient {
     public getStatus(
         request: XcelsiorApi.GetStatusVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__getStatus(request, requestOptions));
     }
 
     private async __getStatus(
         request: XcelsiorApi.GetStatusVerificationRequest,
         requestOptions?: VerificationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { host_id: hostId } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -136,46 +114,33 @@ export class VerificationClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/verify/{host_id}/status");
     }
 
     /**
-     * List all verified hosts with full verification details.
-     *
-     * Returns host_id, state, gpu_model, country, last_check, overall_score
-     * for every host that has any verification record (not just 'verified').
-     *
      * @param {VerificationClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.verification.listVerified()
      */
-    public listVerified(requestOptions?: VerificationClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public listVerified(requestOptions?: VerificationClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__listVerified(requestOptions));
     }
 
     private async __listVerified(
         requestOptions?: VerificationClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -194,7 +159,7 @@ export class VerificationClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {

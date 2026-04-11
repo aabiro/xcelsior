@@ -348,73 +348,6 @@ export class AuthClient {
     }
 
     /**
-     * Initiate OAuth flow — returns the provider's authorization URL.
-     *
-     * The frontend should redirect the user to the returned URL.
-     *
-     * @param {XcelsiorApi.OauthInitiateAuthRequest} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.oauthInitiate({
-     *         provider: "provider"
-     *     })
-     */
-    public oauthInitiate(
-        request: XcelsiorApi.OauthInitiateAuthRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__oauthInitiate(request, requestOptions));
-    }
-
-    private async __oauthInitiate(
-        request: XcelsiorApi.OauthInitiateAuthRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const { provider } = request;
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                `api/auth/oauth/${core.url.encodePathParam(provider)}`,
-            ),
-            method: "POST",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/oauth/{provider}");
-    }
-
-    /**
      * Get the currently authenticated user's profile.
      *
      * Requires Authorization: Bearer <token> header.
@@ -462,18 +395,16 @@ export class AuthClient {
     }
 
     /**
-     * Delete the current user's account.
-     *
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.auth.deleteAccount()
      */
-    public deleteAccount(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public deleteAccount(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__deleteAccount(requestOptions));
     }
 
-    private async __deleteAccount(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __deleteAccount(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -492,7 +423,7 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -507,27 +438,16 @@ export class AuthClient {
     }
 
     /**
-     * Update the current user's profile fields.
-     *
-     * @param {XcelsiorApi.ProfileUpdateRequest} request
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.auth.updateProfile()
      */
-    public updateProfile(
-        request: XcelsiorApi.ProfileUpdateRequest = {},
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__updateProfile(request, requestOptions));
+    public updateProfile(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__updateProfile(requestOptions));
     }
 
-    private async __updateProfile(
-        request: XcelsiorApi.ProfileUpdateRequest = {},
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __updateProfile(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -538,66 +458,6 @@ export class AuthClient {
             ),
             method: "PATCH",
             headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "PATCH", "/api/auth/me");
-    }
-
-    /**
-     * @deprecated
-     *
-     * Refresh an existing session token.
-     *
-     * Returns a new token with a fresh 30-day expiry.
-     *
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.auth.refresh()
-     */
-    public refresh(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__refresh(requestOptions));
-    }
-
-    private async __refresh(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/refresh",
-            ),
-            method: "POST",
-            headers: _headers,
             queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
@@ -606,7 +466,7 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -617,7 +477,7 @@ export class AuthClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/refresh");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "PATCH", "/api/auth/me");
     }
 
     /**
@@ -666,30 +526,23 @@ export class AuthClient {
     }
 
     /**
-     * @deprecated
-     *
-     * Generate a named API key for the authenticated user.
-     *
-     * API keys can be used as Bearer tokens for programmatic access.
-     * Scope: 'full-access' (default) or 'read-only' (GET requests only).
-     *
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.auth.generateApiKey()
+     *     await client.auth.refresh()
      */
-    public generateApiKey(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__generateApiKey(requestOptions));
+    public refresh(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__refresh(requestOptions));
     }
 
-    private async __generateApiKey(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __refresh(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/keys/generate",
+                "api/auth/refresh",
             ),
             method: "POST",
             headers: _headers,
@@ -701,7 +554,7 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -712,24 +565,254 @@ export class AuthClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/keys/generate");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/refresh");
     }
 
     /**
-     * @deprecated
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * List all API keys for the authenticated user (keys are redacted).
+     * @example
+     *     await client.auth.exportData()
+     */
+    public exportData(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__exportData(requestOptions));
+    }
+
+    private async __exportData(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/auth/me/data-export",
+            ),
+            method: "GET",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/auth/me/data-export");
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
+     * @example
+     *     await client.auth.changePassword()
+     */
+    public changePassword(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__changePassword(requestOptions));
+    }
+
+    private async __changePassword(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/auth/change-password",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/change-password");
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.requestPasswordReset()
+     */
+    public requestPasswordReset(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__requestPasswordReset(requestOptions));
+    }
+
+    private async __requestPasswordReset(
+        requestOptions?: AuthClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/auth/password-reset",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/password-reset");
+    }
+
+    /**
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.confirmPasswordReset()
+     */
+    public confirmPasswordReset(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__confirmPasswordReset(requestOptions));
+    }
+
+    private async __confirmPasswordReset(
+        requestOptions?: AuthClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/auth/password-reset/confirm",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "POST",
+            "/api/auth/password-reset/confirm",
+        );
+    }
+
+    /**
+     * @param {XcelsiorApi.OauthInitiateAuthRequest} request
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @example
+     *     await client.auth.oauthInitiate({
+     *         provider: "provider"
+     *     })
+     */
+    public oauthInitiate(
+        request: XcelsiorApi.OauthInitiateAuthRequest,
+        requestOptions?: AuthClient.RequestOptions,
+    ): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__oauthInitiate(request, requestOptions));
+    }
+
+    private async __oauthInitiate(
+        request: XcelsiorApi.OauthInitiateAuthRequest,
+        requestOptions?: AuthClient.RequestOptions,
+    ): Promise<core.WithRawResponse<void>> {
+        const { provider } = request;
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `api/auth/oauth/${core.url.encodePathParam(provider)}`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/oauth/{provider}");
+    }
+
+    /**
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.auth.listApiKeys()
      */
-    public listApiKeys(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public listApiKeys(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__listApiKeys(requestOptions));
     }
 
-    private async __listApiKeys(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __listApiKeys(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -748,7 +831,7 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -763,14 +846,51 @@ export class AuthClient {
     }
 
     /**
-     * @deprecated
-     *
-     * Revoke an API key by its preview string.
-     *
-     * @param {XcelsiorApi.RevokeApiKeyAuthRequest} request
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     * @example
+     *     await client.auth.generateApiKey()
+     */
+    public generateApiKey(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__generateApiKey(requestOptions));
+    }
+
+    private async __generateApiKey(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                "api/keys/generate",
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: undefined, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
+        }
+
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/keys/generate");
+    }
+
+    /**
+     * @param {XcelsiorApi.RevokeApiKeyAuthRequest} request
+     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.auth.revokeApiKey({
@@ -780,14 +900,14 @@ export class AuthClient {
     public revokeApiKey(
         request: XcelsiorApi.RevokeApiKeyAuthRequest,
         requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__revokeApiKey(request, requestOptions));
     }
 
     private async __revokeApiKey(
         request: XcelsiorApi.RevokeApiKeyAuthRequest,
         requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { key_preview: keyPreview } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -807,66 +927,42 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(_response.error, _response.rawResponse, "DELETE", "/api/keys/{key_preview}");
     }
 
     /**
-     * Initiate a password reset. Sends email with reset link.
-     *
-     * @param {XcelsiorApi.PasswordResetRequest} request
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.auth.requestPasswordReset({
-     *         email: "email"
-     *     })
+     *     await client.auth.getPreferences()
      */
-    public requestPasswordReset(
-        request: XcelsiorApi.PasswordResetRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__requestPasswordReset(request, requestOptions));
+    public getPreferences(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__getPreferences(requestOptions));
     }
 
-    private async __requestPasswordReset(
-        request: XcelsiorApi.PasswordResetRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __getPreferences(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/auth/password-reset",
+                "api/users/me/preferences",
             ),
-            method: "POST",
+            method: "GET",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -874,67 +970,42 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/password-reset");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/users/me/preferences");
     }
 
     /**
-     * Confirm password reset with token and set new password.
-     *
-     * @param {XcelsiorApi.PasswordResetConfirm} request
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.auth.confirmPasswordReset({
-     *         token: "token",
-     *         new_password: "new_password"
-     *     })
+     *     await client.auth.setPreferences()
      */
-    public confirmPasswordReset(
-        request: XcelsiorApi.PasswordResetConfirm,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__confirmPasswordReset(request, requestOptions));
+    public setPreferences(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__setPreferences(requestOptions));
     }
 
-    private async __confirmPasswordReset(
-        request: XcelsiorApi.PasswordResetConfirm,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    private async __setPreferences(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/auth/password-reset/confirm",
+                "api/users/me/preferences",
             ),
-            method: "POST",
+            method: "PUT",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -942,192 +1013,33 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
-        return handleNonStatusCodeError(
-            _response.error,
-            _response.rawResponse,
-            "POST",
-            "/api/auth/password-reset/confirm",
-        );
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "PUT", "/api/users/me/preferences");
     }
 
     /**
-     * Change password for the authenticated user.
-     *
-     * @param {XcelsiorApi.ChangePasswordRequest} request
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
      * @example
-     *     await client.auth.changePassword({
-     *         current_password: "current_password",
-     *         new_password: "new_password"
-     *     })
+     *     await client.auth.resendVerification()
      */
-    public changePassword(
-        request: XcelsiorApi.ChangePasswordRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__changePassword(request, requestOptions));
-    }
-
-    private async __changePassword(
-        request: XcelsiorApi.ChangePasswordRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/change-password",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/change-password");
-    }
-
-    /**
-     * Verify a user's email address with the token sent during registration.
-     *
-     * @param {XcelsiorApi.VerifyEmailRequest} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.verifyEmail({
-     *         token: "token"
-     *     })
-     */
-    public verifyEmail(
-        request: XcelsiorApi.VerifyEmailRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__verifyEmail(request, requestOptions));
-    }
-
-    private async __verifyEmail(
-        request: XcelsiorApi.VerifyEmailRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/auth/verify-email",
-            ),
-            method: "POST",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/verify-email");
-    }
-
-    /**
-     * Resend the email verification link.
-     *
-     * @param {XcelsiorApi.ResendVerificationRequest} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.resendVerification({
-     *         email: "email"
-     *     })
-     */
-    public resendVerification(
-        request: XcelsiorApi.ResendVerificationRequest,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__resendVerification(request, requestOptions));
+    public resendVerification(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__resendVerification(requestOptions));
     }
 
     private async __resendVerification(
-        request: XcelsiorApi.ResendVerificationRequest,
         requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -1138,10 +1050,7 @@ export class AuthClient {
             ),
             method: "POST",
             headers: _headers,
-            contentType: "application/json",
             queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
             maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
             abortSignal: requestOptions?.abortSignal,
@@ -1149,23 +1058,15 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(
@@ -1177,18 +1078,16 @@ export class AuthClient {
     }
 
     /**
-     * List active sessions for the current user.
-     *
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
      *     await client.auth.listSessions()
      */
-    public listSessions(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
+    public listSessions(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__listSessions(requestOptions));
     }
 
-    private async __listSessions(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __listSessions(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
@@ -1207,7 +1106,7 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -1222,12 +1121,8 @@ export class AuthClient {
     }
 
     /**
-     * Revoke a specific session by its token prefix.
-     *
      * @param {XcelsiorApi.RevokeSessionAuthRequest} request
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
      *
      * @example
      *     await client.auth.revokeSession({
@@ -1237,14 +1132,14 @@ export class AuthClient {
     public revokeSession(
         request: XcelsiorApi.RevokeSessionAuthRequest,
         requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
+    ): core.HttpResponsePromise<void> {
         return core.HttpResponsePromise.fromPromise(this.__revokeSession(request, requestOptions));
     }
 
     private async __revokeSession(
         request: XcelsiorApi.RevokeSessionAuthRequest,
         requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
+    ): Promise<core.WithRawResponse<void>> {
         const { token_prefix: tokenPrefix } = request;
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
@@ -1264,23 +1159,15 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
+            throw new errors.XcelsiorApiError({
+                statusCode: _response.error.statusCode,
+                body: _response.error.body,
+                rawResponse: _response.rawResponse,
+            });
         }
 
         return handleNonStatusCodeError(
@@ -1292,30 +1179,25 @@ export class AuthClient {
     }
 
     /**
-     * Export all personal data for the current user (PIPEDA right).
-     *
-     * Returns a JSON bundle of all user data: profile, jobs, billing,
-     * reputation, artifacts, and consent records.
-     *
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @example
-     *     await client.auth.exportData()
+     *     await client.auth.verifyEmail()
      */
-    public exportData(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__exportData(requestOptions));
+    public verifyEmail(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<void> {
+        return core.HttpResponsePromise.fromPromise(this.__verifyEmail(requestOptions));
     }
 
-    private async __exportData(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
+    private async __verifyEmail(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<void>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
         const _response = await core.fetcher({
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)) ??
                     environments.XcelsiorApiEnvironment.Production,
-                "api/auth/me/data-export",
+                "api/auth/verify-email",
             ),
-            method: "GET",
+            method: "POST",
             headers: _headers,
             queryParameters: requestOptions?.queryParams,
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
@@ -1325,7 +1207,7 @@ export class AuthClient {
             logging: this._options.logging,
         });
         if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
+            return { data: undefined, rawResponse: _response.rawResponse };
         }
 
         if (_response.error.reason === "status-code") {
@@ -1336,118 +1218,6 @@ export class AuthClient {
             });
         }
 
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/auth/me/data-export");
-    }
-
-    /**
-     * Get user preferences.
-     *
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @example
-     *     await client.auth.getPreferences()
-     */
-    public getPreferences(requestOptions?: AuthClient.RequestOptions): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__getPreferences(requestOptions));
-    }
-
-    private async __getPreferences(requestOptions?: AuthClient.RequestOptions): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/users/me/preferences",
-            ),
-            method: "GET",
-            headers: _headers,
-            queryParameters: requestOptions?.queryParams,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            throw new errors.XcelsiorApiError({
-                statusCode: _response.error.statusCode,
-                body: _response.error.body,
-                rawResponse: _response.rawResponse,
-            });
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "GET", "/api/users/me/preferences");
-    }
-
-    /**
-     * Update user preferences.
-     *
-     * @param {Record<string, unknown>} request
-     * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
-     *
-     * @throws {@link XcelsiorApi.UnprocessableEntityError}
-     *
-     * @example
-     *     await client.auth.setPreferences({
-     *         "key": "value"
-     *     })
-     */
-    public setPreferences(
-        request: Record<string, unknown>,
-        requestOptions?: AuthClient.RequestOptions,
-    ): core.HttpResponsePromise<unknown> {
-        return core.HttpResponsePromise.fromPromise(this.__setPreferences(request, requestOptions));
-    }
-
-    private async __setPreferences(
-        request: Record<string, unknown>,
-        requestOptions?: AuthClient.RequestOptions,
-    ): Promise<core.WithRawResponse<unknown>> {
-        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
-        const _response = await core.fetcher({
-            url: core.url.join(
-                (await core.Supplier.get(this._options.baseUrl)) ??
-                    (await core.Supplier.get(this._options.environment)) ??
-                    environments.XcelsiorApiEnvironment.Production,
-                "api/users/me/preferences",
-            ),
-            method: "PUT",
-            headers: _headers,
-            contentType: "application/json",
-            queryParameters: requestOptions?.queryParams,
-            requestType: "json",
-            body: request,
-            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
-            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
-            abortSignal: requestOptions?.abortSignal,
-            fetchFn: this._options?.fetch,
-            logging: this._options.logging,
-        });
-        if (_response.ok) {
-            return { data: _response.body, rawResponse: _response.rawResponse };
-        }
-
-        if (_response.error.reason === "status-code") {
-            switch (_response.error.statusCode) {
-                case 422:
-                    throw new XcelsiorApi.UnprocessableEntityError(
-                        _response.error.body as XcelsiorApi.HttpValidationError,
-                        _response.rawResponse,
-                    );
-                default:
-                    throw new errors.XcelsiorApiError({
-                        statusCode: _response.error.statusCode,
-                        body: _response.error.body,
-                        rawResponse: _response.rawResponse,
-                    });
-            }
-        }
-
-        return handleNonStatusCodeError(_response.error, _response.rawResponse, "PUT", "/api/users/me/preferences");
+        return handleNonStatusCodeError(_response.error, _response.rawResponse, "POST", "/api/auth/verify-email");
     }
 }
