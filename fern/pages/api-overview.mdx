@@ -1,6 +1,6 @@
 ---
 title: API Overview
-subtitle: Client-facing endpoints for GPU orchestration, billing, and compliance.
+subtitle: Core developer APIs for running workloads, managing credits, and integrating inference.
 slug: api-overview
 ---
 
@@ -23,22 +23,19 @@ Bearer auth can use an API key, an OAuth user access token, or an OAuth machine 
 
 ## API Groups
 
-The published API reference is organized into these client-facing groups:
+The public reference is intentionally organized around the workflows most customers automate day to day:
 
 | Group | Description | Key Endpoints |
 |-------|-------------|---------------|
-| **Hosts** | GPU host registration and management | `PUT /host`, `GET /hosts` |
-| **Instances** | Instance submission and lifecycle | `POST /instance`, `GET /instances` |
-| **Billing** | Wallets, invoices, refunds | `GET /api/billing/wallet/{id}` |
-| **Marketplace** | Rig listings and browsing | `GET /marketplace` |
-| **Reputation** | Trust scores and verification | `GET /api/reputation/{id}` |
-| **Teams** | Team membership and shared access | `GET /api/teams/me` |
-| **Artifacts** | Upload/download presigned URLs | `POST /api/artifacts/upload` |
-| **Compliance** | Tax rates and province matrix | `GET /api/compliance/provinces` |
-| **Privacy** | PIPEDA consent management | `GET /api/v2/privacy/consents` |
-| **OAuth & Sessions** | Authorization Code, Device Flow, and session auth | `GET /oauth/authorize`, `POST /oauth/token` |
+| **Auth** | OAuth bootstrap and session entrypoints | `GET /oauth/authorize`, `POST /oauth/token` |
+| **Instances** | Instance submission, status, and logs | `POST /instance`, `GET /instances` |
+| **Billing** | Wallet funding, invoices, pricing, checkout | `POST /api/billing/payment-intent`, `POST /api/billing/paypal/create-order` |
+| **Marketplace** | Search and reserve GPU capacity | `GET /marketplace`, `POST /api/v2/marketplace/search` |
+| **Volumes** | Persistent storage volumes | `POST /api/v2/volumes`, `GET /api/v2/volumes` |
+| **Artifacts** | Upload/download URLs for outputs and checkpoints | `POST /api/artifacts/upload`, `GET /api/artifacts/{job_id}` |
+| **Inference** | OpenAI-compatible inference and managed endpoints | `POST /v1/chat/completions`, `POST /api/v2/inference/endpoints` |
 
-Internal worker, admin, maintenance, and callback endpoints are intentionally omitted from the public Fern spec and SDK.
+Account settings, worker registration, admin, maintenance, callback, and other internal surfaces are intentionally kept out of the public developer reference.
 
 ## Response Format
 

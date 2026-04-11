@@ -1,12 +1,12 @@
 ---
 title: TypeScript SDK
-subtitle: Auto-generated TypeScript client for the Xcelsior API.
+subtitle: TypeScript client for Xcelsior's public developer API.
 slug: typescript-sdk
 ---
 
 ## Overview
 
-The Xcelsior TypeScript SDK is auto-generated from the public OpenAPI specification using [Fern](https://buildwithfern.com). It provides type-safe access to the client-facing Xcelsior API surface.
+The Xcelsior TypeScript SDK gives you typed access to the core Xcelsior platform workflows from TypeScript: compute, billing, marketplace, storage, and inference.
 
 ## Installation
 
@@ -30,10 +30,6 @@ const client = new XcelsiorApiClient({
   },
 });
 
-// List all GPU hosts
-const hosts = await client.hosts.list();
-console.log(`${hosts.length} active hosts`);
-
 // Submit an instance
 const instance = await client.instances.create({
   name: "llama-inference",
@@ -42,6 +38,10 @@ const instance = await client.instances.create({
   tier: "sovereign",
 });
 console.log(`Instance ${instance.jobId} created`);
+
+// Check wallet balance
+const wallet = await client.billing.getWallet("customer-123");
+console.log(`Balance: $${wallet.balance} CAD`);
 ```
 
 ## Configuration
@@ -75,33 +75,6 @@ const client = new XcelsiorApiClient({
 | `fetch` | `typeof fetch` | No | Custom fetch implementation |
 
 ## Usage Examples
-
-### GPU Hosts
-
-```typescript
-// Register a host
-await client.hosts.register({
-  hostId: "my-gpu-01",
-  ip: "100.64.0.5",
-  gpuModel: "RTX 4090",
-  vramGb: 24,
-  costPerHour: 1.2,
-  country: "CA",
-  province: "ON",
-});
-
-// List hosts
-const hosts = await client.hosts.list();
-
-// Get a specific host
-const host = await client.hosts.get("host-id-123");
-
-// Remove a host
-await client.hosts.remove("host-id-123");
-
-// Get compute scores
-const scores = await client.hosts.listComputeScores();
-```
 
 ### Instance Management
 
@@ -161,30 +134,15 @@ const listings = await client.marketplace.list();
 // Search marketplace
 const results = await client.marketplace.search({ query: "RTX 4090" });
 
-// List your rig on the marketplace
-await client.marketplace.createListing({
-  hostId: "my-gpu-01",
-  gpuModel: "RTX 4090",
-  vramGb: 24,
-  pricePerHour: 1.2,
-});
-
 // Get marketplace stats
 const stats = await client.marketplace.getStats();
-```
 
-### Reputation
-
-```typescript
-// Check your trust score
-const rep = await client.reputation.get("my-entity-id");
-console.log(`Score: ${rep.score}, Tier: ${rep.tier}`);
-
-// View leaderboard
-const leaders = await client.reputation.leaderboard();
-
-// Get breakdown
-const breakdown = await client.reputation.getBreakdown("my-entity-id");
+// Create a reservation for capacity
+const reservation = await client.marketplaceV2.createReservation({
+  gpuModel: "RTX 4090",
+  count: 1,
+  hours: 4,
+});
 ```
 
 ### Volumes
@@ -227,42 +185,18 @@ const response = await client.inferenceV2.chatCompletions({
 
 ## Resource Groups
 
-The SDK organizes endpoints into resource groups accessible as properties on the client:
+The SDK is organized around the main product areas exposed in Xcelsior's public developer API:
 
 | Group | Accessor | Description |
 |-------|----------|-------------|
-| Hosts | `client.hosts` | GPU host registration and management |
-| Instances | `client.instances` | Instance (job) creation and lifecycle |
-| Billing | `client.billing` | Wallet, invoices, payments, crypto |
-| Marketplace | `client.marketplace` | GPU marketplace listings |
-| Marketplace v2 | `client.marketplaceV2` | Advanced marketplace (offers, reservations) |
-| Reputation | `client.reputation` | Trust scores and leaderboard |
-| Auth | `client.auth` | Authentication, API keys, OAuth |
-| Teams | `client.teams` | Team management |
+| Auth | `client.auth` | OAuth flows and session bootstrap |
+| Instances | `client.instances` | Instance creation, status, logs, cancellation |
+| Billing | `client.billing` | Wallets, payments, invoices, pricing |
+| Marketplace | `client.marketplace` | Listings, search, and marketplace insights |
+| Marketplace v2 | `client.marketplaceV2` | Reservations and advanced capacity search |
 | Volumes | `client.volumes` | Persistent storage volumes |
-| Inference | `client.inference` | Model inference |
-| Inference v2 | `client.inferenceV2` | Endpoints, chat completions |
-| Artifacts | `client.artifacts` | Job artifact upload/download |
-| Events | `client.events` | Event log and audit trail |
-| SLA | `client.sla` | SLA status and violations |
-| Providers | `client.providers` | Provider management and payouts |
-| Notifications | `client.notifications` | Notification management |
-| Privacy | `client.privacy` | Consent and data retention |
-| Compliance | `client.compliance` | Tax rates, provinces, trust tiers |
-| Telemetry | `client.telemetry` | GPU telemetry data |
-| Verification | `client.verification` | Host verification |
-| Infrastructure | `client.infrastructure` | Health, metrics, SSH keys |
-| Spot Pricing | `client.spotPricing` | Spot pricing and preemption |
-| Autoscale | `client.autoscale` | Auto-scaling pool |
-| Jurisdiction | `client.jurisdiction` | Data sovereignty and residency |
-| Transparency | `client.transparency` | Transparency reports |
-| Agent | `client.agent` | Worker agent endpoints |
-| SSH Keys | `client.sshKeys` | SSH key management |
-| Chat | `client.chat` | Support chat |
-| AI Assistant | `client.aiAssistant` | AI assistant chat |
-| Admin | `client.admin` | Admin stats and users |
-| Cloud Burst | `client.cloudBurst` | Cloud burst status |
-| Slurm | `client.slurm` | Slurm job scheduler |
+| Artifacts | `client.artifacts` | Artifact upload and download URLs |
+| Inference v2 | `client.inferenceV2` | Managed endpoints and OpenAI-compatible inference |
 
 ## Error Handling
 
@@ -297,7 +231,7 @@ type HttpValidationError = XcelsiorApi.HttpValidationError;
 
 ## Passthrough Requests
 
-For endpoints not yet covered by the SDK, use the built-in `fetch` method which inherits your auth, retry, and logging configuration:
+If you need a newer public route before updating your SDK version, use the built-in `fetch` method so auth, retries, and logging stay consistent:
 
 ```typescript
 const response = await client.fetch("/api/some-new-endpoint", {

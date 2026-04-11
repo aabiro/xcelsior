@@ -80,7 +80,7 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     return {"ok": True, "job_id": job_id, "model": req.model, "status": "queued"}
 
 @router.get("/api/inference/{job_id}", tags=["Inference"])
-def api_inference_result(job_id: str, request: Request = None):
+def api_inference_result(job_id: str, request: Request):
     """Get inference results for a submitted request."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -109,7 +109,7 @@ def api_inference_result(job_id: str, request: Request = None):
     raise HTTPException(404, f"Inference job {job_id} not found")
 
 @router.get("/api/inference/models/available", tags=["Inference"])
-def api_inference_models(request: Request = None):
+def api_inference_models(request: Request):
     """List available inference models and their resource requirements."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -521,4 +521,3 @@ def api_inference_complete(request_id: str, request: Request):
     )
     broadcast_sse("inference_completed", {"request_id": request_id})
     return {"ok": True}
-

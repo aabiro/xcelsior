@@ -100,7 +100,7 @@ def api_unlist_rig(host_id: str, request: Request):
     return {"ok": True, "unlisted": host_id}
 
 @router.get("/marketplace", tags=["Marketplace"])
-def api_get_marketplace(active_only: bool = True, request: Request = None):
+def api_get_marketplace(request: Request, active_only: bool = True):
     """Browse marketplace listings."""
     user = _get_current_user(request) if request else None
     if user:
@@ -122,7 +122,7 @@ def api_marketplace_bill(job_id: str, request: Request):
     return {"ok": True, "bill": result}
 
 @router.get("/marketplace/stats", tags=["Marketplace"])
-def api_marketplace_stats(request: Request = None):
+def api_marketplace_stats(request: Request):
     """Marketplace aggregate stats."""
     user = _get_current_user(request) if request else None
     if user:
@@ -295,4 +295,3 @@ def api_marketplace_release(allocation_id: str, request: Request):
     me = get_marketplace_engine()
     me.release_allocation(allocation_id)
     return {"ok": True}
-

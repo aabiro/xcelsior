@@ -993,17 +993,27 @@ class TestCanadaEndpoint:
 
 class TestMarketplaceEndpoints:
     def test_list_rig(self):
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "marketplace-list@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
         r = client.post(
             "/marketplace/list",
             json={"host_id": "h1", "gpu_model": "RTX 4090", "vram_gb": 24, "price_per_hour": 0.30},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 200
         assert r.json()["ok"]
 
     def test_get_marketplace(self):
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "marketplace-get@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
         client.post(
             "/marketplace/list",
             json={"host_id": "h1", "gpu_model": "RTX 4090", "vram_gb": 24, "price_per_hour": 0.30},
+            headers={"Authorization": f"Bearer {token}"},
         )
         r = client.get("/marketplace")
         assert len(r.json()["listings"]) == 1
@@ -1015,6 +1025,10 @@ class TestMarketplaceEndpoints:
 
     def test_unlist_rig(self):
         """DELETE /marketplace/{host_id} removes listing."""
+        token = client.post(
+            "/api/auth/register",
+            json={"email": "marketplace-delete@xcelsior.ca", "password": "testpass123"},
+        ).json()["access_token"]
         client.post(
             "/marketplace/list",
             json={
@@ -1023,8 +1037,9 @@ class TestMarketplaceEndpoints:
                 "vram_gb": 24,
                 "price_per_hour": 0.30,
             },
+            headers={"Authorization": f"Bearer {token}"},
         )
-        r = client.delete("/marketplace/to-remove")
+        r = client.delete("/marketplace/to-remove", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
 
 
@@ -1509,6 +1524,42 @@ class TestOAuthServer:
                 "client_type": "confidential",
                 "redirect_uris": [],
                 "grant_types": ["client_credentials"],
+                "scopes": ["volumes:read"],
+            },
+        )
+        assert created.status_code == 200
+        oauth_client = created.json()["client"]
+
+        token_resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_client["client_id"],
+                "client_secret": oauth_client["client_secret"],
+                "scope": "volumes:read",
+            },
+        )
+        assert token_resp.status_code == 200
+        machine_token = token_resp.json()["access_token"]
+
+        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {machine_token}"})
+        assert me.status_code == 403
+
+    def test_client_credentials_revoked_after_secret_rotation(self):
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "machine-rotate@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        created = client.post(
+            "/api/oauth/clients",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "client_name": "Rotation Test",
+                "client_type": "confidential",
+                "redirect_uris": [],
+                "grant_types": ["client_credentials"],
                 "scopes": ["instances:read"],
             },
         )
@@ -1527,8 +1578,103 @@ class TestOAuthServer:
         assert token_resp.status_code == 200
         machine_token = token_resp.json()["access_token"]
 
-        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {machine_token}"})
-        assert me.status_code == 403
+        before = client.get(
+            "/api/v2/inference/endpoints",
+            headers={"Authorization": f"Bearer {machine_token}"},
+        )
+        assert before.status_code == 200
+
+        rotated = client.post(
+            f"/api/oauth/clients/{oauth_client['client_id']}/rotate-secret",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert rotated.status_code == 200
+        new_secret = rotated.json()["client_secret"]
+
+        after = client.get(
+            "/api/v2/inference/endpoints",
+            headers={"Authorization": f"Bearer {machine_token}"},
+        )
+        assert after.status_code == 401
+
+        old_secret_issue = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_client["client_id"],
+                "client_secret": oauth_client["client_secret"],
+                "scope": "volumes:read",
+            },
+        )
+        assert old_secret_issue.status_code == 401
+
+        new_secret_issue = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_client["client_id"],
+                "client_secret": new_secret,
+                "scope": "volumes:read",
+            },
+        )
+        assert new_secret_issue.status_code == 200
+
+    def test_disabled_client_cannot_use_existing_machine_token(self):
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "machine-disabled@xcelsior.ca", "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+
+        created = client.post(
+            "/api/oauth/clients",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "client_name": "Disable Test",
+                "client_type": "confidential",
+                "redirect_uris": [],
+                "grant_types": ["client_credentials"],
+                "scopes": ["volumes:read"],
+            },
+        )
+        assert created.status_code == 200
+        oauth_client = created.json()["client"]
+
+        token_resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_client["client_id"],
+                "client_secret": oauth_client["client_secret"],
+                "scope": "volumes:read",
+            },
+        )
+        assert token_resp.status_code == 200
+        machine_token = token_resp.json()["access_token"]
+
+        disabled = client.patch(
+            f"/api/oauth/clients/{oauth_client['client_id']}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"status": "disabled"},
+        )
+        assert disabled.status_code == 200
+
+        stale = client.get(
+            "/api/v2/inference/endpoints",
+            headers={"Authorization": f"Bearer {machine_token}"},
+        )
+        assert stale.status_code == 401
+
+        issue = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_client["client_id"],
+                "client_secret": oauth_client["client_secret"],
+                "scope": "volumes:read",
+            },
+        )
+        assert issue.status_code == 401
 
     def test_oauth_access_token_fails_closed_when_auth_cache_is_unavailable(self, monkeypatch):
         import routes._deps as _deps_mod

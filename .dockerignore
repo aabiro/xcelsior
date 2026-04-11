@@ -20,3 +20,9 @@ migrations/versions/*.pyc
 frontend/scripts/
 frontend/src/__tests__/
 tests/
+frontend/
+fern/
+wizard/
+README.md
+llms.txt
+.mcp.json

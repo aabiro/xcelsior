@@ -345,6 +345,9 @@ def _get_jwt_signing_keys() -> tuple[str, dict[str, str]]:
 def issue_client_credentials_jwt(client: dict, scopes: list[str]) -> dict[str, Any]:
     active_kid, keys = _get_jwt_signing_keys()
     now = int(time.time())
+    secret_fingerprint = hashlib.sha256(
+        f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
+    ).hexdigest()
     header = {"alg": "HS256", "typ": "JWT", "kid": active_kid}
     payload = {
         "iss": OAUTH_ISSUER,
@@ -356,6 +359,7 @@ def issue_client_credentials_jwt(client: dict, scopes: list[str]) -> dict[str, A
         "client_id": client["client_id"],
         "auth_type": "client_credentials",
         "jti": f"jwt-{uuid.uuid4().hex}",
+        "secret_fingerprint": secret_fingerprint,
     }
     signing_input = ".".join(
         [
@@ -416,6 +420,19 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     client = OAuthStore.get_client(str(payload.get("client_id", "")))
     if not client:
         return None
+    if str(client.get("status", "active")) == "disabled":
+        return None
+
+    expected_secret_fingerprint = hashlib.sha256(
+        f"{client['client_id']}:{client.get('client_secret_salt') or ''}".encode()
+    ).hexdigest()
+    if payload.get("secret_fingerprint") != expected_secret_fingerprint:
+        return None
+
+    try:
+        OAuthStore.update_last_used(client["client_id"])
+    except Exception:
+        pass
 
     return {
         "auth_type": "client_credentials",
@@ -541,7 +558,10 @@ def create_oauth_client(
         "redirect_uris": redirect_uris,
         "grant_types": grant_types,
         "scopes": scopes,
+        "status": "active",
         "created_at": now,
+        "updated_at": now,
+        "last_used": None,
     }
     if client_secret:
         response["client_secret"] = client_secret
@@ -552,6 +572,8 @@ def authenticate_client(client_id: str, client_secret: str | None = None) -> dic
     client = get_client(client_id)
     if not client:
         raise OAuthGrantError("invalid_client", "Unknown OAuth client", status_code=401)
+    if str(client.get("status", "active")) == "disabled":
+        raise OAuthGrantError("invalid_client", "OAuth client is disabled", status_code=401)
     if client.get("client_type") == "confidential":
         if not client_secret:
             raise OAuthGrantError("invalid_client", "Client secret is required", status_code=401)

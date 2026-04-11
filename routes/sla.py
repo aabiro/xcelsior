@@ -54,7 +54,7 @@ def api_sla_enforce(req: SLAEnforceRequest, request: Request):
     }
 
 @router.get("/api/sla/hosts-summary", tags=["SLA"])
-def api_sla_hosts_summary(request: Request = None):
+def api_sla_hosts_summary(request: Request):
     """Get SLA status summary for all known hosts.
 
     Returns per-host cards with uptime %, violation count, and SLA tier.
@@ -147,4 +147,3 @@ def api_sla_targets():
 
     targets = {t.value: asdict(v) for t, v in SLA_TARGETS.items()}
     return {"ok": True, "targets": targets}
-

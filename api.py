@@ -740,6 +740,23 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
     )
 
 
+from oauth_service import OAuthGrantError, AuthCacheUnavailableError
+
+
+@app.exception_handler(OAuthGrantError)
+async def oauth_grant_error_handler(_: Request, exc: OAuthGrantError):
+    return JSONResponse(status_code=exc.status_code, content=exc.payload())
+
+
+@app.exception_handler(AuthCacheUnavailableError)
+async def auth_cache_unavailable_handler(_: Request, exc: AuthCacheUnavailableError):
+    log.error("Auth cache unavailable: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"ok": False, "error": {"code": "auth_cache_unavailable", "message": "Authentication service temporarily unavailable"}},
+    )
+
+
 # ── Mount all route modules ──────────────────────────────────────────
 
 from routes import ALL_ROUTERS

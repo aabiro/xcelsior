@@ -31,7 +31,7 @@ graph TB
     end
 
     subgraph platform["Xcelsior Platform"]
-        api["FastAPI Gateway · 250+ endpoints"]
+        api["FastAPI Gateway · public API + dashboard"]
         scheduler["Scheduler · Job matching & compliance"]
         db[("PostgreSQL 16 + SQLite auxiliaries")]
         billing["Billing · CAD · Stripe Connect · BTC"]
@@ -126,7 +126,7 @@ sequenceDiagram
 ## Project Structure
 
 ```
-api.py            FastAPI gateway (250+ endpoints, SSE, dashboard)
+api.py            FastAPI gateway (public API, SSE, dashboard)
 scheduler.py      Job queue, host allocation, spot pricing, preemption
 worker_agent.py   Pull-based GPU agent, telemetry, Docker execution
 security.py       4-layer defense: version gating → gVisor/Kata

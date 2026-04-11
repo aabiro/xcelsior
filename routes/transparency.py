@@ -40,7 +40,7 @@ class LegalRequestRecord(BaseModel):
     notes: str = ""
 
 @router.post("/api/transparency/legal-request", tags=["Transparency"])
-def api_record_legal_request(req: LegalRequestRecord, request: Request = None):
+def api_record_legal_request(req: LegalRequestRecord, request: Request):
     """Record a legal request (subpoena, warrant, MLAT, etc.)."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -81,7 +81,7 @@ def api_record_legal_request(req: LegalRequestRecord, request: Request = None):
 
 @router.post("/api/transparency/legal-request/{request_id}/respond", tags=["Transparency"])
 def api_respond_legal_request(
-    request_id: str, complied: bool = False, challenged: bool = False, notes: str = "", request: Request = None
+    request_id: str, request: Request, complied: bool = False, challenged: bool = False, notes: str = ""
 ):
     """Record response to a legal request."""
     from routes._deps import _require_scope, _get_current_user
@@ -98,7 +98,7 @@ def api_respond_legal_request(
     return {"ok": True, "request_id": request_id}
 
 @router.get("/api/transparency/report", tags=["Transparency"])
-def api_transparency_report(months: int = 12, request: Request = None):
+def api_transparency_report(request: Request, months: int = 12):
     """Generate transparency report — CLOUD Act diligence artifact.
 
     Returns summary of all legal requests and data disclosures.
@@ -158,4 +158,3 @@ def api_transparency_report(months: int = 12, request: Request = None):
         "requests": requests_list,
         "disclosures": disclosures_list,
     }
-

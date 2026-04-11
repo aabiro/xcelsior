@@ -94,7 +94,7 @@ class StatusUpdate(BaseModel):
     container_name: str | None = None
 
 @router.put("/host", tags=["Hosts"])
-def api_register_host(h: HostIn, request: Request = None):
+def api_register_host(h: HostIn, request: Request):
     """Register or update a host with strict admission gating.
 
     Per REPORT_FEATURE_FINAL.md §62 and REPORT_FEATURE_2.md §37:
@@ -204,7 +204,7 @@ def api_register_host(h: HostIn, request: Request = None):
     return {"ok": True, "host": entry}
 
 @router.get("/host/{host_id}", tags=["Hosts"])
-def api_get_host(host_id: str, request: Request = None):
+def api_get_host(host_id: str, request: Request):
     """Get a single host by ID."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -217,7 +217,7 @@ def api_get_host(host_id: str, request: Request = None):
     return {"ok": True, "host": host}
 
 @router.get("/hosts", tags=["Hosts"])
-def api_list_hosts(active_only: bool = True, request: Request = None):
+def api_list_hosts(request: Request, active_only: bool = True):
     """List all hosts."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -295,7 +295,7 @@ def api_undrain_host(host_id: str, request: Request):
     return {"ok": True, "host": updated}
 
 @router.delete("/host/{host_id}", tags=["Hosts"])
-def api_remove_host(host_id: str, request: Request = None):
+def api_remove_host(host_id: str, request: Request):
     """Remove a host."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -309,7 +309,7 @@ def api_remove_host(host_id: str, request: Request = None):
     return {"ok": True, "removed": host_id}
 
 @router.post("/hosts/check", tags=["Hosts"])
-def api_check_hosts(request: Request = None):
+def api_check_hosts(request: Request):
     """Ping all hosts and update status."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None

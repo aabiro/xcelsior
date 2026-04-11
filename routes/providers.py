@@ -37,7 +37,7 @@ class IncorporationUploadRequest(BaseModel):
     file_id: str  # Reference to file uploaded via /api/artifacts/upload
 
 @router.post("/api/providers/register", tags=["Providers"])
-def api_register_provider(req: ProviderRegisterRequest, request: Request = None):
+def api_register_provider(req: ProviderRegisterRequest, request: Request):
     """Register a GPU provider with Stripe Connect onboarding.
 
     For Canadian companies, include corporation_name, business_number,
@@ -149,7 +149,7 @@ def api_resume_onboarding(provider_id: str, request: Request):
     return {"ok": True, **result}
 
 @router.get("/api/providers/{provider_id}", tags=["Providers"])
-def api_get_provider(provider_id: str, request: Request = None):
+def api_get_provider(provider_id: str, request: Request):
     """Get provider account details including company info and payout status."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -164,7 +164,7 @@ def api_get_provider(provider_id: str, request: Request = None):
     return {"ok": True, "provider": provider}
 
 @router.get("/api/providers", tags=["Providers"])
-def api_list_providers(status: str = "", request: Request = None):
+def api_list_providers(request: Request, status: str = ""):
     """List all provider accounts, optionally filtered by status."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -178,7 +178,7 @@ def api_list_providers(status: str = "", request: Request = None):
     return {"ok": True, "providers": providers, "count": len(providers)}
 
 @router.post("/api/providers/{provider_id}/incorporation", tags=["Providers"])
-def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, request: Request = None):
+def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, request: Request):
     """Link an uploaded incorporation document to a provider account.
 
     The file itself should first be uploaded via POST /api/artifacts/upload
@@ -204,7 +204,7 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, 
     return {"ok": True, **result}
 
 @router.get("/api/providers/{provider_id}/earnings", tags=["Providers"])
-def api_provider_earnings(provider_id: str, request: Request = None):
+def api_provider_earnings(provider_id: str, request: Request):
     """Get aggregate earnings and payout history for a provider."""
     from routes._deps import _require_scope, _get_current_user
     user = _get_current_user(request) if request else None
@@ -216,7 +216,7 @@ def api_provider_earnings(provider_id: str, request: Request = None):
     return {"ok": True, "earnings": earnings, "recent_payouts": payouts}
 
 @router.post("/api/providers/{provider_id}/payout", tags=["Providers"])
-def api_provider_payout(provider_id: str, job_id: str = "", total_cad: float = 0, request: Request = None):
+def api_provider_payout(provider_id: str, request: Request, job_id: str = "", total_cad: float = 0):
     """Split a job payment between provider (85%) and platform (15%).
 
     Applies province-specific GST/HST. If Stripe is configured,
@@ -244,4 +244,3 @@ async def api_stripe_webhook(request: Request):
         mgr = get_stripe_manager()
         result = mgr.handle_webhook(payload, sig_header)
         return {"ok": True, **result}
-

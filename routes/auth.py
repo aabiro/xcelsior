@@ -68,6 +68,7 @@ from oauth_service import (
     exchange_authorization_code,
     exchange_device_code,
     get_client,
+    hash_secret,
     issue_authorization_code,
     issue_client_credentials_jwt,
     issue_device_authorization,
@@ -576,7 +577,10 @@ def api_list_oauth_clients(request: Request):
             "scopes": list(client.get("scopes") or []),
             "is_first_party": bool(client.get("is_first_party")),
             "created_by_email": client.get("created_by_email"),
+            "status": client.get("status", "active"),
             "created_at": client.get("created_at"),
+            "updated_at": client.get("updated_at"),
+            "last_used": client.get("last_used"),
         }
         for client in clients
     ]
@@ -974,7 +978,11 @@ def api_auth_oauth_callback(provider: str, request: Request):
             with _user_lock:
                 _users_db[email] = user
 
-    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+    try:
+        token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+    except Exception as e:
+        log.error("OAuth token issuance failed for %s (%s): %s", email, provider, e)
+        return RedirectResponse("/dashboard?error=oauth_token_failed")
 
     # Ensure welcome notification exists
     try:
@@ -989,7 +997,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
         log.debug("welcome notification (OAuth) failed: %s", e)
 
     # Set httpOnly cookie and redirect to dashboard
-    resp = RedirectResponse("/dashboard", status_code=302)
+    resp = RedirectResponse("/setup-2fa?redirect=/dashboard", status_code=302)
     _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
@@ -1744,7 +1752,7 @@ class OAuthClientUpdateRequest(BaseModel):
 def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, request: Request):
     """Update an OAuth client's metadata (name, redirect URIs, scopes, status)."""
     user = _require_user_grant(request)
-    updates = body.dict(exclude_unset=True)
+    updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(400, "No fields to update")
     from db import OAuthStore
@@ -1759,7 +1767,7 @@ def api_rotate_oauth_client_secret(client_id: str, request: Request):
     """Rotate an OAuth client's secret. Returns the new plaintext secret once."""
     user = _require_user_grant(request)
     new_secret = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
-    hash_, salt = _hash_password(new_secret)
+    hash_, salt = hash_secret(new_secret)
     from db import OAuthStore
     ok = OAuthStore.rotate_client_secret(client_id, hash_, salt, None if _is_platform_admin(user) else user["email"])
     if not ok:

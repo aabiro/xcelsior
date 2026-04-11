@@ -450,15 +450,108 @@ collect_frontend_build_args() {
     echo "${args[@]}"
 }
 
-# Compute a hash of all frontend source files (src/, public/, package.json, etc.)
-frontend_source_hash() {
-    (
-        find "$PROJECT_DIR/src" "$PROJECT_DIR/public" -type f -print0 2>/dev/null || true
-        find "$PROJECT_DIR/frontend/src" "$PROJECT_DIR/frontend/public" -type f -print0 2>/dev/null || true
-        [ -f "$PROJECT_DIR/package.json" ] && echo "$PROJECT_DIR/package.json" | tr '\n' '\0'
-        [ -f "$PROJECT_DIR/frontend/package.json" ] && echo "$PROJECT_DIR/frontend/package.json" | tr '\n' '\0'
-    ) \
-    | xargs -0 sha256sum 2>/dev/null | sort | sha256sum | cut -d' ' -f1
+hash_repo_subset() {
+    python3 - "$PROJECT_DIR" "$@" <<'PY'
+import glob
+import hashlib
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+patterns = sys.argv[2:] or ["."]
+files: set[Path] = set()
+
+for pattern in patterns:
+    matches = glob.glob(str(root / pattern), recursive=True)
+    candidate = root / pattern
+    if not matches and candidate.exists():
+        matches = [str(candidate)]
+    for raw in matches:
+        path = Path(raw)
+        if not path.exists():
+            continue
+        if path.is_dir():
+            for item in path.rglob("*"):
+                if item.is_file():
+                    files.add(item.resolve())
+        elif path.is_file():
+            files.add(path.resolve())
+
+digest = hashlib.sha256()
+for path in sorted(files):
+    rel = path.relative_to(root).as_posix()
+    digest.update(rel.encode())
+    digest.update(b"\0")
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    digest.update(b"\0")
+
+print(digest.hexdigest(), end="")
+PY
+}
+
+frontend_build_hash() {
+    local source_hash env_hash
+    source_hash=$(hash_repo_subset frontend)
+    env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+    printf '%s%s' "$source_hash" "$env_hash" | sha256sum | cut -d' ' -f1
+}
+
+remote_deploy_meta_dir() {
+    printf '%s' "/opt/xcelsior-backups/.deploy-meta"
+}
+
+load_remote_deploy_hash() {
+    local name="$1"
+    ssh_cmd "cat '$(remote_deploy_meta_dir)/$name' 2>/dev/null" || echo ""
+}
+
+store_remote_deploy_hash() {
+    local name="$1" value="$2"
+    ssh_cmd "mkdir -p '$(remote_deploy_meta_dir)' && printf '%s' '$value' > '$(remote_deploy_meta_dir)/$name'"
+}
+
+DEPLOY_API_HASH=""
+DEPLOY_FRONTEND_HASH=""
+DEPLOY_NGINX_HASH=""
+DEPLOY_RUNTIME_HASH=""
+DEPLOY_BUILD_API=true
+DEPLOY_BUILD_FRONTEND=true
+DEPLOY_INSTALL_NGINX=true
+DEPLOY_RUNTIME_CHANGED=true
+
+detect_deploy_inputs() {
+    local env_rel
+    env_rel="${ENV_FILE#$PROJECT_DIR/}"
+
+    DEPLOY_API_HASH=$(hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml "*.py" routes templates migrations)
+    DEPLOY_FRONTEND_HASH=$(frontend_build_hash)
+    DEPLOY_NGINX_HASH=$(hash_repo_subset nginx)
+    DEPLOY_RUNTIME_HASH=$(hash_repo_subset docker-compose.yml "$env_rel")
+
+    local prev_api_hash prev_frontend_hash prev_nginx_hash prev_runtime_hash
+    prev_api_hash=$(load_remote_deploy_hash api)
+    prev_frontend_hash=$(load_remote_deploy_hash frontend)
+    prev_nginx_hash=$(load_remote_deploy_hash nginx)
+    prev_runtime_hash=$(load_remote_deploy_hash runtime)
+
+    [[ -n "$prev_api_hash" && "$DEPLOY_API_HASH" == "$prev_api_hash" ]] && DEPLOY_BUILD_API=false || DEPLOY_BUILD_API=true
+    [[ -n "$prev_frontend_hash" && "$DEPLOY_FRONTEND_HASH" == "$prev_frontend_hash" ]] && DEPLOY_BUILD_FRONTEND=false || DEPLOY_BUILD_FRONTEND=true
+    [[ -n "$prev_nginx_hash" && "$DEPLOY_NGINX_HASH" == "$prev_nginx_hash" ]] && DEPLOY_INSTALL_NGINX=false || DEPLOY_INSTALL_NGINX=true
+    [[ -n "$prev_runtime_hash" && "$DEPLOY_RUNTIME_HASH" == "$prev_runtime_hash" ]] && DEPLOY_RUNTIME_CHANGED=false || DEPLOY_RUNTIME_CHANGED=true
+
+    log "Deploy diff: api_build=${DEPLOY_BUILD_API} frontend_build=${DEPLOY_BUILD_FRONTEND} nginx=${DEPLOY_INSTALL_NGINX} runtime=${DEPLOY_RUNTIME_CHANGED}"
+}
+
+persist_deploy_inputs() {
+    store_remote_deploy_hash api "$DEPLOY_API_HASH"
+    store_remote_deploy_hash frontend "$DEPLOY_FRONTEND_HASH"
+    store_remote_deploy_hash nginx "$DEPLOY_NGINX_HASH"
+    store_remote_deploy_hash runtime "$DEPLOY_RUNTIME_HASH"
 }
 
 deploy_docker() {
@@ -467,48 +560,24 @@ deploy_docker() {
     # Verify .env exists on server
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
 
-    # Validate build-time env vars before spending time on docker build
-    validate_build_env
-
-    # Build images (separate SSH call so a timeout here doesn't leave containers down)
-    # API image — normal cached build
-    log "Building API image..."
-    ssh_cmd "cd /opt/xcelsior && docker compose build api" || error "API build failed"
-    success "API image built"
-
-    # Scheduler-worker — same Dockerfile as api, must be rebuilt too
-    log "Building scheduler-worker image..."
-    ssh_cmd "cd /opt/xcelsior && docker compose build scheduler-worker" || error "Scheduler-worker build failed"
-    success "Scheduler-worker image built"
-
-    # Frontend image — explicitly pass every NEXT_PUBLIC_* as --build-arg.
-    # Use --no-cache ONLY when env vars changed (hash comparison).
-    log "Building frontend image (explicit build args)..."
-    local build_args
-    build_args=$(collect_frontend_build_args)
-
-    # Hash current NEXT_PUBLIC_* values and frontend source to detect changes
-    local env_hash
-    env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
-    local src_hash
-    src_hash=$(frontend_source_hash)
-    local combined_hash
-    combined_hash=$(echo "$env_hash$src_hash" | sha256sum | cut -d' ' -f1)
-    local prev_hash
-    prev_hash=$(ssh_cmd "cat /opt/xcelsior-backups/.frontend_env_hash 2>/dev/null" || echo "")
-
-    local cache_flag=""
-    if [[ "$combined_hash" != "$prev_hash" ]]; then
-        warn "Frontend env or source changed — rebuilding frontend with --no-cache"
-        cache_flag="--no-cache"
+    if [[ "$DEPLOY_BUILD_API" == true ]]; then
+        log "Building API + scheduler-worker images..."
+        ssh_cmd "cd /opt/xcelsior && docker compose build api scheduler-worker" || error "API/scheduler-worker build failed"
+        success "API + scheduler-worker images built"
     else
-        log "Frontend env and source unchanged — using cache"
+        log "API build inputs unchanged — skipping api/scheduler-worker image rebuild"
     fi
 
-    ssh_cmd "cd /opt/xcelsior && docker compose build $cache_flag $build_args frontend" || error "Frontend build failed"
-    # Save hash so next deploy can compare
-    ssh_cmd "echo '$combined_hash' > /opt/xcelsior-backups/.frontend_env_hash"
-    success "Frontend image built (env+source hash baked in)"
+    if [[ "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+        validate_build_env
+        log "Building frontend image (explicit build args)..."
+        local build_args
+        build_args=$(collect_frontend_build_args)
+        ssh_cmd "cd /opt/xcelsior && docker compose build $build_args frontend" || error "Frontend build failed"
+        success "Frontend image built"
+    else
+        log "Frontend build inputs unchanged — skipping frontend image rebuild"
+    fi
 
     # Run Alembic migrations
     log "Running database migrations..."
@@ -794,9 +863,18 @@ main() {
             TARGET_ENV="prod"
             resolve_env
             check_ssh
+            detect_deploy_inputs
             sync_code
-            install_nginx_configs
+            if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
+                install_nginx_configs
+            else
+                log "Nginx configs unchanged — skipping"
+            fi
             deploy_docker
+            persist_deploy_inputs
+            local quick_hash
+            quick_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            ssh_cmd "echo '$quick_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
             ;;
         --rollback)
             check_ssh
@@ -839,13 +917,14 @@ main() {
             TARGET_ENV="prod"
             resolve_env
             check_ssh
+            detect_deploy_inputs
 
             # ── Smart conditional steps ──
             local local_hash remote_hash
             local_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
             remote_hash=$(ssh_cmd "cat /opt/xcelsior/.deploy_hash 2>/dev/null" || echo "none")
 
-            if [[ "$local_hash" == "$remote_hash" ]]; then
+            if [[ "$local_hash" == "$remote_hash" && "$DEPLOY_BUILD_API" == false && "$DEPLOY_BUILD_FRONTEND" == false && "$DEPLOY_INSTALL_NGINX" == false && "$DEPLOY_RUNTIME_CHANGED" == false ]]; then
                 log "Remote is already at ${BOLD}${local_hash:0:8}${NC} — nothing to deploy."
                 health_check
                 exit 0
@@ -854,26 +933,22 @@ main() {
             backup_current
             sync_code
 
-            # Write deploy hash so next run can skip if unchanged
-            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
-
-            # Only reinstall nginx if config files changed
-            if git -C "$PROJECT_DIR" diff --name-only "$remote_hash" "$local_hash" -- nginx/ 2>/dev/null | grep -q .; then
+            if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
                 install_nginx_configs
             else
                 log "Nginx configs unchanged — skipping"
             fi
 
-            # Only rebuild Docker images if Dockerfile, requirements, or source code changed
-            if git -C "$PROJECT_DIR" diff --name-only "$remote_hash" "$local_hash" -- Dockerfile requirements.txt frontend/ pyproject.toml '*.py' templates/ 2>/dev/null | grep -q .; then
+            if [[ "$DEPLOY_BUILD_API" == true || "$DEPLOY_BUILD_FRONTEND" == true ]]; then
                 deploy_docker
             else
-                # Still run migrations + restart even without rebuild
-                log "No build-impacting files changed — running migrations and restart only"
+                log "Image build inputs unchanged — running migrations and container refresh only"
                 ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration check failed"
                 ssh_cmd "cd /opt/xcelsior && docker compose up -d" || error "Docker up failed"
             fi
 
+            persist_deploy_inputs
+            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
             health_check
             success "Deployment complete! Visit https://$DOMAIN"
             ;;
