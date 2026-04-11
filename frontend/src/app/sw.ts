@@ -31,8 +31,20 @@ type PushPayload = {
   data?: Record<string, unknown>;
 };
 
+const EXCLUDED_PRECACHE_PATHS = new Set([
+  "/oauth/callback",
+]);
+
+function getFilteredPrecacheEntries(entries: (PrecacheEntry | string)[] | undefined) {
+  return entries?.filter((entry) => {
+    const url = typeof entry === "string" ? entry : entry.url;
+    const pathname = new URL(url, self.location.origin).pathname;
+    return !EXCLUDED_PRECACHE_PATHS.has(pathname);
+  });
+}
+
 const serwist = new Serwist({
-  precacheEntries: self.__SW_MANIFEST,
+  precacheEntries: getFilteredPrecacheEntries(self.__SW_MANIFEST),
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { createEventSource } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { createEventSource, isEventStreamAvailable } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -90,7 +90,14 @@ export function useEventStream(options: UseEventStreamOptions = {}): {
       };
     }
 
-    connect();
+    void isEventStreamAvailable().then((available) => {
+      if (unmounted) return;
+      if (!available) {
+        setStatus("disconnected");
+        return;
+      }
+      connect();
+    });
 
     return () => {
       unmounted = true;

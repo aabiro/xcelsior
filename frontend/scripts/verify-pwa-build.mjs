@@ -23,6 +23,9 @@ if (!serviceWorkerSource.includes("/~offline")) {
 if (!serviceWorkerSource.includes("showNotification")) {
   fail("Expected the generated service worker to include desktop notification handling.");
 }
+if (!serviceWorkerSource.includes('new Set(["/oauth/callback"])')) {
+  fail("Expected /oauth/callback to be excluded from runtime precaching in the generated service worker.");
+}
 
 const appPathsManifest = readJson(".next/server/app-paths-manifest.json");
 if (!appPathsManifest["/manifest.webmanifest/route"]) {

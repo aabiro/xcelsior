@@ -105,7 +105,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\.(?:eot|otf|ttc|ttf|woff|woff2|font\.css)$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\.(?:eot|otf|ttc|ttf|woff|woff2|font\.css)$/i.test(url.pathname),
         handler: new StaleWhileRevalidate({
           cacheName: "static-font-assets",
           plugins: [
@@ -118,7 +118,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i.test(url.pathname),
         handler: new StaleWhileRevalidate({
           cacheName: "static-image-assets",
           plugins: [
@@ -131,7 +131,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\/_next\/static.+\.js$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\/_next\/static.+\.js$/i.test(url.pathname),
         handler: new CacheFirst({
           cacheName: "next-static-js-assets",
           plugins: [
@@ -144,7 +144,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\/_next\/image\?url=.+$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && url.pathname === "/_next/image",
         handler: new StaleWhileRevalidate({
           cacheName: "next-image",
           plugins: [
@@ -157,7 +157,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\.(?:mp3|wav|ogg)$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\.(?:mp3|wav|ogg)$/i.test(url.pathname),
         handler: new CacheFirst({
           cacheName: "static-audio-assets",
           plugins: [
@@ -171,7 +171,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\.(?:mp4|webm)$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\.(?:mp4|webm)$/i.test(url.pathname),
         handler: new CacheFirst({
           cacheName: "static-video-assets",
           plugins: [
@@ -185,7 +185,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\.(?:js)$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\.(?:js)$/i.test(url.pathname),
         handler: new StaleWhileRevalidate({
           cacheName: "static-js-assets",
           plugins: [
@@ -198,7 +198,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\.(?:css|less)$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\.(?:css|less)$/i.test(url.pathname),
         handler: new StaleWhileRevalidate({
           cacheName: "static-style-assets",
           plugins: [
@@ -211,7 +211,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: /\/_next\/data\/.+\/.+\.json$/i,
+        matcher: ({ sameOrigin, url }) => sameOrigin && /\/_next\/data\/.+\/.+\.json$/i.test(url.pathname),
         handler: new NetworkFirst({
           cacheName: "next-data",
           plugins: [
@@ -296,21 +296,7 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         }),
       },
       {
-        matcher: ({ sameOrigin }) => !sameOrigin,
-        method: "GET",
-        handler: new NetworkFirst({
-          cacheName: "cross-origin",
-          networkTimeoutSeconds: SHORT_NETWORK_TIMEOUT_SECONDS,
-          plugins: [
-            new ExpirationPlugin({
-              maxEntries: 32,
-              maxAgeSeconds: 60 * 60,
-            }),
-          ],
-        }),
-      },
-      {
-        matcher: /.*/i,
+        matcher: ({ sameOrigin }) => sameOrigin,
         method: "GET",
         handler: new NetworkOnly(),
       },

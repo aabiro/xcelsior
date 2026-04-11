@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-} from "recharts";
+} from "@/lib/recharts";
 import * as api from "@/lib/api";
 import type { SpotPricePoint } from "@/lib/api";
 import { toast } from "sonner";

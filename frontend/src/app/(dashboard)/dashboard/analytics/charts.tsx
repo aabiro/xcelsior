@@ -6,7 +6,7 @@ import {
   PieChart, Pie, Cell, RadarChart, Radar, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis, ReferenceLine,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
-} from "recharts";
+} from "@/lib/recharts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { HoverCard, ScrollReveal, FadeIn } from "@/components/ui/motion";
 import { TrendingUp, TrendingDown, Flame, Zap, Clock, BarChart3 } from "lucide-react";

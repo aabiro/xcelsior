@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { Calendar, RefreshCw, Radio, Download, Trash2, Wifi, WifiOff } from "lucide-react";
-import { createEventSource } from "@/lib/api";
+import { createEventSource, isEventStreamAvailable } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 
@@ -52,30 +52,39 @@ export default function EventsPage() {
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
   // SSE live stream with exponential backoff reconnect
-  const connectSSE = useCallback(() => {
-    if (esRef.current) esRef.current.close();
-    setConnStatus(reconnectAttempt.current > 0 ? "reconnecting" : "connecting");
-
-    const es = createEventSource();
-    es.onopen = () => { reconnectAttempt.current = 0; setConnStatus("connected"); };
-    es.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data);
-        setEvents((prev) => [event, ...prev].slice(0, 500));
-      } catch {}
-    };
-    es.onerror = () => {
-      es.close();
-      if (live) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), MAX_RECONNECT_DELAY);
-        reconnectAttempt.current++;
-        setConnStatus("reconnecting");
-        reconnectTimer.current = setTimeout(connectSSE, delay);
-      } else {
+  const connectSSE = useCallback(function connectSSEImpl() {
+    void isEventStreamAvailable("/api/stream", { force: true }).then((available) => {
+      if (!available) {
         setConnStatus("disconnected");
+        setLive(false);
+        toast.error("Live event stream is unavailable right now.");
+        return;
       }
-    };
-    esRef.current = es;
+
+      if (esRef.current) esRef.current.close();
+      setConnStatus(reconnectAttempt.current > 0 ? "reconnecting" : "connecting");
+
+      const es = createEventSource();
+      es.onopen = () => { reconnectAttempt.current = 0; setConnStatus("connected"); };
+      es.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data);
+          setEvents((prev) => [event, ...prev].slice(0, 500));
+        } catch {}
+      };
+      es.onerror = () => {
+        es.close();
+        if (live) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), MAX_RECONNECT_DELAY);
+          reconnectAttempt.current++;
+          setConnStatus("reconnecting");
+          reconnectTimer.current = setTimeout(connectSSEImpl, delay);
+        } else {
+          setConnStatus("disconnected");
+        }
+      };
+      esRef.current = es;
+    });
   }, [live]);
 
   useEffect(() => {

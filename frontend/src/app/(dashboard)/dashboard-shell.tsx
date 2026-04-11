@@ -194,7 +194,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     <>
       {/* Logo */}
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
-        <Link href="/dashboard" className="flex items-center gap-2 overflow-hidden">
+        <Link href="/dashboard" className="flex items-center gap-2 overflow-visible pr-2">
           <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 40 : undefined }}>
             {/* Rounded icon — visible when collapsed */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -214,7 +214,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               src="/xcelsior-logo-wordmark-iconbg.svg"
               alt="Xcelsior"
               className={cn(
-                "hidden dark:block h-[64px] transition-all duration-300 ease-in-out",
+                "hidden dark:block h-[54px] transition-all duration-300 ease-in-out",
                 collapsed && !mobile ? "opacity-0 scale-90 w-0" : "opacity-100 scale-100"
               )}
             />
@@ -223,14 +223,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               src="/xcelsior-logo-wordmark-iconbg-light.svg"
               alt="Xcelsior"
               className={cn(
-                "block dark:hidden h-[64px] transition-all duration-300 ease-in-out",
+                "block dark:hidden h-[54px] transition-all duration-300 ease-in-out",
                 collapsed && !mobile ? "opacity-0 scale-90 w-0" : "opacity-100 scale-100"
               )}
             />
           </div>
           <span className={cn(
-            "shrink-0 rounded bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-cyan transition-all duration-300",
-            collapsed && !mobile ? "opacity-0 w-0 overflow-hidden px-0" : "opacity-100 ml-1"
+            "shrink-0 rounded-full border border-accent-cyan/30 bg-accent-cyan/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-accent-cyan transition-all duration-300",
+            collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden px-0 opacity-0" : "ml-1 opacity-100"
           )}>
             Beta
           </span>

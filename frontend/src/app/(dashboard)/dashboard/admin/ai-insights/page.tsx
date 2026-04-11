@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Legend, PieChart, Pie, Cell,
-} from "recharts";
+} from "@/lib/recharts";
 import { cn } from "@/lib/utils";
 
 /* ───── Constants ──────────────────────────────────────────────────── */
