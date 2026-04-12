@@ -6,7 +6,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from routes._deps import (
     _require_admin,
@@ -198,6 +198,253 @@ def api_register_host(h: HostIn, request: Request):
             "host_id": h.host_id,
             "gpu_model": h.gpu_model,
             "admitted": entry.get("admitted", False),
+            "country": entry.get("country", ""),
+        },
+    )
+    return {"ok": True, "host": entry}
+
+
+# ── Model: RegisterHostRequest (web-facing registration form) ──
+
+# All known GPU model identifiers (must match frontend gpu-models.ts values)
+_VALID_GPU_MODELS = frozenset({
+    # NVIDIA Data Center
+    "H200", "H100-80GB", "H100-NVL",
+    "A100-80GB", "A100-40GB", "A40", "A30", "A10", "A16",
+    "L40S", "L40", "L4", "T4",
+    "V100-32GB", "V100-16GB",
+    # NVIDIA RTX 50 Series
+    "RTX-5090", "RTX-5080", "RTX-5070-Ti", "RTX-5070", "RTX-5060-Ti", "RTX-5060",
+    # NVIDIA RTX 40 Series
+    "RTX-4090", "RTX-4080-Super", "RTX-4080",
+    "RTX-4070-Ti-S", "RTX-4070-Ti", "RTX-4070-Super", "RTX-4070",
+    "RTX-4060-Ti-16", "RTX-4060-Ti", "RTX-4060",
+    # NVIDIA RTX 30 Series
+    "RTX-3090-Ti", "RTX-3090", "RTX-3080-Ti", "RTX-3080-12GB", "RTX-3080",
+    "RTX-3070-Ti", "RTX-3070", "RTX-3060-Ti", "RTX-3060",
+    # NVIDIA Workstation
+    "RTX-6000-Ada", "RTX-5000-Ada", "RTX-4000-Ada",
+    "RTX-A6000", "RTX-A5000", "RTX-A4000",
+    # AMD Data Center
+    "MI300X", "MI250X", "MI210",
+    # AMD Consumer
+    "RX-7900-XTX", "RX-7900-XT",
+})
+
+# ISO 3166-1 alpha-2 — every assigned country code
+_VALID_COUNTRY_CODES = frozenset({
+    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU",
+    "AW", "AX", "AZ",
+    "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO",
+    "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ",
+    "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR",
+    "CU", "CV", "CW", "CX", "CY", "CZ",
+    "DE", "DJ", "DK", "DM", "DO", "DZ",
+    "EC", "EE", "EG", "EH", "ER", "ES", "ET",
+    "FI", "FJ", "FK", "FM", "FO", "FR",
+    "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ",
+    "GR", "GS", "GT", "GU", "GW", "GY",
+    "HK", "HM", "HN", "HR", "HT", "HU",
+    "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT",
+    "JE", "JM", "JO", "JP",
+    "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ",
+    "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY",
+    "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP",
+    "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ",
+    "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ",
+    "OM",
+    "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW",
+    "PY",
+    "QA",
+    "RE", "RO", "RS", "RU", "RW",
+    "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN",
+    "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ",
+    "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT",
+    "TV", "TW", "TZ",
+    "UA", "UG", "UM", "US", "UY", "UZ",
+    "VA", "VC", "VE", "VG", "VI", "VN", "VU",
+    "WF", "WS",
+    "XK",  # Kosovo (user-assigned, universally recognized)
+    "YE", "YT",
+    "ZA", "ZM", "ZW",
+    # Region identifiers used by frontend location selector
+    "EU", "AP",
+})
+
+_VALID_CA_PROVINCES = frozenset({
+    "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
+})
+
+class RegisterHostRequest(BaseModel):
+    """Human-facing host registration from the dashboard UI.
+
+    Separate from HostIn which is the machine-to-machine agent schema.
+    Fields that the agent reports (host_id, ip, free_vram_gb) are
+    auto-generated or derived here.
+    """
+    hostname: str = Field(min_length=1, max_length=128, pattern=r"^[\w .\-]+$")
+    gpu_model: str = Field(min_length=1, max_length=64)
+    vram_gb: float = Field(gt=0, le=192)
+    cost_per_hour: float = Field(default=0.20, ge=0.01, le=100.0)
+    country: str = Field(default="CA", min_length=2, max_length=2)
+    province: str = Field(default="", max_length=4)
+    notes: str = Field(default="", max_length=1000)
+
+    @field_validator("hostname")
+    @classmethod
+    def hostname_normalize(cls, v: str) -> str:
+        """Strip leading/trailing whitespace and reject all-blank hostnames."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("hostname must contain at least one non-space character")
+        return stripped
+
+    @field_validator("gpu_model")
+    @classmethod
+    def gpu_model_validate(cls, v: str) -> str:
+        """Validate gpu_model against the canonical set of supported models.
+        The set mirrors the frontend GPU_MODELS catalogue."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("gpu_model must not be blank")
+        if stripped not in _VALID_GPU_MODELS:
+            raise ValueError(
+                f"'{stripped}' is not a recognized GPU model; "
+                f"see the GPU selector for supported models"
+            )
+        return stripped
+
+    @field_validator("country")
+    @classmethod
+    def country_validate(cls, v: str) -> str:
+        """Normalize to uppercase and validate against ISO 3166-1 alpha-2
+        codes plus the EU/AP region identifiers used by the frontend."""
+        upper = v.strip().upper()
+        if upper not in _VALID_COUNTRY_CODES:
+            raise ValueError(
+                f"'{upper}' is not a valid ISO 3166-1 alpha-2 country code"
+            )
+        return upper
+
+    @field_validator("province")
+    @classmethod
+    def province_normalize(cls, v: str) -> str:
+        """Normalize to uppercase. Cross-field validation with country
+        happens in the model_validator below."""
+        return v.strip().upper()
+
+    @field_validator("notes")
+    @classmethod
+    def notes_sanitize(cls, v: str) -> str:
+        """Strip leading/trailing whitespace and reject control characters
+        (except newlines and tabs which are legitimate in freeform notes)."""
+        stripped = v.strip()
+        if any(ord(c) < 32 and c not in ("\n", "\r", "\t") for c in stripped):
+            raise ValueError("notes contains invalid control characters")
+        return stripped
+
+    @model_validator(mode="after")
+    def province_matches_country(self) -> "RegisterHostRequest":
+        """If country is CA and a province is provided, verify it's a real
+        Canadian province/territory code."""
+        if self.country == "CA" and self.province:
+            if self.province not in _VALID_CA_PROVINCES:
+                raise ValueError(
+                    f"province '{self.province}' is not a valid Canadian province code; "
+                    f"valid codes: {', '.join(sorted(_VALID_CA_PROVINCES))}"
+                )
+        return self
+
+
+@router.post("/api/hosts/register", tags=["Hosts"])
+def api_register_host_web(h: RegisterHostRequest, request: Request):
+    """Register a host from the web dashboard UI.
+
+    Generates host_id, derives IP from request, and maps the simplified
+    web form fields to the internal register_host() function. The existing
+    PUT /host endpoint is untouched — that's for the worker agent.
+    """
+    from routes._deps import _require_scope, _get_current_user
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    _require_scope(user, "hosts:write")
+
+    host_id = str(uuid.uuid4())[:12]
+    client_ip = request.client.host if request.client else "0.0.0.0"
+
+    # Register using the existing scheduler function
+    entry = register_host(
+        host_id,
+        client_ip,
+        h.gpu_model,
+        h.vram_gb,
+        h.vram_gb,  # free_vram_gb = total at registration
+        h.cost_per_hour,
+        country=h.country,
+        province=h.province,
+    )
+
+    # Store web-form-specific fields (validators already strip/normalize)
+    entry["hostname"] = h.hostname
+    if h.notes:
+        entry["notes"] = h.notes
+    entry["country"] = h.country
+    entry["province"] = h.province
+    entry["owner"] = user.get("user_id", user.get("sub", ""))
+
+    # New web-registered hosts start as pending until agent connects
+    entry.setdefault("admitted", False)
+    entry["status"] = "pending"
+
+    # Persist the full entry
+    from scheduler import _atomic_mutation, _upsert_host_row, _migrate_hosts_if_needed
+
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        _upsert_host_row(conn, entry)
+
+    # Auto-compute score and auto-list on marketplace
+    from scheduler import estimate_compute_score, register_compute_score, list_rig
+
+    score = estimate_compute_score(h.gpu_model)
+    register_compute_score(host_id, h.gpu_model, score)
+    entry["compute_score"] = score
+
+    list_rig(
+        host_id,
+        h.gpu_model,
+        h.vram_gb,
+        h.cost_per_hour,
+        description=f"{h.gpu_model} ({h.vram_gb}GB) in {h.country.upper()}",
+        owner=entry["owner"],
+    )
+
+    # Auto-create verification + reputation records
+    try:
+        ve = get_verification_engine()
+        if not ve.store.get_verification(host_id):
+            from verification import HostVerification, HostVerificationState
+
+            ve.store.save_verification(
+                HostVerification(
+                    verification_id=str(uuid.uuid4())[:12],
+                    host_id=host_id,
+                    state=HostVerificationState.UNVERIFIED,
+                )
+            )
+            log.info("VERIFY RECORD created for new host %s", host_id)
+        re = get_reputation_engine()
+        re.add_verification(host_id, VerificationType.EMAIL)
+    except Exception as e:
+        log.exception("Non-fatal: could not bootstrap verification/reputation for %s", host_id)
+
+    broadcast_sse(
+        "host_registered",
+        {
+            "host_id": host_id,
+            "hostname": h.hostname,
+            "gpu_model": h.gpu_model,
             "country": entry.get("country", ""),
         },
     )

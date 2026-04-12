@@ -51,6 +51,7 @@ export function StatusBadge({ status }: { status: string }) {
   const variant = (
     {
       active: "active",
+      pending: "queued",
       dead: "dead",
       draining: "warning",
       maintenance: "warning",

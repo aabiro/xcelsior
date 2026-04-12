@@ -12,6 +12,7 @@ export function useApi() {
   return useMemo(() => ({
     fetchHosts: api.fetchHosts,
     registerHost: api.registerHost,
+    registerHostWeb: api.registerHostWeb,
     fetchInstances: api.fetchInstances,
     submitInstance: api.submitInstance,
     cancelInstance: api.cancelInstance,

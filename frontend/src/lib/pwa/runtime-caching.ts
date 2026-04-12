@@ -4,6 +4,16 @@ import { CacheFirst, ExpirationPlugin, NetworkFirst, NetworkOnly, RangeRequestsP
 const STATIC_ASSET_MAX_AGE = 24 * 60 * 60;
 const SHORT_NETWORK_TIMEOUT_SECONDS = 3;
 
+/**
+ * Fallback plugin for NetworkOnly handlers: when fetch() fails (API down,
+ * network error), return a clean 502 instead of letting respondWith() reject
+ * with an unhandled "no-response" error.
+ */
+const networkErrorFallback = {
+  handlerDidError: async () =>
+    new Response(null, { status: 502, statusText: "Service Unavailable" }),
+};
+
 const PUBLIC_DATA_PATHS = new Set([
   "/api/images/templates",
   "/api/pricing/reference",
@@ -77,6 +87,11 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
         matcher: ({ sameOrigin, url }) => sameOrigin && url.pathname.startsWith("/oauth/callback"),
         method: "GET",
         handler: new NetworkOnly(),
+      },
+      // Stripe.js — never intercept or cache; pass straight to network
+      {
+        matcher: ({ url }) => url.hostname === "js.stripe.com",
+        handler: new NetworkOnly({ plugins: [networkErrorFallback] }),
       },
       {
         matcher: /^https:\/\/fonts\.(?:gstatic)\.com\/.*/i,
@@ -226,12 +241,12 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
       {
         matcher: ({ request, sameOrigin, url }) => sameOrigin && isEventStreamRequest(request, url.pathname),
         method: "GET",
-        handler: new NetworkOnly(),
+        handler: new NetworkOnly({ plugins: [networkErrorFallback] }),
       },
       {
         matcher: ({ sameOrigin, url }) => sameOrigin && isSensitiveDataPath(url.pathname),
         method: "GET",
-        handler: new NetworkOnly(),
+        handler: new NetworkOnly({ plugins: [networkErrorFallback] }),
       },
       {
         matcher: ({ sameOrigin, url }) => sameOrigin && isPublicDataPath(url.pathname),
@@ -298,6 +313,6 @@ export const desktopRuntimeCaching: RuntimeCaching[] =
       {
         matcher: ({ sameOrigin }) => sameOrigin,
         method: "GET",
-        handler: new NetworkOnly(),
+        handler: new NetworkOnly({ plugins: [networkErrorFallback] }),
       },
     ];

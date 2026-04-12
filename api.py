@@ -27,6 +27,7 @@ from scheduler import (
     start_autoscale_monitor,
     AUTOSCALE_ENABLED,
     log,
+    scheduler_tick,
 )
 
 from routes._deps import (
@@ -298,6 +299,9 @@ def _start_background_tasks():
         except Exception as e:
             log.error("Notification cleanup error: %s", e)
     tasks.append(("notification_cleanup", _notification_cleanup, 21600))
+
+    # 14. Scheduler tick — process queued jobs every 2 seconds
+    tasks.append(("scheduler_tick", scheduler_tick, 2))
 
     # 13. Lightning Network deposit watcher — runs its own thread (every 5s)
     try:

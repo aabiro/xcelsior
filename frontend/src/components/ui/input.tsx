@@ -135,17 +135,17 @@ export function NumberInput({
         {...props}
       />
       {isFocused && !disabled && (
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 bg-navy/95 rounded-md border border-border/50 shadow-lg backdrop-blur-sm">
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col bg-navy/95 rounded border border-border/50 shadow-lg backdrop-blur-sm">
           <button
             type="button"
             onMouseDown={(e) => {
               e.preventDefault();
               handleIncrement();
             }}
-            className="p-1 hover:bg-ice-blue/10 rounded-t-md transition-colors text-text-secondary hover:text-ice-blue"
+            className="px-0.5 py-px hover:bg-ice-blue/10 rounded-t transition-colors text-text-secondary hover:text-ice-blue"
             tabIndex={-1}
           >
-            <ChevronUp className="h-3.5 w-3.5" />
+            <ChevronUp className="h-2.5 w-2.5" />
           </button>
           <button
             type="button"
@@ -153,10 +153,10 @@ export function NumberInput({
               e.preventDefault();
               handleDecrement();
             }}
-            className="p-1 hover:bg-ice-blue/10 rounded-b-md transition-colors text-text-secondary hover:text-ice-blue"
+            className="px-0.5 py-px hover:bg-ice-blue/10 rounded-b transition-colors text-text-secondary hover:text-ice-blue"
             tabIndex={-1}
           >
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="h-2.5 w-2.5" />
           </button>
         </div>
       )}

@@ -48,6 +48,11 @@ DEVICE_CODE_INTERVAL = 5  # poll interval seconds
 _device_codes: dict[str, dict] = {}
 _device_lock = threading.Lock()
 
+@router.get("/healthz", tags=["Infrastructure"])
+def healthz():
+    """Lightweight liveness probe for frontend polling."""
+    return {"ok": True}
+
 @router.get("/dashboard", response_class=HTMLResponse, tags=["Infrastructure"])
 def dashboard():
     """The dashboard. HTML + JS. No React. No npm. No build step."""

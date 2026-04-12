@@ -96,13 +96,16 @@ function OverviewActionVisual({
   const tone = tones[accent];
 
   return (
-    <div className={cn("relative h-[180px] w-full max-w-[220px] overflow-hidden rounded-[30px] border p-1.5 backdrop-blur-sm", tone.shell)}>
+    <div className={cn("relative h-[180px] w-full max-w-[220px] overflow-hidden rounded-[30px] border p-4 backdrop-blur-sm", tone.shell)}>
+      <div className={cn("absolute inset-[18px] rounded-[24px] border border-white/[0.45] dark:border-white/[0.08]", tone.panel)} />
+      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerA)} />
+      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerB)} />
       <div className="relative flex h-full items-center justify-center rounded-[26px] p-[1.5px] bg-gradient-to-br from-accent-cyan/30 via-accent-violet/20 to-accent-red/30">
         <div className={cn("flex h-full w-full items-center justify-center rounded-[24.5px]", tone.ring)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={tone.imgLight} alt="" aria-hidden className="relative z-10 h-[96%] w-[96%] object-contain dark:hidden" loading="eager" fetchPriority="high" />
+          <img src={tone.imgLight} alt="" aria-hidden className="relative z-10 h-[85%] w-[85%] object-contain dark:hidden" loading="eager" fetchPriority="high" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={tone.img} alt="" aria-hidden className="relative z-10 hidden h-[96%] w-[96%] object-contain dark:block" loading="eager" fetchPriority="high" />
+          <img src={tone.img} alt="" aria-hidden className="relative z-10 hidden h-[85%] w-[85%] object-contain dark:block" loading="eager" fetchPriority="high" />
         </div>
       </div>
     </div>

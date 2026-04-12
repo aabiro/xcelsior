@@ -3,7 +3,7 @@
 /// <reference lib="webworker" />
 
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import { NetworkOnly, Serwist } from "serwist";
 import { desktopRuntimeCaching } from "@/lib/pwa/runtime-caching";
 import {
   DEFAULT_NOTIFICATION_URL,
@@ -43,9 +43,11 @@ function getFilteredPrecacheEntries(entries: (PrecacheEntry | string)[] | undefi
   });
 }
 
+const IS_PROD = process.env.NODE_ENV === "production";
+
 const serwist = new Serwist({
   precacheEntries: getFilteredPrecacheEntries(self.__SW_MANIFEST),
-  skipWaiting: true,
+  skipWaiting: IS_PROD,
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: desktopRuntimeCaching,
@@ -60,6 +62,10 @@ const serwist = new Serwist({
     ],
   },
 });
+
+// Catch-all for any request that doesn't match a runtime caching rule
+// (e.g. cross-origin scripts like Stripe.js) — clean network fetch.
+serwist.setDefaultHandler(new NetworkOnly());
 
 function parsePushPayload(data: PushMessageData | null): PushPayload {
   if (!data) return {};
