@@ -31,8 +31,8 @@ function OverviewActionVisual({
       ring: "border-accent-red/20 text-accent-red shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
       lineA: "from-accent-red/0 via-accent-red/[0.55] to-accent-red/0",
       lineB: "from-accent-cyan/0 via-accent-cyan/50 to-accent-cyan/0",
-      dotA: "bg-accent-red/[0.70]",
-      dotB: "bg-accent-cyan/[0.55]",
+      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(220,38,38,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(0,212,255,0.18),transparent_55%)]",
       arrow: "text-white/90 dark:text-white/[0.72]",
     },
     provider: {
@@ -42,8 +42,8 @@ function OverviewActionVisual({
       ring: "border-accent-cyan/20 text-accent-cyan shadow-[0_18px_52px_rgba(14,165,233,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
       lineA: "from-accent-cyan/0 via-accent-cyan/[0.60] to-accent-cyan/0",
       lineB: "from-accent-cyan/0 via-accent-cyan/[0.55] to-accent-cyan/0",
-      dotA: "bg-accent-cyan/[0.70]",
-      dotB: "bg-accent-violet/[0.58]",
+      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(139,92,246,0.18),transparent_55%)]",
       arrow: "text-white/88 dark:text-white/[0.68]",
     },
   } as const;
@@ -54,8 +54,9 @@ function OverviewActionVisual({
   return (
     <div className={cn("relative h-[180px] w-full max-w-[220px] overflow-hidden rounded-[30px] border p-4 backdrop-blur-sm", tone.shell)}>
       <div className={cn("absolute inset-[18px] rounded-[24px] border border-white/[0.45] dark:border-white/[0.08]", tone.panel)} />
-      <div className={cn("absolute h-3.5 w-3.5 rounded-full blur-[1px]", mirrored ? "right-7 top-7" : "right-7 bottom-7", tone.dotA)} />
-      <div className={cn("absolute h-4 w-4 rounded-full blur-[1px]", mirrored ? "left-7 bottom-7" : "left-7 top-7", tone.dotB)} />
+      {/* Corner gradient accents — replaces dot pattern */}
+      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerA)} />
+      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerB)} />
       <div className={cn("relative flex h-full items-center justify-center rounded-[26px] border", tone.ring)}>
         <div className="absolute inset-5 rounded-[18px] border border-white/30 bg-gradient-to-br from-white/30 to-transparent dark:border-white/[0.06] dark:from-white/[0.06]" />
         <Icon

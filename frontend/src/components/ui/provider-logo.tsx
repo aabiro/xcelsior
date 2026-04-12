@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils";
 
 const THEMED_LOGO_MAP: Record<string, { light: string; dark: string }> = {
   github: {
-    light: "/logos/github-light.svg",
-    dark: "/logos/github.svg",
+    light: "/logos/github-black.svg", // black icon for light mode
+    dark: "/logos/github-white.svg",  // white icon for dark mode
   },
 };
 
@@ -100,7 +100,9 @@ export function ProviderLogo({
   const resolved = resolveLogo(provider);
   if (!resolved) return null;
 
-  const imageSize = framed ? Math.max(16, Math.round(size * 0.58)) : size;
+  // When framed, the outer container is larger and the icon sits centered inside
+  const imageSize = size;
+  const frameSize = framed ? Math.round(size * 1.6) : size;
   const alt = label ?? LOGO_LABELS[resolved.key] ?? provider;
   const image = resolved.lightSrc && resolved.darkSrc ? (
     <>
@@ -111,8 +113,9 @@ export function ProviderLogo({
         height={imageSize}
         loading="eager"
         decoding="sync"
+        style={{ width: imageSize, height: imageSize }}
         className={cn(
-          "block h-auto w-auto object-contain dark:hidden",
+          "block object-contain dark:hidden",
           !framed && className,
           imageClassName,
         )}
@@ -124,8 +127,9 @@ export function ProviderLogo({
         height={imageSize}
         loading="eager"
         decoding="sync"
+        style={{ width: imageSize, height: imageSize }}
         className={cn(
-          "hidden h-auto w-auto object-contain dark:block",
+          "hidden object-contain dark:block",
           !framed && className,
           imageClassName,
         )}
@@ -139,8 +143,9 @@ export function ProviderLogo({
       height={imageSize}
       loading="eager"
       decoding="sync"
+      style={{ width: imageSize, height: imageSize }}
       className={cn(
-        "h-auto w-auto object-contain",
+        "object-contain",
         !framed && className,
         imageClassName,
       )}
@@ -155,7 +160,7 @@ export function ProviderLogo({
         "inline-flex shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
         className,
       )}
-      style={{ width: size, height: size }}
+      style={{ width: frameSize, height: frameSize }}
     >
       {image}
     </span>
