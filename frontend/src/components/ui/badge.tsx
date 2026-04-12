@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { HTMLAttributes } from "react";
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium",
+  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border border-accent-cyan/40 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan/40 shadow-sm",
   {
     variants: {
       variant: {
@@ -34,7 +34,17 @@ interface BadgeProps
     VariantProps<typeof badgeVariants> {}
 
 export function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
+  return (
+    <span
+      className={cn(badgeVariants({ variant }), className)}
+      style={{
+        textShadow: '0 1px 4px rgba(0,0,0,0.18), 0 0px 1px #fff',
+        letterSpacing: '0.18em',
+        lineHeight: 1.2,
+      }}
+      {...props}
+    />
+  );
 }
 
 export function StatusBadge({ status }: { status: string }) {
