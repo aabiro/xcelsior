@@ -1,7 +1,8 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useState, useRef } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -798,23 +799,27 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
         </div>
 
         <div className="relative min-h-[360px] overflow-hidden border-t border-border/60 bg-background/30 xl:border-l xl:border-t-0">
-          <Image
-            src="/xcelsior-hosts-setup-light.svg"
+          <img
+            src="/xcelsior-hosts-setup-arc-light.svg"
             alt=""
             aria-hidden
             width={1200}
             height={900}
+            loading="eager"
+            decoding="sync"
+            fetchPriority="high"
             className="h-full w-full object-cover dark:hidden"
-            priority
           />
-          <Image
-            src="/xcelsior-hosts-setup-dark.svg"
+          <img
+            src="/xcelsior-hosts-setup-arc-dark.svg"
             alt=""
             aria-hidden
             width={1200}
             height={900}
+            loading="eager"
+            decoding="sync"
+            fetchPriority="high"
             className="hidden h-full w-full object-cover dark:block"
-            priority
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/25 to-transparent xl:bg-gradient-to-l xl:from-transparent xl:via-background/5 xl:to-background/10" />
         </div>

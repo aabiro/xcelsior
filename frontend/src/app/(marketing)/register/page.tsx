@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { PasswordRequirements } from "@/components/auth/password-requirements";
 import { Eye, EyeOff, Mail, CheckCircle } from "lucide-react";
-import { beginBrowserOAuthLogin, register as apiRegister, normalizeAuthRedirectPath, oauthInitiate, resendVerification } from "@/lib/api";
+import { register as apiRegister, normalizeAuthRedirectPath, oauthInitiate, resendVerification } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import {
@@ -51,13 +51,8 @@ function RegisterPageContent() {
   ];
 
   async function completeBrowserLogin() {
-    const finalTarget = `/setup-2fa?redirect=${encodeURIComponent(redirectTarget)}`;
-    try {
-      await beginBrowserOAuthLogin(finalTarget);
-    } catch {
-      await login();
-      router.replace(finalTarget);
-    }
+    await login().catch(() => {});
+    router.replace(redirectTarget);
   }
 
   async function handleRegister(e: React.FormEvent) {

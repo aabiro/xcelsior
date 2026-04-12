@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import * as api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
+import { describePasskeyRegistrationError } from "@/lib/passkeys";
 
 function Setup2FAPageContent() {
   const router = useRouter();
@@ -45,9 +46,9 @@ function Setup2FAPageContent() {
   const loadMfa = useCallback(async () => {
     try {
       const res = await api.fetchMfaMethods();
-      if (res.mfa_enabled) {
-        // If already set up, redirect immediately
-        router.replace(redirectTarget);
+      const hasEnabledMethod = (res.methods || []).some((method) => method.enabled);
+      if (res.mfa_enabled || hasEnabledMethod) {
+        router.replace("/dashboard/settings#security");
         return;
       }
       setMfaEnabled(false);
@@ -57,7 +58,7 @@ function Setup2FAPageContent() {
     } finally {
       setCheckingMfa(false);
     }
-  }, [router, redirectTarget]);
+  }, [router]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -188,10 +189,10 @@ function Setup2FAPageContent() {
       if (completeRes.backup_codes) setBackupCodes(completeRes.backup_codes);
       setMfaEnabled(true);
     } catch (err) {
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-        setError("Passkey registration cancelled");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to register passkey");
+      const message = describePasskeyRegistrationError(err);
+      setError(message);
+      if (message.includes("already added")) {
+        void loadMfa();
       }
     } finally { setLoading(false); }
   };
@@ -329,7 +330,7 @@ function Setup2FAPageContent() {
                 onClick={handleSkip}
                 className="text-sm text-text-muted hover:text-text-primary transition-colors"
               >
-                Skip for now — I'll do this later
+                Skip for now — I&apos;ll do this later
               </button>
             </div>
           </div>
