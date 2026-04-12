@@ -46,10 +46,10 @@ def _get_current_user(request: Request) -> dict | None:
 # ── Helper: _verify_totp_code ──
 
 def _verify_totp_code(secret: str, code: str) -> bool:
-    """Verify a TOTP code, allowing ±1 window for clock drift."""
+    """Verify a TOTP code against the current time slice only."""
     import pyotp
     totp = pyotp.TOTP(secret)
-    return totp.verify(code, valid_window=1)
+    return totp.verify(code, valid_window=0)
 
 
 # ── Helper: _hash_backup_code ──
@@ -147,9 +147,12 @@ def api_mfa_list_methods(request: Request):
     _require_scope(user, "mfa:read")
     methods = MfaStore.list_methods(user["email"])
     backup_codes = MfaStore.list_backup_codes(user["email"])
+    enabled = any(bool(m.get("enabled")) for m in methods)
+    if enabled != bool(user.get("mfa_enabled")):
+        _refresh_mfa_enabled(user["email"])
     return {
         "ok": True,
-        "mfa_enabled": bool(user.get("mfa_enabled")),
+        "mfa_enabled": enabled,
         "methods": [
             {
                 "id": m["id"],
@@ -177,7 +180,7 @@ def api_mfa_totp_setup(request: Request):
     # Check if TOTP already enabled
     existing = MfaStore.get_method_by_type(user["email"], "totp")
     if existing:
-        raise HTTPException(400, "TOTP is already enabled")
+        raise HTTPException(409, "Authenticator app is already set up. Manage it from Settings.")
 
     secret = pyotp.random_base32()
     totp = pyotp.TOTP(secret)
@@ -289,7 +292,7 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
 
     existing = MfaStore.get_method_by_type(user["email"], "sms")
     if existing:
-        raise HTTPException(400, "SMS MFA is already enabled")
+        raise HTTPException(409, "SMS verification is already set up. Manage it from Settings.")
 
     # Generate 6-digit verification code
     code = f"{secrets.randbelow(1000000):06d}"
@@ -515,6 +518,9 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
         auth_data = server.register_complete(state, response_data)
     except Exception as e:
         log.warning("Passkey registration failed: %s", e)
+        error_text = str(e).lower()
+        if "already" in error_text and ("registered" in error_text or "credential" in error_text):
+            raise HTTPException(409, "This passkey is already added to your account. Use it to sign in or add a different device.")
         raise HTTPException(400, "Passkey registration verification failed")
 
     MfaStore.delete_challenge(req.state_id)
@@ -523,6 +529,10 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
     cred_data = auth_data.credential_data
     credential_id_b64 = _b64url_encode(cred_data.credential_id)
     public_key_b64 = _b64url_encode(bytes(cred_data))
+
+    existing_passkey = MfaStore.get_passkey_by_credential(credential_id_b64)
+    if existing_passkey:
+        raise HTTPException(409, "This passkey is already added to your account. Use it to sign in or add a different device.")
 
     method_id = MfaStore.create_method({
         "email": user["email"],
@@ -810,7 +820,7 @@ def api_mfa_regenerate_backup_codes(request: Request):
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
     _require_scope(user, "mfa:write")
-    if not user.get("mfa_enabled"):
+    if not any(bool(m.get("enabled")) for m in MfaStore.list_methods(user["email"])):
         raise HTTPException(400, "MFA is not enabled")
 
     codes = _generate_backup_codes()

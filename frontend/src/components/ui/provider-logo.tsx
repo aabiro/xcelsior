@@ -1,5 +1,13 @@
-import Image from "next/image";
+/* eslint-disable @next/next/no-img-element */
+
 import { cn } from "@/lib/utils";
+
+const THEMED_LOGO_MAP: Record<string, { light: string; dark: string }> = {
+  github: {
+    light: "/logos/github-light.svg",
+    dark: "/logos/github.svg",
+  },
+};
 
 const LOGO_MAP: Record<string, string> = {
   "aws": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDI1NiAyNTYiPjxnIGZpbGw9Im5vbmUiPjxyZWN0IHdpZHRoPSIyNTYiIGhlaWdodD0iMjU2IiBmaWxsPSIjMjQyOTM4IiByeD0iNjAiLz48cGF0aCBmaWxsPSIjZmZmIiBkPSJNODQuNzQ1IDExMS45NjFjMCAyLjQzNC4yNjMgNC40MDcuNzIzIDUuODU1YTM1LjI1NSAzNS4yNTUgMCAwIDAgMi4xMDYgNC43MzdjLjMyOS41MjYuNDYgMS4wNTIuNDYgMS41MTNjMCAuNjU4LS4zOTUgMS4zMTYtMS4yNSAxLjk3M2wtNC4xNDUgMi43NjRjLS41OTIuMzk0LTEuMTg0LjU5Mi0xLjcxLjU5MmMtLjY1OCAwLTEuMzE2LS4zMjktMS45NzQtLjkyMWEyMC4zODIgMjAuMzgyIDAgMCAxLTIuMzY4LTMuMDkyYTUxLjA4OCA1MS4wODggMCAwIDEtMi4wNC0zLjg4MmMtNS4xMzEgNi4wNTMtMTEuNTc5IDkuMDc5LTE5LjM0MiA5LjA3OWMtNS41MjYgMC05LjkzNC0xLjU3OS0xMy4xNTgtNC43MzdjLTMuMjIzLTMuMTU4LTQuODY4LTcuMzY4LTQuODY4LTEyLjYzMWMwLTUuNTkzIDEuOTc0LTEwLjEzMiA1Ljk4Ny0xMy41NTNjNC4wMTMtMy40MjEgOS4zNDItNS4xMzIgMTYuMTE4LTUuMTMyYzIuMjM3IDAgNC41NC4xOTggNi45NzQuNTI3czQuOTM0Ljg1NSA3LjU2NiAxLjQ0N3YtNC44MDNjMC01LTEuMDUzLTguNDg3LTMuMDkyLTEwLjUyNmMtMi4xMDYtMi4wNC01LjY1OC0zLjAyNi0xMC43MjQtMy4wMjZjLTIuMzAzIDAtNC42NzEuMjYzLTcuMTA1Ljg1NWMtMi40MzUuNTkyLTQuODAzIDEuMzE2LTcuMTA2IDIuMjM3YTE4Ljg3IDE4Ljg3IDAgMCAxLTIuMzAyLjg1NWMtLjQ2LjEzMi0uNzkuMTk4LTEuMDUzLjE5OGMtLjkyIDAtMS4zODItLjY1OC0xLjM4Mi0yLjA0di0zLjIyNGMwLTEuMDUyLjEzMi0xLjg0Mi40NjEtMi4zMDJjLjMyOS0uNDYuOTIxLS45MjEgMS44NDItMS4zODJjMi4zMDMtMS4xODQgNS4wNjYtMi4xNyA4LjI5LTIuOTZjMy4yMjMtLjg1NiA2LjY0NC0xLjI1IDEwLjI2My0xLjI1YzcuODI5IDAgMTMuNTUyIDEuNzc2IDE3LjIzNyA1LjMyOGMzLjYxOCAzLjU1MyA1LjQ2IDguOTQ4IDUuNDYgMTYuMTg1djIxLjMxNmguMTMyWm0tMjYuNzEgMTBjMi4xNyAwIDQuNDA3LS4zOTUgNi43NzYtMS4xODVjMi4zNjgtLjc4OSA0LjQ3My0yLjIzNyA2LjI1LTQuMjFjMS4wNTItMS4yNSAxLjg0Mi0yLjYzMiAyLjIzNi00LjIxMWMuMzk1LTEuNTc5LjY1OC0zLjQ4Ny42NTgtNS43MjN2LTIuNzY0YTU1LjAzIDU1LjAzIDAgMCAwLTYuMDUyLTEuMTE4YTQ5LjYwMyA0OS42MDMgMCAwIDAtNi4xODUtLjM5NWMtNC40MDggMC03LjYzMS44NTYtOS44MDIgMi42MzJjLTIuMTcxIDEuNzc2LTMuMjI0IDQuMjc2LTMuMjI0IDcuNTY2YzAgMy4wOTIuNzkgNS4zOTQgMi40MzQgNi45NzNjMS41OCAxLjY0NSAzLjg4MiAyLjQzNSA2LjkwOCAyLjQzNVptNTIuODI4IDcuMTA1Yy0xLjE4NCAwLTEuOTc0LS4xOTgtMi41LS42NThjLS41MjYtLjM5NS0uOTg3LTEuMzE2LTEuMzgxLTIuNTY2bC0xNS40Ni01MC44NTVjLS4zOTYtMS4zMTYtLjU5My0yLjE3MS0uNTkzLTIuNjMyYzAtMS4wNTIuNTI2LTEuNjQ1IDEuNTc5LTEuNjQ1aDYuNDQ3YzEuMjUgMCAyLjEwNi4xOTggMi41NjYuNjU4Yy41MjYuMzk1LjkyMSAxLjMxNiAxLjMxNiAyLjU2NmwxMS4wNTIgNDMuNTUzbDEwLjI2NC00My41NTNjLjMyOS0xLjMxNi43MjMtMi4xNyAxLjI1LTIuNTY2Yy41MjYtLjM5NCAxLjQ0Ny0uNjU3IDIuNjMxLS42NTdoNS4yNjNjMS4yNSAwIDIuMTA2LjE5NyAyLjYzMi42NTdjLjUyNi4zOTUuOTg3IDEuMzE2IDEuMjUgMi41NjZsMTAuMzk1IDQ0LjA3OWwxMS4zODEtNDQuMDc5Yy4zOTUtMS4zMTYuODU2LTIuMTcgMS4zMTYtMi41NjZjLjUyNi0uMzk0IDEuMzgyLS42NTcgMi41NjYtLjY1N2g2LjExOGMxLjA1MyAwIDEuNjQ1LjUyNiAxLjY0NSAxLjY0NGMwIC4zMy0uMDY2LjY1OC0uMTMyIDEuMDUzYy0uMDY1LjM5NS0uMTk3LjkyLS40NiAxLjY0NWwtMTUuODU1IDUwLjg1NWMtLjM5NSAxLjMxNi0uODU2IDIuMTcxLTEuMzgyIDIuNTY2Yy0uNTI2LjM5NC0xLjM4Mi42NTgtMi41LjY1OGgtNS42NThjLTEuMjUgMC0yLjEwNS0uMTk4LTIuNjMxLS42NThjLS41MjctLjQ2MS0uOTg3LTEuMzE2LTEuMjUtMi42MzJsLTEwLjE5OC00Mi40MzRsLTEwLjEzMSA0Mi4zNjhjLS4zMjkgMS4zMTYtLjcyNCAyLjE3MS0xLjI1IDIuNjMyYy0uNTI3LjQ2LTEuNDQ4LjY1OC0yLjYzMi42NThoLTUuNjU4Wm04NC41NCAxLjc3NmMtMy40MjEgMC02Ljg0Mi0uMzk1LTEwLjEzMi0xLjE4NGMtMy4yODktLjc5LTUuODU1LTEuNjQ1LTcuNTY2LTIuNjMyYy0xLjA1Mi0uNTkyLTEuNzc2LTEuMjUtMi4wMzktMS44NDJhNC42NDYgNC42NDYgMCAwIDEtLjM5NS0xLjg0MnYtMy4zNTVjMC0xLjM4Mi41MjYtMi4wNCAxLjUxMy0yLjA0Yy4zOTUgMCAuNzkuMDY2IDEuMTg0LjE5OGMuMzk1LjEzMS45ODcuMzk0IDEuNjQ1LjY1OGEzNS44MTggMzUuODE4IDAgMCAwIDcuMjM3IDIuMzAyYTM5LjQ2IDM5LjQ2IDAgMCAwIDcuODI5Ljc5YzQuMTQ1IDAgNy4zNjgtLjcyNCA5LjYwNS0yLjE3MWMyLjIzNy0xLjQ0OCAzLjQyMS0zLjU1MyAzLjQyMS02LjI1YzAtMS44NDItLjU5Mi0zLjM1Ni0xLjc3Ni00LjYwNmMtMS4xODQtMS4yNS0zLjQyMS0yLjM2OC02LjY0NS0zLjQyMWwtOS41MzktMi45NmMtNC44MDMtMS41MTMtOC4zNTYtMy43NS0xMC41MjctNi43MWMtMi4xNzEtMi44OTUtMy4yODktNi4xMi0zLjI4OS05LjU0YzAtMi43NjMuNTkyLTUuMTk3IDEuNzc2LTcuMzAzYzEuMTg0LTIuMTA1IDIuNzYzLTMuOTQ3IDQuNzM3LTUuMzk0YzEuOTc0LTEuNTE0IDQuMjExLTIuNjMyIDYuODQyLTMuNDIyYzIuNjMyLS43OSA1LjM5NS0xLjExOCA4LjI5LTEuMTE4YzEuNDQ3IDAgMi45Ni4wNjYgNC40MDguMjYzYzEuNTEzLjE5NyAyLjg5NC40NiA0LjI3Ni43MjRjMS4zMTYuMzI5IDIuNTY2LjY1OCAzLjc1IDEuMDUzYzEuMTg0LjM5NCAyLjEwNS43ODkgMi43NjMgMS4xODRjLjkyMS41MjYgMS41NzkgMS4wNTIgMS45NzQgMS42NDRjLjM5NC41MjcuNTkyIDEuMjUuNTkyIDIuMTcydjMuMDkyYzAgMS4zODEtLjUyNiAyLjEwNS0xLjUxMyAyLjEwNWMtLjUyNyAwLTEuMzgyLS4yNjMtMi41LS43OWMtMy43NS0xLjcxLTcuOTYxLTIuNTY1LTEyLjYzMi0yLjU2NWMtMy43NSAwLTYuNzEuNTkyLTguNzUgMS44NDJjLTIuMDM5IDEuMjUtMy4wOTIgMy4xNTgtMy4wOTIgNS44NTVjMCAxLjg0Mi42NTggMy40MjEgMS45NzQgNC42NzFjMS4zMTUgMS4yNSAzLjc1IDIuNSA3LjIzNyAzLjYxOGw5LjM0MiAyLjk2YzQuNzM2IDEuNTE0IDguMTU4IDMuNjE5IDEwLjE5NyA2LjMxN2MyLjAzOSAyLjY5NyAzLjAyNiA1Ljc4OSAzLjAyNiA5LjIxYzAgMi44MjktLjU5MiA1LjM5NS0xLjcxIDcuNjMyYy0xLjE4NCAyLjIzNy0yLjc2MyA0LjIxLTQuODAzIDUuNzg5Yy0yLjAzOSAxLjY0NS00LjQ3NCAyLjgyOS03LjMwMiAzLjY4NWMtMi45NjEuOTIxLTYuMDUzIDEuMzgxLTkuNDA4IDEuMzgxWiIvPjxwYXRoIGZpbGw9IiNGOTAiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTIwNy44MzcgMTYyLjgxNmMtMjEuNjQ1IDE1Ljk4Ny01My4wOTIgMjQuNDc0LTgwLjEzMiAyNC40NzRjLTM3Ljg5NCAwLTcyLjA0LTE0LjAxNC05Ny44MjktMzcuMzAzYy0yLjA0LTEuODQyLS4xOTctNC4zNDIgMi4yMzctMi44OTVjMjcuODk1IDE2LjE4NCA2Mi4zMDMgMjUuOTg3IDk3Ljg5NSAyNS45ODdjMjQuMDEzIDAgNTAuMzk1LTUgNzQuNjcxLTE1LjI2M2MzLjYxOC0xLjY0NSA2LjcxIDIuMzY4IDMuMTU4IDVaIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiLz48cGF0aCBmaWxsPSIjRjkwIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0yMTYuODUgMTUyLjU1M2MtMi43NjMtMy41NTMtMTguMjg5LTEuNzExLTI1LjMyOS0uODU2Yy0yLjEwNS4yNjQtMi40MzQtMS41NzktLjUyNi0yLjk2YzEyLjM2OC04LjY4NCAzMi42OTctNi4xODQgMzUuMDY2LTMuMjljMi4zNjggMi45NjEtLjY1OCAyMy4yOS0xMi4yMzcgMzMuMDI3Yy0xLjc3NyAxLjUxMy0zLjQ4Ny43MjMtMi42OTgtMS4yNWMyLjYzMi02LjUxMyA4LjQ4Ny0yMS4xODUgNS43MjQtMjQuNjcxWiIgY2xpcC1ydWxlPSJldmVub2RkIi8+PC9nPjwvc3ZnPg==",
@@ -41,19 +49,30 @@ const LOGO_LABELS: Record<string, string> = {
   vast: "Vast.ai",
 };
 
-const LOGO_IMAGE_CLASSES: Record<string, string> = {
-  github: "brightness-0 invert",
-};
-
 function normalizeProvider(provider: string): string {
   return provider.trim().toLowerCase().replace(/[_\s]+/g, "-");
 }
 
-function resolveLogo(provider: string): { key: string; src: string } | null {
+function resolveLogo(provider: string): { key: string; src?: string; lightSrc?: string; darkSrc?: string } | null {
   const normalized = normalizeProvider(provider);
   const compact = normalized.replace(/-/g, "");
-  const key = LOGO_MAP[normalized] ? normalized : LOGO_MAP[compact] ? compact : "";
+  const key = THEMED_LOGO_MAP[normalized]
+    ? normalized
+    : THEMED_LOGO_MAP[compact]
+      ? compact
+      : LOGO_MAP[normalized]
+        ? normalized
+        : LOGO_MAP[compact]
+          ? compact
+          : "";
   if (!key) return null;
+  if (THEMED_LOGO_MAP[key]) {
+    return {
+      key,
+      lightSrc: THEMED_LOGO_MAP[key].light,
+      darkSrc: THEMED_LOGO_MAP[key].dark,
+    };
+  }
   return { key, src: LOGO_MAP[key] };
 }
 
@@ -82,19 +101,49 @@ export function ProviderLogo({
   if (!resolved) return null;
 
   const imageSize = framed ? Math.max(16, Math.round(size * 0.58)) : size;
-  const image = (
-    <Image
-      src={resolved.src}
-      alt={label ?? LOGO_LABELS[resolved.key] ?? provider}
+  const alt = label ?? LOGO_LABELS[resolved.key] ?? provider;
+  const image = resolved.lightSrc && resolved.darkSrc ? (
+    <>
+      <img
+        src={resolved.lightSrc}
+        alt={alt}
+        width={imageSize}
+        height={imageSize}
+        loading="eager"
+        decoding="sync"
+        className={cn(
+          "block h-auto w-auto object-contain dark:hidden",
+          !framed && className,
+          imageClassName,
+        )}
+      />
+      <img
+        src={resolved.darkSrc}
+        alt={alt}
+        width={imageSize}
+        height={imageSize}
+        loading="eager"
+        decoding="sync"
+        className={cn(
+          "hidden h-auto w-auto object-contain dark:block",
+          !framed && className,
+          imageClassName,
+        )}
+      />
+    </>
+  ) : (
+    <img
+      src={resolved.src!}
+      alt={alt}
       width={imageSize}
       height={imageSize}
+      loading="eager"
+      decoding="sync"
       className={cn(
         "h-auto w-auto object-contain",
-        LOGO_IMAGE_CLASSES[resolved.key],
         !framed && className,
         imageClassName,
       )}
-      unoptimized
     />
   );
 

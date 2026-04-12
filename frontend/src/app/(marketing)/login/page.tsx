@@ -9,7 +9,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { Eye, EyeOff, Loader2, Shield, Key } from "lucide-react";
-import { beginBrowserOAuthLogin, login as apiLogin, normalizeAuthRedirectPath, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
+import { login as apiLogin, normalizeAuthRedirectPath, oauthInitiate, verifyMfaLogin, sendMfaSms, passkeyAuthenticateOptions, passkeyAuthenticateComplete, resendVerification, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 
@@ -57,13 +57,8 @@ function LoginPageContent() {
   }
 
   async function completeBrowserLogin() {
-    const finalTarget = `/setup-2fa?redirect=${encodeURIComponent(redirectTarget)}`;
-    try {
-      await beginBrowserOAuthLogin(finalTarget);
-    } catch {
-      await login();
-      router.replace(finalTarget);
-    }
+    await login().catch(() => {});
+    router.replace(redirectTarget);
   }
 
   async function handleLogin(e: React.FormEvent) {

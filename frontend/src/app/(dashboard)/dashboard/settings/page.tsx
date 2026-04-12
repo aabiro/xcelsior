@@ -25,6 +25,7 @@ import { COUNTRY_CODES } from "@/lib/country-codes";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { describePasskeyRegistrationError } from "@/lib/passkeys";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -459,11 +460,9 @@ export default function SettingsPage() {
       setPasskeyName("");
       loadMfa();
     } catch (err) {
-      if (err instanceof DOMException && err.name === "NotAllowedError") {
-        toast.error("Passkey registration cancelled");
-      } else {
-        toast.error(err instanceof Error ? err.message : "Failed to register passkey");
-      }
+      const message = describePasskeyRegistrationError(err);
+      toast.error(message);
+      if (message.includes("already added")) void loadMfa();
     } finally { setPasskeyRegistering(false); }
   };
 

@@ -328,6 +328,8 @@ def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
         merged["name"] = full_user.get("name", merged.get("name", ""))
         merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
         merged["provider_id"] = full_user.get("provider_id", merged.get("provider_id"))
+        merged["mfa_enabled"] = bool(full_user.get("mfa_enabled"))
+        merged["email_verified"] = bool(full_user.get("email_verified", merged.get("email_verified")))
         merged["is_admin"] = True if _is_platform_admin(full_user) else False
     else:
         merged["is_admin"] = True if _is_platform_admin(merged) else False

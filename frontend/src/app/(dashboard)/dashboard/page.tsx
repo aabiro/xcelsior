@@ -1,11 +1,13 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
-import { Server, Activity, Zap, Users, Cpu, Rocket, ArrowUpRight, Plus, type LucideIcon } from "lucide-react";
+import { Server, Activity, Zap, Users, Cpu, ArrowUpRight, Plus, type LucideIcon } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Host, Instance, ReputationEntry } from "@/lib/api";
@@ -14,72 +16,49 @@ import { AuroraBackground } from "@/components/ui/aurora-bg";
 import { CanadaMapHero } from "@/components/ui/canada-hero";
 import { cn } from "@/lib/utils";
 
-function OverviewActionVisual({
-  accent,
-  icon: Icon,
-  mirrored = false,
-}: {
-  accent: "launch" | "provider";
-  icon: LucideIcon;
-  mirrored?: boolean;
-}) {
+function OverviewActionArtwork({ accent }: { accent: "launch" | "provider" }) {
   const tones = {
     launch: {
+      lightSrc: "/overview-launch-arc-light.svg",
+      darkSrc: "/overview-launch-arc-dark.svg",
       shell:
-        "border-accent-red/20 bg-[radial-gradient(circle_at_top_right,rgba(220,38,38,0.16),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.14),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,82,82,0.18),transparent_42%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "border-accent-red/20 text-accent-red shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
-      lineA: "from-accent-red/0 via-accent-red/[0.55] to-accent-red/0",
-      lineB: "from-accent-cyan/0 via-accent-cyan/50 to-accent-cyan/0",
-      dotA: "bg-accent-red/[0.70]",
-      dotB: "bg-accent-cyan/[0.55]",
-      arrow: "text-accent-red/[0.70] dark:text-white/[0.55]",
+        "border-accent-red/18 bg-[radial-gradient(circle_at_top_right,rgba(220,38,38,0.12),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.82),rgba(247,250,255,0.72))] shadow-[0_24px_60px_rgba(220,38,38,0.08)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,82,82,0.1),transparent_44%),linear-gradient(180deg,rgba(8,12,24,0.72),rgba(7,11,20,0.56))] dark:shadow-[0_24px_60px_rgba(255,82,82,0.12)]",
     },
     provider: {
+      lightSrc: "/overview-provider-arc-light.svg",
+      darkSrc: "/overview-provider-arc-dark.svg",
       shell:
-        "border-accent-cyan/20 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.18),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(124,58,237,0.16),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_right,rgba(0,212,255,0.16),transparent_42%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "border-accent-cyan/20 text-accent-cyan shadow-[0_18px_52px_rgba(14,165,233,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
-      lineA: "from-accent-cyan/0 via-accent-cyan/[0.60] to-accent-cyan/0",
-      lineB: "from-accent-violet/0 via-accent-violet/[0.48] to-accent-violet/0",
-      dotA: "bg-accent-cyan/[0.70]",
-      dotB: "bg-accent-violet/[0.58]",
-      arrow: "text-accent-cyan/[0.75] dark:text-white/[0.55]",
+        "border-accent-cyan/18 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.82),rgba(244,249,255,0.72))] shadow-[0_24px_60px_rgba(14,165,233,0.08)] dark:bg-[radial-gradient(circle_at_top_right,rgba(0,212,255,0.1),transparent_44%),linear-gradient(180deg,rgba(8,12,24,0.72),rgba(7,11,20,0.56))] dark:shadow-[0_24px_60px_rgba(0,212,255,0.12)]",
     },
   } as const;
 
   const tone = tones[accent];
 
   return (
-    <div className={cn("relative h-[180px] w-full max-w-[220px] overflow-hidden rounded-[30px] border p-4 backdrop-blur-sm", tone.shell)}>
-      <div className={cn("absolute inset-[18px] rounded-[24px] border border-white/[0.45] dark:border-white/[0.08]", tone.panel)} />
-      <div
-        className={cn(
-          "absolute left-6 right-6 top-[38%] h-px bg-gradient-to-r",
-          mirrored ? "-scale-x-100" : "",
-          tone.lineA,
-        )}
+    <div className={cn("relative w-full max-w-[440px] overflow-hidden rounded-[28px] border backdrop-blur-sm", tone.shell)}>
+      <img
+        src={tone.lightSrc}
+        alt=""
+        aria-hidden
+        width={440}
+        height={360}
+        loading="eager"
+        decoding="sync"
+        fetchPriority="high"
+        className="h-[210px] w-full object-cover dark:hidden md:h-[236px]"
       />
-      <div
-        className={cn(
-          "absolute left-10 right-10 top-[58%] h-px bg-gradient-to-r",
-          mirrored ? "-scale-x-100" : "",
-          tone.lineB,
-        )}
+      <img
+        src={tone.darkSrc}
+        alt=""
+        aria-hidden
+        width={440}
+        height={360}
+        loading="eager"
+        decoding="sync"
+        fetchPriority="high"
+        className="hidden h-[210px] w-full object-cover dark:block md:h-[236px]"
       />
-      <div className={cn("absolute h-3.5 w-3.5 rounded-full blur-[1px]", mirrored ? "left-7 top-7" : "right-7 top-7", tone.dotA)} />
-      <div className={cn("absolute h-4 w-4 rounded-full blur-[1px]", mirrored ? "right-7 bottom-7" : "left-7 bottom-7", tone.dotB)} />
-      <ArrowUpRight
-        className={cn(
-          "absolute h-4 w-4",
-          mirrored ? "left-6 top-6 rotate-180" : "right-6 top-6",
-          tone.arrow,
-        )}
-      />
-      <div className={cn("relative flex h-full items-center justify-center rounded-[26px] border", tone.ring)}>
-        <div className="absolute inset-5 rounded-[18px] border border-white/30 bg-gradient-to-br from-white/30 to-transparent dark:border-white/[0.06] dark:from-white/[0.06]" />
-        <Icon className="relative z-10 h-9 w-9 md:h-10 md:w-10" />
-      </div>
+      <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-white/30 dark:ring-white/[0.06]" />
     </div>
   );
 }
@@ -90,20 +69,16 @@ function OverviewActionCard({
   href,
   buttonLabel,
   accent,
-  icon: Icon,
   buttonIcon: ButtonIcon,
   reverse = false,
-  mirrorVisual = false,
 }: {
   title: string;
   description: string;
   href: string;
   buttonLabel: string;
   accent: "launch" | "provider";
-  icon: LucideIcon;
   buttonIcon: LucideIcon;
   reverse?: boolean;
-  mirrorVisual?: boolean;
 }) {
   const styles = {
     launch: {
@@ -123,40 +98,39 @@ function OverviewActionCard({
   } as const;
 
   const tone = styles[accent];
+  const alignRight = accent === "launch";
 
   return (
     <div className={cn("relative overflow-hidden rounded-[30px] border px-6 py-6 md:px-8 md:py-7", tone.shell)}>
-      <div className="relative flex flex-col gap-6 lg:items-center lg:justify-between">
-        <div className={cn("flex flex-col gap-6 lg:items-center", reverse ? "lg:flex-row-reverse" : "lg:flex-row")}>
-          <OverviewActionVisual accent={accent} icon={Icon} mirrored={mirrorVisual} />
+      <div className={cn("relative flex flex-col gap-6 lg:items-center", reverse ? "lg:flex-row-reverse" : "lg:flex-row")}>
+        <OverviewActionArtwork accent={accent} />
 
-          <div className={cn("flex flex-1 flex-col", reverse ? "lg:items-start" : "lg:items-start")}>
-            <div className="flex flex-wrap items-center gap-2">
+        <div className={cn("flex flex-1 flex-col gap-5", alignRight ? "lg:items-end lg:text-right" : "lg:items-start lg:text-left")}>
+          <div className={cn("flex flex-wrap items-center gap-2", alignRight ? "lg:justify-end" : "lg:justify-start")}>
               <span className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em]", tone.chip)}>
                 {accent === "launch" ? "Launch" : "Supply"}
               </span>
               <span className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em]", tone.subchip)}>
                 {accent === "launch" ? "GPU Ready" : "Hosts"}
               </span>
-            </div>
-
-            <div className="mt-4 max-w-xl space-y-2">
-              <h2 className="text-xl font-semibold text-text-primary md:text-[1.45rem]">{title}</h2>
-              <p className="text-sm leading-relaxed text-text-secondary">{description}</p>
-            </div>
           </div>
-        </div>
 
-        <Link
-          href={href}
-          className={cn(
-            "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
-            tone.button,
-          )}
-        >
-          <ButtonIcon className="h-4 w-4" />
-          {buttonLabel}
-        </Link>
+          <div className="max-w-xl space-y-2">
+            <h2 className="text-xl font-semibold text-text-primary md:text-[1.45rem]">{title}</h2>
+            <p className="text-sm leading-relaxed text-text-secondary">{description}</p>
+          </div>
+
+          <Link
+            href={href}
+            className={cn(
+              "inline-flex h-10 w-fit items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue",
+              tone.button,
+            )}
+          >
+            <ButtonIcon className="h-4 w-4" />
+            {buttonLabel}
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -235,10 +209,8 @@ export default function DashboardOverview() {
             href="/dashboard/instances?launch=true"
             buttonLabel="Launch Instance"
             accent="launch"
-            icon={Rocket}
             buttonIcon={Plus}
             reverse={false}
-            mirrorVisual={false}
           />
           <OverviewActionCard
             title="Become a provider"
@@ -246,10 +218,8 @@ export default function DashboardOverview() {
             href="/dashboard/hosts"
             buttonLabel="Open Hosts"
             accent="provider"
-            icon={Server}
             buttonIcon={ArrowUpRight}
             reverse
-            mirrorVisual
           />
         </FadeIn>
 

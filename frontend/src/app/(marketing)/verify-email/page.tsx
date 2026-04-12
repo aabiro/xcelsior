@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
-import { beginBrowserOAuthLogin, verifyEmail } from "@/lib/api";
+import { verifyEmail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import Link from "next/link";
@@ -16,33 +16,26 @@ function VerifyEmailContent() {
   const { login } = useAuth();
   const { t } = useLocale();
   const token = searchParams.get("token");
-  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
-  const [errorMsg, setErrorMsg] = useState("");
+  const missingToken = !token;
+  const [status, setStatus] = useState<"loading" | "success" | "error">(missingToken ? "error" : "loading");
+  const [errorMsg, setErrorMsg] = useState(missingToken ? "No verification token provided." : "");
 
   useEffect(() => {
-    if (!token) {
-      setStatus("error");
-      setErrorMsg("No verification token provided.");
+    if (missingToken || !token) {
       return;
     }
 
     verifyEmail(token)
       .then(async () => {
-        const finalTarget = `/setup-2fa?redirect=${encodeURIComponent("/dashboard")}`;
-        try {
-          await beginBrowserOAuthLogin(finalTarget);
-          return;
-        } catch {
-          setStatus("success");
-          await login();
-          setTimeout(() => router.push(finalTarget), 2000);
-        }
+        setStatus("success");
+        await login().catch(() => {});
+        setTimeout(() => router.push("/dashboard"), 2000);
       })
       .catch((err) => {
         setStatus("error");
         setErrorMsg(err instanceof Error ? err.message : "Verification failed");
       });
-  }, [token, login, router]);
+  }, [missingToken, token, login, router]);
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">

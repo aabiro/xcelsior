@@ -110,6 +110,10 @@ frontend/test-results/
 !frontend/public/xcelsior-hosts-setup-light.png
 !frontend/public/xcelsior-hosts-setup-dark.svg
 !frontend/public/xcelsior-hosts-setup-dark.png
+!frontend/public/xcelsior-hosts-setup-arc-light.svg
+!frontend/public/xcelsior-hosts-setup-arc-light.png
+!frontend/public/xcelsior-hosts-setup-arc-dark.svg
+!frontend/public/xcelsior-hosts-setup-arc-dark.png
 
 # ── Checkpoints (test artifacts) ─────────────────────────────────────────
 checkpoints/

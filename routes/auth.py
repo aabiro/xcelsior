@@ -796,26 +796,31 @@ def api_auth_login(body: LoginRequest, request: Request):
         })
 
     # ── MFA check ──
-    if _USE_PERSISTENT_AUTH and user.get("mfa_enabled"):
-        methods = MfaStore.list_methods(email)
-        enabled_methods = [m for m in methods if m.get("enabled")]
-        if enabled_methods:
-            challenge_id = secrets.token_urlsafe(32)
-            # Store a temporary partial session token
-            partial_token = secrets.token_urlsafe(48)
-            MfaStore.create_challenge({
-                "challenge_id": challenge_id,
-                "email": email,
-                "session_token": partial_token,
-                "created_at": time.time(),
-                "expires_at": time.time() + 300,  # 5-minute window
-            })
-            return JSONResponse(content={
-                "ok": True,
-                "mfa_required": True,
-                "challenge_id": challenge_id,
-                "methods": [m["method_type"] for m in enabled_methods],
-            })
+    enabled_methods: list[dict] = []
+    if _USE_PERSISTENT_AUTH:
+        enabled_methods = [m for m in MfaStore.list_methods(email) if m.get("enabled")]
+        live_mfa_enabled = bool(enabled_methods)
+        if live_mfa_enabled != bool(user.get("mfa_enabled")):
+            UserStore.update_user(email, {"mfa_enabled": 1 if live_mfa_enabled else 0})
+            user["mfa_enabled"] = 1 if live_mfa_enabled else 0
+
+    if enabled_methods:
+        challenge_id = secrets.token_urlsafe(32)
+        # Store a temporary partial session token
+        partial_token = secrets.token_urlsafe(48)
+        MfaStore.create_challenge({
+            "challenge_id": challenge_id,
+            "email": email,
+            "session_token": partial_token,
+            "created_at": time.time(),
+            "expires_at": time.time() + 300,  # 5-minute window
+        })
+        return JSONResponse(content={
+            "ok": True,
+            "mfa_required": True,
+            "challenge_id": challenge_id,
+            "methods": [m["method_type"] for m in enabled_methods],
+        })
 
     token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
 
@@ -1036,7 +1041,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
         log.debug("welcome notification (OAuth) failed: %s", e)
 
     # Set httpOnly cookie and redirect to dashboard
-    resp = RedirectResponse("/setup-2fa?redirect=/dashboard", status_code=302)
+    resp = RedirectResponse("/dashboard", status_code=302)
     _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
