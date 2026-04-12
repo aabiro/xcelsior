@@ -13,17 +13,17 @@
          rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" /></cc:Work></rdf:RDF></metadata><defs
      id="defs6">
-    <linearGradient id="provinceFill" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="provinceFill" gradientUnits="userSpaceOnUse" x1="8700" y1="8100" x2="1400" y2="1900">
       <stop offset="0%" stop-color="#00d4ff" stop-opacity="1"/>
       <stop offset="55%" stop-color="#7c3aed" stop-opacity="1"/>
       <stop offset="100%" stop-color="#dc2626" stop-opacity="1"/>
     </linearGradient>
-    <linearGradient id="cornerFill" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="cornerFill" gradientUnits="userSpaceOnUse" x1="8700" y1="8100" x2="1400" y2="1900">
       <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.06"/>
       <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.04"/>
       <stop offset="100%" stop-color="#dc2626" stop-opacity="0.03"/>
     </linearGradient>
-    <linearGradient id="arcHighlight" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="arcHighlight" gradientUnits="userSpaceOnUse" x1="8700" y1="5000" x2="1400" y2="5000">
       <stop offset="0%" stop-color="#00d4ff"/>
       <stop offset="100%" stop-color="#7c3aed"/>
     </linearGradient>
