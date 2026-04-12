@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DashboardShell } from "./dashboard-shell";
+import { ApiStatusBanner } from "@/components/ApiStatusBanner";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -7,5 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <>
+      <ApiStatusBanner />
+      <DashboardShell>{children}</DashboardShell>
+    </>
+  );
 }

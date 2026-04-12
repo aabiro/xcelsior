@@ -373,6 +373,23 @@ export async function registerHost(data: Record<string, unknown>) {
   return apiFetch("/host", { method: "PUT", body: JSON.stringify(data) });
 }
 
+export interface RegisterHostWebPayload {
+  hostname: string;
+  gpu_model: string;
+  vram_gb: number;
+  cost_per_hour?: number;
+  country?: string;
+  province?: string;
+  notes?: string;
+}
+
+export async function registerHostWeb(data: RegisterHostWebPayload) {
+  return apiFetch<{ ok: boolean; host: Host }>("/api/hosts/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 // ── Instances ─────────────────────────────────────────────────────────
 
 /** Normalize backend instance → frontend Instance (image→docker_image, etc.) */

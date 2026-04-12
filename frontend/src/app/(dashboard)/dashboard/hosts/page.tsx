@@ -7,10 +7,11 @@ import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge, StatusBadge } from "@/components/ui/badge";
-import { Input, Label, Select, TextArea } from "@/components/ui/input";
+import { Input, Label, NumberInput, Select, TextArea } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Dialog } from "@/components/ui/dialog";
 import { StatCard } from "@/components/ui/stat-card";
+import { GpuModelSelector } from "@/components/ui/gpu-model-selector";
 import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
   Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
@@ -199,6 +200,8 @@ export default function HostsPage() {
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
+              <option value="pending">Pending</option>
+              <option value="draining">Draining</option>
               <option value="offline">Offline</option>
               <option value="maintenance">Maintenance</option>
             </Select>
@@ -404,13 +407,52 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
     e.preventDefault();
     setLoading(true);
     try {
-      await api.registerHost({ 
-        hostname, 
+      const trimmedHostname = hostname.trim();
+      if (!trimmedHostname) {
+        toast.error("Hostname is required");
+        setLoading(false);
+        return;
+      }
+      if (!gpuModel) {
+        toast.error("GPU model is required");
+        setLoading(false);
+        return;
+      }
+
+      // Parse location into country + province for the backend
+      let country = "CA";
+      let province = "";
+      if (location.startsWith("ca-")) {
+        country = "CA";
+        province = location.slice(3); // "ca-AB" → "AB"
+      } else if (location.startsWith("us-")) {
+        country = "US";
+      } else if (location.startsWith("eu-")) {
+        country = "EU";
+      } else if (location.startsWith("ap-")) {
+        country = "AP";
+      }
+
+      const parsedVram = vramGb ? parseFloat(vramGb) : 0;
+      const parsedRate = costPerHour ? parseFloat(costPerHour) : 0.20;
+      if (parsedVram <= 0 || isNaN(parsedVram)) {
+        toast.error("VRAM must be greater than 0");
+        setLoading(false);
+        return;
+      }
+      if (parsedRate <= 0 || isNaN(parsedRate)) {
+        toast.error("Hourly rate must be greater than 0");
+        setLoading(false);
+        return;
+      }
+      await api.registerHostWeb({ 
+        hostname: trimmedHostname, 
         gpu_model: gpuModel,
-        vram_gb: vramGb ? parseFloat(vramGb) : undefined,
-        cost_per_hour: costPerHour ? parseFloat(costPerHour) : undefined,
-        location: location || undefined,
-        notes: notes || undefined,
+        vram_gb: parsedVram,
+        cost_per_hour: parsedRate,
+        country,
+        province,
+        notes: notes.trim() || undefined,
       });
       toast.success("Host registered successfully! Install the worker agent to bring it online.");
       onDone();
@@ -460,6 +502,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               value={hostname} 
               onChange={(e) => setHostname(e.target.value)} 
               required 
+              maxLength={128}
               placeholder="e.g., gpu-server-01 or my-workstation"
               className="h-10"
             />
@@ -472,39 +515,21 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
             <Label className="text-sm font-medium">
               GPU Model <span className="text-accent-red">*</span>
             </Label>
-            <Select
+            <GpuModelSelector
               value={gpuModel}
-              onChange={(e) => setGpuModel(e.target.value)}
-              required
-              className="h-10"
-            >
-              <option value="">Select GPU model...</option>
-              <optgroup label="NVIDIA Data Center">
-                <option value="H100 80GB">H100 80GB</option>
-                <option value="A100 80GB">A100 80GB</option>
-                <option value="A100 40GB">A100 40GB</option>
-                <option value="A40">A40 48GB</option>
-                <option value="A30">A30 24GB</option>
-                <option value="A10">A10 24GB</option>
-                <option value="L40S">L40S 48GB</option>
-                <option value="L4">L4 24GB</option>
-              </optgroup>
-              <optgroup label="NVIDIA Consumer">
-                <option value="RTX 4090">RTX 4090 24GB</option>
-                <option value="RTX 4080">RTX 4080 16GB</option>
-                <option value="RTX 4070 Ti">RTX 4070 Ti 12GB</option>
-                <option value="RTX 3090">RTX 3090 24GB</option>
-                <option value="RTX 3080">RTX 3080 10GB</option>
-              </optgroup>
-              <option value="Other">Other (specify in notes)</option>
-            </Select>
+              onChange={({ model, vram_gb }) => {
+                setGpuModel(model);
+                setVramGb(String(vram_gb));
+              }}
+              placeholder="Search GPUs..."
+            />
             <p className="text-xs text-text-muted">
               The worker agent will auto-detect this, but we need it for initial registration
             </p>
           </div>
 
           <div className="flex justify-end pt-2">
-            <Button type="button" onClick={() => setStep(2)} disabled={!hostname || !gpuModel}>
+            <Button type="button" onClick={() => setStep(2)} disabled={!hostname.trim() || !gpuModel}>
               Continue
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
@@ -517,23 +542,23 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-sm font-medium">VRAM (GB)</Label>
-              <Input 
-                type="number"
-                value={vramGb} 
-                onChange={(e) => setVramGb(e.target.value)} 
-                placeholder="e.g., 24"
-                className="h-10"
+              <NumberInput
+                value={vramGb ? parseFloat(vramGb) : 0}
+                onChange={(val) => setVramGb(String(val))}
+                min={1}
+                max={192}
+                step={1}
               />
+              <p className="text-xs text-text-muted">Auto-filled from GPU selection</p>
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">Hourly Rate ($)</Label>
-              <Input 
-                type="number"
-                step="0.01"
-                value={costPerHour} 
-                onChange={(e) => setCostPerHour(e.target.value)} 
-                placeholder="e.g., 0.50"
-                className="h-10"
+              <NumberInput
+                value={costPerHour ? parseFloat(costPerHour) : 0.20}
+                onChange={(val) => setCostPerHour(String(val))}
+                min={0.01}
+                max={100}
+                step={0.01}
               />
             </div>
           </div>
@@ -546,20 +571,36 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               className="h-10"
             >
               <option value="">Select region (optional)...</option>
-              <optgroup label="North America">
+              <optgroup label="Canada">
+                <option value="ca-AB">Alberta</option>
+                <option value="ca-BC">British Columbia</option>
+                <option value="ca-MB">Manitoba</option>
+                <option value="ca-NB">New Brunswick</option>
+                <option value="ca-NL">Newfoundland and Labrador</option>
+                <option value="ca-NS">Nova Scotia</option>
+                <option value="ca-NT">Northwest Territories</option>
+                <option value="ca-NU">Nunavut</option>
+                <option value="ca-ON">Ontario</option>
+                <option value="ca-PE">Prince Edward Island</option>
+                <option value="ca-QC">Quebec</option>
+                <option value="ca-SK">Saskatchewan</option>
+                <option value="ca-YT">Yukon</option>
+              </optgroup>
+              <optgroup label="United States">
                 <option value="us-east">US East</option>
                 <option value="us-west">US West</option>
-                <option value="ca-central">Canada Central</option>
-                <option value="ca-west">Canada West</option>
+                <option value="us-central">US Central</option>
               </optgroup>
               <optgroup label="Europe">
                 <option value="eu-west">EU West</option>
                 <option value="eu-central">EU Central</option>
-                <option value="uk">United Kingdom</option>
+                <option value="eu-uk">United Kingdom</option>
+                <option value="eu-nordics">Nordics</option>
               </optgroup>
               <optgroup label="Asia Pacific">
-                <option value="ap-southeast">Asia Pacific Southeast</option>
-                <option value="ap-northeast">Asia Pacific Northeast</option>
+                <option value="ap-southeast">AP Southeast</option>
+                <option value="ap-northeast">AP Northeast</option>
+                <option value="ap-south">AP South</option>
               </optgroup>
             </Select>
           </div>
@@ -571,8 +612,10 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Any additional info about this host (CPU, RAM, network speed, etc.)"
               rows={3}
+              maxLength={1000}
               className="resize-none"
             />
+            <p className="text-xs text-text-muted text-right">{notes.length}/1000</p>
           </div>
 
           <div className="rounded-lg bg-surface-hover border border-border p-4">

@@ -452,7 +452,7 @@ export function TemplateArtwork({
   return (
     <span
       className={cn(
-        "relative inline-flex items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-background/80",
+        "relative inline-flex items-center justify-center overflow-hidden rounded-2xl",
         className,
       )}
       style={{ width: size, height: size }}

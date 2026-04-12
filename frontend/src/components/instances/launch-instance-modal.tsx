@@ -324,10 +324,10 @@ export function LaunchInstanceModal({
                     >
                       <div
                         className={cn(
-                          "flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
+                          "flex h-14 w-14 items-center justify-center rounded-2xl transition-transform group-hover:scale-105",
                           !selectedTemplate
-                            ? "border-transparent bg-ice-blue/10 text-ice-blue"
-                            : "border-border/60 text-text-secondary",
+                            ? "bg-ice-blue/10 text-ice-blue"
+                            : "bg-surface/60 text-text-secondary",
                         )}
                       >
                         <Box className="h-6 w-6" />
@@ -510,15 +510,15 @@ export function LaunchInstanceModal({
                   </div>
                 </div>
 
-                {/* NFS Mount */}
+                {/* Volume Mount */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">NFS Mount (optional)</Label>
+                  <Label className="text-xs">Volume Mount (optional)</Label>
                   <Input
                     placeholder="host:/path/to/share"
                     value={nfsMount}
                     onChange={(e) => setNfsMount(e.target.value)}
                   />
-                  <p className="text-xs text-text-muted">Mount a shared NFS volume into your container at /mnt/nfs.</p>
+                  <p className="text-xs text-text-muted">Mount a shared volume into your container.</p>
                 </div>
 
                 {/* Hourly Rate summary */}
@@ -569,7 +569,7 @@ export function LaunchInstanceModal({
                     <div className="flex justify-between"><span className="text-text-muted">Priority</span><span>{PRIORITIES.find((p) => p.value === priority)?.label ?? "Normal"}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Duration</span><span>{durationHrs}h</span></div>
                     {nfsMount && (
-                      <div className="flex justify-between"><span className="text-text-muted">NFS Mount</span><span className="text-right max-w-[220px] truncate" title={nfsMount}>{nfsMount}</span></div>
+                      <div className="flex justify-between"><span className="text-text-muted">Volume Mount</span><span className="text-right max-w-[220px] truncate" title={nfsMount}>{nfsMount}</span></div>
                     )}
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                       <span>Rate</span>

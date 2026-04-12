@@ -24,8 +24,7 @@
       }
     ],
     "types": [
-      "node",
-      "@serwist/next/typings"
+      "node"
     ],
     "paths": {
       "@/*": [

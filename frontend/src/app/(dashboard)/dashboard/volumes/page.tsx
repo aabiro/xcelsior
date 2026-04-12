@@ -119,7 +119,7 @@ export default function VolumesPage() {
         <div>
           <h1 className="text-2xl font-bold">Persistent Volumes</h1>
           <p className="text-sm text-text-muted">
-            NFS-backed encrypted storage. Attach to instances for persistent workspaces.
+            Encrypted persistent storage. Attach to instances for persistent workspaces.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load}>
