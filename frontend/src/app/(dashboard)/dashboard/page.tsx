@@ -77,7 +77,7 @@ function OverviewActionVisual({
     launch: {
       shell: "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(220,38,38,0.16),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(255,82,82,0.18),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-red",
+      ring: "text-accent-red shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
       cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.22),transparent_55%)]",
       cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(139,92,246,0.18),transparent_55%)]",
       img: "/rocket.svg",
@@ -85,7 +85,7 @@ function OverviewActionVisual({
     provider: {
       shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(14,165,233,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-cyan",
+      ring: "text-accent-cyan shadow-[0_18px_52px_rgba(14,165,233,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
       cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(220,38,38,0.22),transparent_55%)]",
       cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(139,92,246,0.18),transparent_55%)]",
       img: "/gpu.svg",
