@@ -106,6 +106,8 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://docs.xcelsior.ca" />
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+        <link rel="preload" href="/rocket.svg" as="image" type="image/svg+xml" />
+        <link rel="preload" href="/gpu.svg" as="image" type="image/svg+xml" />
         {GA_ID && (
           <>
             <Script
