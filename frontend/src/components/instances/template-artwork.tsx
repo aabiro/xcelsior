@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { cn } from "@/lib/utils";
 import { ProviderLogo } from "@/components/ui/provider-logo";
+import * as React from "react";
 
 type TemplateKey =
   | "pytorch"
@@ -315,71 +316,105 @@ function renderMotif(template: TemplateKey, palette: ThemePalette) {
   }
 }
 
-function TemplateArtSvg({
-  template,
-  palette,
-  idPrefix,
-}: {
-  template: TemplateKey;
-  palette: ThemePalette;
-  idPrefix: string;
-}) {
-  const bgId = `${idPrefix}-bg`;
-  const haloAId = `${idPrefix}-halo-a`;
-  const haloBId = `${idPrefix}-halo-b`;
-  const gridFadeId = `${idPrefix}-grid-fade`;
 
-  return (
-    <svg viewBox="0 0 100 100" aria-hidden className="h-full w-full">
-      <defs>
-        <linearGradient id={bgId} x1="11" y1="8" x2="90" y2="94" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor={palette.bgA} />
-          <stop offset="52%" stopColor={palette.bgB} />
-          <stop offset="100%" stopColor={palette.bgC} />
-        </linearGradient>
-        <radialGradient id={haloAId} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(26 22) rotate(53) scale(42 38)">
-          <stop offset="0%" stopColor={palette.glowA} />
-          <stop offset="100%" stopColor="transparent" />
-        </radialGradient>
-        <radialGradient id={haloBId} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(78 78) rotate(90) scale(34 40)">
-          <stop offset="0%" stopColor={palette.glowB} />
-          <stop offset="100%" stopColor="transparent" />
-        </radialGradient>
-        <linearGradient id={gridFadeId} x1="0" y1="8" x2="0" y2="94" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="white" />
-          <stop offset="74%" stopColor="white" stopOpacity="0.88" />
-          <stop offset="100%" stopColor="white" stopOpacity="0.22" />
-        </linearGradient>
-      </defs>
-
-      <rect width="100" height="100" rx="28" fill={`url(#${bgId})`} />
-      <rect width="100" height="100" rx="28" fill={`url(#${haloAId})`} />
-      <rect width="100" height="100" rx="28" fill={`url(#${haloBId})`} />
-      <rect x="68" y="12" width="20" height="20" rx="10" fill={palette.glowC} />
-
-      <g opacity="0.88" mask={`url(#${gridFadeId})`}>
-        {Array.from({ length: 4 }).map((_, index) => (
-          <path
-            key={`h-${index}`}
-            d={`M10 ${18 + index * 18}H90`}
-            stroke={index === 1 || index === 2 ? palette.majorGrid : palette.minorGrid}
-            strokeWidth={index === 2 ? 1.5 : 1}
-          />
-        ))}
-        {Array.from({ length: 4 }).map((_, index) => (
-          <path
-            key={`v-${index}`}
-            d={`M${18 + index * 18} 10V90`}
-            stroke={index === 1 || index === 2 ? palette.majorGrid : palette.minorGrid}
-            strokeWidth={index === 2 ? 1.5 : 1}
-          />
-        ))}
-      </g>
-
-      <g opacity="0.96">{renderMotif(template, palette)}</g>
-      <rect x="8" y="8" width="84" height="84" rx="23" fill="none" stroke={palette.frame} strokeWidth="1.2" />
-    </svg>
-  );
+// Inline SVGs for each template with solid color and creative gradient
+function TemplateLogoSVG({ template, theme }: { template: TemplateKey; theme: 'light' | 'dark' }) {
+  switch (template) {
+    case 'tensorflow':
+      // Solid orange for T+F, subtle gradient on F
+      return (
+        <svg width="64" height="64" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="tf-f-gradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#ffb347" />
+              <stop offset="100%" stopColor="#ff6f00" />
+            </linearGradient>
+          </defs>
+          {/* T+F base */}
+          <path d="M61.55 128L39.71 115.32V40.55L6.81 59.56l.08-28.32L61.55 0z" fill="#ff6f00" />
+          {/* F with gradient */}
+          <path d="M66.46 0v128l21.84-12.68V79.31l16.49 9.53-.1-24.63-16.39-9.36v-14.3l32.89 19.01-.08-28.32z" fill="url(#tf-f-gradient)" />
+        </svg>
+      );
+    case 'pytorch':
+      // Solid orange, gradient on the flame tip
+      return (
+        <svg width="64" height="64" viewBox="-27 0 310 310" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="pt-flame-gradient" cx="70%" cy="20%" r="60%">
+              <stop offset="0%" stopColor="#fff4ee" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#EE4C2C" stopOpacity="1" />
+            </radialGradient>
+          </defs>
+          {/* Main circle */}
+          <path d="M218.281,90.106C268.573,140.398,268.573,221.075,218.281,271.716C169.037,322.008,88.011,322.008,37.719,271.716C-12.573,221.424,-12.573,140.398,37.719,90.106L127.825,0L127.825,45.053L119.443,53.435L59.722,113.157C22.003,150.177,22.003,210.947,59.722,248.666C96.742,286.385,157.512,286.385,195.231,248.666C232.95,211.645,232.95,150.876,195.231,113.157L218.281,90.106Z" fill="#EE4C2C" />
+          {/* Flame tip with gradient */}
+          <circle cx="173.23" cy="67.75" r="16.5" fill="url(#pt-flame-gradient)" />
+        </svg>
+      );
+    case 'jupyter':
+      // Solid orange ring, gradient on orbiting dot
+      return (
+        <svg width="64" height="64" viewBox="-22 0 300 300" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="jup-dot-gradient" cx="50%" cy="50%" r="80%">
+              <stop offset="0%" stopColor="#fff6ef" />
+              <stop offset="100%" stopColor="#F37726" />
+            </radialGradient>
+          </defs>
+          {/* Main ring */}
+          <path d="M127.952969,60.4 C175.882898,60.4 218,77.6 239.8,103 C231.337863,80.1 216.1,60.4 196.1,46.5 C176.098839,32.5 152.3,25.1 128,25.1 C103.588124,25.1 79.8,32.5 59.8,46.5 C39.8176362,60.4 24.6,80.1 16.1,103 C37.8984531,77.5 79.8,60.4 128,60.4 Z" fill="#F37726" />
+          {/* Orbiting dot with gradient */}
+          <circle cx="233" cy="17" r="17" fill="url(#jup-dot-gradient)" />
+        </svg>
+      );
+    case 'comfyui':
+      // Solid blue background, gradient on yellow path
+      return (
+        <svg width="64" height="64" viewBox="0 0 84 84" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="comfy-yellow-gradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#F0FF41" />
+              <stop offset="100%" stopColor="#FFD600" />
+            </linearGradient>
+          </defs>
+          <rect width="84" height="84" rx="18" fill="#172DD7" />
+          <path d="M28.5899 69.2727C27.3242 69.2727 26.303 68.8023 25.637 67.9128C24.9524 66.9989 24.774 65.723 25.1471 64.4133L26.6455 59.1518C26.765 58.7329 26.6818 58.2821 26.4212 57.9336C26.1606 57.5858 25.7529 57.381 25.3198 57.381H21.0116C19.7453 57.381 18.724 56.9112 18.0583 56.0218C17.3738 55.1072 17.1953 53.8314 17.5687 52.5216L22.7163 34.5286L23.2847 32.5517C24.0487 29.869 26.8349 27.6888 29.4966 27.6888H34.6517C35.2668 27.6888 35.8079 27.2787 35.9773 26.6835L37.6821 20.6987C38.4453 18.0187 41.2316 15.8385 43.8933 15.8385L54.9181 15.8189L62.9891 15.8182C64.2551 15.8182 65.2763 16.288 65.942 17.1774C66.6265 18.0913 66.805 19.3672 66.4319 20.6769L64.124 28.7803C63.3611 31.4595 60.5748 33.6391 57.9131 33.6391L46.8637 33.6601H41.7104C41.0959 33.6601 40.5555 34.0695 40.3851 34.6641L36.0883 49.6722C35.9681 50.0919 36.0513 50.5441 36.3126 50.8925C36.5732 51.2403 36.9809 51.445 37.4136 51.445L44.7152 51.4308H52.7622C54.0282 51.4308 55.0494 51.9006 55.7151 52.7901C56.3996 53.7046 56.5781 54.9805 56.2047 56.2902L53.8969 64.3923C53.1339 67.0722 50.3476 69.2517 47.686 69.2517L36.6369 69.2727H28.5899Z" fill="url(#comfy-yellow-gradient)" />
+        </svg>
+      );
+    case 'ubuntu':
+      // Solid orange background, gradient on white ring
+      return (
+        <svg width="64" height="64" viewBox="0 0 349 349" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="ubuntu-ring-gradient" cx="50%" cy="50%" r="80%">
+              <stop offset="0%" stopColor="#fff" />
+              <stop offset="100%" stopColor="#ffe0c2" />
+            </radialGradient>
+          </defs>
+          <rect width="349" height="349" rx="80" fill="#e9500e" />
+          <path d="m76 206.3c-20.3 0-36.6-16.4-36.6-36.6 0-20.2 16.3-36.5 36.6-36.5 20.2 0 36.5 16.3 36.5 36.5 0 20.2-16.3 36.6-36.5 36.6zm152.2-80.1c-20.2 0-36.6-16.3-36.6-36.5 0-20.2 16.4-36.6 36.6-36.6 20.2 0 36.5 16.4 36.5 36.6 0 20.2-16.3 36.5-36.5 36.5zm-69.8 137.5c-6.5-1.3-12.7-3.4-18.7-6.2-6-2.7-11.6-6.1-16.9-10.1-5.2-4-10-8.5-14.2-13.6-4.2-5-7.9-10.5-10.9-16.3q-3.7 1.6-7.5 2.7-3.9 1.1-7.8 1.6-4 0.5-8 0.3-4-0.1-8-0.8c3.7 9 8.4 17.5 14.1 25.3 5.7 7.9 12.4 15 19.8 21.2 7.5 6.3 15.6 11.6 24.4 15.8 8.7 4.3 17.9 7.4 27.4 9.4q3.2 0.7 6.4 1.2 3.3 0.5 6.5 0.9 3.3 0.3 6.5 0.5 3.3 0.1 6.6 0.1-2.5-3.3-4.5-6.9-2-3.6-3.3-7.5-1.4-3.9-2.1-8-0.8-4-0.8-8.1-4.6-0.5-9-1.5zm61.5 36.7c-20.2 0-36.5-16.3-36.5-36.5 0-20.2 16.3-36.5 36.5-36.5 20.2 0 36.6 16.3 36.6 36.5 0 20.2-16.4 36.5-36.6 36.5zm50.9-49.9c7.8-9.8 14-20.8 18.3-32.5 4.4-11.8 6.9-24.1 7.5-36.6 0.5-12.5-0.9-25-4.3-37.1-3.4-12.1-8.6-23.5-15.5-34q-1.6 3.7-3.7 7.1-2.1 3.5-4.7 6.5-2.7 3.1-5.7 5.7-3.1 2.6-6.5 4.8c3.7 6.8 6.4 14.1 8.2 21.7 1.7 7.6 2.5 15.4 2.2 23.1-0.2 7.8-1.5 15.5-3.8 22.9-2.2 7.5-5.4 14.6-9.5 21.2q3.2 2.6 5.9 5.7 2.8 3.1 5 6.5 2.2 3.5 3.9 7.3 1.6 3.7 2.7 7.7z" fill="url(#ubuntu-ring-gradient)" />
+        </svg>
+      );
+    case 'vllm':
+      // Two-tone: gold and blue, gradient on gold wedge
+      return (
+        <svg width="64" height="64" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="vllm-gold-gradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#fffbe6" />
+              <stop offset="100%" stopColor="#FDB515" />
+            </linearGradient>
+          </defs>
+          {/* Gold wedge with gradient */}
+          <path d="M0 4.973h9.324V23L0 4.973z" fill="url(#vllm-gold-gradient)" />
+          {/* Blue wedge solid */}
+          <path d="M13.986 4.351L22.378 0l-6.216 23H9.324l4.662-18.649z" fill="#30A2FF" />
+        </svg>
+      );
+    default:
+      return null;
+  }
 }
 
 export function TemplateArtwork({
@@ -393,7 +428,9 @@ export function TemplateArtwork({
 }) {
   const normalized = template.trim().toLowerCase().replace(/[_\s]+/g, "-") as TemplateKey;
   const artwork = TEMPLATE_ART[normalized];
-  const id = useId().replace(/:/g, "");
+
+  // Icon sizing: the logo itself is ~50% of the container so there's comfortable padding
+  const logoSize = Math.round(size * 0.5);
 
   if (!artwork) {
     return (
@@ -404,7 +441,7 @@ export function TemplateArtwork({
         )}
         style={{ width: size, height: size }}
       >
-        <ProviderLogo provider={template} size={Math.round(size * 0.4)} />
+        <ProviderLogo provider={template} size={logoSize} />
       </span>
     );
   }
@@ -412,31 +449,25 @@ export function TemplateArtwork({
   return (
     <span
       className={cn(
-        "relative isolate inline-flex shrink-0 overflow-hidden rounded-[24px] border border-border/70 shadow-[0_14px_36px_rgba(15,23,42,0.08)] dark:shadow-[0_16px_38px_rgba(0,0,0,0.34)]",
+        "relative inline-flex items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-background/80",
         className,
       )}
       style={{ width: size, height: size }}
     >
-      <span className="absolute inset-0 dark:hidden">
-        <TemplateArtSvg template={normalized} palette={artwork.light} idPrefix={`${id}-light`} />
-      </span>
-      <span className="absolute inset-0 hidden dark:block">
-        <TemplateArtSvg template={normalized} palette={artwork.dark} idPrefix={`${id}-dark`} />
-      </span>
-
-      <span className="absolute inset-[14%] rounded-[20px] border border-white/[0.45] bg-white/[0.45] backdrop-blur-[10px] dark:border-white/10 dark:bg-white/[0.05]" />
-      <span className="absolute inset-[18%] rounded-[18px] border border-white/30 dark:border-white/[0.08]" />
-
-      <span className="relative z-10 flex h-full w-full items-center justify-center">
-        <ProviderLogo
-          provider={normalized}
-          size={Math.max(20, Math.round(size * 0.34))}
-          className="drop-shadow-[0_10px_24px_rgba(15,23,42,0.18)]"
-        />
-      </span>
-
-      <span className="pointer-events-none absolute left-4 top-4 h-2.5 w-2.5 rounded-full bg-white/65 dark:bg-white/20" />
-      <span className="pointer-events-none absolute bottom-4 right-4 h-3 w-3 rounded-full border border-white/[0.55] dark:border-white/[0.18]" />
+      {/* Subtle brand-colored glow behind the icon */}
+      <span
+        className="pointer-events-none absolute inset-0 dark:hidden"
+        style={{
+          background: `radial-gradient(circle at 50% 50%, ${artwork.light.glowA} 0%, transparent 65%)`,
+        }}
+      />
+      <span
+        className="pointer-events-none absolute inset-0 hidden dark:block"
+        style={{
+          background: `radial-gradient(circle at 50% 50%, ${artwork.dark.glowA} 0%, transparent 65%)`,
+        }}
+      />
+      <ProviderLogo provider={normalized} size={logoSize} />
     </span>
   );
 }

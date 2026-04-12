@@ -14,6 +14,56 @@ import { AuroraBackground } from "@/components/ui/aurora-bg";
 import { CanadaMapHero } from "@/components/ui/canada-hero";
 import { cn } from "@/lib/utils";
 
+// Custom Canada-map-inspired SVG icons for the action cards
+function MapRocketIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} style={style}>
+      <defs>
+        <linearGradient id="rocketGrad" x1="2" y1="22" x2="22" y2="2" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.4" />
+          <stop offset="1" stopColor="currentColor" />
+        </linearGradient>
+      </defs>
+      {/* Abstract Canada Maple Leaf + Rocket hybrid silhouette */}
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M13.5 2C13.5 2 17.5 3.5 19.5 7.5C20.4674 9.43478 20.8 11.6 20 13.5C21.5 13.5 22 15 22 15C22 15 19.5 16.5 17 17L19 22C19 22 17 21 15.5 19C12.5 18.5 7 19.5 5 22C5 22 7 17 5 15C4.5 12.5 5.5 7 8 5C8 5 9 3 13.5 2ZM14.1213 11.1213C15.2929 9.94975 17.1924 9.94975 18.364 11.1213C17.1924 12.2929 15.2929 12.2929 14.1213 11.1213Z"
+        fill="url(#rocketGrad)"
+      />
+      <path d="M4 21C4 21 6 18 5 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MapServerIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} style={style}>
+      <defs>
+        <linearGradient id="serverGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+          <stop stopColor="currentColor" stopOpacity="0.8" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.2" />
+        </linearGradient>
+      </defs>
+      {/* Abstract Server + Nodes mapping */}
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4 6C4 4.89543 4.89543 4 6 4H18C19.1046 4 20 4.89543 20 6V9C20 10.1046 19.1046 11 18 11H6C4.89543 11 4 10.1046 4 9V6ZM7 6.5C6.44772 6.5 6 6.94772 6 7.5C6 8.05228 6.44772 8.5 7 8.5H9C9.55228 8.5 10 8.05228 10 7.5C10 6.94772 9.55228 6.5 9 6.5H7ZM16 8.5C16.5523 8.5 17 8.05228 17 7.5C17 6.94772 16.5523 6.5 16 6.5C15.4477 6.5 15 6.94772 15 7.5C15 8.05228 15.4477 8.5 16 8.5Z"
+        fill="url(#serverGrad)"
+      />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4 15C4 13.8954 4.89543 13 6 13H18C19.1046 13 20 13.8954 20 15V18C20 19.1046 19.1046 20 18 20H6C4.89543 20 4 19.1046 4 18V15ZM7 15.5C6.44772 15.5 6 15.9477 6 16.5C6 17.0523 6.44772 17.5 7 17.5H9C9.55228 17.5 10 17.0523 10 16.5C10 15.9477 9.55228 15.5 9 15.5H7ZM16 17.5C16.5523 17.5 17 17.0523 17 16.5C17 15.9477 16.5523 15.5 16 15.5C15.4477 15.5 15 15.9477 15 16.5C15 17.0523 15.4477 17.5 16 17.5Z"
+        fill="url(#serverGrad)"
+      />
+      {/* Node connecting line */}
+      <path d="M12 11V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function OverviewActionVisual({
   accent,
   icon: Icon,
@@ -222,7 +272,7 @@ export default function DashboardOverview() {
             href="/dashboard/instances?launch=true"
             buttonLabel="Launch Instance"
             accent="launch"
-            icon={Rocket}
+            icon={MapRocketIcon}
             buttonIcon={Plus}
             reverse={false}
             mirrorVisual
@@ -233,7 +283,7 @@ export default function DashboardOverview() {
             href="/dashboard/hosts"
             buttonLabel="Open Hosts"
             accent="provider"
-            icon={Server}
+            icon={MapServerIcon}
             buttonIcon={ArrowUpRight}
             reverse
             mirrorVisual={false}
