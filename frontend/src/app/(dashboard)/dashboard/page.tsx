@@ -14,50 +14,6 @@ import { AuroraBackground } from "@/components/ui/aurora-bg";
 import { CanadaMapHero } from "@/components/ui/canada-hero";
 import { cn } from "@/lib/utils";
 
-function LaunchRocketGlyph() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 48 48"
-      className="relative z-10 h-9 w-9 md:h-10 md:w-10"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M11 24L18 16H30C35 16 38 20 40 24C38 28 35 32 30 32H18L11 24Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18 16L23 10L24.5 17.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18 32L23 38L24.5 30.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="24" cy="24" r="4.4" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M40 20.5C44.5 22 45.7 24.2 45.7 24.2C45.7 24.2 44.5 26.4 40 27.9L34 24.2L40 20.5Z"
-        fill="currentColor"
-        fillOpacity="0.72"
-      />
-      <path
-        d="M11 24L7.2 21.2L7.2 26.8L11 24Z"
-        fill="currentColor"
-        fillOpacity="0.24"
-      />
-    </svg>
-  );
-}
-
 function OverviewActionVisual({
   accent,
   icon: Icon,
@@ -70,7 +26,7 @@ function OverviewActionVisual({
   const tones = {
     launch: {
       shell:
-        "border-accent-red/20 bg-[radial-gradient(circle_at_top_left,rgba(220,38,38,0.16),transparent_36%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_left,rgba(255,82,82,0.18),transparent_42%),radial-gradient(circle_at_top_right,rgba(0,212,255,0.12),transparent_42%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+        "border-accent-red/20 bg-[radial-gradient(circle_at_top_left,rgba(220,38,38,0.16),transparent_36%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_left,rgba(255,82,82,0.18),transparent_42%),radial-gradient(circle_at_top_right,rgba(0,212,255,0.14),transparent_42%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
       ring: "border-accent-red/20 text-accent-red shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
       lineA: "from-accent-red/0 via-accent-red/[0.55] to-accent-red/0",
@@ -81,7 +37,7 @@ function OverviewActionVisual({
     },
     provider: {
       shell:
-        "border-accent-cyan/20 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.18),transparent_38%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.16),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_right,rgba(0,212,255,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.14),transparent_44%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+        "border-accent-cyan/20 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.18),transparent_38%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.16),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_right,rgba(0,212,255,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.16),transparent_44%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
       ring: "border-accent-cyan/20 text-accent-cyan shadow-[0_18px_52px_rgba(14,165,233,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
       lineA: "from-accent-cyan/0 via-accent-cyan/[0.60] to-accent-cyan/0",
@@ -113,8 +69,8 @@ function OverviewActionVisual({
           tone.lineB,
         )}
       />
-      <div className={cn("absolute h-3.5 w-3.5 rounded-full blur-[1px]", mirrored ? "left-7 top-7" : "right-7 top-7", tone.dotA)} />
-      <div className={cn("absolute h-4 w-4 rounded-full blur-[1px]", mirrored ? "right-7 bottom-7" : "left-7 bottom-7", tone.dotB)} />
+      <div className={cn("absolute h-3.5 w-3.5 rounded-full blur-[1px]", mirrored ? "right-7 top-7" : "left-7 top-7", tone.dotA)} />
+      <div className={cn("absolute h-4 w-4 rounded-full blur-[1px]", mirrored ? "left-7 bottom-7" : "right-7 bottom-7", tone.dotB)} />
       <CornerArrow
         className={cn(
           "absolute z-20 h-4 w-4",
@@ -124,13 +80,10 @@ function OverviewActionVisual({
       />
       <div className={cn("relative flex h-full items-center justify-center rounded-[26px] border", tone.ring)}>
         <div className="absolute inset-5 rounded-[18px] border border-white/30 bg-gradient-to-br from-white/30 to-transparent dark:border-white/[0.06] dark:from-white/[0.06]" />
-        {accent === "provider" && (
-          <>
-            <div className="absolute left-1/2 top-[44%] z-20 h-px w-16 -translate-x-1/2 rounded-full bg-accent-cyan/70 dark:bg-accent-cyan/75" />
-            <div className="absolute left-1/2 top-[54%] z-20 h-px w-14 -translate-x-1/2 rounded-full bg-accent-cyan/70 dark:bg-accent-cyan/75" />
-          </>
-        )}
-        {accent === "launch" ? <LaunchRocketGlyph /> : <Icon className={iconClassName} />}
+        <Icon
+          className={iconClassName}
+          style={accent === "launch" ? { transform: "scaleX(-1)" } : undefined}
+        />
       </div>
     </div>
   );
@@ -160,14 +113,14 @@ function OverviewActionCard({
   const styles = {
     launch: {
       shell:
-        "border-accent-red/20 bg-[radial-gradient(circle_at_top_left,rgba(220,38,38,0.15),transparent_44%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_top_left,rgba(255,82,82,0.16),transparent_42%),radial-gradient(circle_at_top_right,rgba(0,212,255,0.1),transparent_40%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+        "border-accent-red/20 bg-[radial-gradient(circle_at_top_left,rgba(220,38,38,0.15),transparent_44%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_top_left,rgba(255,82,82,0.16),transparent_42%),radial-gradient(circle_at_top_right,rgba(0,212,255,0.12),transparent_40%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       chip: "border-accent-red/20 bg-accent-red/10 text-accent-red dark:border-accent-red/25",
       subchip: "border-accent-cyan/[0.18] bg-accent-cyan/[0.08] text-accent-cyan dark:border-accent-cyan/20",
       button: "bg-accent-red text-white hover:bg-accent-red-hover",
     },
     provider: {
       shell:
-        "border-accent-cyan/20 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.14),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_right,rgba(0,212,255,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.12),transparent_44%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+        "border-accent-cyan/20 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.14),transparent_44%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_top_right,rgba(0,212,255,0.16),transparent_42%),radial-gradient(circle_at_top_left,rgba(124,58,237,0.14),transparent_44%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       chip: "border-accent-cyan/20 bg-accent-cyan/10 text-accent-cyan dark:border-accent-cyan/25",
       subchip: "border-accent-violet/[0.18] bg-accent-violet/[0.08] text-accent-violet dark:border-accent-violet/20",
       button: "border border-accent-cyan/25 bg-accent-cyan/10 text-accent-cyan hover:bg-accent-cyan/15",
@@ -180,10 +133,10 @@ function OverviewActionCard({
   return (
     <div className={cn("relative overflow-hidden rounded-[30px] border px-6 py-6 md:px-8 md:py-7", tone.shell)}>
       <div className="relative flex flex-col gap-8 lg:min-h-[260px] lg:justify-between">
-        <div className={cn("flex flex-col gap-6 lg:items-center", reverse ? "lg:flex-row-reverse" : "lg:flex-row")}>
+        <div className={cn("flex flex-col gap-6 lg:items-start", reverse ? "lg:flex-row-reverse" : "lg:flex-row")}>
           <OverviewActionVisual accent={accent} icon={Icon} mirrored={mirrorVisual} />
 
-          <div className={cn("flex flex-1 flex-col", alignRight ? "lg:items-end lg:text-right" : "lg:items-start lg:text-left")}>
+          <div className={cn("flex flex-1 flex-col justify-start lg:self-start", alignRight ? "lg:items-end lg:text-right" : "lg:items-start lg:text-left")}>
             <div className={cn("flex flex-wrap items-center gap-2", alignRight ? "lg:justify-end" : "lg:justify-start")}>
               <span className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em]", tone.chip)}>
                 {accent === "launch" ? "Launch" : "Supply"}
@@ -193,7 +146,7 @@ function OverviewActionCard({
               </span>
             </div>
 
-            <div className="mt-4 max-w-xl space-y-2">
+            <div className="mt-1 max-w-xl space-y-2">
               <h2 className="text-xl font-semibold text-text-primary md:text-[1.45rem]">{title}</h2>
               <p className="text-sm leading-relaxed text-text-secondary">{description}</p>
             </div>
