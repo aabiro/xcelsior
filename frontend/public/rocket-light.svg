@@ -14,18 +14,18 @@
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" /></cc:Work></rdf:RDF></metadata><defs
      id="defs6">
     <linearGradient id="provinceFill" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="1"/>
-      <stop offset="55%" stop-color="#7c3aed" stop-opacity="1"/>
-      <stop offset="100%" stop-color="#dc2626" stop-opacity="1"/>
+      <stop offset="0%" stop-color="#0f766e" stop-opacity="1"/>
+      <stop offset="55%" stop-color="#5b21b6" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="1"/>
     </linearGradient>
     <radialGradient id="cornerFill" cx="2500" cy="7800" r="3000" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.14"/>
-      <stop offset="35%" stop-color="#7c3aed" stop-opacity="0.07"/>
+      <stop offset="0%" stop-color="#0f766e" stop-opacity="0.25"/>
+      <stop offset="35%" stop-color="#5b21b6" stop-opacity="0.14"/>
       <stop offset="70%" stop-color="transparent" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="arcHighlight" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00d4ff"/>
-      <stop offset="100%" stop-color="#7c3aed"/>
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#5b21b6"/>
     </linearGradient>
   </defs><g
      transform="matrix(-1.3333333,0,0,-1.3333333,1365.3333,1365.3333)"

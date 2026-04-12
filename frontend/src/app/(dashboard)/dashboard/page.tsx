@@ -75,20 +75,22 @@ function OverviewActionVisual({
 }) {
   const tones = {
     launch: {
-      shell: "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(220,38,38,0.16),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(255,82,82,0.18),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+      shell: "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(8,145,178,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-red shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
-      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.22),transparent_55%)]",
-      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(139,92,246,0.18),transparent_55%)]",
+      ring: "text-accent-red shadow-[0_18px_52px_rgba(234,88,12,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
+      cornerA: "bg-[radial-gradient(circle_at_0%_0%,rgba(8,145,178,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_100%_100%,rgba(91,33,182,0.18),transparent_55%)]",
       img: "/rocket.svg",
+      imgLight: "/rocket-light.svg",
     },
     provider: {
-      shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(14,165,233,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+      shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(8,145,178,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-cyan shadow-[0_18px_52px_rgba(14,165,233,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
-      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(220,38,38,0.22),transparent_55%)]",
-      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(139,92,246,0.18),transparent_55%)]",
+      ring: "text-accent-cyan shadow-[0_18px_52px_rgba(8,145,178,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
+      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(234,88,12,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(91,33,182,0.18),transparent_55%)]",
       img: "/gpu.svg",
+      imgLight: "/gpu-light.svg",
     },
   } as const;
   const tone = tones[accent];
@@ -100,9 +102,10 @@ function OverviewActionVisual({
       <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerB)} />
       <div className="relative flex h-full items-center justify-center rounded-[26px] p-[1.5px] bg-gradient-to-br from-accent-cyan/30 via-accent-violet/20 to-accent-red/30">
         <div className={cn("flex h-full w-full items-center justify-center rounded-[24.5px]", tone.ring)}>
-          <div className="absolute inset-5 rounded-[18px] bg-gradient-to-br from-white/30 to-transparent dark:from-white/[0.06]" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={tone.img} alt="" aria-hidden className="relative z-10 h-[85%] w-[85%] object-contain" loading="eager" fetchPriority="high" />
+          <img src={tone.imgLight} alt="" aria-hidden className="relative z-10 h-[85%] w-[85%] object-contain dark:hidden" loading="eager" fetchPriority="high" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={tone.img} alt="" aria-hidden className="relative z-10 hidden h-[85%] w-[85%] object-contain dark:block" loading="eager" fetchPriority="high" />
         </div>
       </div>
     </div>
@@ -133,14 +136,14 @@ function OverviewActionCard({
   const styles = {
     launch: {
       shell:
-        "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(220,38,38,0.15),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(255,82,82,0.16),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+        "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(234,88,12,0.15),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(255,82,82,0.16),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       chip: "border-accent-red/20 bg-accent-red/10 text-accent-red dark:border-accent-red/25",
       subchip: "border-accent-cyan/[0.18] bg-accent-cyan/[0.08] text-accent-cyan dark:border-accent-cyan/20",
       button: "bg-accent-red text-white hover:bg-accent-red-hover",
     },
     provider: {
       shell:
-        "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(14,165,233,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+        "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(8,145,178,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       chip: "border-accent-cyan/20 bg-accent-cyan/10 text-accent-cyan dark:border-accent-cyan/25",
       subchip: "border-accent-violet/[0.18] bg-accent-violet/[0.08] text-accent-violet dark:border-accent-violet/20",
       button: "border border-accent-cyan/25 bg-accent-cyan/10 text-accent-cyan hover:bg-accent-cyan/15",

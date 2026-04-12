@@ -108,6 +108,8 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
         <link rel="preload" href="/rocket.svg" as="image" type="image/svg+xml" />
         <link rel="preload" href="/gpu.svg" as="image" type="image/svg+xml" />
+        <link rel="preload" href="/rocket-light.svg" as="image" type="image/svg+xml" />
+        <link rel="preload" href="/gpu-light.svg" as="image" type="image/svg+xml" />
         {GA_ID && (
           <>
             <Script
