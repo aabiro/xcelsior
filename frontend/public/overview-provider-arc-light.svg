@@ -148,6 +148,10 @@
       <path d="M82 80L144 70" stroke="#0891B2" stroke-opacity="0.76" stroke-width="1.8" stroke-linecap="round"/>
       <path d="M82 88L128 80" stroke="#5B21B6" stroke-opacity="0.24" stroke-width="0.9" stroke-linecap="round"/>
     </g>
+    <g opacity="0.98" filter="url(#glow)" transform="translate(154 18)">
+      <circle cx="0" cy="0" r="13" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="0.7"/>
+      <path d="M0 5V-5M0 -5L-4 -1M0 -5L4 -1" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
     <g opacity="0.58" transform="translate(0 48)">
       <path d="M18 42L126 26L170 52L62 68Z" fill="url(#serverTop)" stroke="url(#serverStroke)" stroke-width="1.0"/>
       <path d="M62 68L170 52V84L62 100Z" fill="url(#serverFace)" stroke="url(#serverStroke)" stroke-width="0.88"/>
