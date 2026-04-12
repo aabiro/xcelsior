@@ -9,7 +9,7 @@ import { Store, Search, RefreshCw, Cpu, MapPin, Zap } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { MarketplaceListing } from "@/lib/api";
-import { RentModal } from "@/components/marketplace/rent-modal";
+import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { toast } from "sonner";
 
@@ -154,10 +154,13 @@ export default function MarketplacePage() {
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       )}
 
-      {/* Rent Modal */}
-      {rentListing && (
-        <RentModal listing={rentListing} onClose={() => setRentListing(null)} />
-      )}
+      {/* Launch Instance Modal */}
+      <LaunchInstanceModal
+        open={!!rentListing}
+        onClose={() => setRentListing(null)}
+        listing={rentListing ?? undefined}
+        onLaunched={() => setRentListing(null)}
+      />
     </div>
   );
 }

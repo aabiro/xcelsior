@@ -809,6 +809,23 @@ def _ensure_oauth_auth_tables(conn) -> None:
     )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_session_type ON sessions (session_type)")
 
+    # Team invites
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS team_invites (
+            token TEXT PRIMARY KEY,
+            team_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member',
+            invited_by TEXT NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL,
+            expires_at DOUBLE PRECISION NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_email ON team_invites (email)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_team ON team_invites (team_id)")
+
 
 def _ensure_auth_schema(conn) -> None:
     global _auth_schema_ensured
@@ -1223,6 +1240,51 @@ class UserStore:
                 WHERE tm.email = %s
             """,
                 (email,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Team Invites ──
+
+    @staticmethod
+    def create_team_invite(invite: dict) -> None:
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO team_invites (token, team_id, email, role, invited_by, created_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (token) DO NOTHING
+                """,
+                (
+                    invite["token"],
+                    invite["team_id"],
+                    invite["email"].lower(),
+                    invite.get("role", "member"),
+                    invite["invited_by"],
+                    invite["created_at"],
+                    invite["expires_at"],
+                ),
+            )
+
+    @staticmethod
+    def get_team_invite(token: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM team_invites WHERE token = %s", (token,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def delete_team_invite(token: str) -> None:
+        with auth_connection() as conn:
+            conn.execute("DELETE FROM team_invites WHERE token = %s", (token,))
+
+    @staticmethod
+    def get_pending_invites_for_email(email: str) -> list[dict]:
+        with auth_connection() as conn:
+            import time as _time
+            rows = conn.execute(
+                "SELECT * FROM team_invites WHERE email = %s AND expires_at > %s",
+                (email.lower(), _time.time()),
             ).fetchall()
             return [dict(r) for r in rows]
 

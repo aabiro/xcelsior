@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
 import {
   Cpu, RefreshCw, Plus, Trash2, Loader2, Zap, Clock, BarChart3,
   Globe, Server, Copy, Check, DollarSign, ChevronDown,
@@ -245,23 +245,21 @@ export default function InferencePage() {
             <div className="grid gap-4 sm:grid-cols-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Min Workers</label>
-                <Input
-                  type="number"
+                <NumberInput
                   min={0}
                   max={10}
                   value={minWorkers}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMinWorkers(Number(e.target.value))}
+                  onChange={(v) => setMinWorkers(v)}
                 />
                 <p className="text-xs text-text-muted mt-0.5">0 = scale to zero</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Max Workers</label>
-                <Input
-                  type="number"
+                <NumberInput
                   min={1}
                   max={10}
                   value={maxWorkers}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMaxWorkers(Number(e.target.value))}
+                  onChange={(v) => setMaxWorkers(v)}
                 />
               </div>
               <div>

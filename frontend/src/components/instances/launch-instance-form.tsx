@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label, Select, NumberInput } from "@/components/ui/input";
 import { TemplateArtwork } from "@/components/instances/template-artwork";
 import {
   launchInstance,
@@ -221,7 +221,7 @@ export function LaunchInstanceForm({
             className={cn(
               "group flex min-h-[148px] flex-col items-center justify-center gap-3 rounded-2xl border p-4 text-center transition-all",
               !templates.some((template) => template.image === image)
-                ? "border-accent-red/40 bg-accent-red/8"
+                ? "border-ice-blue/40 bg-ice-blue/5"
                 : "border-border/80 bg-background/30 hover:border-text-muted/50 hover:bg-background/60",
             )}
           >
@@ -229,7 +229,7 @@ export function LaunchInstanceForm({
               className={cn(
                 "flex h-16 w-16 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
                 !templates.some((template) => template.image === image)
-                  ? "border-accent-red/30 bg-accent-red/10 text-accent-red"
+                  ? "border-transparent bg-ice-blue/10 text-ice-blue"
                   : "border-border/60 text-text-secondary",
               )}
             >
@@ -246,7 +246,7 @@ export function LaunchInstanceForm({
               className={cn(
                 "group flex min-h-[148px] flex-col items-center justify-center gap-3 rounded-2xl border p-4 text-center transition-all",
                 image === template.image
-                  ? "border-accent-red/40 bg-accent-red/8"
+                  ? "border-ice-blue/40 bg-ice-blue/5"
                   : "border-border/80 bg-background/30 hover:border-text-muted/50 hover:bg-background/60",
               )}
             >
@@ -323,16 +323,14 @@ export function LaunchInstanceForm({
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="numGpus">{t("dash.newinstance.gpu_count")}</Label>
-            <Input
+            <NumberInput
               id="numGpus"
               name="num-gpus"
               autoComplete="on"
-              list="past-numgpus"
-              type="number"
-              min="1"
-              max="8"
+              min={1}
+              max={8}
               value={numGpus}
-              onChange={(e) => setNumGpus(e.target.value)}
+              onChange={(v) => setNumGpus(String(v))}
             />
             <datalist id="past-numgpus">
               {(pastValues.numGpus || []).map((v) => <option key={v} value={v} />)}
@@ -394,16 +392,14 @@ export function LaunchInstanceForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="duration">{t("dash.newinstance.duration")}</Label>
-            <Input
+            <NumberInput
               id="duration"
               name="duration-hours"
               autoComplete="on"
-              list="past-duration"
-              type="number"
-              min="0.5"
-              step="0.5"
+              min={0.5}
+              step={0.5}
               value={durationHrs}
-              onChange={(e) => setDurationHrs(e.target.value)}
+              onChange={(v) => setDurationHrs(String(v))}
             />
             <datalist id="past-duration">
               {(pastValues.durationHrs || []).map((v) => <option key={v} value={v} />)}

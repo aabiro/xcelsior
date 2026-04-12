@@ -70,7 +70,7 @@ function OverviewActionVisual({
   mirrored = false,
 }: {
   accent: "launch" | "provider";
-  icon: LucideIcon;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   mirrored?: boolean;
 }) {
   // Custom corner gradients: launch = blue top left, provider = red top right
@@ -92,10 +92,7 @@ function OverviewActionVisual({
       <div className={cn("absolute inset-[18px] rounded-[24px] border border-white/[0.45] dark:border-white/[0.08]", tone.panel)} />
       <div className="relative flex h-full items-center justify-center rounded-[26px] border" style={{ boxShadow: '0 18px 52px 0 rgba(0,212,255,0.10)' }}>
         <div className="absolute inset-5 rounded-[18px] border border-white/30 bg-gradient-to-br from-white/30 to-transparent dark:border-white/[0.06] dark:from-white/[0.06]" />
-        <Icon
-          className={iconClassName}
-          style={accent === "launch" ? { transform: "scaleX(-1)" } : undefined}
-        />
+        <Icon className={iconClassName} />
       </div>
     </div>
   );
@@ -117,7 +114,7 @@ function OverviewActionCard({
   href: string;
   buttonLabel: string;
   accent: "launch" | "provider";
-  icon: LucideIcon;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   buttonIcon: LucideIcon;
   reverse?: boolean;
   mirrorVisual?: boolean;
@@ -255,7 +252,7 @@ export default function DashboardOverview() {
               href="/dashboard/instances?launch=true"
               buttonLabel="Launch Instance"
               accent="launch"
-              icon={CanadaMapHero}
+              icon={MapRocketIcon}
               buttonIcon={Plus}
               reverse={false}
               mirrorVisual
@@ -266,7 +263,7 @@ export default function DashboardOverview() {
               href="/dashboard/hosts"
               buttonLabel="Register Host"
               accent="provider"
-              icon={CanadaMapHero}
+              icon={MapServerIcon}
               buttonIcon={Plus}
               reverse
               mirrorVisual

@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
-import { Dialog } from "@/components/ui/dialog";
-import { LaunchInstanceForm } from "@/components/instances/launch-instance-form";
+import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
 import {
   Briefcase, Plus, Search, RefreshCw, XCircle, ArrowUpDown, ArrowUp, ArrowDown,
   MoreVertical, Square, Play, RotateCcw, Zap,
@@ -390,24 +389,11 @@ export default function InstancesPage() {
         />
       )}
 
-      <Dialog
+      <LaunchInstanceModal
         open={launchOpen}
         onClose={closeLaunchModal}
-        title={t("dash.newinstance.title")}
-        description={t("dash.newinstance.subtitle")}
-        maxWidth="max-w-5xl"
-        className="h-[88vh]"
-        bodyClassName="overflow-y-auto px-6 pb-6"
-      >
-        <LaunchInstanceForm
-          className="pt-6"
-          onCancel={closeLaunchModal}
-          onSubmitted={() => {
-            closeLaunchModal();
-            load();
-          }}
-        />
-      </Dialog>
+        onLaunched={() => { closeLaunchModal(); load(); }}
+      />
     </div>
   );
 }

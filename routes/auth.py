@@ -798,9 +798,14 @@ def api_auth_login(body: LoginRequest, request: Request):
     # ── MFA check ──
     enabled_methods: list[dict] = []
     if _USE_PERSISTENT_AUTH:
-        enabled_methods = [m for m in MfaStore.list_methods(email) if m.get("enabled")]
+        all_methods = MfaStore.list_methods(email)
+        enabled_methods = [m for m in all_methods if m.get("enabled")]
+        log.info(f"MFA check for {email}: {len(all_methods)} total methods, {len(enabled_methods)} enabled methods")
+        if enabled_methods:
+            log.info(f"Enabled MFA methods for {email}: {[m['method_type'] for m in enabled_methods]}")
         live_mfa_enabled = bool(enabled_methods)
         if live_mfa_enabled != bool(user.get("mfa_enabled")):
+            log.info(f"Syncing mfa_enabled flag for {email}: {live_mfa_enabled}")
             UserStore.update_user(email, {"mfa_enabled": 1 if live_mfa_enabled else 0})
             user["mfa_enabled"] = 1 if live_mfa_enabled else 0
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -36,6 +36,7 @@ function LoginPageContent() {
   const [mfaVerifying, setMfaVerifying] = useState(false);
   const [smsSent, setSmsSent] = useState(false);
   const [passkeyAuthenticating, setPasskeyAuthenticating] = useState(false);
+  const mfaAutoSubmitted = useRef(false);
 
   // Email verification state
   const [emailNotVerified, setEmailNotVerified] = useState(false);
@@ -322,7 +323,19 @@ function LoginPageContent() {
                 <Label>{mfaMethod === "backup" ? t("auth.mfa_backup_label") : t("auth.mfa_code_placeholder")}</Label>
                 <Input
                   value={mfaCode}
-                  onChange={(e) => setMfaCode(mfaMethod === "backup" ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onChange={(e) => {
+                    const val = mfaMethod === "backup" ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, "").slice(0, 6);
+                    setMfaCode(val);
+                    // Auto-verify on last digit for TOTP / SMS (6 digits)
+                    if (mfaMethod !== "backup" && val.length === 6 && !mfaAutoSubmitted.current) {
+                      mfaAutoSubmitted.current = true;
+                      setMfaVerifying(true);
+                      verifyMfaLogin(mfaChallengeId, mfaMethod, val)
+                        .then(() => completeBrowserLogin())
+                        .catch((err) => setError(err instanceof Error ? err.message : "Verification failed"))
+                        .finally(() => { mfaAutoSubmitted.current = false; setMfaVerifying(false); });
+                    }
+                  }}
                   placeholder={mfaMethod === "backup" ? "XXXX-XXXX" : "000000"}
                   className="font-mono text-center text-lg tracking-widest"
                   maxLength={mfaMethod === "backup" ? 9 : 6}

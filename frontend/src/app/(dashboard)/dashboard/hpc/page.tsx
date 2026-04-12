@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label, Select, NumberInput } from "@/components/ui/input";
 import {
   Cpu, RefreshCw, Play, XCircle, Loader2, Server, Clock, CheckCircle,
   AlertTriangle, FileCode,
@@ -226,11 +226,11 @@ function HpcContent() {
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">Nodes</Label>
-                <Input type="number" min={1} value={nodes} onChange={(e) => setNodes(e.target.value)} />
+                <NumberInput min={1} value={nodes} onChange={(v) => setNodes(String(v))} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">GPUs per Node</Label>
-                <Input type="number" min={0} value={gpus} onChange={(e) => setGpus(e.target.value)} />
+                <NumberInput min={0} value={gpus} onChange={(v) => setGpus(String(v))} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Wall Time</Label>

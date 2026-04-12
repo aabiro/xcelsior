@@ -233,7 +233,7 @@ export function RentModal({ listing, onClose }: RentModalProps) {
                         className={cn(
                           "flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface/80 transition-transform group-hover:scale-105",
                           isCustom
-                            ? "border-ice-blue/30 bg-ice-blue/10 text-ice-blue"
+                            ? "border-transparent bg-ice-blue/10 text-ice-blue"
                             : "border-border/60",
                         )}
                       >

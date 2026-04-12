@@ -3,26 +3,26 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { HTMLAttributes } from "react";
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold border border-accent-cyan/40 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan/40 shadow-sm",
+  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold shadow-sm",
   {
     variants: {
       variant: {
-        default: "bg-navy-lighter text-text-secondary",
-        active: "bg-emerald/20 text-emerald",
-        dead: "bg-accent-red/20 text-accent-red",
-        queued: "bg-ice-blue/20 text-ice-blue",
-        running: "bg-emerald/20 text-emerald",
-        completed: "bg-navy-lighter text-text-secondary",
-        failed: "bg-accent-red/20 text-accent-red",
-        cancelled: "bg-accent-gold/20 text-accent-gold",
-        warning: "bg-accent-gold/20 text-accent-gold",
-        info: "bg-ice-blue/20 text-ice-blue",
+        default: "border-accent-cyan/30 bg-accent-cyan/15 text-white",
+        active: "border-emerald/30 bg-emerald/15 text-emerald",
+        dead: "border-accent-red/30 bg-accent-red/15 text-accent-red",
+        queued: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue",
+        running: "border-emerald/30 bg-emerald/15 text-emerald",
+        completed: "border-accent-cyan/30 bg-accent-cyan/15 text-white",
+        failed: "border-accent-red/30 bg-accent-red/15 text-accent-red",
+        cancelled: "border-accent-gold/30 bg-accent-gold/15 text-accent-gold",
+        warning: "border-accent-gold/30 bg-accent-gold/15 text-accent-gold",
+        info: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue",
         // Instance lifecycle states
-        starting: "bg-ice-blue/15 text-ice-blue animate-status-restarting",
-        stopping: "bg-accent-gold/15 text-accent-gold animate-status-stopping",
-        stopped: "bg-[#6366f1]/20 text-[#818cf8]",
-        restarting: "bg-ice-blue/15 text-ice-blue animate-status-restarting",
-        terminated: "bg-accent-red/20 text-accent-red",
+        starting: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue animate-status-restarting",
+        stopping: "border-accent-gold/30 bg-accent-gold/15 text-accent-gold animate-status-stopping",
+        stopped: "border-[#6366f1]/30 bg-[#6366f1]/15 text-[#818cf8]",
+        restarting: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue animate-status-restarting",
+        terminated: "border-accent-red/30 bg-accent-red/15 text-accent-red",
       },
     },
     defaultVariants: { variant: "default" },

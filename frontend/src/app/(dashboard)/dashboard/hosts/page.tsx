@@ -743,88 +743,85 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
   }
 
   return (
-    <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04] p-0">
-      <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
-      <div className="absolute bottom-0 left-12 h-32 w-32 rounded-full bg-accent-violet/10 blur-3xl" />
-      <div className="relative grid xl:grid-cols-[0.98fr_1.02fr]">
-        <div className="p-6 md:p-7">
+    <div className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
+      {/* Steps card */}
+      <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/[0.04]">
+        <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
+        <div className="absolute bottom-0 left-12 h-32 w-32 rounded-full bg-accent-violet/10 blur-3xl" />
+        <div className="relative p-6 md:p-7">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-accent-cyan">Become a Host</p>
 
-          <div className="mt-5 space-y-4">
-            <div className="rounded-[24px] border border-accent-cyan/20 bg-accent-cyan/[0.07] p-4">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-accent-cyan/25 bg-accent-cyan/10 text-sm font-semibold text-accent-cyan">
-                  1
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-text-primary">Register host</p>
-                  <p className="text-xs text-text-muted">Create the machine record.</p>
-                </div>
+          <div className="mt-5 space-y-5">
+            {/* Step 1 */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent-cyan/25 bg-accent-cyan/10 text-sm font-semibold text-accent-cyan">
+                1
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary">Register host</p>
+                <p className="mt-0.5 text-xs text-text-muted">Create the machine record.</p>
+                <Button
+                  className="mt-3 h-10 rounded-full bg-accent-cyan px-4 text-navy hover:bg-accent-cyan/90"
+                  onClick={onRegister}
+                >
+                  <Plus className="h-4 w-4" />
+                  Register Host
+                </Button>
               </div>
-              <Button
-                className="mt-4 h-10 rounded-full bg-accent-cyan px-4 text-navy hover:bg-accent-cyan/90"
-                onClick={onRegister}
-              >
-                <Plus className="h-4 w-4" />
-                Register Host
-              </Button>
             </div>
 
-            <div className="rounded-[24px] border border-accent-violet/[0.18] bg-accent-violet/[0.06] p-4">
-              <div className="mb-3 flex items-start gap-3">
-                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-accent-violet/25 bg-accent-violet/10 text-sm font-semibold text-accent-violet">
-                  2
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-text-primary">Install SDK</p>
-                  <p className="text-xs text-text-muted">Add the setup tools globally.</p>
+            <div className="ml-4 border-t border-border/40" />
+
+            {/* Step 2 */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent-violet/25 bg-accent-violet/10 text-sm font-semibold text-accent-violet">
+                2
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary">Install SDK</p>
+                <p className="mt-0.5 text-xs text-text-muted">Add the setup tools globally.</p>
+                <div className="mt-3">
+                  <CodeSnippet label="host-card-sdk" text={sdkInstall} copied={copied} onCopy={handleCopy} />
                 </div>
               </div>
-              <CodeSnippet label="host-card-sdk" text={sdkInstall} copied={copied} onCopy={handleCopy} />
             </div>
 
-            <div className="rounded-[24px] border border-accent-gold/[0.18] bg-accent-gold/[0.05] p-4">
-              <div className="mb-3 flex items-start gap-3">
-                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full border border-accent-gold/25 bg-accent-gold/10 text-sm font-semibold text-accent-gold">
-                  3
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
-                  <p className="text-xs text-text-muted">Detect, register, and configure.</p>
+            <div className="ml-4 border-t border-border/40" />
+
+            {/* Step 3 */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent-gold/25 bg-accent-gold/10 text-sm font-semibold text-accent-gold">
+                3
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary">Run AI Onboarding Wizard</p>
+                <p className="mt-0.5 text-xs text-text-muted">Detect, register, and configure.</p>
+                <div className="mt-3">
+                  <CodeSnippet label="host-card-wizard" text={wizardCmd} copied={copied} onCopy={handleCopy} />
                 </div>
               </div>
-              <CodeSnippet label="host-card-wizard" text={wizardCmd} copied={copied} onCopy={handleCopy} />
             </div>
           </div>
         </div>
+      </Card>
 
-        <div className="relative min-h-[360px] overflow-hidden border-t border-border/60 bg-background/30 xl:border-l xl:border-t-0">
-          <img
-            src="/xcelsior-hosts-setup-arc-light.svg"
-            alt=""
-            aria-hidden
-            width={1200}
-            height={900}
-            loading="eager"
-            decoding="sync"
-            fetchPriority="high"
-            className="h-full w-full object-cover dark:hidden"
-          />
-          <img
-            src="/xcelsior-hosts-setup-arc-dark.svg"
-            alt=""
-            aria-hidden
-            width={1200}
-            height={900}
-            loading="eager"
-            decoding="sync"
-            fetchPriority="high"
-            className="hidden h-full w-full object-cover dark:block"
-          />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/25 to-transparent xl:bg-gradient-to-l xl:from-transparent xl:via-background/5 xl:to-background/10" />
-        </div>
+      {/* Image — fully transparent background */}
+      <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
+        <img
+          src="/xcelsior-hosts-setup-transparent.svg"
+          alt=""
+          aria-hidden
+          width={1200}
+          height={900}
+          loading="eager"
+          decoding="sync"
+          fetchPriority="high"
+          className="h-full w-full object-cover"
+        />
+        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
+        <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />
       </div>
-    </Card>
+    </div>
   );
 }
 
