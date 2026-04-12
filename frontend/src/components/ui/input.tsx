@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { InputHTMLAttributes } from "react";
+import { ChevronUp, ChevronDown } from "lucide-react";
+import { useState, useRef } from "react";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 
@@ -59,5 +61,105 @@ export function TextArea({
       )}
       {...props}
     />
+  );
+}
+
+interface NumberInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange'> {
+  value?: number | string;
+  onChange?: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export function NumberInput({
+  className,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  disabled,
+  ...props
+}: NumberInputProps) {
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleIncrement = () => {
+    if (disabled) return;
+    const currentValue = typeof value === 'number' ? value : parseFloat(value as string) || 0;
+    const newValue = currentValue + step;
+    if (max === undefined || newValue <= max) {
+      onChange?.(newValue);
+    }
+  };
+
+  const handleDecrement = () => {
+    if (disabled) return;
+    const currentValue = typeof value === 'number' ? value : parseFloat(value as string) || 0;
+    const newValue = currentValue - step;
+    if (min === undefined || newValue >= min) {
+      onChange?.(newValue);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    if (!isNaN(val)) {
+      onChange?.(val);
+    } else if (e.target.value === '') {
+      onChange?.(min ?? 0);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type="number"
+        value={value}
+        onChange={handleChange}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        disabled={disabled}
+        min={min}
+        max={max}
+        step={step}
+        className={cn(
+          "flex h-10 w-full rounded-lg border border-border bg-navy px-3 py-2 pr-8 text-sm text-text-primary placeholder:text-text-muted",
+          "focus:outline-none focus:ring-2 focus:ring-ice-blue focus:border-transparent",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+          className,
+        )}
+        {...props}
+      />
+      {isFocused && !disabled && (
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 bg-navy/95 rounded-md border border-border/50 shadow-lg backdrop-blur-sm">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              handleIncrement();
+            }}
+            className="p-1 hover:bg-ice-blue/10 rounded-t-md transition-colors text-text-secondary hover:text-ice-blue"
+            tabIndex={-1}
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              handleDecrement();
+            }}
+            className="p-1 hover:bg-ice-blue/10 rounded-b-md transition-colors text-text-secondary hover:text-ice-blue"
+            tabIndex={-1}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

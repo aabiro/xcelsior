@@ -146,6 +146,65 @@ def api_my_teams(request: Request):
     teams = UserStore.get_user_teams(user["email"])
     return {"ok": True, "teams": teams}
 
+# ── Invite routes must be declared BEFORE /{team_id} to avoid being swallowed by the wildcard ──
+
+@router.get("/api/teams/invite/{token}", tags=["Teams"])
+def api_accept_team_invite(token: str, request: Request):
+    """Accept a team invitation. Adds the user to the team if their account exists."""
+    invite = UserStore.get_team_invite(token)
+    if not invite:
+        raise HTTPException(404, "Invitation not found or expired")
+    if time.time() > invite["expires_at"]:
+        UserStore.delete_team_invite(token)
+        raise HTTPException(410, "Invitation has expired")
+
+    team = UserStore.get_team(invite["team_id"])
+    if not team:
+        raise HTTPException(404, "Team no longer exists")
+
+    target = UserStore.get_user(invite["email"])
+    if not target:
+        # User hasn't signed up yet — return info for the frontend to use
+        return {
+            "ok": True,
+            "pending": True,
+            "team_name": team["name"],
+            "email": invite["email"],
+            "role": invite["role"],
+            "token": token,
+        }
+
+    ok = UserStore.add_team_member(invite["team_id"], invite["email"], invite["role"])
+    UserStore.delete_team_invite(token)
+    if not ok:
+        raise HTTPException(400, "Team is at member capacity")
+    broadcast_sse("team_member_added", {"team_id": invite["team_id"], "email": invite["email"]})
+    return {"ok": True, "accepted": True, "team_name": team["name"], "role": invite["role"]}
+
+
+@router.post("/api/teams/invite/{token}/accept", tags=["Teams"])
+def api_accept_invite_authenticated(token: str, request: Request):
+    """Accept invite for a logged-in user (completes after registration or sign-in)."""
+    user = _require_user_grant(request)
+    invite = UserStore.get_team_invite(token)
+    if not invite:
+        raise HTTPException(404, "Invitation not found or expired")
+    if invite["email"].lower() != user["email"].lower():
+        raise HTTPException(403, "This invitation is for a different email address")
+    if time.time() > invite["expires_at"]:
+        UserStore.delete_team_invite(token)
+        raise HTTPException(410, "Invitation has expired")
+    team = UserStore.get_team(invite["team_id"])
+    if not team:
+        raise HTTPException(404, "Team no longer exists")
+    ok = UserStore.add_team_member(invite["team_id"], invite["email"], invite["role"])
+    UserStore.delete_team_invite(token)
+    if not ok:
+        raise HTTPException(400, "Team is at member capacity")
+    broadcast_sse("team_member_added", {"team_id": invite["team_id"], "email": invite["email"]})
+    return {"ok": True, "accepted": True, "team_name": team["name"], "role": invite["role"]}
+
+
 @router.get("/api/teams/{team_id}", tags=["Teams"])
 def api_get_team(team_id: str, request: Request):
     """Get team details including members."""
@@ -177,25 +236,45 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
     if not requester or requester["role"] != "admin":
         raise HTTPException(403, "Only team admins can add members")
 
-    # Verify target user exists
+    # Check if user already exists
     target = UserStore.get_user(body.email)
-    if not target:
-        raise HTTPException(404, f"User {body.email} not found")
+    if target:
+        # User exists — add directly
+        ok = UserStore.add_team_member(team_id, body.email, body.role)
+        if not ok:
+            raise HTTPException(400, "Team is at member capacity")
+        broadcast_sse("team_member_added", {"team_id": team_id, "email": body.email})
+        _send_team_email(
+            body.email,
+            f"You've been added to team {team['name']}",
+            f"You've been added to the team \"{team['name']}\" on Xcelsior as a {body.role}.\n\nYou can now collaborate with your team, share billing, and manage GPU instances together.",
+            cta_url="https://xcelsior.ca/dashboard/settings",
+            cta_label="View Your Team",
+        )
+        return {"ok": True, "message": f"{body.email} added to team as {body.role}"}
 
-    ok = UserStore.add_team_member(team_id, body.email, body.role)
-    if not ok:
-        raise HTTPException(400, "Team is at member capacity")
-
-    broadcast_sse("team_member_added", {"team_id": team_id, "email": body.email})
-    # Send email notification (best-effort, non-blocking)
+    # User doesn't exist yet — create a pending invite
+    import secrets as _secrets
+    token = _secrets.token_urlsafe(32)
+    UserStore.create_team_invite({
+        "token": token,
+        "team_id": team_id,
+        "email": body.email,
+        "role": body.role,
+        "invited_by": user["email"],
+        "created_at": time.time(),
+        "expires_at": time.time() + 7 * 24 * 3600,  # 7 days
+    })
+    invite_url = f"https://xcelsior.ca/accept-invite?token={token}"
     _send_team_email(
         body.email,
-        f"You've been added to team {team['name']}",
-        f"You've been added to the team \"{team['name']}\" on Xcelsior as a {body.role}.\n\nYou can now collaborate with your team, share billing, and manage GPU instances together.",
-        cta_url="https://xcelsior.ca/dashboard/settings",
-        cta_label="View Your Team",
+        f"You've been invited to join team {team['name']} on Xcelsior",
+        f"{user.get('name', user['email'])} has invited you to join the team \"{team['name']}\" on Xcelsior as a {body.role}.\n\nClick the link below to create your account and join the team.",
+        cta_url=invite_url,
+        cta_label="Accept Invitation",
     )
-    return {"ok": True, "message": f"{body.email} added to team as {body.role}"}
+    return {"ok": True, "message": f"Invitation sent to {body.email}", "invited": True}
+
 
 @router.delete("/api/teams/{team_id}/members/{email}", tags=["Teams"])
 def api_remove_team_member(team_id: str, email: str, request: Request):

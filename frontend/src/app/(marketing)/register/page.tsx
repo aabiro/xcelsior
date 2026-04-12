@@ -28,8 +28,9 @@ function RegisterPageContent() {
   const { login } = useAuth();
   const { t } = useLocale();
   const redirectTarget = normalizeAuthRedirectPath(searchParams.get("redirect"), "/dashboard");
+  const inviteToken = searchParams.get("invite") ?? "";
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -52,7 +53,12 @@ function RegisterPageContent() {
 
   async function completeBrowserLogin() {
     await login().catch(() => {});
-    router.replace(redirectTarget);
+    // If there's a pending invite, redirect to accept it
+    if (inviteToken) {
+      router.replace(`/accept-invite?token=${encodeURIComponent(inviteToken)}`);
+    } else {
+      router.replace(redirectTarget);
+    }
   }
 
   async function handleRegister(e: React.FormEvent) {

@@ -228,7 +228,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 className="block h-[40px] w-auto shrink-0 dark:hidden"
               />
               <span
-                className="relative z-10 shrink-0 rounded-full border border-accent-cyan/40 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white shadow-sm dark:text-accent-cyan dark:bg-gradient-to-r dark:from-accent-cyan/90 dark:to-white/10 dark:border-accent-cyan/60"
+                className="relative z-10 shrink-0 rounded-full border border-accent-cyan/40 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white shadow-sm"
                 style={{
                   textShadow: '0 1px 4px rgba(0,0,0,0.18), 0 0px 1px #fff',
                   letterSpacing: '0.18em',
@@ -607,7 +607,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           )}
           title={aiPanelOpen ? t("ai.close_panel") : t("ai.open_panel")}
         >
-          <Sparkles className={cn("h-[30px] w-[30px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
+          <Sparkles className={cn("h-[47px] w-[47px] transition-transform duration-200", aiPanelOpen && "rotate-12")} />
         </button>
       </div>
     </div>

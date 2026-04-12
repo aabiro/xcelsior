@@ -35,7 +35,7 @@ function _redirectToLogin() {
   }
 }
 
-async function apiFetch<T = unknown>(
+export async function apiFetch<T = unknown>(
   path: string,
   opts: RequestInit = {},
 ): Promise<T> {

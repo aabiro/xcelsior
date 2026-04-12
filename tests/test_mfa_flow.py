@@ -8,17 +8,30 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("XCELSIOR_API_TOKEN", "testtoken")
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
+import api as _api_mod
+import routes._deps as _deps_mod
+import routes.auth as _auth_mod
+
 from api import app
 from db import MfaStore, UserStore, auth_connection
 
 
 @pytest.fixture(autouse=True)
-def clean_mfa_flow_state():
+def clean_mfa_flow_state(monkeypatch):
+    # MFA tests require persistent auth (DB-backed users/sessions) even in test env.
+    # .env.test sets XCELSIOR_PERSISTENT_AUTH=false for unit tests, so patch it back.
+    monkeypatch.setattr(_api_mod, "_USE_PERSISTENT_AUTH", True)
+    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
+    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
+    _deps_mod._AUTH_RATE_BUCKETS.clear()
+    monkeypatch.setattr(_deps_mod, "_AUTH_RATE_LIMIT_REQUESTS", 5000)
+
     with auth_connection() as conn:
         conn.execute("DELETE FROM mfa_backup_codes")
         conn.execute("DELETE FROM mfa_methods")
         conn.execute("DELETE FROM mfa_challenges")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM oauth_refresh_tokens WHERE email LIKE 'mfa-flow-%'")
         conn.execute("DELETE FROM users WHERE email LIKE 'mfa-flow-%'")
     yield
     with auth_connection() as conn:
@@ -26,6 +39,7 @@ def clean_mfa_flow_state():
         conn.execute("DELETE FROM mfa_methods")
         conn.execute("DELETE FROM mfa_challenges")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM oauth_refresh_tokens WHERE email LIKE 'mfa-flow-%'")
         conn.execute("DELETE FROM users WHERE email LIKE 'mfa-flow-%'")
 
 
