@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useAiChat } from "@/hooks/useAiChat";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import {
   ToolCallBubble,
   ToolResultBubble,
@@ -64,16 +65,7 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
             <Sparkles className="h-6 w-6 text-accent-cyan" />
           </div>
           <span className="text-base font-semibold">{t("ai.title")}</span>
-          <span
-            className="relative z-10 shrink-0 rounded-full border border-accent-cyan/40 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white shadow-sm"
-            style={{
-              textShadow: '0 1px 4px rgba(0,0,0,0.18), 0 0px 1px #fff',
-              letterSpacing: '0.18em',
-              lineHeight: 1.2,
-            }}
-          >
-            Beta
-          </span>
+          <span className="rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
         </div>
         <div className="flex items-center gap-0.5">
           <button

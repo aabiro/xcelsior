@@ -73,26 +73,35 @@ function OverviewActionVisual({
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   mirrored?: boolean;
 }) {
-  // Custom corner gradients: launch = blue top left, provider = red top right
-  const tone = accent === "launch"
-    ? {
-        shell: "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(0,212,255,0.22),transparent_55%)] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(0,212,255,0.22),transparent_55%)]",
-        panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-        ring: "border-accent-red/20 text-accent-red shadow-[0_18px_52px_rgba(0,212,255,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.18)]",
-      }
-    : {
-        shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(220,38,38,0.22),transparent_55%)] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(255,82,82,0.22),transparent_55%)]",
-        panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-        ring: "border-accent-cyan/20 text-accent-cyan shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.16)]",
-      };
-  const iconClassName = "relative z-10 h-9 w-9 md:h-10 md:w-10";
+  const tones = {
+    launch: {
+      shell: "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(220,38,38,0.16),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(255,82,82,0.18),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+      panel: "bg-white/[0.72] dark:bg-[#091120]/85",
+      ring: "border-accent-red/20 text-accent-red shadow-[0_18px_52px_rgba(220,38,38,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
+      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(220,38,38,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(0,212,255,0.18),transparent_55%)]",
+      img: "/rocket.svg",
+    },
+    provider: {
+      shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(14,165,233,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+      panel: "bg-white/[0.72] dark:bg-[#091120]/85",
+      ring: "border-accent-cyan/20 text-accent-cyan shadow-[0_18px_52px_rgba(14,165,233,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
+      cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(139,92,246,0.18),transparent_55%)]",
+      img: "/gpu.svg",
+    },
+  } as const;
+  const tone = tones[accent];
 
   return (
     <div className={cn("relative h-[180px] w-full max-w-[220px] overflow-hidden rounded-[30px] border p-4 backdrop-blur-sm", tone.shell)}>
       <div className={cn("absolute inset-[18px] rounded-[24px] border border-white/[0.45] dark:border-white/[0.08]", tone.panel)} />
-      <div className="relative flex h-full items-center justify-center rounded-[26px] border" style={{ boxShadow: '0 18px 52px 0 rgba(0,212,255,0.10)' }}>
+      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerA)} />
+      <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerB)} />
+      <div className={cn("relative flex h-full items-center justify-center rounded-[26px] border", tone.ring)}>
         <div className="absolute inset-5 rounded-[18px] border border-white/30 bg-gradient-to-br from-white/30 to-transparent dark:border-white/[0.06] dark:from-white/[0.06]" />
-        <Icon className={iconClassName} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={tone.img} alt="" aria-hidden className="relative z-10 h-16 w-16 object-contain md:h-[72px] md:w-[72px]" loading="eager" fetchPriority="high" />
       </div>
     </div>
   );
