@@ -227,16 +227,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 alt="Xcelsior"
                 className="block h-[40px] w-auto shrink-0 dark:hidden"
               />
-              <span
-                className="relative z-10 shrink-0 rounded-full border border-accent-cyan/40 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white shadow-sm"
-                style={{
-                  textShadow: '0 1px 4px rgba(0,0,0,0.18), 0 0px 1px #fff',
-                  letterSpacing: '0.18em',
-                  lineHeight: 1.2,
-                }}
-              >
-                Beta
-              </span>
+              <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>
           </div>
         </Link>
@@ -271,12 +262,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 <div className="flex items-center gap-2">
                   <span>{label}</span>
                   {item.badge && (
-                    <Badge
-                      variant="info"
-                      className="border border-ice-blue/20 px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide"
-                    >
+                    <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">
                       {item.badge}
-                    </Badge>
+                    </span>
                   )}
                 </div>
               )}
