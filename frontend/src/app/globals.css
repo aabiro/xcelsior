@@ -46,15 +46,15 @@ html.light {
   --color-navy: #ffffff;
   --color-navy-light: #f8fafc;
   --color-navy-lighter: #e2e8f0;
-  --color-accent-red: #dc2626;
-  --color-accent-red-hover: #b91c1c;
+  --color-accent-red: #ea580c;
+  --color-accent-red-hover: #c2410c;
   --color-accent-gold: #e58912;
   --color-accent-gold-hover: #b45309;
   --color-accent-orange: #f06b1a;
   --color-accent-orange-hover: #c2410c;
-  --color-ice-blue: #0ea5e9;
-  --color-accent-cyan: #0ea5e9;
-  --color-accent-violet: #6d28d9;
+  --color-ice-blue: #0891b2;
+  --color-accent-cyan: #0891b2;
+  --color-accent-violet: #5b21b6;
   --color-emerald: #059669;
   --color-text-primary: #0f172a;
   --color-text-secondary: #475569;
@@ -63,9 +63,9 @@ html.light {
   --color-border-light: #cbd5e1;
   --color-surface: #f1f5f9;
   --color-surface-hover: #e2e8f0;
-  --color-glow-cyan: rgba(14, 165, 233, 0.18);
-  --color-glow-violet: rgba(109, 40, 217, 0.14);
-  --color-glow-red: rgba(220, 38, 38, 0.11);
+  --color-glow-cyan: rgba(8, 145, 178, 0.18);
+  --color-glow-violet: rgba(91, 33, 182, 0.14);
+  --color-glow-red: rgba(234, 88, 12, 0.11);
 }
 
 html.light body {
@@ -84,8 +84,8 @@ html[data-desktop-mode="1"] body {
 
 html.light[data-desktop-mode="1"] body {
   background:
-    radial-gradient(circle at top, rgba(14, 165, 233, 0.18), transparent 30%),
-    radial-gradient(circle at 80% 20%, rgba(109, 40, 217, 0.14), transparent 25%),
+    radial-gradient(circle at top, rgba(8, 145, 178, 0.18), transparent 30%),
+    radial-gradient(circle at 80% 20%, rgba(91, 33, 182, 0.14), transparent 25%),
     #ffffff;
 }
 
@@ -290,8 +290,8 @@ html.light .aurora-gradient {
 }
 html.light .desktop-shell-root::before {
   background:
-    linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent 14%),
-    linear-gradient(90deg, rgba(109, 40, 217, 0.07), transparent 22%, transparent 78%, rgba(14, 165, 233, 0.08));
+    linear-gradient(180deg, rgba(8, 145, 178, 0.08), transparent 14%),
+    linear-gradient(90deg, rgba(91, 33, 182, 0.07), transparent 22%, transparent 78%, rgba(8, 145, 178, 0.08));
 }
 
 .desktop-sidebar-surface {
@@ -347,7 +347,7 @@ html.light .desktop-shell-root::before {
   transition: opacity 0.3s ease;
 }
 html.light .glow-card::before {
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.3), rgba(109, 40, 217, 0.22), transparent 60%);
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.3), rgba(91, 33, 182, 0.22), transparent 60%);
 }
 .glow-card:hover::before {
   opacity: 1;
@@ -359,9 +359,9 @@ html.light .glow-card::before {
     0 8px 32px rgba(0, 0, 0, 0.4);
 }
 html.light .glow-card:hover {
-  border-color: rgba(14, 165, 233, 0.42);
+  border-color: rgba(8, 145, 178, 0.42);
   box-shadow:
-    0 0 20px rgba(14, 165, 233, 0.14),
+    0 0 20px rgba(8, 145, 178, 0.14),
     0 8px 25px rgba(0, 0, 0, 0.08);
 }
 
