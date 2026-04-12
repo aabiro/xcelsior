@@ -64,9 +64,7 @@ export function AiPanel({ onClose }: { onClose: () => void }) {
             <Sparkles className="h-6 w-6 text-accent-cyan" />
           </div>
           <span className="text-base font-semibold">{t("ai.title")}</span>
-          <span className="rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">
-            Beta
-          </span>
+          {/* Beta badge removed */}
         </div>
         <div className="flex items-center gap-0.5">
           <button

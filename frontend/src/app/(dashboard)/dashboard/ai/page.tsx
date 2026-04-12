@@ -256,9 +256,7 @@ export default function AiAssistantPage() {
               <Sparkles className="h-4.5 w-4.5 text-accent-cyan" />
             </div>
             <h1 className="text-base font-semibold">{t("ai.title")}</h1>
-            <span className="rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-widest text-accent-cyan/70">
-              Beta
-            </span>
+            {/* Beta badge removed */}
           </div>
 
           {/* Pin to right panel button */}
