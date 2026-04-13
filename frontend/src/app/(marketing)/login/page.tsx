@@ -36,7 +36,17 @@ function LoginPageContent() {
   const [mfaVerifying, setMfaVerifying] = useState(false);
   const [smsSent, setSmsSent] = useState(false);
   const [passkeyAuthenticating, setPasskeyAuthenticating] = useState(false);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
   const mfaAutoSubmitted = useRef(false);
+
+  // Check if platform authenticator (biometrics/hardware key) is actually available
+  useEffect(() => {
+    if (window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
+      window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+        .then(setPasskeyAvailable)
+        .catch(() => setPasskeyAvailable(false));
+    }
+  }, []);
 
   // Email verification state
   const [emailNotVerified, setEmailNotVerified] = useState(false);
@@ -74,7 +84,7 @@ function LoginPageContent() {
         setMfaChallengeId(res.challenge_id || "");
         setMfaMethods(res.methods || []);
         // Default to first available method
-        if (res.methods?.includes("passkey")) setMfaMethod("passkey");
+        if (res.methods?.includes("passkey") && passkeyAvailable) setMfaMethod("passkey");
         else if (res.methods?.includes("totp")) setMfaMethod("totp");
         else if (res.methods?.includes("sms")) setMfaMethod("sms");
         else setMfaMethod("backup");
@@ -261,7 +271,7 @@ function LoginPageContent() {
 
             {/* Method selector tabs */}
             <div className="flex gap-1 mb-6 rounded-lg bg-surface p-1">
-              {mfaMethods.includes("passkey") && (
+              {mfaMethods.includes("passkey") && passkeyAvailable && (
                 <button
                   onClick={() => { setMfaMethod("passkey"); setMfaCode(""); setError(""); }}
                   className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mfaMethod === "passkey" ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
