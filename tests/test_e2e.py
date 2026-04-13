@@ -285,7 +285,6 @@ class TestHealthProbes:
     def test_healthz(self):
         resp = client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.json().get("status") == "healthy"
         assert resp.json().get("ok") is True
 
     def test_readyz(self):

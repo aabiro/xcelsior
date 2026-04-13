@@ -66,6 +66,7 @@ def upgrade() -> None:
         sa.Column("job_id", sa.Text(), nullable=False),
         sa.Column("customer_id", sa.Text(), nullable=False),
         sa.Column("host_id", sa.Text(), server_default=""),
+        sa.Column("resource_type", sa.Text(), nullable=False, server_default="gpu"),
         sa.Column("period_start", sa.Float(), nullable=False),
         sa.Column("period_end", sa.Float(), nullable=False),
         sa.Column("duration_seconds", sa.Float(), nullable=False),

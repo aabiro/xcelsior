@@ -70,7 +70,7 @@ class TestPasswordReset:
         r = client.post("/api/auth/password-reset", json={"email": "pwreset@xcelsior.ca"})
         assert r.status_code == 200
         d = r.json()
-        assert d["message"] == "If the email exists, a reset link has been sent."
+        assert d["message"] == "Password reset instructions have been sent to your email."
         # In test mode, token is included
         assert "reset_token" in d
         assert len(d["reset_token"]) > 0

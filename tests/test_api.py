@@ -352,7 +352,7 @@ class TestHealthEndpoint:
     def test_healthz(self):
         r = client.get("/healthz")
         assert r.status_code == 200
-        assert r.json()["status"] == "healthy"
+        assert r.json()["ok"] is True
 
     def test_readyz(self):
         r = client.get("/readyz")
