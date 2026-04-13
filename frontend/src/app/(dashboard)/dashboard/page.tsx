@@ -80,8 +80,8 @@ function OverviewActionVisual({
       ring: "text-accent-red shadow-[0_18px_52px_rgba(234,88,12,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
       cornerA: "bg-[radial-gradient(circle_at_0%_0%,rgba(8,145,178,0.22),transparent_55%)]",
       cornerB: "bg-[radial-gradient(circle_at_100%_100%,rgba(91,33,182,0.18),transparent_55%)]",
-      img: "/rocket.svg",
-      imgLight: "/rocket-light.svg",
+      img: "/rocket.svg?v=2",
+      imgLight: "/rocket-light.svg?v=2",
     },
     provider: {
       shell: "border-accent-cyan/20 bg-[radial-gradient(circle_at_100%_0%,rgba(8,145,178,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,249,255,0.94))] dark:bg-[radial-gradient(circle_at_100%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
@@ -89,8 +89,8 @@ function OverviewActionVisual({
       ring: "text-accent-cyan shadow-[0_18px_52px_rgba(8,145,178,0.14)] dark:shadow-[0_18px_52px_rgba(0,212,255,0.16)]",
       cornerA: "bg-[radial-gradient(circle_at_100%_0%,rgba(234,88,12,0.22),transparent_55%)]",
       cornerB: "bg-[radial-gradient(circle_at_0%_100%,rgba(91,33,182,0.18),transparent_55%)]",
-      img: "/gpu.svg",
-      imgLight: "/gpu-light.svg",
+      img: "/gpu.svg?v=2",
+      imgLight: "/gpu-light.svg?v=2",
     },
   } as const;
   const tone = tones[accent];
