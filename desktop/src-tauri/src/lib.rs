@@ -137,7 +137,7 @@ fn emit_state(app: &AppHandle<Wry>, state: &DesktopRuntimeState) -> Result<()> {
         .context("failed to emit desktop runtime state")
 }
 
-fn maybe_notify_native(app: &AppHandle<Wry>, shared: &DesktopShellState, state: &DesktopRuntimeState) -> Result<()> {
+fn maybe_notify_native(#[allow(unused)] app: &AppHandle<Wry>, shared: &DesktopShellState, state: &DesktopRuntimeState) -> Result<()> {
     if !state.notifications_enabled {
         return Ok(());
     }
@@ -160,7 +160,7 @@ fn maybe_notify_native(app: &AppHandle<Wry>, shared: &DesktopShellState, state: 
     }
 
     let body_text = if notification.body.is_empty() {
-        "Open Xcelsior Desktop to review this event.".to_string()
+        "Open Xcelsior to review this event.".to_string()
     } else {
         notification.body.clone()
     };
@@ -215,11 +215,11 @@ fn refresh_tray(app: &AppHandle<Wry>, state: &DesktopRuntimeState) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let tooltip = if state.critical_alert_count > 0 {
             format!(
-                "Xcelsior Desktop • {} unread • {} critical",
+                "Xcelsior • {} unread • {} critical",
                 state.unread_count, state.critical_alert_count
             )
         } else {
-            format!("Xcelsior Desktop • {} unread", state.unread_count)
+            format!("Xcelsior • {} unread", state.unread_count)
         };
         let _ = tray.set_tooltip(Some(tooltip));
         let _ = tray.set_title(Some(state.unread_count.to_string()));
@@ -416,7 +416,7 @@ fn build_tray(app: &AppHandle<Wry>) -> Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .menu(&menu)
-        .tooltip("Xcelsior Desktop")
+        .tooltip("Xcelsior")
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| {
             handle_tray_menu(app, event.id().0.as_ref());
@@ -741,7 +741,7 @@ pub fn run() {
             desktop_clear_deep_links
         ])
         .build(context)
-        .expect("error while running Xcelsior Desktop")
+        .expect("error while running Xcelsior")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 let state = app.state::<DesktopShellState>();
