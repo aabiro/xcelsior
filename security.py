@@ -503,8 +503,28 @@ def build_secure_docker_args(
             args.extend(["-e", f"{key}={val}"])
 
     # Volume mounts (read-only by default)
+    # Security: validate volume paths to prevent arbitrary host path mounts
+    _ALLOWED_VOLUME_PREFIXES = (
+        "/mnt/xcelsior-volumes/",
+        "/mnt/xcelsior-nfs/",
+        os.environ.get("XCELSIOR_VOLUME_DIR", "/mnt/xcelsior/volumes").rstrip("/") + "/",
+    )
     if volumes:
         for vol in volumes:
+            # Parse host path from "host_path:container_path[:mode]"
+            host_path = vol.split(":")[0] if ":" in vol else vol
+            # Reject null bytes (can cause path truncation)
+            if "\x00" in host_path:
+                raise ValueError(f"Volume path contains null byte: {host_path!r}")
+            # Reject path traversal
+            if ".." in host_path:
+                raise ValueError(f"Volume path contains '..': {host_path!r}")
+            # Resolve symlinks before prefix check
+            resolved = os.path.realpath(host_path)
+            if not resolved.startswith(_ALLOWED_VOLUME_PREFIXES):
+                raise ValueError(
+                    f"Volume host path {host_path!r} is outside allowed prefixes"
+                )
             if ":" in vol and not vol.endswith(":ro") and not vol.endswith(":rw"):
                 vol += ":ro"
             args.extend(["-v", vol])

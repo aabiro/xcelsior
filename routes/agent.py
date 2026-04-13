@@ -82,6 +82,30 @@ def api_agent_work(host_id: str):
     jobs = pending + queued_work
     if not jobs:
         return JSONResponse(status_code=204, content=None)
+
+    # Enrich each job with volume mount paths from the volume_attachments table
+    try:
+        from volumes import get_volume_engine
+        ve = get_volume_engine()
+        for j in jobs:
+            vol_ids = j.get("volume_ids", [])
+            if vol_ids:
+                mounts: dict[str, str] = {}
+                try:
+                    for att in ve.get_instance_volumes(j["job_id"]):
+                        mounts[att["volume_id"]] = att.get("mount_path", "/workspace")
+                except Exception:
+                    pass
+                # Auto-assign paths for volumes without attachments yet
+                _idx = 0
+                for vid in vol_ids:
+                    if vid not in mounts:
+                        mounts[vid] = "/workspace" if _idx == 0 else f"/workspace/vol-{_idx}"
+                    _idx += 1
+                j["volume_mounts"] = mounts
+    except Exception:
+        pass  # Best-effort: worker falls back to /workspace
+
     return {"ok": True, "instances": jobs}
 
 @router.get("/agent/preempt/{host_id}", tags=["Agent"])

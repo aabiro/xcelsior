@@ -272,7 +272,7 @@ def upgrade() -> None:
         sa.Column("encrypted", sa.Boolean(), server_default="true"),
         sa.Column("encryption_key_id", sa.Text(), server_default=""),
         sa.Column("mount_path_host", sa.Text(), server_default=""),
-        sa.Column("status", sa.Text(), server_default="creating"),  # creating, available, attached, deleting, deleted
+        sa.Column("status", sa.Text(), server_default="provisioning"),  # provisioning, available, attached, deleting, deleted, error
         sa.Column("created_at", sa.Float(), nullable=False),
         sa.Column("deleted_at", sa.Float(), server_default="0"),
     )

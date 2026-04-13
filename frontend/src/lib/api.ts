@@ -421,6 +421,7 @@ export interface LaunchInstanceParams {
   interactive?: boolean;
   command?: string;
   ssh_port?: number;
+  volume_ids?: string[];
 }
 
 /** Single entry-point for launching instances — marketplace, new-instance page, spot, on-demand.
@@ -1470,6 +1471,8 @@ export async function fetchAdminOverview(days = 30) {
       total_jobs: number; revenue_mtd: number; revenue_total: number;
       total_gpu_hours: number; gpu_utilization: number;
       job_failure_rate: number; arpu: number;
+      total_volumes: number; total_storage_gb: number;
+      attached_volumes: number; volume_revenue: number;
     };
     trends?: {
       users_pct: number; hosts_pct: number; jobs_pct: number; revenue_pct: number;
@@ -1835,6 +1838,18 @@ export interface Instance {
   interactive?: boolean;
   ssh_port?: number;
   command?: string;
+  // Volume attachment
+  attached_volumes?: {
+    volume_id: string;
+    name: string;
+    size_gb: number;
+    mount_path: string;
+    mode: string;
+    storage_type: string;
+    encrypted: boolean;
+  }[];
+  storage_cost_cad?: number;
+  volume_ids?: string[];
 }
 
 /** @deprecated Use Instance instead */
@@ -2071,6 +2086,7 @@ export interface Volume {
   volume_id: string;
   owner_id: string;
   name: string;
+  storage_type: string;
   size_gb: number;
   region: string;
   encrypted: boolean;
@@ -2078,6 +2094,7 @@ export interface Volume {
   created_at: number;
   price_per_gb_month_cad?: number;
   monthly_cost_cad?: number;
+  attached_to?: string | null;
 }
 
 export interface SpotPricePoint {
@@ -2222,6 +2239,10 @@ export async function detachVolume(volumeId: string) {
     `/api/v2/volumes/${encodeURIComponent(volumeId)}/detach`,
     { method: "POST" },
   );
+}
+
+export async function listAvailableVolumes() {
+  return apiFetch<{ ok: boolean; volumes: Volume[] }>("/api/v2/volumes/available");
 }
 
 // ── v2 Billing API ────────────────────────────────────────────────────

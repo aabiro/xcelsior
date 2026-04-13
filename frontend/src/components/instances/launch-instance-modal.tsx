@@ -13,6 +13,7 @@ import {
   fetchImageTemplates,
   fetchSpotPrices,
   classifyLaunchError,
+  listAvailableVolumes,
 } from "@/lib/api";
 import type {
   PricingReference,
@@ -20,6 +21,7 @@ import type {
   LaunchErrorInfo,
   LaunchInstanceParams,
   MarketplaceListing,
+  Volume,
 } from "@/lib/api";
 import { cn, generateFunName } from "@/lib/utils";
 import { markInstanceLaunched } from "@/components/InstallBanner";
@@ -30,7 +32,9 @@ import {
   CheckCircle,
   CreditCard,
   DollarSign,
+  HardDrive,
   Loader2,
+  Lock,
   MapPin,
   RefreshCw,
   Rocket,
@@ -113,7 +117,10 @@ export function LaunchInstanceModal({
   const [priority, setPriority] = useState(1);
   const [province, setProvince] = useState("");
   const [durationHrs, setDurationHrs] = useState("1");
-  const [nfsMount, setNfsMount] = useState("");
+
+  // Volume picker state
+  const [availableVolumes, setAvailableVolumes] = useState<Volume[]>([]);
+  const [selectedVolumeIds, setSelectedVolumeIds] = useState<string[]>([]);
 
   // Fetched data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
@@ -169,6 +176,9 @@ export function LaunchInstanceModal({
     fetchSpotPrices()
       .then((res) => setSpotPrices(res.spot_prices || res.prices || {}))
       .catch(() => {});
+    listAvailableVolumes()
+      .then((r) => setAvailableVolumes(r.volumes || []))
+      .catch(() => {});
   }, [open]);
 
   // Pre-fill from listing
@@ -190,7 +200,7 @@ export function LaunchInstanceModal({
       setMaxBid("");
       setPriority(1);
       setDurationHrs("1");
-      setNfsMount("");
+      setSelectedVolumeIds([]);
       setLaunchError(null);
       setInstanceId("");
       if (!listing) setGpuModel("");
@@ -211,7 +221,7 @@ export function LaunchInstanceModal({
         priority,
         tier,
         gpu_model: resolvedGpu || undefined,
-        nfs_path: nfsMount || undefined,
+        volume_ids: selectedVolumeIds.length > 0 ? selectedVolumeIds : undefined,
       };
       if (listing?.host_id) params.host_id = listing.host_id;
       if (pricingMode === "spot") {
@@ -510,15 +520,85 @@ export function LaunchInstanceModal({
                   </div>
                 </div>
 
-                {/* Volume Mount */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Volume Mount (optional)</Label>
-                  <Input
-                    placeholder="host:/path/to/share"
-                    value={nfsMount}
-                    onChange={(e) => setNfsMount(e.target.value)}
-                  />
-                  <p className="text-xs text-text-muted">Mount a shared volume into your container.</p>
+                {/* Attached Volumes */}
+                <div className="space-y-2">
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <HardDrive className="h-3.5 w-3.5 text-text-muted" />
+                    Volumes
+                    {selectedVolumeIds.length > 0 && (
+                      <span className="ml-auto text-[10px] font-mono text-ice-blue">
+                        {selectedVolumeIds.length} selected
+                      </span>
+                    )}
+                  </Label>
+                  {availableVolumes.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border/60 p-4 text-center">
+                      <HardDrive className="h-5 w-5 text-text-muted mx-auto mb-1.5 opacity-40" />
+                      <p className="text-xs text-text-muted">No volumes available</p>
+                      <p className="text-[10px] text-text-muted/60 mt-0.5">Create a volume from the Volumes page first</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1 scrollbar-thin">
+                      {availableVolumes.map((vol) => {
+                        const isSelected = selectedVolumeIds.includes(vol.volume_id);
+                        return (
+                          <button
+                            key={vol.volume_id}
+                            type="button"
+                            onClick={() =>
+                              setSelectedVolumeIds((prev) =>
+                                isSelected
+                                  ? prev.filter((id) => id !== vol.volume_id)
+                                  : [...prev, vol.volume_id]
+                              )
+                            }
+                            className={cn(
+                              "w-full flex items-center gap-3 rounded-lg border p-2.5 text-left transition-all duration-150",
+                              isSelected
+                                ? "border-ice-blue/40 bg-ice-blue/5 shadow-[0_0_12px_rgba(0,212,255,0.06)]"
+                                : "border-border hover:border-text-muted/40 hover:bg-surface/50"
+                            )}
+                          >
+                            <div className={cn(
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                              isSelected ? "bg-ice-blue/15 text-ice-blue" : "bg-surface text-text-muted"
+                            )}>
+                              <HardDrive className="h-4 w-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn("text-xs font-medium truncate", isSelected && "text-ice-blue")}>
+                                  {vol.name}
+                                </span>
+                                {vol.encrypted && (
+                                  <Lock className="h-2.5 w-2.5 text-accent-gold shrink-0" />
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-text-muted font-mono">{vol.size_gb} GB</span>
+                                {vol.region && (
+                                  <span className="text-[10px] text-text-muted/60">{vol.region}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className={cn(
+                              "h-4 w-4 rounded-full border-2 shrink-0 transition-all duration-150 flex items-center justify-center",
+                              isSelected
+                                ? "border-ice-blue bg-ice-blue"
+                                : "border-text-muted/30"
+                            )}>
+                              {isSelected && (
+                                <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 text-navy fill-current">
+                                  <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-text-muted/60">Volumes mount at <code className="text-ice-blue/70">/workspace</code> inside your container.</p>
                 </div>
 
                 {/* Hourly Rate summary */}
@@ -568,8 +648,13 @@ export function LaunchInstanceModal({
                     <div className="flex justify-between"><span className="text-text-muted">Tier</span><span className="capitalize">{tier}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Priority</span><span>{PRIORITIES.find((p) => p.value === priority)?.label ?? "Normal"}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Duration</span><span>{durationHrs}h</span></div>
-                    {nfsMount && (
-                      <div className="flex justify-between"><span className="text-text-muted">Volume Mount</span><span className="text-right max-w-[220px] truncate" title={nfsMount}>{nfsMount}</span></div>
+                    {selectedVolumeIds.length > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">Volumes</span>
+                        <span className="text-right max-w-[220px] truncate" title={selectedVolumeIds.map((id) => availableVolumes.find((v) => v.volume_id === id)?.name || id.slice(0, 8)).join(", ")}>
+                          {selectedVolumeIds.map((id) => availableVolumes.find((v) => v.volume_id === id)?.name || id.slice(0, 8)).join(", ")}
+                        </span>
+                      </div>
                     )}
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                       <span>Rate</span>

@@ -439,6 +439,7 @@ def allocate(job, hosts):
     - Admission gating (REPORT_FEATURE_FINAL.md §62: only admitted hosts)
     - Isolation tier enforcement (REPORT_FEATURE_FINAL.md §193:
       untrusted workloads require strong isolation tier)
+    - Data gravity: prefer hosts that already have job's volumes mounted
 
     Prioritize: available VRAM > GPU count > speed > lowest cost.
     If nothing fits, return None (queue or reject).
@@ -505,6 +506,17 @@ def allocate(job, hosts):
 
     # Prioritize: GPU count match > compute efficiency > VRAM > speed > cost
     # Uses compute scores when available, and spot-adjusted cost for price comparison.
+    # Data gravity: look up which hosts already have job's volumes
+    volume_ids = job.get("volume_ids", [])
+    volume_host_ids = set()
+    if volume_ids:
+        try:
+            from volumes import get_volume_engine
+            ve = get_volume_engine()
+            volume_host_ids = ve.get_volume_host_ids(volume_ids)
+        except Exception:
+            pass  # Best-effort
+
     def _host_score(h):
         gpu_match = min(h.get("gpu_count", 1), num_gpus_needed)
         vram = h.get("free_vram_gb", 0)
@@ -516,7 +528,10 @@ def allocate(job, hosts):
         price = max(base_cost, 0.01)
         efficiency = compute / price
 
-        return (gpu_match, efficiency, vram, -latency, -base_cost)
+        # Data gravity bonus: prefer hosts already mounting our volumes
+        gravity = 1.3 if h.get("host_id") in volume_host_ids else 1.0
+
+        return (gpu_match, efficiency * gravity, vram, -latency, -base_cost)
 
     best = max(candidates, key=_host_score)
     log.info(
@@ -649,7 +664,17 @@ def process_queue_binpack(canada_only=None, province=None):
     assigned = []
     skipped = []
     for job in jobs:
-        host = allocate_binpack(job, hosts)
+        # Data gravity: find hosts where this job's volumes are already mounted
+        vol_host_ids = set()
+        vol_ids = job.get("volume_ids", [])
+        if vol_ids:
+            try:
+                from volumes import get_volume_engine
+                ve = get_volume_engine()
+                vol_host_ids = ve.get_volume_host_ids(vol_ids)
+            except Exception:
+                pass
+        host = allocate_binpack(job, hosts, volume_host_ids=vol_host_ids)
         if host:
             update_job_status(job["job_id"], "assigned", host["host_id"])
             assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
@@ -973,6 +998,7 @@ def submit_job(
     command=None,
     ssh_port=22,
     owner="",
+    volume_ids=None,
 ):
     """
     Submit a job to the queue.
@@ -1025,6 +1051,7 @@ def submit_job(
         "interactive": bool(interactive),
         "command": command or "",
         "ssh_port": int(ssh_port or 22),
+        "volume_ids": volume_ids or [],
     }
 
     # Spot jobs are preemptible and participate in the spot pricing market
@@ -1259,6 +1286,14 @@ def update_job_status(job_id, status, host_id=None):
     emit_event(
         "job_status", {"job_id": job_id, "status": status, "host_id": host_id or old_host_id}
     )
+
+    # Detach volumes when instance reaches terminal state
+    if status in ("completed", "failed", "cancelled", "terminated"):
+        try:
+            from volumes import get_volume_engine
+            get_volume_engine().detach_all_for_instance(job_id)
+        except Exception as e:
+            log.warning("Volume detach on %s failed for %s: %s", status, job_id, e)
 
     # ── v2.1: Record event + trigger billing/reputation ──
     try:
@@ -1517,8 +1552,12 @@ def ssh_exec(ip, cmd, timeout=30):
         f"{SSH_USER}@{ip}",
         cmd,
     ]
-    result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+    try:
+        result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        log.warning("SSH command timed out after %ds to %s: %s", timeout, ip, cmd[:120])
+        return 255, "", f"ssh timeout after {timeout}s"
 
 
 def generate_ssh_keypair(path=None):
@@ -1662,19 +1701,67 @@ def run_job(job, host, docker_image=None):
     if host_runtime and host_runtime != "runc":
         parts.append(f"--runtime={shlex.quote(host_runtime)}")
 
-    # NFS volume mount
+    # NFS volume mount — mount on host via SSH, then bind-mount into container
     nfs_server = job.get("nfs_server", "")
     nfs_path = job.get("nfs_path", "")
     nfs_mount = job.get("nfs_mount_point", "/mnt/xcelsior-nfs")
+    from volumes import NFS_MOUNT_OPTS
+    nfs_opts = NFS_MOUNT_OPTS
     if nfs_server and nfs_path:
         nfs_mount = nfs_mount or "/mnt/xcelsior-nfs"
-        nfs_opts = f"addr={nfs_server},nolock,soft,timeo=30"
-        parts.append(
-            f"--mount type=volume,volume-driver=local,"
-            f"volume-opt=type=nfs,volume-opt=o={nfs_opts},"
-            f"volume-opt=device=:{shlex.quote(nfs_path)},"
-            f"dst={shlex.quote(nfs_mount)}"
+        mount_cmd = (
+            f"mkdir -p {shlex.quote(nfs_mount)} && "
+            f"mountpoint -q {shlex.quote(nfs_mount)} || "
+            f"mount -t nfs -o {nfs_opts} "
+            f"{shlex.quote(nfs_server)}:{shlex.quote(nfs_path)} "
+            f"{shlex.quote(nfs_mount)}"
         )
+        mrc, _, merr = ssh_exec(host["ip"], mount_cmd, timeout=30)
+        if mrc == 0:
+            parts.append(f"-v {shlex.quote(nfs_mount)}:/data/nfs:rw")
+            log.info("NFS mounted on host: %s:%s → %s", nfs_server, nfs_path, nfs_mount)
+        else:
+            log.warning("NFS mount failed on host %s: %s — continuing without", host["host_id"], merr)
+
+    # Managed volumes — mount NFS for each volume_id, bind-mount into container
+    vol_nfs_server = os.environ.get("XCELSIOR_NFS_SERVER", "") or nfs_server
+    vol_export_base = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+    managed_vol_host_mounts = []
+    # Look up per-volume mount paths from volume_attachments
+    vol_mount_paths: dict[str, str] = {}
+    try:
+        from volumes import get_volume_engine
+        ve = get_volume_engine()
+        for att in ve.get_instance_volumes(job["job_id"]):
+            vol_mount_paths[att["volume_id"]] = att.get("mount_path", "/workspace")
+    except Exception:
+        pass
+    _vol_idx = 0
+    for vid in job.get("volume_ids", []):
+        # Determine container mount path — from attachment or auto-assign
+        container_path = vol_mount_paths.get(vid)
+        if not container_path:
+            container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
+        vol_host_mount = f"/mnt/xcelsior-volumes/{vid}"
+        vol_nfs_path = f"{vol_export_base}/{vid}"
+        if vol_nfs_server:
+            vol_mount_cmd = (
+                f"mkdir -p {shlex.quote(vol_host_mount)} && "
+                f"mountpoint -q {shlex.quote(vol_host_mount)} || "
+                f"mount -t nfs -o {nfs_opts} "
+                f"{shlex.quote(vol_nfs_server)}:{shlex.quote(vol_nfs_path)} "
+                f"{shlex.quote(vol_host_mount)}"
+            )
+            vrc, _, verr = ssh_exec(host["ip"], vol_mount_cmd, timeout=30)
+            if vrc == 0:
+                parts.append(f"-v {shlex.quote(vol_host_mount)}:{shlex.quote(container_path)}:rw")
+                managed_vol_host_mounts.append(vol_host_mount)
+                log.info("Managed volume %s mounted on host %s: %s → %s", vid, host["host_id"], vol_host_mount, container_path)
+            else:
+                log.warning("Managed volume %s mount failed on host %s: %s", vid, host["host_id"], verr)
+        else:
+            log.warning("Managed volume %s: NFS server not configured — skipping", vid)
+        _vol_idx += 1
 
     # Interactive mode: keep stdin open, map SSH port
     if job.get("interactive"):
@@ -2222,6 +2309,15 @@ def requeue_job(job_id):
             max_retries,
         )
         alert_job_failed(job_id, name, host_id)
+        # Detach any volumes still attached to this instance
+        try:
+            from volumes import get_volume_engine
+            ve = get_volume_engine()
+            detached = ve.detach_all_for_instance(job_id)
+            if detached:
+                log.info("FAILOVER EXHAUSTED: detached %d volumes from job %s", detached, job_id)
+        except Exception as e:
+            log.warning("FAILOVER EXHAUSTED: volume detach failed for job %s: %s", job_id, e)
         return None
 
     if requeued:
@@ -3630,6 +3726,14 @@ def preempt_job(job_id):
 
     emit_event("job_preempted", {"job_id": job_id, "name": j.get("name")})
     log.warning("JOB PREEMPTED %s | %s | requeued for lower-price host", job_id, j.get("name"))
+
+    # Detach volumes — job is leaving this host
+    try:
+        from volumes import get_volume_engine
+        get_volume_engine().detach_all_for_instance(job_id)
+    except Exception as e:
+        log.warning("Volume detach on preempt failed for %s: %s", job_id, e)
+
     return j
 
 

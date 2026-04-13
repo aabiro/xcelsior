@@ -150,6 +150,12 @@ class EventType(str, Enum):
     SECURITY_VERSION_CHECK = "security.version_check"
     SECURITY_MINING_DETECTED = "security.mining_detected"
 
+    # Volume lifecycle
+    VOLUME_CREATED = "volume.created"
+    VOLUME_DELETED = "volume.deleted"
+    VOLUME_ATTACHED = "volume.attached"
+    VOLUME_DETACHED = "volume.detached"
+
 
 @dataclass
 class Event:

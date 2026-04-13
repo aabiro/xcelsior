@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/ui/log-viewer";
 import {
-  ArrowLeft, Clock, Cpu, DollarSign, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
+  ArrowLeft, Clock, Cpu, DollarSign, HardDrive, Lock, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
   Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
   Play, RefreshCw, Zap, MoreVertical, Link2,
 } from "lucide-react";
@@ -452,6 +452,44 @@ export default function InstanceDetailPage() {
           </div>
         </Card>
       </div>
+
+      {/* Attached Volumes */}
+      {instance.attached_volumes && instance.attached_volumes.length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <HardDrive className="h-4 w-4 text-ice-blue" />
+            <h2 className="text-sm font-semibold text-text-secondary">Attached Volumes</h2>
+            <span className="ml-auto text-xs text-text-muted font-mono">
+              {instance.attached_volumes.length} volume{instance.attached_volumes.length > 1 ? "s" : ""}
+              {instance.storage_cost_cad != null && instance.storage_cost_cad > 0 && (
+                <> · ${instance.storage_cost_cad.toFixed(2)} CAD</>
+              )}
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {instance.attached_volumes.map((vol) => (
+              <Link
+                key={vol.volume_id}
+                href={`/dashboard/volumes`}
+                className="flex items-center gap-3 rounded-lg border border-border/50 p-3 hover:border-ice-blue/30 hover:bg-ice-blue/[0.03] transition-all group"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ice-blue/10 group-hover:bg-ice-blue/15 transition-colors">
+                  <HardDrive className="h-4 w-4 text-ice-blue" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate group-hover:text-ice-blue transition-colors">
+                    {vol.name}
+                    {vol.encrypted && <Lock className="inline h-3 w-3 text-accent-gold ml-1.5" />}
+                  </p>
+                  <p className="text-xs text-text-muted font-mono mt-0.5">
+                    {vol.size_gb} GB · {vol.mount_path} · {vol.mode}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Logs — shown first, above terminal */}
       <Card>

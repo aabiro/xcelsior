@@ -271,6 +271,37 @@ def api_admin_overview(request: Request, days: int = 30):
     except Exception as e:
         log.debug("admin_overview: failed to fetch web push data: %s", e)
 
+    # Volume KPIs
+    total_volumes = 0
+    total_storage_gb = 0.0
+    attached_volumes = 0
+    volume_revenue = 0.0
+    try:
+        from volumes import VolumeEngine
+        ve = VolumeEngine()
+        with ve._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt, COALESCE(SUM(size_gb), 0) AS total_gb, "
+                "COUNT(*) FILTER (WHERE status = 'attached') AS attached "
+                "FROM volumes WHERE status != 'deleted'"
+            ).fetchone()
+            if row:
+                total_volumes = row["cnt"]
+                total_storage_gb = round(float(row["total_gb"]), 1)
+                attached_volumes = row["attached"]
+    except Exception as e:
+        log.debug("admin_overview: failed to fetch volume KPIs: %s", e)
+    try:
+        be = get_billing_engine()
+        with be._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(amount_cad), 0) AS rev FROM billing_cycles "
+                "WHERE gpu_model = 'storage' AND tier = 'volume' AND status = 'charged'"
+            ).fetchone()
+            volume_revenue = round(float(row["rev"]), 2) if row else 0.0
+    except Exception as e:
+        log.debug("admin_overview: volume revenue query failed: %s", e)
+
     return {
         "ok": True,
         "days": days,
@@ -285,6 +316,10 @@ def api_admin_overview(request: Request, days: int = 30):
             "gpu_utilization": gpu_utilization,
             "job_failure_rate": job_failure_rate,
             "arpu": arpu,
+            "total_volumes": total_volumes,
+            "total_storage_gb": total_storage_gb,
+            "attached_volumes": attached_volumes,
+            "volume_revenue": volume_revenue,
         },
         "trends": trends,
         "daily_revenue": daily_revenue,
