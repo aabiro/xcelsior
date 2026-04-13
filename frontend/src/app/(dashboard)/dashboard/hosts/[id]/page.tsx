@@ -115,7 +115,7 @@ export default function HostDetailPage() {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.hosts.label_price")}</p>
-            <p className="font-medium font-mono">${host.cost_per_hour || host.price_per_hour || 0}/hr</p>
+            <p className="font-medium font-mono">${Number(host.cost_per_hour || host.price_per_hour || 0).toFixed(2)}/hr</p>
           </div>
         </Card>
 
