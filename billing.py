@@ -999,10 +999,10 @@ class BillingEngine:
             cycle_id = f"BC-pause-{int(now)}-{os.urandom(3).hex()}"
             conn.execute(
                 """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                     duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                     amount_cad, status, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'paused', %s)""",
+                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'paused', %s)""",
                 (cycle_id, job_id, owner, job.get("host_id", ""), now, now, now),
             )
             conn.commit()
@@ -1090,10 +1090,10 @@ class BillingEngine:
             cycle_id = f"BC-resume-{int(now)}-{os.urandom(3).hex()}"
             conn.execute(
                 """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                     duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                     amount_cad, status, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'resumed', %s)""",
+                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'resumed', %s)""",
                 (cycle_id, job_id, owner, job.get("host_id", ""), now, now, now),
             )
             conn.commit()
@@ -1211,10 +1211,10 @@ class BillingEngine:
                 cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
                 conn.execute(
                     """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                       (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                         duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                         amount_cad, status, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'stopped', %s)""",
+                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'stopped', %s)""",
                     (cycle_id, job_id, owner_id, host_id, now, now, now),
                 )
             conn.commit()
@@ -1318,10 +1318,10 @@ class BillingEngine:
                 cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
                 conn.execute(
                     """INSERT INTO billing_cycles
-                       (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                       (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                         duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                         amount_cad, status, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
+                       VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'started', %s)""",
                     (cycle_id, job_id, owner, host_id, now, now, now),
                 )
             conn.commit()
@@ -1485,10 +1485,10 @@ class BillingEngine:
             cycle_id = f"BC-term-{int(now)}-{os.urandom(3).hex()}"
             conn.execute(
                 """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                     duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                     amount_cad, status, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, '', '', 1.0, 0, 'terminated', %s)""",
+                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'terminated', %s)""",
                 (cycle_id, job_id, owner, host_id, now, now, now),
             )
             conn.commit()
@@ -1677,10 +1677,10 @@ class BillingEngine:
                     # Record the billing cycle (inside same locked transaction)
                     conn.execute(
                         """INSERT INTO billing_cycles
-                           (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                           (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                             duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                             amount_cad, status, created_at)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                         (cycle_id, job_id, customer_id, host_id, period_start, period_end,
                          duration_sec, rate_per_hour, gpu_model, tier, tier_multiplier,
                          amount_cad, status, now),
@@ -1873,10 +1873,10 @@ class BillingEngine:
                         # Record the billing cycle (inside same locked transaction)
                         conn.execute(
                             """INSERT INTO billing_cycles
-                               (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                                 amount_cad, status, created_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               VALUES (%s, %s, %s, %s, 'volume', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (vcycle_id, vid, vol_owner, "", vperiod_start, vperiod_end,
                              vduration_sec, round(VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb / HOURS_PER_MONTH, 6),
                              "storage", "volume", 1.0, vamount, vstatus, now),
@@ -1950,10 +1950,10 @@ class BillingEngine:
                         conn.row_factory = dict_row
                         conn.execute(
                             """INSERT INTO billing_cycles
-                               (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                                 amount_cad, status, created_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               VALUES (%s, %s, %s, %s, 'inference', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (icycle_id, ep_id, ep_owner, "", iperiod_start, iperiod_end,
                              iduration_sec, cost_per_hour, gpu_type, "inference", 1.0,
                              iamount, istatus, now),
@@ -2065,10 +2065,10 @@ class BillingEngine:
                         sstatus = "storage" if scharge.get("charged") else "storage_failed"
                         conn.execute(
                             """INSERT INTO billing_cycles
-                               (cycle_id, job_id, customer_id, host_id, period_start, period_end,
+                               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                                 amount_cad, status, created_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (scycle_id, sjob_id, sowner, sjob.get("host_id", ""),
                              speriod_start, speriod_end, sduration_sec,
                              rate * storage_gb, storage_type, "storage", 1.0,

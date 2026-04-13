@@ -259,6 +259,7 @@ def _ensure_pg_tables(conn):
             job_id TEXT NOT NULL,
             customer_id TEXT NOT NULL,
             host_id TEXT DEFAULT '',
+            resource_type TEXT NOT NULL DEFAULT 'gpu',
             period_start DOUBLE PRECISION NOT NULL,
             period_end DOUBLE PRECISION NOT NULL,
             duration_seconds DOUBLE PRECISION NOT NULL,

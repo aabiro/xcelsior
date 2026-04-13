@@ -7,10 +7,18 @@ Tests: validation, auth, lifecycle, retry endpoint, error handling.
 import os
 import uuid
 import time
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+
+# Reload .env.test to pick up correct token even if another test module
+# (e.g. test_instance_flow) clobbered XCELSIOR_API_TOKEN at module level.
+_env_test = Path(__file__).resolve().parent.parent / ".env.test"
+if _env_test.exists():
+    load_dotenv(_env_test, override=True)
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_NFS_SERVER", "")
