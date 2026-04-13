@@ -165,9 +165,6 @@ fn maybe_notify_native(app: &AppHandle<Wry>, shared: &DesktopShellState, state: 
         notification.body.clone()
     };
 
-    let action_url = notification.action_url.clone();
-    let click_app = app.clone();
-
     // Use notify-rust directly for desktop notification click handling.
     // The tauri-plugin-notification 2.x desktop API doesn't support click events.
     let mut n = notify_rust::Notification::new();
@@ -175,16 +172,20 @@ fn maybe_notify_native(app: &AppHandle<Wry>, shared: &DesktopShellState, state: 
         .body(&body_text)
         .auto_icon();
 
+    #[cfg(target_os = "linux")]
+    let action_url = notification.action_url.clone();
+    #[cfg(target_os = "linux")]
+    let click_app = app.clone();
+    #[cfg(target_os = "linux")]
     if !action_url.is_empty() {
         n.action("open", "Open in Xcelsior");
     }
 
     std::thread::spawn(move || {
         match n.show() {
+            #[cfg(target_os = "linux")]
             Ok(handle) => {
                 handle.wait_for_action(|action| {
-                    // "open" is our explicit action, "__closed" means dismissed,
-                    // "default" means the notification body was clicked
                     if (action == "open" || action == "default") && !action_url.is_empty() {
                         let _ = open_remote_route(&click_app, Some(&action_url));
                     } else if action == "default" {
@@ -192,6 +193,8 @@ fn maybe_notify_native(app: &AppHandle<Wry>, shared: &DesktopShellState, state: 
                     }
                 });
             }
+            #[cfg(not(target_os = "linux"))]
+            Ok(_) => {}
             Err(e) => {
                 eprintln!("failed to show native notification: {e}");
             }
