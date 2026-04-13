@@ -88,6 +88,7 @@ class JobIn(BaseModel):
     command: str | None = None
     ssh_port: int = Field(default=22, ge=1, le=65535)
     max_bid: float | None = Field(default=None, gt=0)
+    volume_ids: list[str] | None = Field(default=None, max_length=16)
 
     @field_validator("image")
     @classmethod
@@ -195,6 +196,32 @@ def api_submit_instance(j: JobIn, request: Request):
         customer_id = user.get("customer_id", user.get("user_id", ""))
         _wallet_preflight(customer_id)
 
+        # ── Validate volume_ids ownership and status ─────────────
+        validated_volume_ids = None
+        if j.volume_ids:
+            from volumes import get_volume_engine
+            ve = get_volume_engine()
+            validated_volume_ids = []
+            seen_vids: set[str] = set()
+            for vid in j.volume_ids:
+                if vid in seen_vids:
+                    continue  # deduplicate
+                seen_vids.add(vid)
+                try:
+                    vol = ve.get_volume(vid)
+                except Exception:
+                    raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
+                if not vol:
+                    raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
+                if vol.get("owner_id") != customer_id:
+                    raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
+                if vol.get("status") not in ("available", "attached"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Volume {vid} is {vol.get('status', 'unknown')} and cannot be attached",
+                    )
+                validated_volume_ids.append(vid)
+
         # Spot path: max_bid present → delegate to spot submission
         if j.max_bid is not None:
             from scheduler import submit_spot_job
@@ -218,6 +245,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 command=j.command,
                 ssh_port=j.ssh_port,
                 owner=customer_id,
+                volume_ids=validated_volume_ids,
             )
             event_name = "job_submitted"
 
@@ -302,6 +330,47 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
         if host and host.get("cost_per_hour"):
             rate = float(host["cost_per_hour"])
         j["cost_cad"] = round((elapsed / 3600) * rate, 4)
+
+    # Attached volumes
+    try:
+        from volumes import get_volume_engine
+        ve = get_volume_engine()
+        vols = ve.get_instance_volumes(j.get("job_id", ""))
+        j["attached_volumes"] = [
+            {
+                "volume_id": v["volume_id"],
+                "name": v.get("name", ""),
+                "size_gb": v.get("size_gb", 0),
+                "mount_path": v.get("mount_path", "/workspace"),
+                "mode": v.get("mode", "rw"),
+                "storage_type": v.get("storage_type", "nfs"),
+                "encrypted": v.get("encrypted", False),
+            }
+            for v in vols
+        ]
+    except Exception:
+        j.setdefault("attached_volumes", [])
+
+    # Storage cost — sum billing_cycles for attached volumes
+    volume_ids = j.get("volume_ids", [])
+    if volume_ids:
+        try:
+            from db import _get_pg_pool
+            from psycopg.rows import dict_row
+            pool = _get_pg_pool()
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                row = conn.execute(
+                    """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                       FROM billing_cycles
+                       WHERE job_id = ANY(%s) AND gpu_model = 'storage' AND tier = 'volume'""",
+                    (volume_ids,),
+                ).fetchone()
+            j["storage_cost_cad"] = round(float(row["total"]), 4) if row else 0
+        except Exception:
+            j.setdefault("storage_cost_cad", 0)
+    else:
+        j.setdefault("storage_cost_cad", 0)
 
     return j
 
@@ -402,6 +471,14 @@ def api_cancel_instance(job_id: str, request: Request):
 
     update_job_status(job_id, "cancelled")
     broadcast_sse("job_cancelled", {"job_id": job_id})
+
+    # Detach any volumes still attached to this instance
+    try:
+        from volumes import get_volume_engine
+        get_volume_engine().detach_all_for_instance(job_id)
+    except Exception as e:
+        log.warning("Volume detach on cancel failed for %s: %s", job_id, e)
+
     return {"ok": True, "job_id": job_id, "status": "cancelled"}
 
 @router.post("/instance/{job_id}/requeue", tags=["Instances"])

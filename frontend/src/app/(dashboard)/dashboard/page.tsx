@@ -101,7 +101,7 @@ function OverviewActionVisual({
       <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerA)} />
       <div className={cn("pointer-events-none absolute inset-0 rounded-[30px]", tone.cornerB)} />
       <div className="relative flex h-full items-center justify-center rounded-[26px] p-[1.5px] bg-gradient-to-br from-accent-cyan/30 via-accent-violet/20 to-accent-red/30">
-        <div className={cn("flex h-full w-full items-center justify-center rounded-[24.5px]", tone.ring)}>
+        <div className={cn("flex h-full w-full items-center justify-center rounded-[24.5px] bg-white dark:bg-[#080c18] overflow-hidden", tone.ring)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={tone.imgLight} alt="" aria-hidden className="relative z-10 h-[85%] w-[85%] object-contain dark:hidden" loading="eager" fetchPriority="high" />
           {/* eslint-disable-next-line @next/next/no-img-element */}

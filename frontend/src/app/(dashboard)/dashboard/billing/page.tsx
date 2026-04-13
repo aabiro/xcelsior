@@ -12,7 +12,7 @@ import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
-  ArrowUpRight, ArrowDownRight, Leaf, Clock, Zap, Receipt, Loader2,
+  ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
   Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -655,6 +655,36 @@ export default function BillingPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Storage Costs */}
+            {(() => {
+              const storageTxs = transactions.filter((tx) =>
+                tx.description?.toLowerCase().includes("storage") || tx.description?.toLowerCase().includes("volume")
+              );
+              const storageCost = storageTxs.reduce((sum, tx) => sum + Math.abs(tx.amount_cad), 0);
+              if (storageCost <= 0) return null;
+              return (
+                <Card className="border-ice-blue/20">
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <HardDrive className="h-4 w-4 text-ice-blue" />
+                      <p className="font-medium">Volume Storage</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-text-muted">Total storage cost</p>
+                        <p className="text-lg font-bold font-mono text-ice-blue">{formatCad(storageCost)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-text-muted">Billing cycles</p>
+                        <p className="text-lg font-bold font-mono">{storageTxs.length}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-text-muted/60">Persistent volumes billed per GB/month from your credits</p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </div>
 
           {/* Bitcoin Deposit */}

@@ -1159,7 +1159,8 @@ def _mount_nfs(server, path, mount_point):
             "-t",
             "nfs",
             "-o",
-            "noatime,nodiratime,rsize=65536,wsize=65536,hard,intr,timeo=600",
+            os.environ.get("XCELSIOR_NFS_MOUNT_OPTS",
+                           "soft,timeo=150,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"),
             f"{server}:{path}",
             mount_point,
         ]
@@ -1638,6 +1639,7 @@ def run_job(job):
     lease_thread.start()
 
     encrypted_vol_ids = []
+    managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
     try:
         # 0. Mount NFS volume (if configured)
         if nfs_server and nfs_path:
@@ -1661,6 +1663,30 @@ def run_job(job):
                     log.info("Encrypted volume %s attached at %s", vol_id, vol_mount)
                 else:
                     log.warning("Encrypted volume %s attach failed — skipping", vol_id)
+
+        # 0c. Mount managed volumes (volume_ids from job payload)
+        nfs_vol_server = os.environ.get("XCELSIOR_NFS_SERVER", "")
+        nfs_vol_export_base = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+        vol_mount_paths = job.get("volume_mounts", {})  # vid → container path from API
+        _vol_idx = 0
+        for vid in job.get("volume_ids", []):
+            vol_host_mount = f"/mnt/xcelsior-volumes/{vid}"
+            vol_nfs_path = f"{nfs_vol_export_base}/{vid}"
+            # Determine container mount path — from payload or auto-assign
+            container_path = vol_mount_paths.get(vid)
+            if not container_path:
+                container_path = "/workspace" if _vol_idx == 0 else f"/workspace/vol-{_vol_idx}"
+            if nfs_vol_server:
+                mounted = _mount_nfs(nfs_vol_server, vol_nfs_path, vol_host_mount)
+                if mounted:
+                    volumes = list(volumes) + [f"{vol_host_mount}:{container_path}:rw"]
+                    managed_vol_mounts.append(vol_host_mount)
+                    log.info("Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path)
+                else:
+                    log.warning("Managed volume %s mount failed — skipping", vid)
+            else:
+                log.warning("Managed volume %s: NFS server not configured — skipping", vid)
+            _vol_idx += 1
 
         # 1. Pull image (with cache tracking + LRU eviction)
         cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
@@ -1841,6 +1867,13 @@ def run_job(job):
         # Unmount NFS if we mounted it
         if nfs_mounted:
             _unmount_nfs(nfs_mount_point)
+
+        # Unmount managed volumes
+        for vol_mount in managed_vol_mounts:
+            try:
+                _unmount_nfs(vol_mount)
+            except Exception as e:
+                log.warning("Failed to unmount managed volume %s: %s", vol_mount, e)
 
         # Detach encrypted volumes
         for vol_id in encrypted_vol_ids:
@@ -2339,7 +2372,10 @@ def telemetry_loop():
     Collects GPU utilization, memory utilization (allocated + reserved for
     fragmentation detection), thermal data (current + rolling average),
     power consumption, and PCIe bandwidth at 10-15 second intervals.
+    NFS health probe runs every ~60 seconds (every 6th iteration).
     """
+    _nfs_probe_counter = 0
+    _NFS_PROBE_EVERY = max(1, 60 // max(TELEMETRY_INTERVAL, 1))  # ~60s
     while not _shutdown.is_set():
         try:
             telemetry = get_gpu_telemetry()
@@ -2373,6 +2409,64 @@ def telemetry_loop():
                 # Active container count
                 with _active_lock:
                     metrics["active_jobs"] = len(_active_containers)
+
+                # Volume mount health — only probe every ~60s to avoid overhead
+                _nfs_probe_counter += 1
+                if _nfs_probe_counter >= _NFS_PROBE_EVERY:
+                    _nfs_probe_counter = 0
+                    try:
+                        vol_health = []
+                        nfs_healthy = True
+                        if os.path.isdir(VOLUME_BASE_DIR):
+                            for entry in os.listdir(VOLUME_BASE_DIR):
+                                if entry.endswith(".img"):
+                                    continue
+                                mp = os.path.join(VOLUME_BASE_DIR, entry)
+                                # Skip symlinks to prevent information disclosure
+                                if os.path.islink(mp):
+                                    continue
+                                if not os.path.isdir(mp):
+                                    continue
+                                try:
+                                    # Use a subprocess with timeout to avoid hanging Python
+                                    # if the NFS mount is stale (soft mount returns EIO quickly,
+                                    # but stat may still block briefly on slow NFS).
+                                    stat_result = subprocess.run(
+                                        ["stat", "-f", "--format=%b %f %S", mp],
+                                        capture_output=True, text=True, timeout=3,
+                                    )
+                                    if stat_result.returncode == 0:
+                                        parts = stat_result.stdout.strip().split()
+                                        blocks, bfree, bsize = int(parts[0]), int(parts[1]), int(parts[2])
+                                        total = (blocks * bsize) / (1024 ** 3)
+                                        used = ((blocks - bfree) * bsize) / (1024 ** 3)
+                                        vol_health.append({
+                                            "volume_id": entry,
+                                            "mounted": True,
+                                            "total_gb": round(total, 2),
+                                            "used_gb": round(used, 2),
+                                        })
+                                    else:
+                                        vol_health.append({
+                                            "volume_id": entry,
+                                            "mounted": False,
+                                            "total_gb": 0,
+                                            "used_gb": 0,
+                                        })
+                                        nfs_healthy = False
+                                except (subprocess.TimeoutExpired, OSError):
+                                    vol_health.append({
+                                        "volume_id": entry,
+                                        "mounted": False,
+                                        "total_gb": 0,
+                                        "used_gb": 0,
+                                    })
+                                    nfs_healthy = False
+                        if vol_health:
+                            metrics["volume_health"] = vol_health
+                        metrics["nfs_healthy"] = nfs_healthy
+                    except Exception:
+                        pass  # Non-critical; don't let volume scan break telemetry
 
                 report_telemetry(metrics)
         except Exception as e:
@@ -2490,6 +2584,12 @@ def graceful_shutdown():
             report_job_status(job_id, "queued")
         _active_containers.clear()
 
+    # Clean up orphaned volume mounts after containers are stopped
+    try:
+        cleanup_orphaned_volume_mounts()
+    except Exception as e:
+        log.warning("Volume cleanup during shutdown failed: %s", e)
+
     # Deregister from scheduler
     try:
         requests.delete(
@@ -2597,6 +2697,77 @@ def adopt_running_containers():
         log.info("Adopted %d running container(s)", len(containers))
     except Exception as e:
         log.warning("Container adoption failed: %s", e)
+
+
+def cleanup_orphaned_volume_mounts():
+    """Clean up NFS mounts for managed volumes that have no running container.
+
+    On agent restart (or periodically), there may be stale mounts under
+    /mnt/xcelsior-volumes/ whose containers have exited. This function
+    inspects each running container's bind mounts to determine which volumes
+    are actually in use, and unmounts the rest.
+    """
+    vol_mount_base = "/mnt/xcelsior-volumes"
+    if not os.path.isdir(vol_mount_base):
+        return
+
+    # Build set of volume mount paths actually used by running containers
+    active_mounts: set[str] = set()
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            for cid in result.stdout.strip().split("\n"):
+                cid = cid.strip()
+                if not cid:
+                    continue
+                # Inspect container to get bind mount sources
+                insp = subprocess.run(
+                    ["docker", "inspect", "--format",
+                     '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
+                     cid],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if insp.returncode == 0:
+                    for src in insp.stdout.strip().split():
+                        src = src.strip()
+                        if src.startswith(vol_mount_base):
+                            active_mounts.add(src)
+    except Exception:
+        return  # Can't determine running containers — don't clean up blindly
+
+    # Get mounted volume dirs
+    try:
+        mounted_vols = os.listdir(vol_mount_base)
+    except OSError:
+        return
+
+    cleaned = 0
+    for vol_dir in mounted_vols:
+        mount_path = os.path.join(vol_mount_base, vol_dir)
+        if mount_path in active_mounts:
+            continue  # Volume is in use by a running container
+
+        # Check if it's actually a mountpoint
+        try:
+            check = subprocess.run(
+                ["mountpoint", "-q", mount_path],
+                capture_output=True, timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("mountpoint check timed out for %s — skipping (possible stale NFS)", mount_path)
+            continue
+        if check.returncode != 0:
+            continue  # Not mounted, skip
+
+        _unmount_nfs(mount_path)
+        cleaned += 1
+        log.info("Cleaned up orphaned volume mount: %s", mount_path)
+
+    if cleaned:
+        log.info("Cleaned up %d orphaned volume mount(s)", cleaned)
 
 
 def main():
@@ -2715,6 +2886,9 @@ def main():
     # ── Step 7: Adopt containers started by scheduler (before agent was running) ──
     adopt_running_containers()
 
+    # ── Step 7b: Clean up orphaned volume mounts ──
+    cleanup_orphaned_volume_mounts()
+
     # ── Step 8: Start background threads ──
     threads = []
 
@@ -2746,6 +2920,27 @@ def main():
     )
     mining_thread.start()
     threads.append(mining_thread)
+
+    # Periodic volume orphan cleanup thread (every 30 min)
+    def _volume_orphan_cleanup_loop():
+        """Periodically clean up NFS mounts for containers that have exited."""
+        while not _shutdown.is_set():
+            for _ in range(1800):  # 30 minutes, interruptible
+                if _shutdown.is_set():
+                    return
+                time.sleep(1)
+            try:
+                cleanup_orphaned_volume_mounts()
+            except Exception as e:
+                log.debug("Periodic volume cleanup error: %s", e)
+
+    vol_cleanup_thread = threading.Thread(
+        target=_volume_orphan_cleanup_loop,
+        name="volume-orphan-cleanup",
+        daemon=True,
+    )
+    vol_cleanup_thread.start()
+    threads.append(vol_cleanup_thread)
 
     # ── Step 8: Main polling loop ──
     log.info("Entering main polling loop...")

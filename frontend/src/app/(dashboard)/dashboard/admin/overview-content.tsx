@@ -9,6 +9,7 @@ import { DesktopPushHealthCard } from "@/components/admin/DesktopPushHealthCard"
 import {
   Users, Server, Activity, DollarSign, Clock, Zap,
   RefreshCw, TrendingUp, LayoutDashboard, Gauge, AlertTriangle, UserCheck,
+  HardDrive, Link2,
 } from "lucide-react";
 import * as api from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -145,6 +146,17 @@ export default function AdminOverviewPage() {
               <StatCard label="ARPU" value={<CountUp value={k.arpu} prefix="$" />} icon={UserCheck} />
             </div>
           </FadeIn>
+          {/* Volume / Storage KPIs */}
+          {(k.total_volumes > 0 || k.total_storage_gb > 0) && (
+            <FadeIn delay={0.18}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard label="Total Volumes" value={<CountUp value={k.total_volumes} />} icon={HardDrive} />
+                <StatCard label="Storage Provisioned" value={<CountUp value={k.total_storage_gb} suffix=" GB" />} icon={HardDrive} />
+                <StatCard label="Attached Volumes" value={<CountUp value={k.attached_volumes} />} icon={Link2} />
+                <StatCard label="Storage Revenue" value={<CountUp value={k.volume_revenue} prefix="$" />} icon={DollarSign} />
+              </div>
+            </FadeIn>
+          )}
 
           {data?.web_push ? (
             <FadeIn delay={0.2}>

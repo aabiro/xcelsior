@@ -284,6 +284,50 @@ def _ensure_pg_tables(conn):
         "ON billing_cycles (created_at)"
     )
 
+    # ── Persistent volumes ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS volumes (
+            volume_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            storage_type TEXT DEFAULT 'nfs',
+            size_gb INTEGER NOT NULL DEFAULT 50,
+            region TEXT DEFAULT '',
+            province TEXT DEFAULT '',
+            encrypted BOOLEAN DEFAULT TRUE,
+            status TEXT NOT NULL DEFAULT 'provisioning',
+            encryption_key_id TEXT DEFAULT '',
+            mount_path_host TEXT DEFAULT '',
+            created_at DOUBLE PRECISION NOT NULL,
+            deleted_at DOUBLE PRECISION DEFAULT 0
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volumes_owner "
+        "ON volumes (owner_id, status)"
+    )
+
+    # ── Volume attachments ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS volume_attachments (
+            attachment_id TEXT PRIMARY KEY,
+            volume_id TEXT NOT NULL REFERENCES volumes(volume_id),
+            instance_id TEXT NOT NULL,
+            mount_path TEXT DEFAULT '/workspace',
+            mode TEXT DEFAULT 'rw',
+            attached_at DOUBLE PRECISION NOT NULL,
+            detached_at DOUBLE PRECISION DEFAULT 0
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_attachments_volume "
+        "ON volume_attachments (volume_id, detached_at)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_attachments_instance "
+        "ON volume_attachments (instance_id, detached_at)"
+    )
+
 
 @contextmanager
 def pg_connection():

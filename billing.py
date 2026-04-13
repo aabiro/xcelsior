@@ -1493,6 +1493,13 @@ class BillingEngine:
             )
             conn.commit()
 
+        # Detach all managed volumes attached to this instance
+        try:
+            from volumes import get_volume_engine
+            get_volume_engine().detach_all_for_instance(job_id)
+        except Exception as e:
+            log.warning("Volume detach failed for %s: %s", job_id, e)
+
         owner = job.get("owner") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
         if host_id:
@@ -1769,14 +1776,45 @@ class BillingEngine:
         # ── Bill active volumes (real-time storage charges) ──────────
         volume_billed = 0
         try:
-            from volumes import VolumeEngine
-            ve = VolumeEngine()
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                active_volumes = conn.execute(
-                    """SELECT volume_id, owner_id, name, size_gb, created_at
-                       FROM volumes WHERE status != 'deleted'""",
-                ).fetchall()
+            from volumes import get_volume_engine
+            ve = get_volume_engine()
+
+            # Sweep stale provisioning/deleting volumes before billing
+            try:
+                ve.cleanup_stale_volumes()
+            except Exception as e:
+                log.warning("Stale volume cleanup error: %s", e)
+
+            # Reconcile orphaned attachments (volumes attached to dead instances)
+            try:
+                ve.reconcile_orphaned_attachments()
+            except Exception as e:
+                log.warning("Orphan volume reconciliation error: %s", e)
+
+            # Fetch suspended wallets to skip their volumes
+            suspended_owners: set[str] = set()
+            _skip_volume_billing = False
+            try:
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    rows = conn.execute(
+                        "SELECT DISTINCT customer_id FROM wallets WHERE status = 'suspended'"
+                    ).fetchall()
+                    suspended_owners = {r["customer_id"] for r in rows}
+            except Exception as e:
+                # Fail-closed: if we can't check suspended wallets, skip all volume
+                # billing this cycle rather than accidentally charging suspended users.
+                log.error("Suspended wallet lookup failed — skipping volume billing this cycle: %s", e)
+                _skip_volume_billing = True
+
+            active_volumes = []
+            if not _skip_volume_billing:
+                with pool.connection() as conn:
+                    conn.row_factory = dict_row
+                    active_volumes = conn.execute(
+                        """SELECT volume_id, owner_id, name, size_gb, created_at
+                           FROM volumes WHERE status IN ('available', 'attached')""",
+                    ).fetchall()
 
             for vol in active_volumes:
                 try:
@@ -1785,40 +1823,54 @@ class BillingEngine:
                     size_gb = vol.get("size_gb", 0)
                     if size_gb <= 0:
                         continue
+                    if vol_owner in suspended_owners:
+                        log.debug("Skipping volume billing for %s: wallet suspended", vid)
+                        continue
 
-                    # Find last volume billing cycle
+                    # Single transaction with row lock prevents double-billing
+                    # from concurrent billing ticks (mirrors GPU billing pattern)
                     with pool.connection() as conn:
                         conn.row_factory = dict_row
+                        # Lock the volume row so a concurrent tick skips it
+                        locked = conn.execute(
+                            "SELECT volume_id FROM volumes WHERE volume_id = %s AND status IN ('available', 'attached') FOR UPDATE SKIP LOCKED",
+                            (vid,),
+                        ).fetchone()
+                        if not locked:
+                            continue  # Another tick already processing this volume
+
                         last_vc = conn.execute(
                             """SELECT period_end FROM billing_cycles
                                WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
                             (vid,),
                         ).fetchone()
 
-                    vperiod_start = last_vc["period_end"] if last_vc else float(vol["created_at"])
-                    vperiod_end = now
+                        vperiod_start = last_vc["period_end"] if last_vc else float(vol["created_at"])
+                        vperiod_end = now
 
-                    if vperiod_end - vperiod_start < 60:
-                        continue
+                        if vperiod_end - vperiod_start < 60:
+                            continue
 
-                    vduration_sec = vperiod_end - vperiod_start
-                    # $0.07/GB/month → per-second rate
-                    rate_per_sec = (0.07 * size_gb) / (30 * 24 * 3600)
-                    vamount = round(rate_per_sec * vduration_sec, 4)
+                        vduration_sec = vperiod_end - vperiod_start
 
-                    if vamount <= 0:
-                        continue
+                        from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
+                        HOURS_PER_MONTH = 730  # industry standard (365.25 × 24 / 12)
+                        rate_per_sec = (VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb) / (HOURS_PER_MONTH * 3600)
+                        vamount = round(rate_per_sec * vduration_sec, 4)
 
-                    vcharge = self.charge(
-                        vol_owner, vamount, job_id=vid,
-                        description=f"Volume storage: {vol.get('name', vid)} ({size_gb} GB, {vduration_sec/60:.1f}min)",
-                    )
+                        if vamount <= 0:
+                            continue
 
-                    vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
-                    vstatus = "charged" if vcharge.get("charged") else "failed"
+                        # Charge the wallet
+                        vcharge = self.charge(
+                            vol_owner, vamount, job_id=vid,
+                            description=f"Volume storage: {vol.get('name', vid)} ({size_gb} GB, {vduration_sec/60:.1f}min)",
+                        )
 
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
+                        vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
+                        vstatus = "charged" if vcharge.get("charged") else "failed"
+
+                        # Record the billing cycle (inside same locked transaction)
                         conn.execute(
                             """INSERT INTO billing_cycles
                                (cycle_id, job_id, customer_id, host_id, period_start, period_end,
@@ -1826,8 +1878,8 @@ class BillingEngine:
                                 amount_cad, status, created_at)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                             (vcycle_id, vid, vol_owner, "", vperiod_start, vperiod_end,
-                             vduration_sec, round(0.07 * size_gb / 730, 6), "storage", "volume", 1.0,
-                             vamount, vstatus, now),
+                             vduration_sec, round(VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb / HOURS_PER_MONTH, 6),
+                             "storage", "volume", 1.0, vamount, vstatus, now),
                         )
                         conn.commit()
 

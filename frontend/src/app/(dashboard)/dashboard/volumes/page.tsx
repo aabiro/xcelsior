@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import NextLink from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, Globe, Lock,
+  Rocket, ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import * as api from "@/lib/api";
@@ -78,6 +80,7 @@ export default function VolumesPage() {
   };
 
   const handleDelete = async (volumeId: string) => {
+    if (!confirm("Delete this volume? This action cannot be undone.")) return;
     try {
       await api.deleteVolume(volumeId);
       toast.success("Volume deleted");
@@ -145,6 +148,7 @@ export default function VolumesPage() {
               <Input
                 placeholder="Volume name"
                 value={newName}
+                maxLength={128}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)}
               />
             </div>
@@ -156,7 +160,7 @@ export default function VolumesPage() {
                   max={2000}
                   placeholder="Size"
                   value={newSize}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewSize(Number(e.target.value))}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewSize(Math.max(1, Number(e.target.value) || 1))}
                   className="w-28 pr-10"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted pointer-events-none">
@@ -201,8 +205,17 @@ export default function VolumesPage() {
             </CardContent>
           </Card>
         ) : (
-          volumes.map((vol) => (
-            <Card key={vol.volume_id}>
+          volumes.map((vol) => {
+            // Find attached instance by cross-referencing
+            const attachedInstance = vol.status === "attached"
+              ? instances.find((inst) =>
+                  inst.attached_volumes?.some((av) => av.volume_id === vol.volume_id)
+                  || vol.attached_to === inst.job_id
+                )
+              : undefined;
+
+            return (
+            <Card key={vol.volume_id} className="hover:border-border transition-colors">
               <CardContent className="flex items-center justify-between py-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -223,6 +236,15 @@ export default function VolumesPage() {
                       ${(vol.monthly_cost_cad ?? vol.size_gb * PRICE_PER_GB).toFixed(2)}/mo
                     </span>
                     <CopyableId id={vol.volume_id} />
+                    {attachedInstance && (
+                      <NextLink
+                        href={`/dashboard/instances/${attachedInstance.job_id}`}
+                        className="inline-flex items-center gap-1 text-ice-blue hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Attached to {attachedInstance.name || attachedInstance.job_id.slice(0, 12)}
+                      </NextLink>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -230,7 +252,11 @@ export default function VolumesPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => api.detachVolume(vol.volume_id).then(load)}
+                      onClick={() => {
+                        api.detachVolume(vol.volume_id)
+                          .then(() => { toast.success("Volume detached"); load(); })
+                          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to detach volume"));
+                      }}
                     >
                       <Unlink className="h-3.5 w-3.5" /> Detach
                     </Button>
@@ -264,6 +290,11 @@ export default function VolumesPage() {
                       >
                         <Link className="h-3.5 w-3.5" /> Attach
                       </Button>
+                      <NextLink href="/dashboard/instances">
+                        <Button variant="outline" size="sm" className="text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
+                          <Rocket className="h-3.5 w-3.5" /> Launch
+                        </Button>
+                      </NextLink>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -277,7 +308,7 @@ export default function VolumesPage() {
                 </div>
               </CardContent>
             </Card>
-          ))
+          );})
         )}
       </div>
     </div>
