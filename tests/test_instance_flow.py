@@ -306,6 +306,33 @@ class TestHappyPathLifecycle:
         assert returned <= 500, f"Expected <=500 logs but got {returned}"
         assert returned > 0, "Expected at least some logs"
 
+    def test_gpu_model_request_blocks_non_matching_hosts_until_available(self):
+        """GPU model constraints should keep the job queued until a matching host exists."""
+        _reset_state()
+        _register_host("gpu-2060", vram=24, gpu="RTX 2060")
+        _register_host("gpu-4090", vram=24, gpu="RTX 4090")
+        _admit_host("gpu-2060")
+        _admit_host("gpu-4090")
+
+        resp = client.post("/instance", json={
+            "name": "gpu-specific-job",
+            "vram_needed_gb": 8,
+            "gpu_model": "A100",
+        })
+        assert resp.status_code == 200
+        job_id = resp.json()["instance"]["job_id"]
+
+        inst = _get_instance(job_id)
+        assert inst["status"] == "queued"
+
+        _register_host("gpu-a100", vram=80, gpu="A100")
+        _admit_host("gpu-a100")
+
+        client.post("/queue/process")
+        inst = _get_instance(job_id)
+        assert inst["status"] in ("assigned", "running")
+        assert inst["host_id"] == "gpu-a100"
+
 
 # ══════════════════════════════════════════════════════════════════════
 # 8.2 — Failure scenarios

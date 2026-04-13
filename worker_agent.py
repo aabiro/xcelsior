@@ -106,6 +106,7 @@ HEARTBEAT_INTERVAL = int(os.environ.get("XCELSIOR_HEARTBEAT_INTERVAL", "10"))
 POLL_INTERVAL = int(os.environ.get("XCELSIOR_POLL_INTERVAL", "5"))
 MINING_CHECK_INTERVAL = int(os.environ.get("XCELSIOR_MINING_CHECK_INTERVAL", "60"))
 MAX_CONSECUTIVE_FAILURES = int(os.environ.get("XCELSIOR_MAX_FAILURES", "30"))
+CONTAINER_START_TIMEOUT = int(os.environ.get("XCELSIOR_CONTAINER_START_TIMEOUT", "180"))
 
 # Tailscale / Headscale
 TAILSCALE_ENABLED = os.environ.get("XCELSIOR_TAILSCALE_ENABLED", "").lower() in ("1", "true", "yes")
@@ -1640,6 +1641,7 @@ def run_job(job):
 
     encrypted_vol_ids = []
     managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
+    current_stage = "preparing instance"
     try:
         # 0. Mount NFS volume (if configured)
         if nfs_server and nfs_path:
@@ -1689,6 +1691,7 @@ def run_job(job):
             _vol_idx += 1
 
         # 1. Pull image (with cache tracking + LRU eviction)
+        current_stage = "pulling image"
         cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
         log.info("Pulling image %s...", image)
         _push_log_lines(job_id, [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}])
@@ -1788,6 +1791,7 @@ def run_job(job):
         )
 
         # 4. Start container — remove stale container with same name (e.g. requeue)
+        current_stage = "starting container"
         _remove_container(container_name)
         log.info("Starting container %s", container_name)
         _push_log_lines(job_id, [{"message": "Pull complete — starting container…", "level": "info", "timestamp": time.time()}])
@@ -1795,7 +1799,7 @@ def run_job(job):
             docker_args,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=CONTAINER_START_TIMEOUT,
         )
         if start.returncode != 0:
             log.error("Container start failed: %s", start.stderr.strip())
@@ -1836,13 +1840,19 @@ def run_job(job):
         log_fwd.start()
 
         # 7. Monitor container until completion
+        current_stage = "monitoring container"
         if is_interactive:
             _monitor_interactive(job_id, container_name, log_forwarder=log_fwd)
         else:
             _monitor_container(job_id, container_name, log_forwarder=log_fwd)
 
     except subprocess.TimeoutExpired:
-        log.error("Job %s timed out during execution", job_id)
+        log.error("Job %s timed out while %s", job_id, current_stage)
+        _push_log_lines(job_id, [{
+            "message": f"Timed out while {current_stage}",
+            "level": "error",
+            "timestamp": time.time(),
+        }])
         _kill_container(container_name)
         report_job_status(job_id, "failed")
         release_lease(job_id, "failed")

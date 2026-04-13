@@ -448,6 +448,7 @@ def allocate(job, hosts):
         return None
 
     num_gpus_needed = job.get("num_gpus", 1) or 1
+    requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
 
     # Step 1: VRAM filter
     candidates = [
@@ -457,6 +458,14 @@ def allocate(job, hosts):
     ]
     if not candidates:
         return None
+
+    if requested_gpu_model:
+        candidates = [
+            h for h in candidates
+            if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
+        ]
+        if not candidates:
+            return None
 
     # Step 1b: GPU count filter (multi-GPU jobs)
     if num_gpus_needed > 1:
@@ -570,6 +579,7 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
 
     vram_needed = job.get("vram_needed_gb", 0)
     num_gpus_needed = job.get("num_gpus", 1) or 1
+    requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
     volume_host_ids = volume_host_ids or set()
 
     # Filter: VRAM + admission
@@ -581,6 +591,14 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
     ]
     if not candidates:
         return None
+
+    if requested_gpu_model:
+        candidates = [
+            h for h in candidates
+            if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
+        ]
+        if not candidates:
+            return None
 
     # GPU count filter for multi-GPU gang scheduling
     if num_gpus_needed > 1:
@@ -990,6 +1008,7 @@ def submit_job(
     priority=0,
     tier=None,
     num_gpus=1,
+    gpu_model=None,
     nfs_server=None,
     nfs_path=None,
     nfs_mount_point=None,
@@ -1044,6 +1063,7 @@ def submit_job(
         "retries": 0,
         "max_retries": 3,
         "num_gpus": max(1, int(num_gpus or 1)),
+        "gpu_model": gpu_model or "",
         "nfs_server": nfs_server or "",
         "nfs_path": nfs_path or "",
         "nfs_mount_point": nfs_mount_point or "",
@@ -4000,7 +4020,7 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
 # ── Spot Job Submission ───────────────────────────────────────────────
 
 
-def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner="", image=None):
+def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner="", image=None, gpu_model=None):
     """Submit a spot/interruptible job with a maximum bid price.
 
     Spot jobs are:
@@ -4008,7 +4028,15 @@ def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner=
     - Preemptible (evicted when demand exceeds bid)
     - Automatically requeued on preemption
     """
-    job = submit_job(name, vram_needed_gb, priority, tier=tier, owner=owner, image=image)
+    job = submit_job(
+        name,
+        vram_needed_gb,
+        priority,
+        tier=tier,
+        owner=owner,
+        image=image,
+        gpu_model=gpu_model,
+    )
 
     _set_job_fields(
         job["job_id"],

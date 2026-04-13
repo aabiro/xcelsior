@@ -862,7 +862,45 @@ export async function fetchTelemetry() {
 
 // ── Pricing ───────────────────────────────────────────────────────────
 export async function fetchPricingReference() {
-  return apiFetch<{ ok: boolean; reference: PricingReference[] }>("/api/pricing/reference");
+  const res = await apiFetch<{
+    ok: boolean;
+    reference?: PricingReference[];
+    pricing?: Record<string, {
+      base_rate_cad?: number;
+      cad_per_hour?: number;
+      spot_cad?: number;
+      spot_rate_cad?: number;
+      spot_price_cad?: number;
+      reserved_1mo_cad?: number;
+      reserved_3mo_cad?: number;
+      reserved_1yr_cad?: number;
+    }>;
+  }>("/api/pricing/reference");
+
+  if (Array.isArray(res.reference)) {
+    return { ok: res.ok, reference: res.reference };
+  }
+
+  const reference = Object.entries(res.pricing || {}).map(([gpuModel, pricing]) => ({
+    gpu_model: gpuModel,
+    on_demand_cad:
+      typeof pricing?.base_rate_cad === "number"
+        ? pricing.base_rate_cad
+        : Number(pricing?.cad_per_hour ?? 0),
+    spot_cad:
+      typeof pricing?.spot_cad === "number"
+        ? pricing.spot_cad
+        : typeof pricing?.spot_rate_cad === "number"
+          ? pricing.spot_rate_cad
+          : typeof pricing?.spot_price_cad === "number"
+            ? pricing.spot_price_cad
+            : undefined,
+    reserved_1mo_cad: pricing?.reserved_1mo_cad,
+    reserved_3mo_cad: pricing?.reserved_3mo_cad,
+    reserved_1yr_cad: pricing?.reserved_1yr_cad,
+  }));
+
+  return { ok: res.ok, reference };
 }
 
 export async function fetchReservedPlans() {

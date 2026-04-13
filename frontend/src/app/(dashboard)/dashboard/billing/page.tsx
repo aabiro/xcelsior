@@ -18,7 +18,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { Wallet, WalletTransaction, Invoice, PricingReference } from "@/lib/api";
+import type { Wallet, WalletTransaction, Invoice } from "@/lib/api";
 import { toast } from "sonner";
 import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
 
@@ -26,6 +26,18 @@ const FREE_CREDIT_AMOUNT = 10;
 const FREE_CREDIT_TRANSFER_DURATION_S = 2.2;
 const FREE_CREDIT_TRANSFER_DURATION_MS = FREE_CREDIT_TRANSFER_DURATION_S * 1000;
 const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
+const DEFAULT_BTC_STATUS = {
+  enabled: false,
+  available: false,
+  reason: "",
+};
+const DEFAULT_LIGHTNING_STATUS = {
+  enabled: false,
+  available: false,
+  reason: "",
+  node_alias: "",
+  num_active_channels: 0,
+};
 
 type FreeCreditAnimationState = "idle" | "transferring" | "complete";
 
@@ -68,18 +80,9 @@ export default function BillingPage() {
   const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
   const [showLightningDeposit, setShowLightningDeposit] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [btcStatus, setBtcStatus] = useState({
-    enabled: false,
-    available: false,
-    reason: "",
-  });
-  const [lnStatus, setLnStatus] = useState({
-    enabled: false,
-    available: false,
-    reason: "",
-    node_alias: "",
-    num_active_channels: 0,
-  });
+  const [btcStatus, setBtcStatus] = useState(DEFAULT_BTC_STATUS);
+  const [lnStatus, setLnStatus] = useState(DEFAULT_LIGHTNING_STATUS);
+  const [paymentRailsLoading, setPaymentRailsLoading] = useState(true);
   const [cafLoading, setCafLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
@@ -93,6 +96,7 @@ export default function BillingPage() {
   const walletValueRef = useRef<HTMLSpanElement | null>(null);
   const walletAnimationRef = useRef<AnimationPlaybackControls | null>(null);
   const freeCreditTimersRef = useRef<number[]>([]);
+  const hasCryptoPaymentRails = paymentRailsLoading || btcStatus.enabled || lnStatus.enabled;
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -150,50 +154,65 @@ export default function BillingPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Check if BTC deposits are enabled (fail fast with 4s timeout)
+  // Check crypto payment rails together so the funding section does not pop in later.
   useEffect(() => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    api.checkCryptoEnabled({ signal: ctrl.signal })
-      .then((r) => {
-        if (r.reason && !(r.available ?? r.enabled)) {
-          console.warn("Bitcoin deposits unavailable", r.reason);
-        }
-        setBtcStatus({
-          enabled: r.enabled,
-          available: r.available ?? r.enabled,
-          reason: r.reason ?? "",
-        });
-      })
-      .catch((e) => {
-        if (!(e instanceof DOMException && e.name === "AbortError")) {
-          console.warn("Failed to check crypto status", e);
-        }
-        setBtcStatus({ enabled: false, available: false, reason: "" });
-      })
-      .finally(() => clearTimeout(timer));
-    return () => { clearTimeout(timer); ctrl.abort(); };
-  }, []);
+    let active = true;
+    const btcCtrl = new AbortController();
+    const lnCtrl = new AbortController();
+    const btcTimer = window.setTimeout(() => btcCtrl.abort(), 4000);
+    const lnTimer = window.setTimeout(() => lnCtrl.abort(), 4000);
 
-  // Check if Lightning deposits are enabled
-  useEffect(() => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    api.checkLightningEnabled({ signal: ctrl.signal })
-      .then((r) => {
-        setLnStatus({
-          enabled: r.enabled,
-          available: r.available ?? r.enabled,
-          reason: r.reason ?? "",
-          node_alias: r.node_alias ?? "",
-          num_active_channels: r.num_active_channels ?? 0,
-        });
+    setPaymentRailsLoading(true);
+
+    Promise.allSettled([
+      api.checkCryptoEnabled({ signal: btcCtrl.signal }),
+      api.checkLightningEnabled({ signal: lnCtrl.signal }),
+    ])
+      .then(([btcRes, lnRes]) => {
+        if (!active) return;
+
+        if (btcRes.status === "fulfilled") {
+          const nextBtcStatus = {
+            enabled: btcRes.value.enabled,
+            available: btcRes.value.available ?? btcRes.value.enabled,
+            reason: btcRes.value.reason ?? "",
+          };
+          if (nextBtcStatus.reason && !nextBtcStatus.available) {
+            console.warn("Bitcoin deposits unavailable", nextBtcStatus.reason);
+          }
+          setBtcStatus(nextBtcStatus);
+        } else {
+          if (!(btcRes.reason instanceof DOMException && btcRes.reason.name === "AbortError")) {
+            console.warn("Failed to check crypto status", btcRes.reason);
+          }
+          setBtcStatus(DEFAULT_BTC_STATUS);
+        }
+
+        if (lnRes.status === "fulfilled") {
+          setLnStatus({
+            enabled: lnRes.value.enabled,
+            available: lnRes.value.available ?? lnRes.value.enabled,
+            reason: lnRes.value.reason ?? "",
+            node_alias: lnRes.value.node_alias ?? "",
+            num_active_channels: lnRes.value.num_active_channels ?? 0,
+          });
+        } else {
+          setLnStatus(DEFAULT_LIGHTNING_STATUS);
+        }
       })
-      .catch(() => {
-        setLnStatus({ enabled: false, available: false, reason: "", node_alias: "", num_active_channels: 0 });
-      })
-      .finally(() => clearTimeout(timer));
-    return () => { clearTimeout(timer); ctrl.abort(); };
+      .finally(() => {
+        window.clearTimeout(btcTimer);
+        window.clearTimeout(lnTimer);
+        if (active) setPaymentRailsLoading(false);
+      });
+
+    return () => {
+      active = false;
+      window.clearTimeout(btcTimer);
+      window.clearTimeout(lnTimer);
+      btcCtrl.abort();
+      lnCtrl.abort();
+    };
   }, []);
 
   // Check if free signup credits are available
@@ -687,74 +706,90 @@ export default function BillingPage() {
             })()}
           </div>
 
-          {/* Bitcoin Deposit */}
-          {btcStatus.enabled && (
-            <Card className="border-amber-500/20 bg-amber-500/5">
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Bitcoin className="h-4 w-4 text-amber-500" />
-                    <p className="font-medium text-amber-500">Bitcoin Deposits</p>
-                    {!btcStatus.available && (
-                      <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
-                        Unavailable
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-text-secondary">
-                    {btcStatus.available
-                      ? "Pay with BTC - zero processing fees, settled in CAD"
-                      : "Bitcoin deposits are temporarily unavailable."}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  className="bg-amber-500 hover:bg-amber-600 text-black"
-                  onClick={() => setShowCryptoDeposit(true)}
-                  disabled={!btcStatus.available}
-                >
-                  <Bitcoin className="h-3.5 w-3.5" />
-                  {btcStatus.available ? "Deposit BTC" : "Unavailable"}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
+          {hasCryptoPaymentRails && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Crypto Deposits</CardTitle>
+                <CardDescription>Bitcoin and Lightning stay grouped so crypto funding options load in one stable section.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 lg:grid-cols-2">
+                {paymentRailsLoading && (
+                  <>
+                    {[0, 1].map((index) => (
+                      <div
+                        key={index}
+                        className="rounded-2xl border border-border bg-surface/40 p-5"
+                      >
+                        <div className="mb-4 h-4 w-32 animate-pulse rounded bg-border/60" />
+                        <div className="mb-2 h-3 w-full animate-pulse rounded bg-border/40" />
+                        <div className="h-3 w-2/3 animate-pulse rounded bg-border/30" />
+                        <div className="mt-5 h-9 w-32 animate-pulse rounded-xl bg-border/40" />
+                      </div>
+                    ))}
+                  </>
+                )}
 
-          {/* Lightning Network Deposit */}
-          {lnStatus.enabled && (
-            <Card className="border-violet-500/20 bg-violet-500/5">
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Zap className="h-4 w-4 text-violet-400" />
-                    <p className="font-medium text-violet-400">Lightning Network</p>
-                    {!lnStatus.available && (
-                      <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
-                        Unavailable
-                      </Badge>
-                    )}
-                    {lnStatus.available && (
-                      <Badge variant="active" className="border border-emerald/30 bg-emerald/10 text-emerald text-[10px]">
-                        Instant
-                      </Badge>
-                    )}
+                {!paymentRailsLoading && btcStatus.enabled && (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Bitcoin className="h-4 w-4 text-amber-500" />
+                      <p className="font-medium text-amber-500">Bitcoin Deposits</p>
+                      {!btcStatus.available && (
+                        <Badge variant="info" className="border border-amber-500/30 bg-amber-500/10 text-amber-500">
+                          Unavailable
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      {btcStatus.available
+                        ? "Pay with BTC - zero processing fees, settled in CAD"
+                        : "Bitcoin deposits are temporarily unavailable."}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-5 bg-amber-500 hover:bg-amber-600 text-black"
+                      onClick={() => setShowCryptoDeposit(true)}
+                      disabled={!btcStatus.available}
+                    >
+                      <Bitcoin className="h-3.5 w-3.5" />
+                      {btcStatus.available ? "Deposit BTC" : "Unavailable"}
+                    </Button>
                   </div>
-                  <p className="text-xs text-text-secondary">
-                    {lnStatus.available
-                      ? "Instant deposits via Lightning — zero fees, instant settlement"
-                      : lnStatus.reason || "Lightning deposits are temporarily unavailable."}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  className="bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white"
-                  onClick={() => setShowLightningDeposit(true)}
-                  disabled={!lnStatus.available}
-                  title={!lnStatus.available ? lnStatus.reason : undefined}
-                >
-                  <Zap className="h-3.5 w-3.5" />
-                  {lnStatus.available ? "Deposit via Lightning" : "Unavailable"}
-                </Button>
+                )}
+
+                {!paymentRailsLoading && lnStatus.enabled && (
+                  <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap className="h-4 w-4 text-violet-400" />
+                      <p className="font-medium text-violet-400">Lightning Network</p>
+                      {!lnStatus.available && (
+                        <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
+                          Unavailable
+                        </Badge>
+                      )}
+                      {lnStatus.available && (
+                        <Badge variant="active" className="border border-emerald/30 bg-emerald/10 text-emerald text-[10px]">
+                          Instant
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      {lnStatus.available
+                        ? "Instant deposits via Lightning — zero fees, instant settlement"
+                        : lnStatus.reason || "Lightning deposits are temporarily unavailable."}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-5 bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white"
+                      onClick={() => setShowLightningDeposit(true)}
+                      disabled={!lnStatus.available}
+                      title={!lnStatus.available ? lnStatus.reason : undefined}
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      {lnStatus.available ? "Deposit via Lightning" : "Unavailable"}
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

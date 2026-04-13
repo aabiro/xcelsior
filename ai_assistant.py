@@ -3319,7 +3319,7 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+   npm install -g @xcelsior-gpu/sdk @xcelsior/wizard
    xcelsior-wizard setup
    ```
    The AI Onboarding Wizard asks whether they want to rent, provide, or both — then handles
@@ -3331,7 +3331,7 @@ WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
 **Option A: SDK + AI Onboarding Wizard (Recommended)**
 ```bash
-npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+npm install -g @xcelsior-gpu/sdk @xcelsior/wizard
 xcelsior-wizard setup
 ```
 The AI Onboarding Wizard will ask your intent (rent, provide, or both), then handle

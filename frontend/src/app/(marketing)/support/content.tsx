@@ -106,11 +106,7 @@ export function SupportContent() {
             {ch.type === "chat" && (
               <button
                 onClick={() => {
-                  // Click the chat widget bubble to open it
-                  const btn = document.querySelector<HTMLButtonElement>(
-                    '[aria-label="Open chat"], [aria-label="Ouvrir le chat"]'
-                  );
-                  if (btn) btn.click();
+                  window.dispatchEvent(new CustomEvent("open-chat-widget"));
                 }}
                 className="inline-flex items-center gap-2 rounded-lg bg-accent-cyan/10 border border-accent-cyan/30 px-5 py-2.5 text-sm font-medium text-accent-cyan hover:bg-accent-cyan/20 transition-colors"
               >

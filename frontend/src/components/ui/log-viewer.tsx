@@ -14,6 +14,20 @@ interface LogViewerProps {
   wsConnected?: boolean;
 }
 
+function mergeLogs(base: InstanceLog[], extra: InstanceLog[]): InstanceLog[] {
+  const seen = new Set<string>();
+  const merged: InstanceLog[] = [];
+
+  for (const log of [...base, ...extra]) {
+    const key = `${String(log.timestamp ?? "")}|${log.level ?? ""}|${log.message ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(log);
+  }
+
+  return merged;
+}
+
 const LEVEL_COLORS: Record<string, string> = {
   error: "text-accent-red",
   stderr: "text-accent-red",
@@ -32,7 +46,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
 
   // When WS logs are provided, use those instead of internal state
   const useWs = wsLogs !== undefined;
-  const displayLogs = useWs ? [...logs, ...wsLogs] : logs;
+  const displayLogs = useWs ? mergeLogs(logs, wsLogs) : logs;
   const displayConnected = useWs ? !!wsConnected : connected;
 
   // Load historical logs
