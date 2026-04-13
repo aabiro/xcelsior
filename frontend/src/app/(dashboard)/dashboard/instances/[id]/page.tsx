@@ -158,23 +158,28 @@ export default function InstanceDetailPage() {
     return () => clearInterval(id);
   }, [instance?.status, instance?.started_at]);
 
-  const load = () => {
-    setLoading(true);
+  const load = useCallback((background = false) => {
+    if (!background) setLoading(true);
     fetchInstance(id)
       .then((r) => setInstance(r.instance))
-      .catch(() => toast.error("Failed to load instance"))
-      .finally(() => setLoading(false));
-  };
+      .catch(() => {
+        if (!background) {
+          toast.error("Failed to load instance");
+        }
+      })
+      .finally(() => {
+        if (!background) setLoading(false);
+      });
+  }, [id]);
 
-  useEffect(() => { setJobError(null); load(); }, [id]);
+  useEffect(() => { setJobError(null); load(); }, [id, load]);
 
   const isLive = instance?.status === "queued" || instance?.status === "assigned"
     || instance?.status === "starting" || instance?.status === "running" || instance?.status === "stopping"
     || instance?.status === "restarting";
   const onWsInstance = useCallback((i: Instance) => {
     // WS payloads may have 'image' instead of 'docker_image'
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = i as any;
+    const raw = i as Instance & { image?: string };
     if (!i.docker_image && raw.image) {
       i.docker_image = raw.image as string;
     }
@@ -192,6 +197,12 @@ export default function InstanceDetailPage() {
     onLog: onWsLog,
     enabled: isLive,
   });
+
+  useEffect(() => {
+    if (!isLive || wsState.connected) return;
+    const interval = setInterval(() => load(true), 5000);
+    return () => clearInterval(interval);
+  }, [isLive, wsState.connected, load]);
 
   async function executeAction(action: ConfirmAction) {
     if (!action) return;
@@ -518,7 +529,7 @@ export default function InstanceDetailPage() {
         <LogViewer
           jobId={id}
           live={isRunning || status === "starting" || status === "assigned" || status === "queued"}
-          wsLogs={wsLogs}
+          wsLogs={wsState.connected ? wsLogs : undefined}
           wsConnected={wsState.connected}
         />
       </Card>
@@ -732,4 +743,3 @@ export default function InstanceDetailPage() {
     </div>
   );
 }
-

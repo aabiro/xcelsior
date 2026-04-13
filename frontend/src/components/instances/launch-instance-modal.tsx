@@ -8,6 +8,7 @@ import { Input, Label, Select, NumberInput } from "@/components/ui/input";
 import { TemplateArtwork } from "@/components/instances/template-artwork";
 import {
   launchInstance,
+  fetchAvailableGPUs,
   fetchPricingReference,
   fetchProvinces,
   fetchImageTemplates,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/api";
 import type {
   PricingReference,
+  GpuAvailability,
   ImageTemplate,
   LaunchErrorInfo,
   LaunchInstanceParams,
@@ -90,7 +92,7 @@ const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: stri
 export interface LaunchInstanceModalProps {
   open: boolean;
   onClose: () => void;
-  onLaunched?: () => void;
+  onLaunched?: (instanceId: string) => void;
   /** Pre-fill from a marketplace listing */
   listing?: MarketplaceListing;
 }
@@ -124,6 +126,7 @@ export function LaunchInstanceModal({
 
   // Fetched data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
+  const [availableGpus, setAvailableGpus] = useState<GpuAvailability[]>([]);
   const [provinces, setProvinces] = useState<Record<string, { tax_rate: number; description: string }>>({});
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
   const [spotPrices, setSpotPrices] = useState<Record<string, number>>({});
@@ -136,24 +139,73 @@ export function LaunchInstanceModal({
   const resolvedImage = image.trim();
   const selectedTemplate = templates.find((t) => t.image === image);
   const resolvedGpu = listing?.gpu_model || gpuModel;
+  const templateVramGb = selectedTemplate ? Number(selectedTemplate.vram) : undefined;
+  const isAutoGpuSelection = !listing && !resolvedGpu;
+  const eligibleInventory = availableGpus.filter((gpu) => templateVramGb == null || gpu.vram_gb >= templateVramGb);
+  const liveInventory = eligibleInventory.filter((gpu) => gpu.count_available > 0);
+  const hasLiveInventory = liveInventory.length > 0;
+  const hasHostedInventory = eligibleInventory.length > 0;
+  const inventorySource = liveInventory.length > 0 ? liveInventory : eligibleInventory;
+  const gpuInventoryOptions = Array.from(
+    inventorySource.reduce((acc, gpu) => {
+      const existing = acc.get(gpu.gpu_model);
+      const price = gpu.price_per_hour_cad > 0 ? gpu.price_per_hour_cad : undefined;
+
+      if (!existing) {
+        acc.set(gpu.gpu_model, {
+          gpu_model: gpu.gpu_model,
+          maxVramGb: gpu.vram_gb,
+          countAvailable: gpu.count_available,
+          minPricePerHourCad: price,
+        });
+        return acc;
+      }
+
+      existing.maxVramGb = Math.max(existing.maxVramGb, gpu.vram_gb);
+      existing.countAvailable += gpu.count_available;
+      if (price != null) {
+        existing.minPricePerHourCad = existing.minPricePerHourCad == null
+          ? price
+          : Math.min(existing.minPricePerHourCad, price);
+      }
+      return acc;
+    }, new Map<string, {
+      gpu_model: string;
+      maxVramGb: number;
+      countAvailable: number;
+      minPricePerHourCad?: number;
+    }>()).values(),
+  ).sort((a, b) => a.gpu_model.localeCompare(b.gpu_model));
+  const fallbackGpuOptions = pricing.map((entry) => ({
+    gpu_model: entry.gpu_model,
+    maxVramGb: 0,
+    countAvailable: 0,
+    minPricePerHourCad: entry.on_demand_cad,
+  }));
+  const gpuModelOptions = gpuInventoryOptions.length > 0 ? gpuInventoryOptions : fallbackGpuOptions;
+  const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
 
   // Pricing calculations
   const selectedPricing = pricing.find((p) => p.gpu_model === resolvedGpu);
+  const selectedInventory = gpuModelOptions.find((gpu) => gpu.gpu_model === resolvedGpu);
   const listingRate = listing ? (listing.price_per_hour_cad || listing.price_per_hour || 0) : 0;
-  const onDemandRate = listing ? listingRate : (selectedPricing?.on_demand_cad ?? 0);
+  const onDemandRate = listing ? listingRate : selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad;
   const spotRate = listing
     ? (spotPrices[listing.gpu_model] ?? listingRate * 0.7)
-    : (selectedPricing?.spot_cad ?? onDemandRate * 0.6);
+    : spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad;
   const effectiveRate = pricingMode === "spot" ? spotRate : onDemandRate;
-  const estimatedCost = effectiveRate * Number(durationHrs) * Number(numGpus);
+  const estimatedCost = effectiveRate != null ? effectiveRate * Number(durationHrs) * Number(numGpus) : null;
   const taxRate = province && provinces[province] ? provinces[province].tax_rate : 0;
-  const totalWithTax = estimatedCost * (1 + taxRate);
+  const totalWithTax = estimatedCost != null ? estimatedCost * (1 + taxRate) : null;
 
   // Fetch reference data
   useEffect(() => {
     if (!open) return;
     fetchPricingReference()
       .then((r) => setPricing(r.reference || []))
+      .catch(() => {});
+    fetchAvailableGPUs()
+      .then((r) => setAvailableGpus(r.gpus || []))
       .catch(() => {});
     fetchProvinces()
       .then((r) => setProvinces(r.provinces || {}))
@@ -181,6 +233,13 @@ export function LaunchInstanceModal({
       .catch(() => {});
   }, [open]);
 
+  useEffect(() => {
+    if (listing || !gpuModel || selectedGpuStillAvailable) return;
+    if (!selectedGpuStillAvailable) {
+      setGpuModel("");
+    }
+  }, [gpuModel, listing, selectedGpuStillAvailable]);
+
   // Pre-fill from listing
   useEffect(() => {
     if (listing) {
@@ -207,8 +266,6 @@ export function LaunchInstanceModal({
     }
   }, [open, listing]);
 
-  const gpuModels = pricing.map((p) => p.gpu_model);
-
   async function handleSubmit() {
     if (!instanceName.trim()) { toast.error("Enter an instance name"); return; }
     if (!resolvedImage) { toast.error("Select a Docker image"); return; }
@@ -217,6 +274,7 @@ export function LaunchInstanceModal({
       const params: LaunchInstanceParams = {
         name: instanceName.trim(),
         image: resolvedImage,
+        vram_needed_gb: templateVramGb,
         num_gpus: Number(numGpus),
         priority,
         tier,
@@ -226,7 +284,11 @@ export function LaunchInstanceModal({
       if (listing?.host_id) params.host_id = listing.host_id;
       if (pricingMode === "spot") {
         const bid = maxBid ? Number(maxBid) : spotRate;
-        if (bid <= 0) { toast.error("Enter a valid max bid"); setSubmitting(false); return; }
+        if (!(bid && bid > 0)) {
+          toast.error(isAutoGpuSelection ? "Enter a max bid when using Auto GPU with spot pricing" : "Enter a valid max bid");
+          setSubmitting(false);
+          return;
+        }
         params.max_bid = bid;
       }
       const res = await launchInstance(params);
@@ -235,7 +297,7 @@ export function LaunchInstanceModal({
       setStep("success");
       markInstanceLaunched();
       toast.success("Instance launched successfully");
-      onLaunched?.();
+      onLaunched?.(jobId);
     } catch (err) {
       const info = classifyLaunchError(err);
       if (info.action) {
@@ -381,10 +443,21 @@ export function LaunchInstanceModal({
                         onChange={(e) => setGpuModel(e.target.value)}
                       >
                         <option value="">Auto-select best available</option>
-                        {gpuModels.map((model) => (
-                          <option key={model} value={model}>{model}</option>
+                        {gpuModelOptions.map((option) => (
+                          <option key={option.gpu_model} value={option.gpu_model}>
+                            {option.gpu_model}
+                            {option.maxVramGb > 0 ? ` · ${option.maxVramGb} GB` : ""}
+                            {option.countAvailable > 0 ? ` · ${option.countAvailable} available` : ""}
+                          </option>
                         ))}
                       </Select>
+                      <p className="text-[11px] text-text-muted">
+                        {hasLiveInventory
+                          ? "Live GPU inventory is aggregated across active hosts."
+                          : hasHostedInventory
+                            ? "Hosted GPU inventory is aggregated from registered hosts; none are active right now."
+                          : "Live inventory is unavailable, so the picker is using reference models as a fallback."}
+                      </p>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs">GPUs</Label>
@@ -440,12 +513,14 @@ export function LaunchInstanceModal({
                       type="number"
                       step="0.01"
                       min={0.01}
-                      placeholder={`Current spot: $${spotRate.toFixed(2)}/hr`}
+                      placeholder={spotRate != null ? `Current spot: $${spotRate.toFixed(2)}/hr` : "Enter your max bid"}
                       value={maxBid}
                       onChange={(e) => setMaxBid(e.target.value)}
                     />
                     <p className="text-xs text-text-muted">
-                      Leave empty to bid at current spot price. Your instance may be preempted if outbid.
+                      {spotRate != null
+                        ? "Leave empty to bid at current spot price. Your instance may be preempted if outbid."
+                        : "Auto GPU selection needs an explicit max bid because the final spot market depends on the assigned host."}
                     </p>
                   </div>
                 )}
@@ -605,15 +680,21 @@ export function LaunchInstanceModal({
                 <div className="rounded-lg border border-border p-3 bg-surface">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-text-secondary">Hourly Rate</span>
-                    <span className="text-lg font-bold font-mono">
-                      ${effectiveRate.toFixed(2)}
-                      <span className="text-xs text-text-muted ml-1">CAD/hr</span>
-                    </span>
+                    {effectiveRate != null ? (
+                      <span className="text-lg font-bold font-mono">
+                        ${effectiveRate.toFixed(2)}
+                        <span className="text-xs text-text-muted ml-1">CAD/hr</span>
+                      </span>
+                    ) : (
+                      <span className="text-sm font-medium text-text-primary">Rate shown after host selection</span>
+                    )}
                   </div>
                   <p className="text-xs text-text-muted mt-1">
-                    {pricingMode === "spot"
-                      ? "Spot pricing · Billed per second of actual usage"
-                      : "On-demand · Billed per second of actual usage"}
+                    {effectiveRate == null
+                      ? `Auto GPU selected${templateVramGb ? ` · scheduler will require at least ${templateVramGb} GB VRAM` : ""}`
+                      : pricingMode === "spot"
+                        ? "Spot pricing · Billed per second of actual usage"
+                        : "On-demand · Billed per second of actual usage"}
                     {tier !== "standard" && ` · tier ${tier} applies`}
                   </p>
                   <div className="flex items-center gap-1.5 mt-2 text-xs text-ice-blue">
@@ -658,9 +739,9 @@ export function LaunchInstanceModal({
                     )}
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                       <span>Rate</span>
-                      <span>${effectiveRate.toFixed(2)}/hr CAD</span>
+                      <span>{effectiveRate != null ? `$${effectiveRate.toFixed(2)}/hr CAD` : "Assigned host rate"}</span>
                     </div>
-                    {resolvedGpu && (
+                    {estimatedCost != null ? (
                       <>
                         <div className="flex justify-between text-sm">
                           <span>Estimated</span>
@@ -672,13 +753,18 @@ export function LaunchInstanceModal({
                             <span>${(estimatedCost * taxRate).toFixed(2)} CAD</span>
                           </div>
                         )}
-                        {taxRate > 0 && (
+                        {taxRate > 0 && totalWithTax != null && (
                           <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                             <span>Total</span>
                             <span>${totalWithTax.toFixed(2)} CAD</span>
                           </div>
                         )}
                       </>
+                    ) : (
+                      <div className="flex justify-between text-sm">
+                        <span>Estimated</span>
+                        <span>Available after GPU assignment</span>
+                      </div>
                     )}
                   </div>
                 </div>

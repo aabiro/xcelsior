@@ -354,7 +354,7 @@ export default function HostsPage() {
                         "font-mono text-sm font-medium",
                         host.cost_per_hour ? "text-emerald" : "text-text-muted"
                       )}>
-                        {host.cost_per_hour ? `$${host.cost_per_hour}/hr` : "—"}
+                        {host.cost_per_hour ? `$${Number(host.cost_per_hour).toFixed(2)}/hr` : "—"}
                       </span>
                     </td>
                     <td className="py-4 px-5 text-right">
@@ -652,7 +652,7 @@ const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join 
 ## Option A: SDK + AI Onboarding Wizard (Recommended)
 
 \`\`\`bash
-npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
+npm install -g @xcelsior-gpu/sdk @xcelsior/wizard
 xcelsior-wizard setup
 \`\`\`
 
@@ -775,7 +775,7 @@ function CodeSnippet({
 
 function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const sdkInstall = "npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard";
+  const sdkInstall = "npm install -g @xcelsior-gpu/sdk @xcelsior/wizard";
   const wizardCmd = "xcelsior-wizard setup";
 
   function handleCopy(label: string, text: string) {
@@ -1113,7 +1113,7 @@ function InstallWorkerSection() {
 /* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
 function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard`;
+  const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior/wizard`;
   const wizardCmd = `xcelsior-wizard setup`;
   const quickCmds = `# Check worker status
 xcelsior status

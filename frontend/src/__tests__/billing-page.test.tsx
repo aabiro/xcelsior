@@ -50,6 +50,10 @@ vi.mock("@/components/billing/crypto-deposit-modal", () => ({
   CryptoDepositModal: () => null,
 }));
 
+vi.mock("@/components/billing/lightning-deposit-modal", () => ({
+  LightningDepositModal: () => null,
+}));
+
 vi.mock("sonner", () => ({
   toast: toastMocks,
 }));
@@ -207,5 +211,28 @@ describe("BillingPage free credits flow", () => {
     expect(screen.getByText("Bitcoin deposits are temporarily unavailable.")).toBeInTheDocument();
     expect(screen.queryByText(/database already exists/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /unavailable/i })).toBeDisabled();
+  });
+
+  it("shows lightning alongside bitcoin in the grouped crypto deposits section", async () => {
+    apiMocks.checkCryptoEnabled.mockResolvedValue({
+      ok: true,
+      enabled: true,
+      available: true,
+    });
+    apiMocks.checkLightningEnabled.mockResolvedValue({
+      ok: true,
+      enabled: true,
+      available: true,
+      node_alias: "xcelsior-lnd",
+      num_active_channels: 4,
+    });
+
+    render(<BillingPage />);
+
+    await screen.findByText("Crypto Deposits");
+    expect(screen.getByText("Bitcoin Deposits")).toBeInTheDocument();
+    expect(screen.getByText("Lightning Network")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /deposit btc/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /deposit via lightning/i })).toBeEnabled();
   });
 });

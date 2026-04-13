@@ -457,19 +457,6 @@ export function TemplateArtwork({
       )}
       style={{ width: size, height: size }}
     >
-      {/* Subtle brand-colored glow behind the icon */}
-      <span
-        className="pointer-events-none absolute inset-0 dark:hidden"
-        style={{
-          background: `radial-gradient(circle at 50% 50%, ${artwork.light.glowA} 0%, transparent 65%)`,
-        }}
-      />
-      <span
-        className="pointer-events-none absolute inset-0 hidden dark:block"
-        style={{
-          background: `radial-gradient(circle at 50% 50%, ${artwork.dark.glowA} 0%, transparent 65%)`,
-        }}
-      />
       <TemplateLogoSVG template={normalized} size={logoSize} />
     </span>
   );

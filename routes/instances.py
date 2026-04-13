@@ -227,7 +227,7 @@ def api_submit_instance(j: JobIn, request: Request):
             from scheduler import submit_spot_job
             job = submit_spot_job(
                 j.name, vram_needed, j.max_bid, j.priority,
-                tier=j.tier, owner=customer_id, image=j.image,
+                tier=j.tier, owner=customer_id, image=j.image, gpu_model=j.gpu_model,
             )
             event_name = "spot_job_submitted"
         else:
@@ -237,6 +237,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 j.priority,
                 tier=j.tier,
                 num_gpus=j.num_gpus,
+                gpu_model=j.gpu_model,
                 nfs_server=j.nfs_server,
                 nfs_path=j.nfs_path,
                 nfs_mount_point=j.nfs_mount_point,

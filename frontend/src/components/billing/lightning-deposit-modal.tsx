@@ -236,14 +236,14 @@ export function LightningDepositModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-4 backdrop-blur-md sm:items-center" onClick={onClose}>
       <motion.div
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
         initial={{ opacity: 0, y: 24, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 24, scale: 0.96 }}
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-full max-w-[460px] mx-4 overflow-hidden rounded-3xl border border-border bg-gradient-to-b from-surface to-navy shadow-[0_32px_80px_rgba(0,0,0,0.6)]"
+        className="relative my-auto max-h-[calc(100vh-2rem)] w-full max-w-[460px] overflow-x-hidden overflow-y-auto rounded-3xl border border-border bg-gradient-to-b from-surface to-navy shadow-[0_32px_80px_rgba(0,0,0,0.6)]"
       >
         {/* Decorative gradient top border — violet/purple for Lightning */}
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-violet-500/0 via-violet-500 to-violet-500/0" />

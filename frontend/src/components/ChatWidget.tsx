@@ -217,6 +217,13 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
     if (externalOpen !== undefined) setOpen(externalOpen);
   }, [externalOpen]);
 
+  // Listen for global "open-chat-widget" event (e.g. from marketing support page)
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener("open-chat-widget", handler);
+    return () => window.removeEventListener("open-chat-widget", handler);
+  }, []);
+
   // Mobile swipe-to-dismiss
   const dragY = useMotionValue(0);
   const panelOpacity = useTransform(dragY, [0, 200], [1, 0.3]);
