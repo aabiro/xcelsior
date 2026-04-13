@@ -24,7 +24,6 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_deep_link::DeepLinkExt as _;
-use tauri_plugin_notification::NotificationExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 use tauri_plugin_store::{Store, StoreBuilder};
 use tauri_plugin_updater::UpdaterExt as _;
@@ -166,47 +165,46 @@ fn maybe_notify_native(app: &AppHandle<Wry>, shared: &DesktopShellState, state: 
         notification.body.clone()
     };
 
-    // Build the notification with an action type that carries the action_url.
-    // When the user clicks or taps on the notification, the action event
-    // handler (registered in setup_notification_click_handler) will open the
-    // shared app window at notification.action_url.
-    let mut builder = app
-        .notification()
-        .builder()
-        .title(notification.title.clone())
-        .body(body_text);
+    let action_url = notification.action_url.clone();
+    let click_app = app.clone();
 
-    // Attach the action URL so the click handler knows where to navigate.
-    if !notification.action_url.is_empty() {
-        builder = builder.action_type_id(notification.action_url.clone());
+    // Use notify-rust directly for desktop notification click handling.
+    // The tauri-plugin-notification 2.x desktop API doesn't support click events.
+    let mut n = notify_rust::Notification::new();
+    n.summary(&notification.title)
+        .body(&body_text)
+        .auto_icon();
+
+    if !action_url.is_empty() {
+        n.action("open", "Open in Xcelsior");
     }
 
-    builder
-        .show()
-        .context("failed to show native notification")?;
+    std::thread::spawn(move || {
+        match n.show() {
+            Ok(handle) => {
+                handle.wait_for_action(|action| {
+                    // "open" is our explicit action, "__closed" means dismissed,
+                    // "default" means the notification body was clicked
+                    if (action == "open" || action == "default") && !action_url.is_empty() {
+                        let _ = open_remote_route(&click_app, Some(&action_url));
+                    } else if action == "default" {
+                        let _ = show_control_center_window(&click_app, None);
+                    }
+                });
+            }
+            Err(e) => {
+                eprintln!("failed to show native notification: {e}");
+            }
+        }
+    });
 
     *last_notification_id = Some(notification.id);
     Ok(())
 }
 
-/// Register the notification click handler.
-///
-/// When a native notification is clicked, this handler opens the shared app
-/// window at the action URL from the most recent unread notification.
-fn setup_notification_click_handler(app: &AppHandle<Wry>) -> Result<()> {
-    let click_app = app.clone();
-    app.notification().on_notification_event(move |event| {
-        use tauri_plugin_notification::NotificationEvent;
-        if let NotificationEvent::Action { action_type_id, .. } = event {
-            // action_type_id carries the route (e.g. "/dashboard/instances/{id}")
-            if !action_type_id.is_empty() {
-                let _ = open_remote_route(&click_app, Some(&action_type_id));
-            } else {
-                // Fallback: open control center overview
-                let _ = show_control_center_window(&click_app, None);
-            }
-        }
-    });
+/// Notification click handling is now inline in `maybe_notify_native` via
+/// `notify-rust`'s `wait_for_action` callback.
+fn setup_notification_click_handler(_app: &AppHandle<Wry>) -> Result<()> {
     Ok(())
 }
 

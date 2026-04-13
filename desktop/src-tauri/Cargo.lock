@@ -5880,6 +5880,7 @@ name = "xcelsior_desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "notify-rust",
  "serde",
  "serde_json",
  "tauri",
