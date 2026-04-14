@@ -15,6 +15,8 @@ import {
   fetchSpotPrices,
   classifyLaunchError,
   listAvailableVolumes,
+  detectProvince,
+  fetchPricingRates,
 } from "@/lib/api";
 import type {
   PricingReference,
@@ -68,14 +70,14 @@ const PRICING_MODES = [
 const TIERS = [
   { value: "standard", label: "Standard", desc: "Best effort, no SLA" },
   { value: "premium", label: "Premium", desc: "99.9% uptime guarantee" },
-  { value: "reserved", label: "Reserved", desc: "Dedicated allocation, priority support" },
+  { value: "sovereign", label: "Sovereign", desc: "Canada-only, Canadian-jurisdiction operator" },
 ];
 
 const PRIORITIES = [
-  { label: "Low", value: 0 },
-  { label: "Normal", value: 1 },
-  { label: "High", value: 2 },
-  { label: "Urgent", value: 3 },
+  { label: "Low", value: "low" },
+  { label: "Normal", value: "normal" },
+  { label: "High", value: "high" },
+  { label: "Critical", value: "critical" },
 ] as const;
 
 const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string; icon: string }[] = [
@@ -116,9 +118,8 @@ export function LaunchInstanceModal({
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
   const [tier, setTier] = useState("standard");
   const [maxBid, setMaxBid] = useState("");
-  const [priority, setPriority] = useState(1);
+  const [priority, setPriority] = useState<string>("normal");
   const [province, setProvince] = useState("");
-  const [durationHrs, setDurationHrs] = useState("1");
 
   // Volume picker state
   const [availableVolumes, setAvailableVolumes] = useState<Volume[]>([]);
@@ -127,9 +128,23 @@ export function LaunchInstanceModal({
   // Fetched data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
   const [availableGpus, setAvailableGpus] = useState<GpuAvailability[]>([]);
-  const [provinces, setProvinces] = useState<Record<string, { tax_rate: number; description: string }>>({});
+  const [provinces, setProvinces] = useState<Record<string, { name: string; tax_rate: number; tax_description: string }>>({});
   const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
   const [spotPrices, setSpotPrices] = useState<Record<string, number>>({});
+
+  // Dynamic pricing from backend
+  const [dynamicRate, setDynamicRate] = useState<{
+    effective_rate_per_gpu: number;
+    total_per_hour: number;
+    tax_rate: number;
+    tax_description: string;
+    tax_amount: number;
+    total_with_tax: number;
+    base_rate_cad: number;
+    priority_multiplier: number;
+    sovereignty_premium: number;
+    multi_gpu_discount: number;
+  } | null>(null);
 
   // UI state
   const [submitting, setSubmitting] = useState(false);
@@ -185,18 +200,27 @@ export function LaunchInstanceModal({
   const gpuModelOptions = gpuInventoryOptions.length > 0 ? gpuInventoryOptions : fallbackGpuOptions;
   const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
 
-  // Pricing calculations
+  // Pricing — use dynamic rate from backend when available, else fall back to reference
   const selectedPricing = pricing.find((p) => p.gpu_model === resolvedGpu);
   const selectedInventory = gpuModelOptions.find((gpu) => gpu.gpu_model === resolvedGpu);
   const listingRate = listing ? (listing.price_per_hour_cad || listing.price_per_hour || 0) : 0;
-  const onDemandRate = listing ? listingRate : selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad;
+  const effectiveRate = dynamicRate
+    ? dynamicRate.effective_rate_per_gpu
+    : listing
+      ? listingRate
+      : pricingMode === "spot"
+        ? (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad)
+        : (selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad);
   const spotRate = listing
     ? (spotPrices[listing.gpu_model] ?? listingRate * 0.7)
     : spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad;
-  const effectiveRate = pricingMode === "spot" ? spotRate : onDemandRate;
-  const estimatedCost = effectiveRate != null ? effectiveRate * Number(durationHrs) * Number(numGpus) : null;
-  const taxRate = province && provinces[province] ? provinces[province].tax_rate : 0;
-  const totalWithTax = estimatedCost != null ? estimatedCost * (1 + taxRate) : null;
+  const totalPerHour = dynamicRate
+    ? dynamicRate.total_per_hour
+    : effectiveRate != null ? effectiveRate * Number(numGpus) : null;
+  const taxRate = dynamicRate?.tax_rate ?? (province && provinces[province] ? provinces[province].tax_rate : 0);
+  const totalWithTax = dynamicRate
+    ? dynamicRate.total_with_tax
+    : totalPerHour != null ? totalPerHour * (1 + taxRate) : null;
 
   // Fetch reference data
   useEffect(() => {
@@ -231,7 +255,30 @@ export function LaunchInstanceModal({
     listAvailableVolumes()
       .then((r) => setAvailableVolumes(r.volumes || []))
       .catch(() => {});
+    // Auto-detect province
+    if (!province) {
+      detectProvince()
+        .then((r) => setProvince(r.province || "ON"))
+        .catch(() => setProvince("ON"));
+    }
   }, [open]);
+
+  // Dynamic pricing — recompute when any pricing variable changes
+  useEffect(() => {
+    if (!open || !resolvedGpu) { setDynamicRate(null); return; }
+    const controller = new AbortController();
+    fetchPricingRates({
+      gpu_model: resolvedGpu,
+      tier,
+      mode: pricingMode,
+      priority,
+      num_gpus: Number(numGpus),
+      province: province || "ON",
+    })
+      .then((r) => { if (!controller.signal.aborted) setDynamicRate(r); })
+      .catch(() => { if (!controller.signal.aborted) setDynamicRate(null); });
+    return () => controller.abort();
+  }, [open, resolvedGpu, tier, pricingMode, priority, numGpus, province]);
 
   useEffect(() => {
     if (listing || !gpuModel || selectedGpuStillAvailable) return;
@@ -257,11 +304,11 @@ export function LaunchInstanceModal({
       setPricingMode("on_demand");
       setTier("standard");
       setMaxBid("");
-      setPriority(1);
-      setDurationHrs("1");
+      setPriority("normal");
       setSelectedVolumeIds([]);
       setLaunchError(null);
       setInstanceId("");
+      setDynamicRate(null);
       if (!listing) setGpuModel("");
     }
   }, [open, listing]);
@@ -570,29 +617,23 @@ export function LaunchInstanceModal({
                   </div>
                 </div>
 
-                {/* Duration + Province */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Duration (hours)</Label>
-                    <NumberInput
-                      min={0.5}
-                      step={0.5}
-                      value={durationHrs}
-                      onChange={(v) => setDurationHrs(String(v))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Province</Label>
-                    <Select
-                      value={province}
-                      onChange={(e) => setProvince(e.target.value)}
-                    >
-                      <option value="">Auto-detect</option>
-                      {Object.entries(provinces).map(([code, info]) => (
-                        <option key={code} value={code}>{code} — {info.description}</option>
-                      ))}
-                    </Select>
-                  </div>
+                {/* Province / Region */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5" />
+                    Province / Region
+                  </Label>
+                  <Select
+                    value={province}
+                    onChange={(e) => setProvince(e.target.value)}
+                  >
+                    <option value="">Auto-detect</option>
+                    {Object.entries(provinces).map(([code, info]) => (
+                      <option key={code} value={code}>
+                        {code} — {info.name} ({info.tax_description})
+                      </option>
+                    ))}
+                  </Select>
                 </div>
 
                 {/* Attached Volumes */}
@@ -728,7 +769,6 @@ export function LaunchInstanceModal({
                     <div className="flex justify-between"><span className="text-text-muted">Pricing</span><span className="capitalize">{pricingMode === "on_demand" ? "On-Demand" : "Spot"}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Tier</span><span className="capitalize">{tier}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Priority</span><span>{PRIORITIES.find((p) => p.value === priority)?.label ?? "Normal"}</span></div>
-                    <div className="flex justify-between"><span className="text-text-muted">Duration</span><span>{durationHrs}h</span></div>
                     {selectedVolumeIds.length > 0 && (
                       <div className="flex justify-between">
                         <span className="text-text-muted">Volumes</span>
@@ -741,22 +781,22 @@ export function LaunchInstanceModal({
                       <span>Rate</span>
                       <span>{effectiveRate != null ? `$${effectiveRate.toFixed(2)}/hr CAD` : "Assigned host rate"}</span>
                     </div>
-                    {estimatedCost != null ? (
+                    {totalPerHour != null ? (
                       <>
                         <div className="flex justify-between text-sm">
-                          <span>Estimated</span>
-                          <span>${estimatedCost.toFixed(2)} CAD</span>
+                          <span>Per hour ({Number(numGpus) > 1 ? `${numGpus} GPUs` : "1 GPU"})</span>
+                          <span>${totalPerHour.toFixed(2)} CAD/hr</span>
                         </div>
                         {taxRate > 0 && (
                           <div className="flex justify-between text-sm">
                             <span>Tax ({(taxRate * 100).toFixed(1)}%)</span>
-                            <span>${(estimatedCost * taxRate).toFixed(2)} CAD</span>
+                            <span>+${(totalPerHour * taxRate).toFixed(2)} CAD/hr</span>
                           </div>
                         )}
                         {taxRate > 0 && totalWithTax != null && (
                           <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                             <span>Total</span>
-                            <span>${totalWithTax.toFixed(2)} CAD</span>
+                            <span>${totalWithTax.toFixed(2)} CAD/hr</span>
                           </div>
                         )}
                       </>

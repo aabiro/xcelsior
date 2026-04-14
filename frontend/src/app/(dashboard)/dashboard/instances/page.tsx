@@ -159,8 +159,11 @@ export default function InstancesPage() {
   useEffect(() => { load(); }, [load]);
 
   useEventStream({
-    eventTypes: ["job_status", "job_submitted"],
-    onEvent: () => { load(); },
+    eventTypes: ["job_status", "job_submitted", "job_error"],
+    onEvent: (_type, data) => {
+      if (data.error) toast.warning(String(data.message || "Your instance is waiting for a GPU"));
+      else load();
+    },
   });
 
   const launchOpen = searchParams.get("launch") === "true";
@@ -348,7 +351,7 @@ export default function InstancesPage() {
                       {inst.name || inst.job_id}
                     </Link>
                   </td>
-                  <td className="py-3 px-4 text-text-secondary">{inst.gpu_type || inst.gpu_model || "—"}</td>
+                  <td className="py-3 px-4 text-text-secondary">{inst.gpu_type || inst.host_gpu || inst.gpu_model || (inst.host_id ? "Auto" : "Pending")}</td>
                   <td className="py-3 px-4 text-center">
                     <StatusBadge status={inst.status} />
                   </td>

@@ -123,6 +123,61 @@ def api_schedule_preemption(host_id: str, job_id: str):
     broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
     return {"ok": True, "host_id": host_id, "job_id": job_id}
 
+
+# ── Admission failure notification (throttled: once per hour per host) ─────
+_admission_notified: dict[str, float] = {}
+
+
+def _notify_provider_admission_failure(host: dict, details: dict):
+    """Send in-app + push notification to host owner about admission failure."""
+    host_id = host.get("host_id", "?")
+    now = time.time()
+    last = _admission_notified.get(host_id, 0)
+    if now - last < 3600:
+        return  # throttle: at most once per hour per host
+    _admission_notified[host_id] = now
+
+    owner_id = host.get("owner", "")
+    if not owner_id:
+        return  # no owner — agent-only host, can't notify
+
+    try:
+        from db import UserStore, NotificationStore
+        user = UserStore.get_user_by_id(owner_id)
+        if not user:
+            return
+        email = user.get("email", "")
+        if not email:
+            return
+
+        reasons = details.get("rejection_reasons", [])
+        reason_text = "; ".join(reasons) if reasons else "Unknown version requirements not met"
+        gpu_label = host.get("gpu_model") or host.get("hostname") or host_id
+
+        NotificationStore.create(
+            user_email=email,
+            notif_type="host_admission_failed",
+            title=f"Host {gpu_label} failed admission",
+            body=(
+                f"Your host could not be admitted to the compute pool. "
+                f"Issues: {reason_text}. "
+                f"Please update the flagged components and restart the worker agent."
+            ),
+            data={
+                "host_id": host_id,
+                "rejection_reasons": reasons,
+                "recommended_runtime": details.get("recommended_runtime", "runc"),
+            },
+            action_url="/dashboard/hosts",
+            entity_type="host",
+            entity_id=host_id,
+            priority=2,  # critical
+        )
+        log.info("Notified provider %s about admission failure for host %s", email, host_id)
+    except Exception:
+        log.exception("Failed to send admission failure notification for host %s", host_id)
+
+
 @router.post("/agent/versions", tags=["Agent"])
 def api_agent_versions(report: VersionReport):
     """Receive and validate node component versions for admission control.
@@ -162,6 +217,8 @@ def api_agent_versions(report: VersionReport):
                     report.host_id,
                     details.get("rejection_reasons", []),
                 )
+                # Notify the provider about what needs fixing
+                _notify_provider_admission_failure(h, details)
             # Persist
             with _atomic_mutation() as conn:
                 _migrate_hosts_if_needed(conn)

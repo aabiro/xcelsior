@@ -300,12 +300,14 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     if j.get("image") is not None and not j.get("docker_image"):
         j["docker_image"] = j["image"]
 
-    # Host GPU info
+    # Host GPU info — prefer the host_gpu_model stored at assignment time,
+    # fall back to live host lookup
     hid = j.get("host_id")
     host = host_map.get(hid) if hid else None
-    if host:
-        j.setdefault("gpu_type", host.get("gpu_model", ""))
-        j.setdefault("host_gpu", host.get("gpu_model", ""))
+    actual_gpu = j.get("host_gpu_model") or (host.get("gpu_model", "") if host else "")
+    if actual_gpu:
+        j["gpu_type"] = actual_gpu
+        j["host_gpu"] = actual_gpu
 
     # Elapsed / duration
     started = float(j.get("started_at") or 0)

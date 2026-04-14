@@ -889,16 +889,9 @@ GPU_REFERENCE_PRICING_CAD = {
     "RTX 3090": {
         "base_rate_cad": 0.35,
         "subsidized_starter_cad": 0.30,
-        "premium_rate_cad": 0.45,  # Gold-tier host
+        "premium_rate_cad": 0.45,
         "min_rate_cad": 0.20,
         "max_rate_cad": 0.80,
-    },
-    "RTX 4090": {
-        "base_rate_cad": 0.45,
-        "subsidized_starter_cad": 0.40,
-        "premium_rate_cad": 0.70,  # Platinum-tier host per MARKETING_1
-        "min_rate_cad": 0.30,
-        "max_rate_cad": 1.20,
     },
     "RTX 4080": {
         "base_rate_cad": 0.38,
@@ -907,12 +900,54 @@ GPU_REFERENCE_PRICING_CAD = {
         "min_rate_cad": 0.25,
         "max_rate_cad": 1.00,
     },
+    "RTX 4090": {
+        "base_rate_cad": 0.45,
+        "subsidized_starter_cad": 0.40,
+        "premium_rate_cad": 0.70,
+        "min_rate_cad": 0.30,
+        "max_rate_cad": 1.20,
+    },
+    "RTX 5090": {
+        "base_rate_cad": 0.55,
+        "subsidized_starter_cad": 0.48,
+        "premium_rate_cad": 0.85,
+        "min_rate_cad": 0.35,
+        "max_rate_cad": 1.50,
+    },
+    "A100 40GB": {
+        "base_rate_cad": 1.30,
+        "subsidized_starter_cad": 1.05,
+        "premium_rate_cad": 1.75,
+        "min_rate_cad": 0.80,
+        "max_rate_cad": 3.00,
+    },
+    "A100 80GB": {
+        "base_rate_cad": 1.70,
+        "subsidized_starter_cad": 1.40,
+        "premium_rate_cad": 2.25,
+        "min_rate_cad": 1.00,
+        "max_rate_cad": 3.80,
+    },
     "A100": {
         "base_rate_cad": 1.50,
         "subsidized_starter_cad": 1.20,
         "premium_rate_cad": 2.00,
         "min_rate_cad": 0.90,
         "max_rate_cad": 3.50,
+    },
+    "L40S": {
+        "base_rate_cad": 1.25,
+        "subsidized_starter_cad": 1.05,
+        "premium_rate_cad": 1.70,
+        "min_rate_cad": 0.85,
+        "max_rate_cad": 2.60,
+    },
+    "L40": {
+        "base_rate_cad": 1.20,
+        "subsidized_starter_cad": 1.00,
+        "premium_rate_cad": 1.60,
+        "min_rate_cad": 0.80,
+        "max_rate_cad": 2.50,
     },
     "H100": {
         "base_rate_cad": 3.50,
@@ -921,12 +956,12 @@ GPU_REFERENCE_PRICING_CAD = {
         "min_rate_cad": 2.50,
         "max_rate_cad": 6.00,
     },
-    "L40": {
-        "base_rate_cad": 1.20,
-        "subsidized_starter_cad": 1.00,
-        "premium_rate_cad": 1.60,
-        "min_rate_cad": 0.80,
-        "max_rate_cad": 2.50,
+    "H200": {
+        "base_rate_cad": 4.50,
+        "subsidized_starter_cad": 3.80,
+        "premium_rate_cad": 5.80,
+        "min_rate_cad": 3.20,
+        "max_rate_cad": 7.50,
     },
 }
 
@@ -950,12 +985,16 @@ def get_reference_rate(
     - Spot pricing (30% discount per REPORT_MARKETING_2.md)
     - Sovereignty premium (10% extra for Canada-only)
     """
-    # Fuzzy match gpu model
-    ref = None
-    for model, pricing in GPU_REFERENCE_PRICING_CAD.items():
-        if model.lower() in gpu_model.lower() or gpu_model.lower() in model.lower():
-            ref = pricing
-            break
+    # Match GPU model: exact first, then longest-key-first substring to avoid
+    # "A100" matching "A100 40GB" when only the generic entry is wanted.
+    ref = GPU_REFERENCE_PRICING_CAD.get(gpu_model)
+    if not ref:
+        gpu_lower = gpu_model.lower()
+        # Sort by key length descending so "A100 80GB" is tried before "A100"
+        for model, pricing in sorted(GPU_REFERENCE_PRICING_CAD.items(), key=lambda x: len(x[0]), reverse=True):
+            if model.lower() in gpu_lower:
+                ref = pricing
+                break
 
     if not ref:
         # Default to RTX 4090 pricing as baseline
