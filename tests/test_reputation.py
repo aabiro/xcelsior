@@ -13,6 +13,7 @@ os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 from reputation import (
+    GPU_REFERENCE_PRICING_CAD,
     MAX_ACTIVITY_POINTS,
     MAX_VERIFICATION_POINTS,
     PENALTY_POINTS,
@@ -22,11 +23,14 @@ from reputation import (
     ReputationScore,
     ReputationStore,
     ReputationTier,
+    SOVEREIGNTY_PREMIUM_PCT,
+    SPOT_DISCOUNT_FACTOR,
     TIER_PRICING_PREMIUM,
     TIER_SEARCH_BOOST,
     TIER_THRESHOLDS,
     VERIFICATION_POINTS,
     VerificationType,
+    get_reference_rate,
     score_to_tier,
 )
 
@@ -237,3 +241,150 @@ class TestEventHistory:
         eng.apply_penalty("host-hist-2", PenaltyType.SLA_BREACH)
         history = eng.store.get_event_history("host-hist-2")
         assert any(ev["points_delta"] < 0 for ev in history)
+
+
+# ── GPU Reference Pricing ─────────────────────────────────────────────
+
+
+class TestGPUReferenceDict:
+    """Validate the GPU_REFERENCE_PRICING_CAD dictionary structure."""
+
+    def test_all_entries_have_required_keys(self):
+        required = {"base_rate_cad", "subsidized_starter_cad", "premium_rate_cad", "min_rate_cad", "max_rate_cad"}
+        for model, pricing in GPU_REFERENCE_PRICING_CAD.items():
+            missing = required - set(pricing.keys())
+            assert not missing, f"{model} missing keys: {missing}"
+
+    def test_base_rate_between_min_and_max(self):
+        for model, pricing in GPU_REFERENCE_PRICING_CAD.items():
+            assert pricing["min_rate_cad"] <= pricing["base_rate_cad"] <= pricing["max_rate_cad"], (
+                f"{model}: base_rate {pricing['base_rate_cad']} outside [{pricing['min_rate_cad']}, {pricing['max_rate_cad']}]"
+            )
+
+    def test_subsidized_below_base(self):
+        for model, pricing in GPU_REFERENCE_PRICING_CAD.items():
+            assert pricing["subsidized_starter_cad"] <= pricing["base_rate_cad"], (
+                f"{model}: subsidized {pricing['subsidized_starter_cad']} > base {pricing['base_rate_cad']}"
+            )
+
+    def test_premium_above_base(self):
+        for model, pricing in GPU_REFERENCE_PRICING_CAD.items():
+            assert pricing["premium_rate_cad"] >= pricing["base_rate_cad"], (
+                f"{model}: premium {pricing['premium_rate_cad']} < base {pricing['base_rate_cad']}"
+            )
+
+    def test_expected_models_present(self):
+        expected = ["RTX 3090", "RTX 4080", "RTX 4090", "RTX 5090", "A100", "A100 40GB", "A100 80GB", "H100", "H200", "L40", "L40S"]
+        for model in expected:
+            assert model in GPU_REFERENCE_PRICING_CAD, f"Missing model: {model}"
+
+    def test_a100_80gb_more_expensive_than_40gb(self):
+        assert GPU_REFERENCE_PRICING_CAD["A100 80GB"]["base_rate_cad"] > GPU_REFERENCE_PRICING_CAD["A100 40GB"]["base_rate_cad"]
+
+    def test_h200_more_expensive_than_h100(self):
+        assert GPU_REFERENCE_PRICING_CAD["H200"]["base_rate_cad"] > GPU_REFERENCE_PRICING_CAD["H100"]["base_rate_cad"]
+
+
+class TestGetReferenceRate:
+    """Test get_reference_rate fuzzy matching, tier adjustments, spot/sovereignty."""
+
+    # ── Exact match ──
+
+    def test_exact_match_rtx_4090(self):
+        rate = get_reference_rate("RTX 4090")
+        assert rate == GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+
+    def test_exact_match_a100_40gb(self):
+        rate = get_reference_rate("A100 40GB")
+        assert rate == GPU_REFERENCE_PRICING_CAD["A100 40GB"]["base_rate_cad"]
+
+    def test_exact_match_a100_80gb(self):
+        rate = get_reference_rate("A100 80GB")
+        assert rate == GPU_REFERENCE_PRICING_CAD["A100 80GB"]["base_rate_cad"]
+
+    # ── Fuzzy match: substring picks most specific ──
+
+    def test_fuzzy_nvidia_a100_80gb_sxm(self):
+        """'NVIDIA A100 80GB SXM' should match 'A100 80GB', not generic 'A100'."""
+        rate = get_reference_rate("NVIDIA A100 80GB SXM")
+        assert rate == GPU_REFERENCE_PRICING_CAD["A100 80GB"]["base_rate_cad"]
+
+    def test_fuzzy_nvidia_a100_40gb_pcie(self):
+        """'NVIDIA A100 40GB PCIe' should match 'A100 40GB'."""
+        rate = get_reference_rate("NVIDIA A100 40GB PCIe")
+        assert rate == GPU_REFERENCE_PRICING_CAD["A100 40GB"]["base_rate_cad"]
+
+    def test_fuzzy_plain_a100_uses_generic(self):
+        """Plain 'A100' with no VRAM suffix should match the generic 'A100' entry."""
+        rate = get_reference_rate("A100")
+        assert rate == GPU_REFERENCE_PRICING_CAD["A100"]["base_rate_cad"]
+
+    def test_fuzzy_l40s_not_l40(self):
+        """'L40S' should match 'L40S', not 'L40'."""
+        rate = get_reference_rate("NVIDIA L40S")
+        assert rate == GPU_REFERENCE_PRICING_CAD["L40S"]["base_rate_cad"]
+
+    def test_fuzzy_l40_not_l40s(self):
+        """'L40' should match 'L40', not 'L40S'."""
+        rate = get_reference_rate("L40")
+        assert rate == GPU_REFERENCE_PRICING_CAD["L40"]["base_rate_cad"]
+
+    def test_fuzzy_case_insensitive(self):
+        rate = get_reference_rate("rtx 4090")
+        assert rate == GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+
+    def test_unknown_gpu_falls_back_to_rtx_4090(self):
+        rate = get_reference_rate("AMD MI300X")
+        assert rate == GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+
+    # ── Tier adjustments ──
+
+    def test_bronze_tier_no_premium(self):
+        base = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+        rate = get_reference_rate("RTX 4090", tier=ReputationTier.BRONZE)
+        expected = round(base * (1 + TIER_PRICING_PREMIUM.get(ReputationTier.BRONZE, 0.0)), 4)
+        assert rate == expected
+
+    def test_gold_tier_premium(self):
+        base = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+        premium = TIER_PRICING_PREMIUM.get(ReputationTier.GOLD, 0)
+        rate = get_reference_rate("RTX 4090", tier=ReputationTier.GOLD)
+        assert rate == round(base * (1 + premium), 4)
+        assert rate > base  # Gold should always get more
+
+    def test_platinum_tier_premium(self):
+        base = GPU_REFERENCE_PRICING_CAD["H100"]["base_rate_cad"]
+        premium = TIER_PRICING_PREMIUM.get(ReputationTier.PLATINUM, 0)
+        rate = get_reference_rate("H100", tier=ReputationTier.PLATINUM)
+        assert rate == round(base * (1 + premium), 4)
+
+    # ── Spot pricing ──
+
+    def test_spot_discount(self):
+        base = get_reference_rate("RTX 4090")
+        spot = get_reference_rate("RTX 4090", spot=True)
+        assert spot < base
+        assert spot == round(base * (1 - SPOT_DISCOUNT_FACTOR), 4)
+
+    # ── Sovereignty premium ──
+
+    def test_sovereignty_premium(self):
+        base = get_reference_rate("RTX 4090")
+        sovereign = get_reference_rate("RTX 4090", sovereignty=True)
+        assert sovereign > base
+        assert sovereign == round(base * (1 + SOVEREIGNTY_PREMIUM_PCT), 4)
+
+    # ── Combined modifiers ──
+
+    def test_spot_and_sovereignty_combined(self):
+        base = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+        rate = get_reference_rate("RTX 4090", spot=True, sovereignty=True)
+        expected = round(base * (1 - SPOT_DISCOUNT_FACTOR) * (1 + SOVEREIGNTY_PREMIUM_PCT), 4)
+        assert rate == expected
+
+    def test_gold_spot_sovereignty(self):
+        base = GPU_REFERENCE_PRICING_CAD["RTX 4090"]["base_rate_cad"]
+        premium = TIER_PRICING_PREMIUM.get(ReputationTier.GOLD, 0)
+        rate = get_reference_rate("RTX 4090", tier=ReputationTier.GOLD, spot=True, sovereignty=True)
+        expected = round(base * (1 + premium) * (1 - SPOT_DISCOUNT_FACTOR) * (1 + SOVEREIGNTY_PREMIUM_PCT), 4)
+        assert rate == expected

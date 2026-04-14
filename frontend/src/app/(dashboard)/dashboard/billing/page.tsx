@@ -96,7 +96,7 @@ export default function BillingPage() {
   const walletValueRef = useRef<HTMLSpanElement | null>(null);
   const walletAnimationRef = useRef<AnimationPlaybackControls | null>(null);
   const freeCreditTimersRef = useRef<number[]>([]);
-  const hasCryptoPaymentRails = paymentRailsLoading || btcStatus.enabled || lnStatus.enabled;
+  const hasCryptoPaymentRails = true; // Always show crypto deposit options
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -710,7 +710,7 @@ export default function BillingPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Crypto Deposits</CardTitle>
-                <CardDescription>Bitcoin and Lightning stay grouped so crypto funding options load in one stable section.</CardDescription>
+                <CardDescription>Fund your wallet with Bitcoin on-chain or Lightning Network. Zero processing fees, settled in CAD.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 lg:grid-cols-2">
                 {paymentRailsLoading && (
@@ -757,12 +757,17 @@ export default function BillingPage() {
                   </div>
                 )}
 
-                {!paymentRailsLoading && lnStatus.enabled && (
+                {!paymentRailsLoading && (
                   <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-5">
                     <div className="flex items-center gap-2 mb-1">
                       <Zap className="h-4 w-4 text-violet-400" />
                       <p className="font-medium text-violet-400">Lightning Network</p>
-                      {!lnStatus.available && (
+                      {!lnStatus.enabled && (
+                        <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
+                          Coming Soon
+                        </Badge>
+                      )}
+                      {lnStatus.enabled && !lnStatus.available && (
                         <Badge variant="info" className="border border-violet-500/30 bg-violet-500/10 text-violet-400">
                           Unavailable
                         </Badge>
@@ -776,17 +781,19 @@ export default function BillingPage() {
                     <p className="text-xs text-text-secondary">
                       {lnStatus.available
                         ? "Instant deposits via Lightning — zero fees, instant settlement"
-                        : lnStatus.reason || "Lightning deposits are temporarily unavailable."}
+                        : lnStatus.enabled
+                          ? (lnStatus.reason || "Lightning deposits are temporarily unavailable.")
+                          : "Lightning Network deposits are coming soon. Stay tuned!"}
                     </p>
                     <Button
                       size="sm"
                       className="mt-5 bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white"
                       onClick={() => setShowLightningDeposit(true)}
                       disabled={!lnStatus.available}
-                      title={!lnStatus.available ? lnStatus.reason : undefined}
+                      title={!lnStatus.available ? (lnStatus.enabled ? lnStatus.reason : "Coming soon") : undefined}
                     >
                       <Zap className="h-3.5 w-3.5" />
-                      {lnStatus.available ? "Deposit via Lightning" : "Unavailable"}
+                      {lnStatus.available ? "Deposit via Lightning" : lnStatus.enabled ? "Unavailable" : "Coming Soon"}
                     </Button>
                   </div>
                 )}

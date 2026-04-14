@@ -377,7 +377,6 @@ export interface RegisterHostWebPayload {
   hostname: string;
   gpu_model: string;
   vram_gb: number;
-  cost_per_hour?: number;
   country?: string;
   province?: string;
   notes?: string;
@@ -410,7 +409,7 @@ export interface LaunchInstanceParams {
   image?: string;
   vram_needed_gb?: number;
   num_gpus?: number;
-  priority?: number;
+  priority?: string | number;
   tier?: string;
   host_id?: string;
   gpu_model?: string;
@@ -1082,9 +1081,54 @@ export async function fetchTransparencyReport(months = 12) {
 
 // ── Compliance ────────────────────────────────────────────────────────
 export async function fetchProvinces() {
-  return apiFetch<{ ok: boolean; provinces: Record<string, { tax_rate: number; description: string }> }>(
+  return apiFetch<{ ok: boolean; provinces: Record<string, { name: string; tax_rate: number; tax_description: string; description?: string }> }>(
     "/api/compliance/provinces",
   );
+}
+
+export async function detectProvince() {
+  return apiFetch<{ province: string; country: string; method: string }>(
+    "/api/compliance/detect-province",
+  );
+}
+
+export async function fetchPricingRates(params: {
+  gpu_model: string;
+  tier?: string;
+  mode?: string;
+  priority?: string;
+  num_gpus?: number;
+  province?: string;
+}) {
+  const qs = new URLSearchParams({
+    gpu_model: params.gpu_model,
+    tier: params.tier || "standard",
+    mode: params.mode || "on_demand",
+    priority: params.priority || "normal",
+    num_gpus: String(params.num_gpus || 1),
+    province: params.province || "ON",
+  });
+  return apiFetch<{
+    ok: boolean;
+    currency: string;
+    gpu_model: string;
+    vram_gb: number;
+    tier: string;
+    pricing_mode: string;
+    priority: string;
+    num_gpus: number;
+    base_rate_cad: number;
+    priority_multiplier: number;
+    sovereignty_premium: number;
+    multi_gpu_discount: number;
+    effective_rate_per_gpu: number;
+    total_per_hour: number;
+    province: string;
+    tax_rate: number;
+    tax_description: string;
+    tax_amount: number;
+    total_with_tax: number;
+  }>(`/api/pricing/rates?${qs.toString()}`);
 }
 
 export async function fetchTrustTierRequirements() {
@@ -1888,6 +1932,9 @@ export interface Instance {
   }[];
   storage_cost_cad?: number;
   volume_ids?: string[];
+  // Queue diagnostics
+  queue_reason?: string;
+  queue_reason_detail?: string;
 }
 
 /** @deprecated Use Instance instead */

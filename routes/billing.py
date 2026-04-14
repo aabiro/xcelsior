@@ -740,6 +740,109 @@ def api_reference_pricing():
     return {"ok": True, "currency": "CAD", "pricing": GPU_REFERENCE_PRICING_CAD}
 
 
+@router.get("/api/pricing/rates", tags=["Billing"])
+def api_pricing_rates(
+    gpu_model: str = "RTX 4090",
+    tier: str = "standard",
+    mode: str = "on_demand",
+    priority: str = "normal",
+    num_gpus: int = 1,
+    province: str = "ON",
+):
+    """Compute effective GPU rate with all pricing variables.
+
+    Returns a full breakdown: base rate, priority multiplier, sovereignty
+    premium, multi-GPU discount, tax rate, and final per-hour total.
+    Volume (storage) costs are calculated at runtime in billing — not here.
+    """
+    from db import pg_connection, GPU_PRIORITY_MULTIPLIERS
+
+    # Validate priority
+    priority = priority.lower()
+    pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
+
+    with pg_connection() as conn:
+        cur = conn.execute(
+            """SELECT base_rate_cad, sovereignty_premium,
+                      multi_gpu_discount_4, multi_gpu_discount_8, vram_gb
+               FROM gpu_pricing
+               WHERE gpu_model = %s AND tier = %s AND pricing_mode = %s
+                     AND active = TRUE
+               LIMIT 1""",
+            (gpu_model, tier, mode),
+        )
+        row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No pricing for {gpu_model}/{tier}/{mode}")
+
+    base_rate = row[0]
+    sovereignty_premium = row[1]
+    mg4_disc = row[2]
+    mg8_disc = row[3]
+    vram_gb = row[4]
+
+    # Multi-GPU discount
+    if num_gpus >= 8:
+        multi_gpu_discount = mg8_disc
+    elif num_gpus >= 4:
+        multi_gpu_discount = mg4_disc
+    else:
+        multi_gpu_discount = 0.0
+
+    # Effective per-GPU rate
+    effective_rate = base_rate * pri_mult * (1 + sovereignty_premium) * (1 - multi_gpu_discount)
+    effective_rate = round(effective_rate, 4)
+
+    # Per-hour total across all GPUs
+    total_per_hour = round(effective_rate * num_gpus, 4)
+
+    # Tax
+    tax_rate, tax_desc = get_tax_rate_for_province(province)
+    tax_amount = round(total_per_hour * tax_rate, 4)
+    total_with_tax = round(total_per_hour + tax_amount, 4)
+
+    return {
+        "ok": True,
+        "currency": "CAD",
+        "gpu_model": gpu_model,
+        "vram_gb": vram_gb,
+        "tier": tier,
+        "pricing_mode": mode,
+        "priority": priority,
+        "num_gpus": num_gpus,
+        "base_rate_cad": base_rate,
+        "priority_multiplier": pri_mult,
+        "sovereignty_premium": sovereignty_premium,
+        "multi_gpu_discount": multi_gpu_discount,
+        "effective_rate_per_gpu": effective_rate,
+        "total_per_hour": total_per_hour,
+        "province": province,
+        "tax_rate": tax_rate,
+        "tax_description": tax_desc,
+        "tax_amount": tax_amount,
+        "total_with_tax": total_with_tax,
+    }
+
+
+@router.get("/api/pricing/models", tags=["Billing"])
+def api_pricing_models():
+    """List all available GPU models with on-demand standard pricing."""
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        cur = conn.execute(
+            """SELECT DISTINCT gpu_model, vram_gb, base_rate_cad
+               FROM gpu_pricing
+               WHERE active = TRUE AND tier = 'standard' AND pricing_mode = 'on_demand'
+               ORDER BY base_rate_cad ASC"""
+        )
+        rows = cur.fetchall()
+
+    models = [{"gpu_model": r[0], "vram_gb": r[1], "base_rate_cad": r[2]} for r in rows]
+    return {"ok": True, "models": models}
+
+
 # ── Model: ReservedCommitmentRequest ──
 
 class ReservedCommitmentRequest(BaseModel):

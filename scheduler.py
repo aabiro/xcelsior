@@ -708,13 +708,114 @@ def process_queue_binpack(canada_only=None, province=None):
         if now - last_notified < 300:
             continue
         _job_error_notified[jid] = now
+
+        # Diagnose WHY the job is stuck for a useful message
+        job = next((j for j in jobs if j.get("job_id") == jid), None)
+        reason, detail = _diagnose_queue_block(job, hosts)
+
         emit_event("job_error", {
             "job_id": jid,
-            "error": "no_hosts_available",
-            "message": "No GPU hosts currently match your requirements. Your job remains queued.",
+            "error": reason,
+            "message": detail,
         })
 
+        # Persist queue_reason on the job so frontend can display it
+        if job:
+            _persist_queue_reason(job, reason, detail)
+
+        # In-app notification to renter (once per 15 min per job)
+        _notify_renter_queue_block(jid, job, reason, detail, now)
+
     return assigned
+
+
+# ── Queue-block diagnostics + renter notifications ───────────────────
+
+_renter_notified: dict[str, float] = {}
+
+
+def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str]:
+    """Return (reason_code, human_message) explaining why a job can't be allocated."""
+    if not job:
+        return "unknown", "Your job could not be allocated. It remains queued."
+
+    active = [h for h in hosts if h.get("status") == "active"]
+    if not active:
+        return "no_hosts_online", "No GPU hosts are currently online. Your job remains queued and will be assigned when a host becomes available."
+
+    vram = job.get("vram_needed_gb", 0)
+    with_vram = [h for h in active if h.get("free_vram_gb", 0) >= vram]
+    if not with_vram:
+        return "insufficient_vram", f"No hosts have enough free VRAM ({vram} GB needed). Your job remains queued."
+
+    gpu_model = (job.get("gpu_model") or "").strip().lower()
+    candidates = with_vram
+    if gpu_model:
+        with_gpu = [h for h in candidates if (h.get("gpu_model") or "").strip().lower() == gpu_model]
+        if not with_gpu:
+            return "no_matching_gpu", f"No hosts with a {job.get('gpu_model', gpu_model)} GPU are available. Your job remains queued."
+        candidates = with_gpu
+
+    # Check if matching hosts are unadmitted (scoped to VRAM+GPU-filtered set)
+    admitted = [h for h in candidates if h.get("admitted", False)]
+    if not admitted:
+        return "hosts_not_admitted", (
+            "GPU hosts are online but haven't passed admission checks yet. "
+            "The provider has been notified. Your job will be assigned automatically once a host is cleared."
+        )
+
+    return "no_hosts_available", "No GPU hosts currently match your requirements. Your job remains queued."
+
+
+def _persist_queue_reason(job: dict, reason: str, detail: str):
+    """Write queue_reason into the job payload so the frontend can display it."""
+    try:
+        job["queue_reason"] = reason
+        job["queue_reason_detail"] = detail
+        with _atomic_mutation() as conn:
+            _upsert_job_row(conn, job)
+    except Exception:
+        log.debug("Failed to persist queue_reason for job %s", job.get("job_id"))
+
+
+def _notify_renter_queue_block(job_id: str, job: dict | None, reason: str, detail: str, now: float):
+    """Send in-app notification to the renter (throttled: once per 15 min per job)."""
+    last = _renter_notified.get(job_id, 0)
+    if now - last < 900:
+        return
+    _renter_notified[job_id] = now
+
+    if not job:
+        return
+    owner_id = job.get("owner", "")
+    if not owner_id:
+        return
+
+    try:
+        from db import UserStore, NotificationStore
+
+        user = UserStore.get_user_by_id(owner_id)
+        if not user:
+            return
+        email = user.get("email", "")
+        if not email:
+            return
+
+        job_name = job.get("name") or job_id
+
+        NotificationStore.create(
+            user_email=email,
+            notif_type="job_queue_blocked",
+            title=f"Instance \"{job_name}\" waiting for GPU",
+            body=detail,
+            data={"job_id": job_id, "reason": reason},
+            action_url=f"/dashboard/instances/{job_id}",
+            entity_type="job",
+            entity_id=job_id,
+            priority=1,  # high
+        )
+    except Exception:
+        log.debug("Failed to send queue-block notification for job %s", job_id)
 
 
 # ── Phase 2: Host Registry ───────────────────────────────────────────
@@ -1212,8 +1313,12 @@ def reconcile_host_vram():
     return corrections
 
 
-def update_job_status(job_id, status, host_id=None):
-    """Mark a job. queued -> running -> completed/failed. That's the lifecycle."""
+def update_job_status(job_id, status, host_id=None, **kwargs):
+    """Mark a job. queued -> running -> completed/failed. That's the lifecycle.
+
+    Any extra keyword arguments are merged into the job payload before
+    persisting (e.g. host_gpu_model, host_vram_gb set at assignment time).
+    """
     if status not in VALID_STATUSES:
         raise ValueError(
             f"Invalid status '{status}' for job {job_id} — must be one of {VALID_STATUSES}"
@@ -1278,6 +1383,10 @@ def update_job_status(job_id, status, host_id=None):
             j["started_at"] = time.time()
         if status in ("completed", "failed", "cancelled"):
             j["completed_at"] = time.time()
+
+        # Merge extra keyword args into payload (e.g., host GPU info on assignment)
+        if kwargs:
+            j.update(kwargs)
 
         _upsert_job_row(conn, j)
 
@@ -1418,9 +1527,19 @@ def process_queue():
 
         host = allocate(job, hosts)
         if not host:
+            log.info(
+                "QUEUE: no host for job=%s gpu=%s vram=%sGB",
+                job.get("job_id"), job.get("gpu_model", "any"),
+                job.get("vram_needed_gb", 0),
+            )
             continue  # no host for THIS job, but maybe smaller jobs fit
 
-        updated = update_job_status(job["job_id"], "assigned", host_id=host["host_id"])
+        # Write host's actual GPU info into job payload before persisting
+        updated = update_job_status(
+            job["job_id"], "assigned", host_id=host["host_id"],
+            host_gpu_model=host.get("gpu_model", ""),
+            host_vram_gb=host.get("total_vram_gb", host.get("free_vram_gb", 0)),
+        )
         if not updated or updated.get("status") != "assigned":
             continue
         assigned.append((updated, host))

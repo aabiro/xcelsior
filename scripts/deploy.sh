@@ -191,15 +191,21 @@ install_nginx_configs() {
     scp_file "$PROJECT_DIR/nginx/xcelsior.conf" "/tmp/xcelsior.conf"
     scp_file "$PROJECT_DIR/nginx/headscale.conf" "/tmp/headscale.conf"
     scp_file "$PROJECT_DIR/nginx/headscale-http.conf" "/tmp/headscale-http.conf"
+    scp_file "$PROJECT_DIR/nginx/docs-xcelsior.conf" "/tmp/docs-xcelsior.conf"
+    scp_file "$PROJECT_DIR/nginx/downloads-xcelsior.conf" "/tmp/downloads-xcelsior.conf"
 
     ssh_cmd << 'EOF'
 set -e
 sudo cp /tmp/xcelsior.conf /etc/nginx/sites-available/xcelsior
 sudo cp /tmp/headscale.conf /etc/nginx/sites-available/headscale
 sudo cp /tmp/headscale-http.conf /etc/nginx/sites-available/headscale-http
+sudo cp /tmp/docs-xcelsior.conf /etc/nginx/sites-available/docs-xcelsior
+sudo cp /tmp/downloads-xcelsior.conf /etc/nginx/sites-available/downloads-xcelsior
 sudo ln -sf /etc/nginx/sites-available/xcelsior /etc/nginx/sites-enabled/xcelsior
 sudo ln -sf /etc/nginx/sites-available/headscale /etc/nginx/sites-enabled/headscale
 sudo ln -sf /etc/nginx/sites-available/headscale-http /etc/nginx/sites-enabled/headscale-http
+sudo ln -sf /etc/nginx/sites-available/docs-xcelsior /etc/nginx/sites-enabled/docs-xcelsior
+sudo ln -sf /etc/nginx/sites-available/downloads-xcelsior /etc/nginx/sites-enabled/downloads-xcelsior
 sudo nginx -t
 sudo systemctl reload nginx
 EOF

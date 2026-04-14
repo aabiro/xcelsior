@@ -182,6 +182,120 @@ def _get_pg_pool():
                 time.sleep(delay)
 
 
+# ── GPU Pricing seed data ─────────────────────────────────────────────
+# Platform-controlled GPU rates in CAD. Volume costs are computed at
+# runtime in billing.py and are NOT stored here.
+
+_GPU_PRICING_SEED = [
+    # (gpu_model, vram_gb, tier, pricing_mode, base_rate_cad, priority_mult, sovereignty_prem, spot_disc, mg4_disc, mg8_disc)
+    # ── RTX 3090 24GB ──
+    ("RTX 3090",  24, "standard",  "on_demand",    0.30, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "standard",  "spot",         0.12, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "standard",  "reserved_1mo", 0.24, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "standard",  "reserved_1yr", 0.17, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "premium",   "on_demand",    0.39, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "premium",   "spot",         0.156,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "premium",   "reserved_1mo", 0.312,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "premium",   "reserved_1yr", 0.221,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "sovereign", "on_demand",    0.429,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "sovereign", "spot",         0.172,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "sovereign", "reserved_1mo", 0.343,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 3090",  24, "sovereign", "reserved_1yr", 0.243,1.0, 0.10, 0.0,  0.05, 0.10),
+    # ── RTX 4090 24GB ──
+    ("RTX 4090",  24, "standard",  "on_demand",    0.55, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "standard",  "spot",         0.22, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "standard",  "reserved_1mo", 0.44, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "standard",  "reserved_1yr", 0.30, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "premium",   "on_demand",    0.715,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "premium",   "spot",         0.286,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "premium",   "reserved_1mo", 0.572,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "premium",   "reserved_1yr", 0.39, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "sovereign", "on_demand",    0.787,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "sovereign", "spot",         0.315,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "sovereign", "reserved_1mo", 0.629,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 4090",  24, "sovereign", "reserved_1yr", 0.429,1.0, 0.10, 0.0,  0.05, 0.10),
+    # ── A100 40GB ──
+    ("A100 40GB", 40, "standard",  "on_demand",    1.50, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "standard",  "spot",         0.60, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "standard",  "reserved_1mo", 1.20, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "standard",  "reserved_1yr", 0.83, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "premium",   "on_demand",    1.95, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "premium",   "spot",         0.78, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "premium",   "reserved_1mo", 1.56, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "premium",   "reserved_1yr", 1.079,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "on_demand",    2.145,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "spot",         0.858,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "reserved_1mo", 1.716,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "reserved_1yr", 1.187,1.0, 0.10, 0.0,  0.05, 0.10),
+    # ── A100 80GB ──
+    ("A100 80GB", 80, "standard",  "on_demand",    2.20, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "standard",  "spot",         0.88, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "standard",  "reserved_1mo", 1.76, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "standard",  "reserved_1yr", 1.21, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "premium",   "on_demand",    2.86, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "premium",   "spot",         1.144,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "premium",   "reserved_1mo", 2.288,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "premium",   "reserved_1yr", 1.573,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "on_demand",    3.146,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "spot",         1.258,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "reserved_1mo", 2.517,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "reserved_1yr", 1.730,1.0, 0.10, 0.0,  0.05, 0.10),
+    # ── H100 80GB ──
+    ("H100 80GB", 80, "standard",  "on_demand",    3.50, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "standard",  "spot",         1.40, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "standard",  "reserved_1mo", 2.80, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "standard",  "reserved_1yr", 1.93, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "premium",   "on_demand",    4.55, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "premium",   "spot",         1.82, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "premium",   "reserved_1mo", 3.64, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "premium",   "reserved_1yr", 2.509,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "on_demand",    5.005,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "spot",         2.002,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "reserved_1mo", 4.004,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "reserved_1yr", 2.760,1.0, 0.10, 0.0,  0.05, 0.10),
+    # ── L40S 48GB ──
+    ("L40S 48GB", 48, "standard",  "on_demand",    1.80, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "standard",  "spot",         0.72, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "standard",  "reserved_1mo", 1.44, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "standard",  "reserved_1yr", 0.99, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "premium",   "on_demand",    2.34, 1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "premium",   "spot",         0.936,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "premium",   "reserved_1mo", 1.872,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "premium",   "reserved_1yr", 1.287,1.0, 0.0,  0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "on_demand",    2.574,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "spot",         1.030,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "reserved_1mo", 2.059,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "reserved_1yr", 1.416,1.0, 0.10, 0.0,  0.05, 0.10),
+]
+
+# Priority multipliers applied at query time, not stored per-row
+GPU_PRIORITY_MULTIPLIERS = {
+    "low":      0.8,
+    "normal":   1.0,
+    "high":     1.3,
+    "critical": 1.6,
+}
+
+
+def _seed_gpu_pricing(cur):
+    """Insert seed pricing rows if table is empty."""
+    cur.execute("SELECT COUNT(*) FROM gpu_pricing")
+    count = cur.fetchone()[0]
+    if count > 0:
+        return
+    for row in _GPU_PRICING_SEED:
+        cur.execute(
+            """INSERT INTO gpu_pricing
+               (gpu_model, vram_gb, tier, pricing_mode, base_rate_cad,
+                priority_multiplier, sovereignty_premium, spot_discount,
+                multi_gpu_discount_4, multi_gpu_discount_8)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (gpu_model, tier, pricing_mode) DO NOTHING""",
+            row,
+        )
+    log.info("Seeded gpu_pricing table with %d rows", len(_GPU_PRICING_SEED))
+
+
 def _ensure_pg_tables(conn):
     """Ensure all scheduler persistence tables and indexes exist in PostgreSQL.
 
@@ -328,6 +442,31 @@ def _ensure_pg_tables(conn):
         "CREATE INDEX IF NOT EXISTS idx_volume_attachments_instance "
         "ON volume_attachments (instance_id, detached_at)"
     )
+
+    # ── GPU Pricing (platform-controlled rates) ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS gpu_pricing (
+            id SERIAL PRIMARY KEY,
+            gpu_model TEXT NOT NULL,
+            vram_gb INTEGER NOT NULL,
+            tier TEXT NOT NULL DEFAULT 'standard',
+            pricing_mode TEXT NOT NULL DEFAULT 'on_demand',
+            base_rate_cad DOUBLE PRECISION NOT NULL,
+            priority_multiplier DOUBLE PRECISION DEFAULT 1.0,
+            sovereignty_premium DOUBLE PRECISION DEFAULT 0.0,
+            spot_discount DOUBLE PRECISION DEFAULT 0.0,
+            multi_gpu_discount_4 DOUBLE PRECISION DEFAULT 0.0,
+            multi_gpu_discount_8 DOUBLE PRECISION DEFAULT 0.0,
+            active BOOLEAN DEFAULT TRUE,
+            updated_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW()),
+            UNIQUE (gpu_model, tier, pricing_mode)
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gpu_pricing_model "
+        "ON gpu_pricing (gpu_model, tier, pricing_mode) WHERE active = TRUE"
+    )
+    _seed_gpu_pricing(cur)
 
 
 @contextmanager

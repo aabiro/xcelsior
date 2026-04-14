@@ -354,7 +354,7 @@ export default function HostsPage() {
                         "font-mono text-sm font-medium",
                         host.cost_per_hour ? "text-emerald" : "text-text-muted"
                       )}>
-                        {host.cost_per_hour ? `$${Number(host.cost_per_hour).toFixed(2)}/hr` : "—"}
+                        {host.cost_per_hour ? `$${Number(host.cost_per_hour).toFixed(2)}/hr` : "Platform rate"}
                       </span>
                     </td>
                     <td className="py-4 px-5 text-right">
@@ -398,7 +398,6 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
   const [hostname, setHostname] = useState("");
   const [gpuModel, setGpuModel] = useState("");
   const [vramGb, setVramGb] = useState("");
-  const [costPerHour, setCostPerHour] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
@@ -434,14 +433,8 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
       }
 
       const parsedVram = vramGb ? parseFloat(vramGb) : 0;
-      const parsedRate = costPerHour ? parseFloat(costPerHour) : 0.20;
       if (parsedVram <= 0 || isNaN(parsedVram)) {
         toast.error("VRAM must be greater than 0");
-        setLoading(false);
-        return;
-      }
-      if (parsedRate <= 0 || isNaN(parsedRate)) {
-        toast.error("Hourly rate must be greater than 0");
         setLoading(false);
         return;
       }
@@ -449,7 +442,6 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         hostname: trimmedHostname, 
         gpu_model: gpuModel,
         vram_gb: parsedVram,
-        cost_per_hour: parsedRate,
         country,
         province,
         notes: notes.trim() || undefined,
@@ -552,14 +544,8 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               <p className="text-xs text-text-muted">Auto-filled from GPU selection</p>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Hourly Rate ($)</Label>
-              <NumberInput
-                value={costPerHour ? parseFloat(costPerHour) : 0.20}
-                onChange={(val) => setCostPerHour(String(val))}
-                min={0.01}
-                max={100}
-                step={0.01}
-              />
+              <Label className="text-sm font-medium">Hourly Rate</Label>
+              <p className="text-xs text-text-muted bg-surface-hover rounded-md px-3 py-2">Rates are set automatically based on GPU model and tier. You'll earn the platform rate for your GPU.</p>
             </div>
           </div>
 

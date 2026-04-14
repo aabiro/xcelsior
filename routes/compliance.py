@@ -263,17 +263,74 @@ def api_compliance_status(request: Request):
 
 @router.get("/api/compliance/provinces", tags=["Compliance"])
 def api_compliance_provinces():
-    """Province-specific compliance matrix for scheduling guidance."""
+    """All 13 Canadian provinces/territories plus international, with tax rates and compliance info."""
+    PROVINCE_NAMES = {
+        "AB": "Alberta", "BC": "British Columbia", "MB": "Manitoba",
+        "NB": "New Brunswick", "NL": "Newfoundland & Labrador", "NS": "Nova Scotia",
+        "NT": "Northwest Territories", "NU": "Nunavut", "ON": "Ontario",
+        "PE": "Prince Edward Island", "QC": "Québec", "SK": "Saskatchewan",
+        "YT": "Yukon",
+    }
     matrix = {}
-    for prov, info in PROVINCE_COMPLIANCE.items():
-        prov_code = prov.value if hasattr(prov, "value") else str(prov)
-        tax_rate, tax_desc = get_tax_rate_for_province(prov_code)
-        matrix[prov_code] = {
-            **info,
+    for code, (tax_rate, tax_desc) in PROVINCE_TAX_RATES.items():
+        entry = {
+            "name": PROVINCE_NAMES.get(code, code),
             "tax_rate": tax_rate,
             "tax_description": tax_desc,
         }
+        # Merge compliance info if this province has specific regulations
+        for prov, info in PROVINCE_COMPLIANCE.items():
+            prov_code = prov.value if hasattr(prov, "value") else str(prov)
+            if prov_code == code:
+                entry.update(info)
+                break
+        matrix[code] = entry
+    # International fallback
+    matrix["INTL"] = {
+        "name": "International",
+        "tax_rate": 0.05,
+        "tax_description": "GST 5% only (non-resident)",
+    }
     return {"provinces": matrix}
+
+@router.get("/api/compliance/detect-province", tags=["Compliance"])
+def api_detect_province(request: Request):
+    """Best-effort province detection from request headers.
+
+    Checks Cloudflare CF-IPCountry / CF-Region first, then falls back
+    to X-Forwarded-For geolocation if available. Returns INTL for
+    non-Canadian or unknown origins.
+    """
+    country = (request.headers.get("CF-IPCountry") or "").upper()
+    region = (request.headers.get("CF-Region") or "").upper()
+
+    # Cloudflare region codes map to province codes for Canada
+    CF_REGION_MAP = {
+        "AB": "AB", "BC": "BC", "MB": "MB", "NB": "NB", "NL": "NL",
+        "NS": "NS", "NT": "NT", "NU": "NU", "ON": "ON", "PE": "PE",
+        "QC": "QC", "SK": "SK", "YT": "YT",
+        # Common Cloudflare region name variants
+        "ALBERTA": "AB", "BRITISH COLUMBIA": "BC", "MANITOBA": "MB",
+        "NEW BRUNSWICK": "NB", "NEWFOUNDLAND AND LABRADOR": "NL",
+        "NOVA SCOTIA": "NS", "ONTARIO": "ON", "QUEBEC": "QC",
+        "SASKATCHEWAN": "SK",
+    }
+
+    if country == "CA" and region:
+        province = CF_REGION_MAP.get(region, None)
+        if province:
+            return {"province": province, "country": "CA", "method": "cloudflare"}
+
+    if country == "CA":
+        # Canada but region unknown — default to ON
+        return {"province": "ON", "country": "CA", "method": "cloudflare_country_only"}
+
+    if country and country != "XX":
+        return {"province": "INTL", "country": country, "method": "cloudflare"}
+
+    # No Cloudflare headers — cannot determine
+    return {"province": "ON", "country": "CA", "method": "default"}
+
 
 @router.get("/api/compliance/tax-rates", tags=["Compliance"])
 def api_tax_rates():

@@ -187,6 +187,7 @@ export default function InstanceDetailPage() {
   }, []);
   const onWsJobError = useCallback((err: { job_id: string; error: string; message: string }) => {
     setJobError(err.message);
+    toast.warning(err.message || "Your instance is waiting for a GPU");
   }, []);
   const onWsLog = useCallback((log: { job_id: string; timestamp: number; line: string; level: string }) => {
     setWsLogs((prev) => [...prev, { timestamp: log.timestamp, level: log.level, message: log.line }].slice(-3000));
@@ -389,6 +390,12 @@ export default function InstanceDetailPage() {
             </span>
           </div>
         )}
+        {status === "queued" && instance.queue_reason_detail && (
+          <div className="mt-3 flex items-center gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+            <Info className="h-4 w-4 text-amber-500 shrink-0" />
+            <span className="text-xs text-text-secondary">{instance.queue_reason_detail}</span>
+          </div>
+        )}
       </Card>
 
       {/* Job Error Banner */}
@@ -413,7 +420,7 @@ export default function InstanceDetailPage() {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_gpu")}</p>
-            <p className="font-medium">{instance.gpu_type || instance.gpu_model || t("dash.instances.auto")}</p>
+            <p className="font-medium">{instance.gpu_type || instance.host_gpu || instance.gpu_model || (instance.host_id ? t("dash.instances.auto") : "Pending assignment")}</p>
           </div>
         </Card>
 
