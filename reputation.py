@@ -998,6 +998,7 @@ def get_reference_rate(
 
     if not ref:
         # Default to RTX 4090 pricing as baseline
+        log.warning("PRICING: unknown GPU model %r, falling back to RTX 4090 rates", gpu_model)
         ref = GPU_REFERENCE_PRICING_CAD["RTX 4090"]
 
     # Base rate adjusted for tier

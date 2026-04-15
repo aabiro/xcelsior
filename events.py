@@ -78,7 +78,7 @@ STORAGE_BILLED_STATES = frozenset(
 # Valid state transitions — anything not here is rejected
 VALID_TRANSITIONS = {
     JobState.QUEUED: {JobState.ASSIGNED, JobState.CANCELLED},
-    JobState.ASSIGNED: {JobState.LEASED, JobState.RUNNING, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
+    JobState.ASSIGNED: {JobState.LEASED, JobState.STARTING, JobState.RUNNING, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
     JobState.LEASED: {JobState.STARTING, JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
     JobState.STARTING: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
     JobState.RUNNING: {
@@ -434,9 +434,9 @@ class EventStore:
             duration_sec=duration_sec,
         )
         with self._conn() as conn:
-            # Expire any existing lease for this job
+            # Remove any existing leases for this job (active, released, or expired)
             conn.execute(
-                "UPDATE leases SET status = 'released' WHERE job_id = %s AND status = 'active'",
+                "DELETE FROM leases WHERE job_id = %s",
                 (job_id,),
             )
             conn.execute(

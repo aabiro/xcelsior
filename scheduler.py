@@ -429,6 +429,8 @@ def _save_json(path, data):
 
 # ── Phase 1: Allocate ────────────────────────────────────────────────
 
+_allocate_blocked_notified: dict[str, float] = {}
+
 
 def allocate(job, hosts):
     """Find the best host for this job.
@@ -488,11 +490,15 @@ def allocate(job, hosts):
     # on hosts that are not patched to minimum safe versions"
     admitted_candidates = [h for h in candidates if h.get("admitted", False)]
     if not admitted_candidates:
-        log.warning(
-            "ALLOCATE BLOCKED: %d hosts have VRAM but none are admitted (job=%s)",
-            len(candidates),
-            job.get("name", "?"),
-        )
+        _now = time.time()
+        _jkey = job.get("job_id", "?")
+        if _now - _allocate_blocked_notified.get(_jkey, 0) >= 300:
+            _allocate_blocked_notified[_jkey] = _now
+            log.warning(
+                "ALLOCATE BLOCKED: %d hosts have VRAM but none are admitted (job=%s)",
+                len(candidates),
+                job.get("name", "?"),
+            )
         return None
     candidates = admitted_candidates
 
@@ -663,12 +669,22 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
 _job_error_notified: dict[str, float] = {}
 
 
+def _evict_stale_throttles():
+    """Remove throttle entries older than 1 hour to prevent memory leak."""
+    cutoff = time.time() - 3600
+    for d in (_job_error_notified, _renter_notified, _allocate_blocked_notified):
+        stale = [k for k, v in d.items() if v < cutoff]
+        for k in stale:
+            del d[k]
+
+
 def process_queue_binpack(canada_only=None, province=None):
     """Process job queue using best-fit-decreasing order.
 
     Sorts queued jobs by vram_needed_gb descending (largest first)
     to minimize fragmentation, then allocates using bin-pack scoring.
     """
+    _evict_stale_throttles()
     hosts = list_hosts()
     if canada_only:
         hosts = [h for h in hosts if h.get("country", "").upper() == "CA"]

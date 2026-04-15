@@ -132,6 +132,10 @@ def _notify_provider_admission_failure(host: dict, details: dict):
     """Send in-app + push notification to host owner about admission failure."""
     host_id = host.get("host_id", "?")
     now = time.time()
+    # Evict stale throttle entries (>1 hour) to prevent memory leak
+    stale = [k for k, v in _admission_notified.items() if now - v > 3600]
+    for k in stale:
+        del _admission_notified[k]
     last = _admission_notified.get(host_id, 0)
     if now - last < 3600:
         return  # throttle: at most once per hour per host

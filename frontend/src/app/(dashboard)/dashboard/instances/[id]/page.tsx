@@ -184,6 +184,7 @@ export default function InstanceDetailPage() {
       i.docker_image = raw.image as string;
     }
     setInstance(i);
+    setJobError(null); // Clear queue error on successful status update
   }, []);
   const onWsJobError = useCallback((err: { job_id: string; error: string; message: string }) => {
     setJobError(err.message);
