@@ -395,7 +395,23 @@ export default function InstancesPage() {
       <LaunchInstanceModal
         open={launchOpen}
         onClose={closeLaunchModal}
-        onLaunched={() => { closeLaunchModal(); load(); }}
+        onLaunched={(jobId, inst) => {
+          closeLaunchModal();
+          // Optimistically add so the user can navigate to it immediately
+          setInstances((prev) => {
+            if (prev.some((i) => i.job_id === jobId)) return prev;
+            const stub: Instance = inst ?? {
+              job_id: jobId,
+              name: "",
+              status: "queued",
+              docker_image: "",
+              created_at: Date.now() / 1000,
+              submitted_at: Date.now() / 1000,
+            } as Instance;
+            return [stub, ...prev];
+          });
+          load();
+        }}
       />
     </div>
   );

@@ -94,7 +94,7 @@ const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: stri
 export interface LaunchInstanceModalProps {
   open: boolean;
   onClose: () => void;
-  onLaunched?: (instanceId: string) => void;
+  onLaunched?: (instanceId: string, instance?: import("@/lib/api").Instance) => void;
   /** Pre-fill from a marketplace listing */
   listing?: MarketplaceListing;
 }
@@ -114,6 +114,7 @@ export function LaunchInstanceModal({
   const [instanceName, setInstanceName] = useState(() => generateFunName());
   const [image, setImage] = useState("");
   const [gpuModel, setGpuModel] = useState("");
+  const [vramGb, setVramGb] = useState<number | "">(""); 
   const [numGpus, setNumGpus] = useState("1");
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
   const [tier, setTier] = useState("standard");
@@ -199,6 +200,25 @@ export function LaunchInstanceModal({
   }));
   const gpuModelOptions = gpuInventoryOptions.length > 0 ? gpuInventoryOptions : fallbackGpuOptions;
   const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
+
+  // VRAM options per selected GPU model — derived from inventory
+  const FALLBACK_VRAM: Record<string, number[]> = {
+    "RTX 2060": [6], "RTX 3090": [24], "RTX 4080": [16], "RTX 4090": [24], "RTX 5090": [32],
+    "A100 40GB": [40], "A100 80GB": [80], "A100": [40, 80],
+    "L40": [48], "L40S": [48], "H100": [80], "H200": [141],
+  };
+  const vramOptionsForGpu: number[] = (() => {
+    if (!resolvedGpu) return [];
+    // Collect unique VRAM values from live inventory for this model
+    const fromInventory = [...new Set(
+      availableGpus
+        .filter((g) => g.gpu_model === resolvedGpu && g.vram_gb > 0)
+        .map((g) => g.vram_gb),
+    )].sort((a, b) => a - b);
+    if (fromInventory.length > 0) return fromInventory;
+    return FALLBACK_VRAM[resolvedGpu] ?? [];
+  })();
+  const resolvedVramGb = vramGb || (vramOptionsForGpu.length === 1 ? vramOptionsForGpu[0] : undefined);
 
   // Pricing — use dynamic rate from backend when available, else fall back to reference
   const selectedPricing = pricing.find((p) => p.gpu_model === resolvedGpu);
@@ -287,6 +307,15 @@ export function LaunchInstanceModal({
     }
   }, [gpuModel, listing, selectedGpuStillAvailable]);
 
+  // Auto-fill VRAM when GPU model changes
+  useEffect(() => {
+    if (vramOptionsForGpu.length === 1) {
+      setVramGb(vramOptionsForGpu[0]);
+    } else {
+      setVramGb("");
+    }
+  }, [resolvedGpu]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Pre-fill from listing
   useEffect(() => {
     if (listing) {
@@ -301,6 +330,7 @@ export function LaunchInstanceModal({
       setInstanceName(generateFunName());
       setImage("");
       setNumGpus("1");
+      setVramGb("");
       setPricingMode("on_demand");
       setTier("standard");
       setMaxBid("");
@@ -321,7 +351,7 @@ export function LaunchInstanceModal({
       const params: LaunchInstanceParams = {
         name: instanceName.trim(),
         image: resolvedImage,
-        vram_needed_gb: templateVramGb,
+        vram_needed_gb: resolvedVramGb,
         num_gpus: Number(numGpus),
         priority,
         tier,
@@ -344,7 +374,7 @@ export function LaunchInstanceModal({
       setStep("success");
       markInstanceLaunched();
       toast.success("Instance launched successfully");
-      onLaunched?.(jobId);
+      onLaunched?.(jobId, res.instance);
     } catch (err) {
       const info = classifyLaunchError(err);
       if (info.action) {
@@ -480,7 +510,7 @@ export function LaunchInstanceModal({
                   />
                 </div>
 
-                {/* GPU model + count (non-listing mode) */}
+                {/* GPU model + VRAM + count (non-listing mode) */}
                 {!listing && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
@@ -506,14 +536,39 @@ export function LaunchInstanceModal({
                           : "Live inventory is unavailable, so the picker is using reference models as a fallback."}
                       </p>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">GPUs</Label>
-                      <NumberInput
-                        min={1}
-                        max={8}
-                        value={numGpus}
-                        onChange={(v) => setNumGpus(String(v))}
-                      />
+                    <div className="grid gap-4 grid-rows-[auto_auto]">
+                      {/* VRAM selector — auto-fill or dropdown */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">VRAM</Label>
+                        {!resolvedGpu ? (
+                          <Select disabled>
+                            <option>Select a GPU first</option>
+                          </Select>
+                        ) : vramOptionsForGpu.length <= 1 ? (
+                          <Select disabled value={String(resolvedVramGb ?? "")}>
+                            <option>{resolvedVramGb ? `${resolvedVramGb} GB` : "—"}</option>
+                          </Select>
+                        ) : (
+                          <Select
+                            value={String(vramGb)}
+                            onChange={(e) => setVramGb(e.target.value ? Number(e.target.value) : "")}
+                          >
+                            <option value="">Select VRAM</option>
+                            {vramOptionsForGpu.map((v) => (
+                              <option key={v} value={v}>{v} GB</option>
+                            ))}
+                          </Select>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">GPUs</Label>
+                        <NumberInput
+                          min={1}
+                          max={8}
+                          value={numGpus}
+                          onChange={(v) => setNumGpus(String(v))}
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -732,7 +787,7 @@ export function LaunchInstanceModal({
                   </div>
                   <p className="text-xs text-text-muted mt-1">
                     {effectiveRate == null
-                      ? `Auto GPU selected${templateVramGb ? ` · scheduler will require at least ${templateVramGb} GB VRAM` : ""}`
+                      ? `Auto GPU selected${resolvedVramGb ? ` · scheduler will require at least ${resolvedVramGb} GB VRAM` : ""}`
                       : pricingMode === "spot"
                         ? "Spot pricing · Billed per second of actual usage"
                         : "On-demand · Billed per second of actual usage"}
