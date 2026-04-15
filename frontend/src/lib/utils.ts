@@ -8,19 +8,19 @@ export function cn(...inputs: ClassValue[]) {
 /* ── Fun random instance name generator (adjective-noun) ─────────── */
 
 const ADJECTIVES = [
-  "wobbly", "chunky", "sneaky", "peppy", "grumpy", "sparkly", "fluffy",
-  "zippy", "squishy", "dizzy", "bouncy", "toasty", "wiggly", "fuzzy",
-  "jolly", "snappy", "breezy", "cheeky", "quirky", "plucky", "zappy",
-  "perky", "spunky", "nifty", "sassy", "wacky", "frisky", "goofy",
-  "turbo", "cosmic", "mighty", "sleepy", "groovy", "dapper", "zesty",
+  "cosmic", "stellar", "blazing", "turbo", "hyper", "mega", "ultra", "super",
+  "atomic", "quantum", "cyber", "neon", "nitro", "flash", "swift", "rapid",
+  "epic", "mighty", "bold", "fierce", "primal", "rogue", "astral", "nova",
+  "phantom", "lucid", "frosty", "golden", "shadow", "thunder", "crimson",
+  "radiant", "vivid", "ignited", "soaring",
 ];
 
 const NOUNS = [
-  "panda", "otter", "moose", "walrus", "narwhal", "llama", "penguin",
-  "quokka", "axolotl", "capybara", "gecko", "badger", "wombat", "sloth",
-  "toucan", "bison", "falcon", "corgi", "puffin", "mantis", "goblin",
-  "yeti", "kraken", "phoenix", "dragon", "taco", "waffle", "noodle",
-  "pickle", "muffin", "pretzel", "donut", "nugget", "dumpling", "turnip",
+  "falcon", "phoenix", "dragon", "panther", "wolf", "hawk", "tiger", "viper",
+  "cobra", "raptor", "mustang", "raven", "lynx", "storm", "blaze", "comet",
+  "nebula", "forge", "pulse", "nexus", "spark", "orbit", "titan", "matrix",
+  "apex", "prism", "flux", "surge", "vertex", "cipher", "sentinel", "spectre",
+  "saber", "talon", "ember",
 ];
 
 export function generateFunName(): string {

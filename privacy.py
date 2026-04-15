@@ -905,17 +905,16 @@ class ConsentManager:
     @contextmanager
     def _conn(self):
         from db import _get_pg_pool
+        from psycopg.rows import dict_row
         pool = _get_pg_pool()
-        conn = pool.getconn()
-        conn.row_factory = None
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            pool.putconn(conn)
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def _ensure_table(self, conn):
         conn.execute("""
@@ -992,13 +991,13 @@ class ConsentManager:
             if not row:
                 return False, None
             # Check expiry
-            if row[1] > 0 and time.time() > row[1]:
+            if row["expires_at"] > 0 and time.time() > row["expires_at"]:
                 conn.execute(
                     "UPDATE casl_consent SET active = FALSE WHERE user_id = %s AND purpose = %s",
                     (user_id, purpose),
                 )
                 return False, None
-            return True, row[0]
+            return True, row["consent_type"]
 
     def get_user_consents(self, user_id):
         """Get all consent records for a user."""
@@ -1011,8 +1010,9 @@ class ConsentManager:
             )
             return [
                 {
-                    "purpose": r[0], "consent_type": r[1], "granted_at": r[2],
-                    "expires_at": r[3], "withdrawn_at": r[4], "active": r[5],
+                    "purpose": r["purpose"], "consent_type": r["consent_type"],
+                    "granted_at": r["granted_at"], "expires_at": r["expires_at"],
+                    "withdrawn_at": r["withdrawn_at"], "active": r["active"],
                 }
                 for r in cur.fetchall()
             ]

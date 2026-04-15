@@ -208,8 +208,9 @@ def _start_background_tasks():
     def _sla_credits():
         try:
             from sla import get_sla_engine
+            import datetime
             se = get_sla_engine()
-            se.auto_issue_credits()
+            se.auto_issue_credits(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m"))
         except Exception as e:
             log.error("SLA credits error: %s", e)
     tasks.append(("sla_credits", _sla_credits, 3600))
