@@ -567,9 +567,9 @@ deploy_docker() {
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
 
     if [[ "$DEPLOY_BUILD_API" == true ]]; then
-        log "Building API + scheduler-worker images..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue build api api-blue scheduler-worker" || error "API/scheduler-worker build failed"
-        success "API + scheduler-worker images built"
+        log "Building API + scheduler-worker + bg-worker images..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue build api api-blue scheduler-worker bg-worker" || error "API/scheduler-worker/bg-worker build failed"
+        success "API + scheduler-worker + bg-worker images built"
     else
         log "API build inputs unchanged — skipping api/scheduler-worker image rebuild"
     fi
@@ -668,6 +668,9 @@ deploy_docker() {
 
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
     success "Scheduler-worker restarted"
+
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
+    success "bg-worker restarted"
 
     ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
     success "Frontend restarted"

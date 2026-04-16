@@ -23,6 +23,20 @@ keepalive = 5                         # keep-alive between nginx ↔ gunicorn
 # ---------- Preload for faster worker spawns ----------
 preload_app = True
 
+# ---------- Post-fork: reset shared state that doesn't survive fork ----------
+def post_fork(server, worker):
+    """Reset PostgreSQL connection pool after fork.
+
+    With preload_app=True the pool may be created in the master process during
+    module import.  Forked workers inherit the pool object but the underlying
+    TCP sockets are shared/corrupted across processes.  Resetting the global
+    forces each worker to create its own pool on first use.
+    """
+    import threading
+    import db
+    db._pg_pool = None
+    db._pg_pool_lock = threading.Lock()
+
 # ---------- Logging ----------
 accesslog = "-"
 errorlog = "-"

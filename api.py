@@ -142,7 +142,15 @@ def _bg_worker(name, func, interval_sec):
 
 
 def _start_background_tasks():
-    """Start all periodic background tasks as daemon threads."""
+    """Start all periodic background tasks as daemon threads.
+
+    Skipped when XCELSIOR_BG_TASKS=false — use a dedicated bg-worker
+    service to run these tasks outside the API server process.
+    """
+    if os.environ.get("XCELSIOR_BG_TASKS", "true").lower() == "false":
+        log.info("LIFESPAN: background tasks DISABLED (XCELSIOR_BG_TASKS=false)")
+        return
+
     global _bg_threads
 
     tasks = []
@@ -252,7 +260,7 @@ def _start_background_tasks():
         try:
             from billing import get_billing_engine
             be = get_billing_engine()
-            be.fintrac_check_transaction(amount_cad=0, user_id="__periodic_scan__")
+            be.fintrac_check_transaction(customer_id="__periodic_scan__", amount_cad=0)
         except Exception as e:
             log.debug("fintrac periodic check error (expected for zero amount): %s", e)
     tasks.append(("fintrac_check", _fintrac_check, 3600))
@@ -301,8 +309,8 @@ def _start_background_tasks():
             log.error("Notification cleanup error: %s", e)
     tasks.append(("notification_cleanup", _notification_cleanup, 21600))
 
-    # 14. Scheduler tick — process queued jobs every 2 seconds
-    tasks.append(("scheduler_tick", scheduler_tick, 2))
+    # 14. Scheduler tick — DISABLED: runs in dedicated scheduler-worker container
+    # tasks.append(("scheduler_tick", scheduler_tick, 2))
 
     # 13. Lightning Network deposit watcher — runs its own thread (every 5s)
     try:
@@ -344,8 +352,8 @@ async def lifespan(app):
     """FastAPI lifespan: start background tasks on startup, stop on shutdown."""
     # ── One-time backfill: ensure owner field exists on active jobs ────
     try:
-        from db import get_pg_pool
-        pool = get_pg_pool()
+        from db import _get_pg_pool
+        pool = _get_pg_pool()
         with pool.connection() as conn:
             cur = conn.execute(
                 """
@@ -365,6 +373,9 @@ async def lifespan(app):
             conn.commit()
     except Exception as e:
         log.warning("Owner backfill skipped: %s", e)
+
+    # Start PG LISTEN→SSE bridge per-worker (must be after fork)
+    _pg_listen_thread = start_pg_listen(broadcast_sse)
 
     _start_background_tasks()
     yield
@@ -493,8 +504,8 @@ from routes._deps import otel_span  # re-export for tests / bg tasks
 
 
 # ── Bridge PgEventBus LISTEN/NOTIFY → SSE ────────────────────────────
-
-start_pg_listen(broadcast_sse)
+# NOTE: start_pg_listen() is called inside lifespan() so it runs
+# per-worker AFTER gunicorn fork, not in the master process.
 
 
 # ── Autoscale Monitor ─────────────────────────────────────────────────
