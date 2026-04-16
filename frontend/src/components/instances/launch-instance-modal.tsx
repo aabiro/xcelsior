@@ -74,10 +74,10 @@ const TIERS = [
 ];
 
 const PRIORITIES = [
-  { label: "Low", value: "low" },
-  { label: "Normal", value: "normal" },
-  { label: "High", value: "high" },
-  { label: "Critical", value: "critical" },
+  { label: "Low", value: "low", numeric: 1 },
+  { label: "Normal", value: "normal", numeric: 3 },
+  { label: "High", value: "high", numeric: 6 },
+  { label: "Critical", value: "critical", numeric: 9 },
 ] as const;
 
 const FALLBACK_TEMPLATES: { id: string; label: string; image: string; vram: string; icon: string }[] = [
@@ -125,6 +125,9 @@ export function LaunchInstanceModal({
   // Volume picker state
   const [availableVolumes, setAvailableVolumes] = useState<Volume[]>([]);
   const [selectedVolumeIds, setSelectedVolumeIds] = useState<string[]>([]);
+
+  // Encrypted workspace
+  const [encryptedWorkspace, setEncryptedWorkspace] = useState(false);
 
   // Fetched data
   const [pricing, setPricing] = useState<PricingReference[]>([]);
@@ -224,13 +227,27 @@ export function LaunchInstanceModal({
   const selectedPricing = pricing.find((p) => p.gpu_model === resolvedGpu);
   const selectedInventory = gpuModelOptions.find((gpu) => gpu.gpu_model === resolvedGpu);
   const listingRate = listing ? (listing.price_per_hour_cad || listing.price_per_hour || 0) : 0;
+  // Cheapest available rate for "auto" GPU selection
+  const cheapestAvailableRate = (() => {
+    const candidates = gpuModelOptions
+      .map((g) => g.minPricePerHourCad)
+      .filter((p): p is number => p != null && p > 0);
+    if (candidates.length === 0) {
+      const refCandidates = pricing
+        .map((p) => pricingMode === "spot" ? (p.spot_cad ?? p.on_demand_cad) : p.on_demand_cad)
+        .filter((p) => p > 0);
+      return refCandidates.length > 0 ? Math.min(...refCandidates) : null;
+    }
+    return Math.min(...candidates);
+  })();
+  const isEstimatedRate = !dynamicRate && !listing && !resolvedGpu;
   const effectiveRate = dynamicRate
     ? dynamicRate.effective_rate_per_gpu
     : listing
       ? listingRate
       : pricingMode === "spot"
-        ? (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad)
-        : (selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad);
+        ? (spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad ?? cheapestAvailableRate)
+        : (selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad ?? cheapestAvailableRate);
   const spotRate = listing
     ? (spotPrices[listing.gpu_model] ?? listingRate * 0.7)
     : spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad;
@@ -348,15 +365,17 @@ export function LaunchInstanceModal({
     if (!resolvedImage) { toast.error("Select a Docker image"); return; }
     setSubmitting(true);
     try {
+      const numericPriority = PRIORITIES.find((p) => p.value === priority)?.numeric ?? 3;
       const params: LaunchInstanceParams = {
         name: instanceName.trim(),
         image: resolvedImage,
         vram_needed_gb: resolvedVramGb,
         num_gpus: Number(numGpus),
-        priority,
+        priority: numericPriority,
         tier,
         gpu_model: resolvedGpu || undefined,
         volume_ids: selectedVolumeIds.length > 0 ? selectedVolumeIds : undefined,
+        encrypted_workspace: encryptedWorkspace || undefined,
       };
       if (listing?.host_id) params.host_id = listing.host_id;
       if (pricingMode === "spot") {
@@ -772,22 +791,51 @@ export function LaunchInstanceModal({
                   <p className="text-[10px] text-text-muted/60">Volumes mount at <code className="text-ice-blue/70">/workspace</code> inside your container.</p>
                 </div>
 
+                {/* Encrypted Workspace toggle */}
+                <button
+                  type="button"
+                  onClick={() => setEncryptedWorkspace(!encryptedWorkspace)}
+                  className={cn(
+                    "flex items-center gap-3 w-full rounded-lg border p-3 text-sm transition-colors text-left",
+                    encryptedWorkspace
+                      ? "border-accent-violet/50 bg-accent-violet/5"
+                      : "border-border/60 bg-surface-hover/40 hover:border-border",
+                  )}
+                >
+                  <Lock className={cn("h-4 w-4 shrink-0", encryptedWorkspace ? "text-accent-violet" : "text-text-muted")} />
+                  <div className="flex-1 min-w-0">
+                    <span className={cn("font-medium", encryptedWorkspace ? "text-text-primary" : "text-text-secondary")}>
+                      Encrypted Workspace
+                    </span>
+                    <p className="text-xs text-text-muted mt-0.5">LUKS2 AES-256 encrypted ephemeral storage · destroyed on termination</p>
+                  </div>
+                  <div className={cn(
+                    "h-5 w-9 rounded-full relative transition-colors shrink-0",
+                    encryptedWorkspace ? "bg-accent-violet" : "bg-border",
+                  )}>
+                    <div className={cn(
+                      "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform shadow-sm",
+                      encryptedWorkspace ? "translate-x-4" : "translate-x-0.5",
+                    )} />
+                  </div>
+                </button>
+
                 {/* Hourly Rate summary */}
                 <div className="rounded-lg border border-border p-3 bg-surface">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-text-secondary">Hourly Rate</span>
                     {effectiveRate != null ? (
                       <span className="text-lg font-bold font-mono">
-                        ${effectiveRate.toFixed(2)}
-                        <span className="text-xs text-text-muted ml-1">CAD/hr</span>
+                        {isEstimatedRate && "~"}${effectiveRate.toFixed(2)}
+                        <span className="text-xs text-text-muted ml-1">CAD/hr{isEstimatedRate && " est."}</span>
                       </span>
                     ) : (
-                      <span className="text-sm font-medium text-text-primary">Rate shown after host selection</span>
+                      <span className="text-sm text-text-muted italic">No pricing data</span>
                     )}
                   </div>
                   <p className="text-xs text-text-muted mt-1">
-                    {effectiveRate == null
-                      ? `Auto GPU selected${resolvedVramGb ? ` · scheduler will require at least ${resolvedVramGb} GB VRAM` : ""}`
+                    {isEstimatedRate
+                      ? `Best available GPU · exact rate depends on assigned host`
                       : pricingMode === "spot"
                         ? "Spot pricing · Billed per second of actual usage"
                         : "On-demand · Billed per second of actual usage"}
@@ -815,7 +863,7 @@ export function LaunchInstanceModal({
                 <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 p-4">
                   <p className="text-sm font-medium text-accent-gold mb-2">Confirm Launch</p>
                   <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between"><span className="text-text-muted">GPU</span><span>{resolvedGpu || "Auto"}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">GPU</span><span>{resolvedGpu || (gpuModelOptions[0]?.gpu_model ? `Best Available (${gpuModelOptions[0].gpu_model})` : "Best Available")}</span></div>
                     {Number(numGpus) > 1 && (
                       <div className="flex justify-between"><span className="text-text-muted">GPUs</span><span>×{numGpus}</span></div>
                     )}
@@ -832,15 +880,21 @@ export function LaunchInstanceModal({
                         </span>
                       </div>
                     )}
+                    {encryptedWorkspace && (
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">Workspace</span>
+                        <span className="flex items-center gap-1"><Lock className="h-3 w-3 text-accent-violet" /> Encrypted (LUKS2)</span>
+                      </div>
+                    )}
                     <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                       <span>Rate</span>
-                      <span>{effectiveRate != null ? `$${effectiveRate.toFixed(2)}/hr CAD` : "Assigned host rate"}</span>
+                      <span>{effectiveRate != null ? `${isEstimatedRate ? "~" : ""}$${effectiveRate.toFixed(2)}/hr CAD${isEstimatedRate ? " est." : ""}` : "—"}</span>
                     </div>
-                    {totalPerHour != null ? (
+                    {totalPerHour != null && (
                       <>
                         <div className="flex justify-between text-sm">
                           <span>Per hour ({Number(numGpus) > 1 ? `${numGpus} GPUs` : "1 GPU"})</span>
-                          <span>${totalPerHour.toFixed(2)} CAD/hr</span>
+                          <span>{isEstimatedRate && "~"}${totalPerHour.toFixed(2)} CAD/hr</span>
                         </div>
                         {taxRate > 0 && (
                           <div className="flex justify-between text-sm">
@@ -851,15 +905,10 @@ export function LaunchInstanceModal({
                         {taxRate > 0 && totalWithTax != null && (
                           <div className="flex justify-between font-medium text-sm pt-1 border-t border-accent-gold/20">
                             <span>Total</span>
-                            <span>${totalWithTax.toFixed(2)} CAD/hr</span>
+                            <span>{isEstimatedRate && "~"}${totalWithTax.toFixed(2)} CAD/hr</span>
                           </div>
                         )}
                       </>
-                    ) : (
-                      <div className="flex justify-between text-sm">
-                        <span>Estimated</span>
-                        <span>Available after GPU assignment</span>
-                      </div>
                     )}
                   </div>
                 </div>

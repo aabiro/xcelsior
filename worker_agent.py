@@ -1510,10 +1510,13 @@ def destroy_encrypted_volume(volume_id: str) -> bool:
     try:
         # Destroy key — cryptographic erasure (overwrite with random then delete)
         if os.path.exists(key_file):
-            subprocess.run(
+            r = subprocess.run(
                 ["shred", "-u", "-z", "-n", "3", key_file],
                 capture_output=True, text=True, timeout=30,
             )
+            if r.returncode != 0:
+                log.critical("SECURITY: shred failed for volume %s key — key may remain on disk: %s", volume_id, r.stderr)
+                return False
             log.info("Volume %s: LUKS key destroyed (cryptographic erasure)", volume_id)
 
         # Remove backing file
@@ -1547,7 +1550,10 @@ def _cleanup_partial_volume(volume_id: str):
             subprocess.run(["cryptsetup", "luksClose", mapper_name], capture_output=True, timeout=10)
     with suppress(Exception):
         if os.path.exists(key_file):
-            os.remove(key_file)
+            subprocess.run(
+                ["shred", "-u", "-z", "-n", "3", key_file],
+                capture_output=True, timeout=30,
+            )
     with suppress(Exception):
         if os.path.exists(backing_file):
             os.remove(backing_file)
@@ -1689,6 +1695,23 @@ def run_job(job):
             else:
                 log.warning("Managed volume %s: NFS server not configured — skipping", vid)
             _vol_idx += 1
+
+        # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
+        encrypted_ws_vid = None
+        if job.get("encrypted_workspace"):
+            encrypted_ws_vid = f"ws-{job_id}"
+            ws_size_gb = 20  # Default ephemeral workspace size
+            if provision_encrypted_volume(encrypted_ws_vid, ws_size_gb):
+                ws_mount = os.path.join(VOLUME_BASE_DIR, encrypted_ws_vid)
+                # Ensure container user can write
+                subprocess.run(["chmod", "1777", ws_mount], capture_output=True, timeout=10)
+                volumes = list(volumes) + [f"{ws_mount}:/workspace:rw"]
+                log.info("Encrypted workspace provisioned for job %s: %dGB LUKS at %s", job_id, ws_size_gb, ws_mount)
+                _push_log_lines(job_id, [{"message": "Encrypted workspace ready (LUKS2+AES-256)", "level": "info", "timestamp": time.time()}])
+            else:
+                log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
+                report_job_status(job_id, "failed")
+                return
 
         # 1. Pull image (with cache tracking + LRU eviction)
         current_stage = "pulling image"
@@ -1888,6 +1911,11 @@ def run_job(job):
         # Detach encrypted volumes
         for vol_id in encrypted_vol_ids:
             detach_encrypted_volume(vol_id)
+
+        # Destroy ephemeral encrypted workspace (cryptographic erasure)
+        if encrypted_ws_vid:
+            destroy_encrypted_volume(encrypted_ws_vid)
+            log.info("Encrypted workspace destroyed for job %s (cryptographic erasure)", job_id)
 
 
 # ── Log Forwarding ───────────────────────────────────────────────────

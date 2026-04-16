@@ -412,6 +412,7 @@ def _ensure_pg_tables(conn):
             encrypted BOOLEAN DEFAULT TRUE,
             status TEXT NOT NULL DEFAULT 'provisioning',
             encryption_key_id TEXT DEFAULT '',
+            key_ciphertext TEXT DEFAULT '',
             mount_path_host TEXT DEFAULT '',
             created_at DOUBLE PRECISION NOT NULL,
             deleted_at DOUBLE PRECISION DEFAULT 0

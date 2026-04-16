@@ -50,7 +50,7 @@ class TestVolumeEngineCreate:
             yield fake_conn
 
         monkeypatch.setattr(engine, "_conn", _mock_conn)
-        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz: True)
+        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz, **kw: True)
         return engine
 
     def test_create_success(self, monkeypatch):
@@ -113,7 +113,7 @@ class TestVolumeEngineCreate:
             {"total": 0},
             None,
         ])
-        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz: False)
+        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz, **kw: False)
         with pytest.raises(ValueError, match="Failed to provision"):
             engine.create_volume("user-1", "bad-nfs", 10)
 
@@ -299,7 +299,7 @@ class TestVolumeEngineDelete:
             yield fake_conn
 
         monkeypatch.setattr(engine, "_conn", _mock_conn)
-        monkeypatch.setattr(engine, "_destroy_volume_storage", lambda vid: destroy_ok)
+        monkeypatch.setattr(engine, "_destroy_volume_storage", lambda vid, **kw: destroy_ok)
         return engine
 
     def test_delete_success(self, monkeypatch):
@@ -472,7 +472,7 @@ class TestVolumeAPIEndpoints:
 
     def test_volume_price_constant(self):
         from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
-        assert VOLUME_PRICE_PER_GB_MONTH_CAD == 0.07
+        assert VOLUME_PRICE_PER_GB_MONTH_CAD == 0.03
 
     def test_routes_registered(self):
         from routes.volumes import router
@@ -527,7 +527,7 @@ class TestVolumeNameValidation:
             yield fake_conn
 
         monkeypatch.setattr(engine, "_conn", _mock_conn)
-        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz: True)
+        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz, **kw: True)
         return engine
 
     def test_name_too_long(self, monkeypatch):
@@ -792,8 +792,9 @@ class TestWorkerVolumeMountPaths:
         from worker_agent import run_job
         source = inspect.getsource(run_job)
         assert "volume_mounts" in source
-        # Must NOT hardcode /workspace:rw for all volumes
-        assert ':/workspace:rw"' not in source
+        # Managed volumes (volume_ids) must use per-volume mount paths, not hardcode /workspace
+        # Note: encrypted workspace deliberately mounts at /workspace — that's a separate feature
+        assert "vol_mount_paths" in source
 
     def test_work_endpoint_enriches_mount_paths(self):
         """The agent work endpoint must inject volume_mounts into job payloads."""

@@ -106,6 +106,31 @@ def api_volume_get(volume_id: str, request: Request):
     return {"ok": True, "volume": vol}
 
 
+# ── Model: VolumeRename ──
+
+class VolumeRename(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+@router.patch("/api/v2/volumes/{volume_id}", tags=["Volumes"])
+def api_volume_rename(volume_id: str, body: VolumeRename, request: Request):
+    """Rename a volume."""
+    from routes._deps import _require_scope
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
+    owner_id = user.get("user_id", user.get("email", ""))
+    ve = get_volume_engine()
+    try:
+        result = ve.rename_volume(volume_id, owner_id, body.name)
+        broadcast_sse("volume.renamed", {"volume_id": volume_id, "name": result["name"]})
+        return {"ok": True, "volume": result}
+    except PermissionError:
+        raise HTTPException(403, "Not authorised to rename this volume")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # ── Model: VolumeAttachRequest ──
 
 class VolumeAttachRequest(BaseModel):
@@ -201,4 +226,37 @@ def api_volume_retry_provision(volume_id: str, request: Request):
         raise HTTPException(400, str(e))
     except RuntimeError as e:
         raise HTTPException(502, str(e))
+
+
+@router.post("/api/v2/admin/volumes/reopen-encrypted", tags=["Volumes", "Admin"])
+def api_admin_reopen_encrypted_volumes(request: Request):
+    """Reopen all encrypted volumes after NFS server reboot.
+
+    Iterates encrypted volumes in 'available' or 'attached' status,
+    reopens their LUKS devices, and re-mounts them. Admin-only.
+    """
+    from routes._deps import _require_scope
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "admin")
+    ve = get_volume_engine()
+    with ve._conn() as conn:
+        rows = conn.execute(
+            "SELECT volume_id FROM volumes WHERE encrypted = TRUE "
+            "AND status IN ('available', 'attached') AND key_ciphertext != ''",
+        ).fetchall()
+    results = {"reopened": [], "failed": []}
+    for row in rows:
+        vid = row["volume_id"]
+        ok = ve.reopen_luks_volume(vid)
+        if ok:
+            results["reopened"].append(vid)
+        else:
+            results["failed"].append(vid)
+    log.info(
+        "Admin reopen encrypted volumes: %d reopened, %d failed",
+        len(results["reopened"]), len(results["failed"]),
+    )
+    return {"ok": True, **results}
 

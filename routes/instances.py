@@ -89,6 +89,7 @@ class JobIn(BaseModel):
     ssh_port: int = Field(default=22, ge=1, le=65535)
     max_bid: float | None = Field(default=None, gt=0)
     volume_ids: list[str] | None = Field(default=None, max_length=16)
+    encrypted_workspace: bool = False
 
     @field_validator("image")
     @classmethod
@@ -247,6 +248,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 ssh_port=j.ssh_port,
                 owner=customer_id,
                 volume_ids=validated_volume_ids,
+                encrypted_workspace=j.encrypted_workspace,
             )
             event_name = "job_submitted"
 
@@ -308,6 +310,8 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     if actual_gpu:
         j["gpu_type"] = actual_gpu
         j["host_gpu"] = actual_gpu
+        if not j.get("gpu_model"):
+            j["gpu_model"] = actual_gpu
 
     # Elapsed / duration
     started = float(j.get("started_at") or 0)
@@ -333,6 +337,9 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
         if host and host.get("cost_per_hour"):
             rate = float(host["cost_per_hour"])
         j["cost_cad"] = round((elapsed / 3600) * rate, 4)
+
+    # Encrypted workspace flag
+    j.setdefault("encrypted_workspace", bool(j.get("encrypted_workspace")))
 
     # Attached volumes
     try:
