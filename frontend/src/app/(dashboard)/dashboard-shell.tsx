@@ -588,7 +588,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <button
           onClick={toggleAiPanel}
           className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-lg transition-all duration-200",
+            "flex h-11 w-11 items-center justify-center rounded-lg p-0.5 transition-all duration-200",
             aiPanelOpen
               ? "bg-accent-red text-white shadow-lg shadow-accent-red/25"
               : "text-accent-red hover:bg-accent-red/15"

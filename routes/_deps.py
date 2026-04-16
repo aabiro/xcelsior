@@ -282,12 +282,13 @@ def broadcast_sse(event_type: str, data: dict):
 # ── Auth Helpers ──────────────────────────────────────────────────────
 
 def _get_real_client_ip(request: Request) -> str:
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # Check cf-connecting-ip first so the resolved IP matches
+    # _get_ws_client_ip() — both functions must agree when
+    # a ticket is pinned during HTTP issuance and consumed on WS.
+    for header in ("cf-connecting-ip", "x-real-ip", "x-forwarded-for"):
+        val = request.headers.get(header, "")
+        if val:
+            return val.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 

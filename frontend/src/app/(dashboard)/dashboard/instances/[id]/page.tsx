@@ -11,11 +11,11 @@ import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, HardDrive, Lock, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
   Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
-  Play, RefreshCw, Zap, MoreVertical, Link2,
+  Play, RefreshCw, Zap, MoreVertical, Link2, Pencil, Check, X,
 } from "lucide-react";
 import {
   fetchInstance, cancelInstance, requeueInstance,
-  stopInstance, startInstance, restartInstance, terminateInstance,
+  stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
 } from "@/lib/api";
 import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
@@ -142,6 +142,9 @@ export default function InstanceDetailPage() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [showConnectModal, setShowConnectModal] = useState(false);
   const prevStatusRef = useRef<string | null>(null);
   const [wsLogs, setWsLogs] = useState<{ timestamp: number | string; level?: string; message: string }[]>([]);
   const [uptickKey, setUptickKey] = useState(0);
@@ -149,6 +152,15 @@ export default function InstanceDetailPage() {
   // Track status transitions (don't auto-open terminal — avoids scroll jumps)
   useEffect(() => {
     prevStatusRef.current = instance?.status ?? null;
+  }, [instance?.status]);
+
+  // Auto-open terminal when instance is running or starting
+  useEffect(() => {
+    const s = instance?.status;
+    if (s === "running" || s === "starting") {
+      if (!terminalMounted) setTerminalMounted(true);
+      if (!showTerminal) setShowTerminal(true);
+    }
   }, [instance?.status]);
 
   // Tick uptime every 30s
@@ -241,8 +253,6 @@ export default function InstanceDetailPage() {
     }
   }
 
-  const [showConnectModal, setShowConnectModal] = useState(false);
-
   if (loading) {
     return (
       <div className="space-y-6">
@@ -286,7 +296,46 @@ export default function InstanceDetailPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold">{instance.name || instance.job_id}</h1>
+            <div className="flex items-center gap-2">
+              {editingName ? (
+                <form
+                  className="flex items-center gap-1.5"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const trimmed = nameInput.trim();
+                    if (!trimmed || trimmed === (instance.name || instance.job_id)) { setEditingName(false); return; }
+                    try {
+                      await renameInstance(instance.job_id, trimmed);
+                      setInstance((prev) => prev ? { ...prev, name: trimmed } : prev);
+                      toast.success("Instance renamed");
+                    } catch (err) { toast.error(err instanceof Error ? err.message : "Rename failed"); }
+                    setEditingName(false);
+                  }}
+                >
+                  <input
+                    autoFocus
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    className="text-2xl font-bold bg-transparent border-b border-ice-blue/50 outline-none w-auto min-w-[120px]"
+                    maxLength={128}
+                    onKeyDown={(e) => { if (e.key === "Escape") setEditingName(false); }}
+                  />
+                  <button type="submit" className="text-emerald hover:text-emerald/80 transition-colors"><Check className="h-4 w-4" /></button>
+                  <button type="button" onClick={() => setEditingName(false)} className="text-text-muted hover:text-accent-red transition-colors"><X className="h-4 w-4" /></button>
+                </form>
+              ) : (
+                <>
+                  <h1 className="text-2xl font-bold">{instance.name || instance.job_id}</h1>
+                  <button
+                    onClick={() => { setNameInput(instance.name || instance.job_id); setEditingName(true); }}
+                    className="text-text-muted hover:text-text-primary transition-colors"
+                    title="Rename instance"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+            </div>
             <p className="text-sm font-mono text-text-muted flex items-center gap-1.5">
               {instance.job_id}
               <button
@@ -554,11 +603,6 @@ export default function InstanceDetailPage() {
                   {showTerminal ? "Hide" : "Open"}
                 </Button>
               )}
-              {isRunning && (
-                <Button size="sm" variant="outline" onClick={() => setShowConnectModal(true)} className="h-7 text-xs text-ice-blue border-ice-blue/30 hover:bg-ice-blue/10">
-                  <Info className="h-3 w-3" /> Connection Info
-                </Button>
-              )}
             </div>
             <div className="flex items-center gap-2">
               {isRunning && (
@@ -589,6 +633,30 @@ export default function InstanceDetailPage() {
               )}
             </div>
           </div>
+          {/* Connection Info — always visible when running */}
+          {isRunning && instance.host_ip && (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-ice-blue/5 border border-ice-blue/20 mb-3">
+              <Globe className="h-4 w-4 text-ice-blue shrink-0" />
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-xs text-text-muted shrink-0">SSH:</span>
+                <code className="text-xs font-mono text-ice-blue select-all truncate">ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}</code>
+              </div>
+              <button
+                onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied SSH command"); }}
+                className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
+                title="Copy SSH command"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setShowConnectModal(true)}
+                className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
+                title="More connection details"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           {terminalMounted && (isRunning || status === "starting") && (
             <div className="h-[500px] rounded-lg overflow-hidden border border-border" style={{ display: showTerminal ? undefined : "none" }}>
               <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />

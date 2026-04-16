@@ -430,6 +430,31 @@ def api_update_instance(job_id: str, update: StatusUpdate):
         broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
         return {"ok": True, "job_id": job_id, "status": update.status}
 
+
+class InstanceRenamePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+@router.patch("/instance/{job_id}/name", tags=["Instances"])
+def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Request):
+    """Rename an instance (owner or admin only)."""
+    from routes._deps import _get_current_user, _require_auth
+    _require_auth(request)
+    user = _get_current_user(request)
+    from scheduler import get_job, _set_job_fields
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    is_admin = user.get("role") == "admin" or bool(user.get("is_admin"))
+    owner = job.get("owner", "")
+    caller = user.get("customer_id", user.get("user_id", ""))
+    if not is_admin and owner != caller:
+        raise HTTPException(403, "Not authorized")
+    _set_job_fields(job_id, name=body.name.strip())
+    broadcast_sse("job_update", {"job_id": job_id, "name": body.name.strip()})
+    return {"ok": True, "job_id": job_id, "name": body.name.strip()}
+
+
 @router.post("/queue/process", tags=["Instances"])
 def api_process_queue():
     """Process the job queue — assign jobs to hosts."""
