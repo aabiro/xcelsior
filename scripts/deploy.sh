@@ -672,18 +672,15 @@ deploy_docker() {
     ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
     success "Frontend restarted"
 
-    # Remove orphans quietly
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --remove-orphans 2>/dev/null" || true
-
     # Final health check — whichever port is now live
-    local final_port
-    final_port=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
-    if [[ "$final_port" == "blue" ]]; then final_port=9501; else final_port=9500; fi
+    local final_port final_colour
+    final_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
+    if [[ "$final_colour" == "blue" ]]; then final_port=9501; else final_port=9500; fi
 
-    log "Verifying all services..."
+    log "Verifying API on port $final_port ($final_colour)..."
     local healthy=false
-    for i in {1..10}; do
-        if ssh_cmd "curl -sf http://localhost:$final_port/healthz" &>/dev/null; then
+    for i in {1..15}; do
+        if ssh_cmd "curl -sf --max-time 3 http://localhost:$final_port/healthz" 2>/dev/null | grep -q '"ok"'; then
             healthy=true
             break
         fi
@@ -693,7 +690,7 @@ deploy_docker() {
     if [ "$healthy" = true ]; then
         success "API is healthy on port $final_port"
     else
-        warn "API not healthy after 60s — fetching logs..."
+        warn "API not healthy after 30s — fetching logs..."
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue logs --tail=30" || true
     fi
 
