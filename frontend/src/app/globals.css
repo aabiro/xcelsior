@@ -21,7 +21,7 @@
   --color-emerald: #10b981;
   --color-text-primary: #e8edf5;
   --color-text-secondary: #8492a6;
-  --color-text-muted: #708090;
+  --color-text-muted: #7e8fa0;
   --color-border: #1a2235;
   --color-border-light: #2a3548;
   --color-surface: #0d1320;
@@ -46,32 +46,49 @@ html.light {
   --color-navy: #ffffff;
   --color-navy-light: #f8fafc;
   --color-navy-lighter: #e2e8f0;
-  --color-accent-red: #ea580c;
-  --color-accent-red-hover: #c2410c;
-  --color-accent-gold: #e58912;
-  --color-accent-gold-hover: #b45309;
-  --color-accent-orange: #f06b1a;
-  --color-accent-orange-hover: #c2410c;
-  --color-ice-blue: #0891b2;
-  --color-accent-cyan: #0891b2;
+  --color-accent-red: #c2410c;
+  --color-accent-red-hover: #9a3412;
+  --color-accent-gold: #b45309;
+  --color-accent-gold-hover: #92400e;
+  --color-accent-orange: #c2410c;
+  --color-accent-orange-hover: #9a3412;
+  --color-ice-blue: #0e7490;
+  --color-accent-cyan: #0e7490;
   --color-accent-violet: #5b21b6;
-  --color-emerald: #059669;
+  --color-emerald: #047857;
   --color-text-primary: #0f172a;
   --color-text-secondary: #475569;
   --color-text-muted: #64748b;
-  --color-border: #e2e8f0;
-  --color-border-light: #cbd5e1;
+  --color-border: #cbd5e1;
+  --color-border-light: #94a3b8;
   --color-surface: #f1f5f9;
   --color-surface-hover: #e2e8f0;
-  --color-glow-cyan: rgba(8, 145, 178, 0.18);
+  --color-glow-cyan: rgba(14, 116, 144, 0.18);
   --color-glow-violet: rgba(91, 33, 182, 0.14);
-  --color-glow-red: rgba(234, 88, 12, 0.11);
+  --color-glow-red: rgba(194, 65, 12, 0.11);
 }
 
 html.light body {
   background-color: #ffffff;
   color: #0f172a;
   font-family: var(--font-sans);
+}
+
+/* ── Light-Mode Hardcoded Color Accessibility ──────────────────────── */
+/* Overrides Tailwind -400/-500 shades that are designed for dark backgrounds
+   but fail WCAG AA (< 4.5:1) on white when used without a dark: prefix.
+   Skips text-slate-* (WebTerminal has forced bg-black). */
+html.light {
+  & .text-violet-400 { color: #7c3aed; }
+  & .text-red-400 { color: #dc2626; }
+  & .text-green-400 { color: #16a34a; }
+  & .text-emerald-400 { color: #059669; }
+  & .text-amber-200,
+  & .text-amber-300,
+  & .text-amber-400 { color: #d97706; }
+  & .text-amber-500 { color: #b45309; }
+  & .text-gray-300,
+  & .text-gray-400 { color: #6b7280; }
 }
 
 html[data-desktop-mode="1"] body {
@@ -84,7 +101,7 @@ html[data-desktop-mode="1"] body {
 
 html.light[data-desktop-mode="1"] body {
   background:
-    radial-gradient(circle at top, rgba(8, 145, 178, 0.18), transparent 30%),
+    radial-gradient(circle at top, rgba(14, 116, 144, 0.18), transparent 30%),
     radial-gradient(circle at 80% 20%, rgba(91, 33, 182, 0.14), transparent 25%),
     #ffffff;
 }
@@ -290,8 +307,8 @@ html.light .aurora-gradient {
 }
 html.light .desktop-shell-root::before {
   background:
-    linear-gradient(180deg, rgba(8, 145, 178, 0.08), transparent 14%),
-    linear-gradient(90deg, rgba(91, 33, 182, 0.07), transparent 22%, transparent 78%, rgba(8, 145, 178, 0.08));
+    linear-gradient(180deg, rgba(14, 116, 144, 0.08), transparent 14%),
+    linear-gradient(90deg, rgba(91, 33, 182, 0.07), transparent 22%, transparent 78%, rgba(14, 116, 144, 0.08));
 }
 
 .desktop-sidebar-surface {
@@ -347,7 +364,7 @@ html.light .desktop-shell-root::before {
   transition: opacity 0.3s ease;
 }
 html.light .glow-card::before {
-  background: linear-gradient(135deg, rgba(8, 145, 178, 0.3), rgba(91, 33, 182, 0.22), transparent 60%);
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.3), rgba(91, 33, 182, 0.22), transparent 60%);
 }
 .glow-card:hover::before {
   opacity: 1;
@@ -359,9 +376,9 @@ html.light .glow-card::before {
     0 8px 32px rgba(0, 0, 0, 0.4);
 }
 html.light .glow-card:hover {
-  border-color: rgba(8, 145, 178, 0.42);
+  border-color: rgba(14, 116, 144, 0.42);
   box-shadow:
-    0 0 20px rgba(8, 145, 178, 0.14),
+    0 0 20px rgba(14, 116, 144, 0.14),
     0 8px 25px rgba(0, 0, 0, 0.08);
 }
 

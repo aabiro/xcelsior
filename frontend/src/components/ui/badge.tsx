@@ -7,12 +7,12 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-accent-cyan/30 bg-accent-cyan/15 text-white",
+        default: "border-accent-cyan/30 bg-accent-cyan/15 text-accent-cyan dark:text-white",
         active: "border-emerald/30 bg-emerald/15 text-emerald",
         dead: "border-accent-red/30 bg-accent-red/15 text-accent-red",
         queued: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue",
         running: "border-emerald/30 bg-emerald/15 text-emerald",
-        completed: "border-accent-cyan/30 bg-accent-cyan/15 text-white",
+        completed: "border-accent-cyan/30 bg-accent-cyan/15 text-accent-cyan dark:text-white",
         failed: "border-accent-red/30 bg-accent-red/15 text-accent-red",
         cancelled: "border-accent-gold/30 bg-accent-gold/15 text-accent-gold",
         warning: "border-accent-gold/30 bg-accent-gold/15 text-accent-gold",
@@ -20,7 +20,7 @@ const badgeVariants = cva(
         // Instance lifecycle states
         starting: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue animate-status-restarting",
         stopping: "border-accent-gold/30 bg-accent-gold/15 text-accent-gold animate-status-stopping",
-        stopped: "border-[#6366f1]/30 bg-[#6366f1]/15 text-[#818cf8]",
+        stopped: "border-[#6366f1]/30 bg-[#6366f1]/15 text-[#4338ca] dark:text-[#818cf8]",
         restarting: "border-ice-blue/30 bg-ice-blue/15 text-ice-blue animate-status-restarting",
         terminated: "border-accent-red/30 bg-accent-red/15 text-accent-red",
       },
