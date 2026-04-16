@@ -133,6 +133,13 @@ services:
       # SSH for web terminal proxy
       XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
       XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
+      # Observability
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4317}
+      # Cloudburst
+      XCELSIOR_BURST_ENABLED: ${XCELSIOR_BURST_ENABLED:-false}
+      XCELSIOR_BURST_BUDGET_CAD: ${XCELSIOR_BURST_BUDGET_CAD:-500.0}
+      XCELSIOR_BURST_MAX_INSTANCES: ${XCELSIOR_BURST_MAX_INSTANCES:-10}
+      XCELSIOR_BURST_PROVIDER_PRIORITY: ${XCELSIOR_BURST_PROVIDER_PRIORITY:-hetzner,oci,gcp,aws}
     network_mode: host
     volumes:
       - xcelsior-data:/data
@@ -224,5 +231,19 @@ services:
       - api
     restart: unless-stopped
 
+  # ── Observability: Jaeger (OpenTelemetry traces) ───────────────────
+  jaeger:
+    image: jaegertracing/jaeger:2
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"    # Jaeger UI
+      - "4317:4317"      # OTLP gRPC receiver
+      - "4318:4318"      # OTLP HTTP receiver
+    volumes:
+      - jaeger-data:/badger
+    restart: unless-stopped
+
 volumes:
   xcelsior-data:
+  jaeger-data:
