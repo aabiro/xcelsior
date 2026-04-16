@@ -8,10 +8,12 @@
 # - Region-aware (same-region for performance)
 # - Mount as /workspace by default
 
+import base64
 import logging
 import os
 import re
 import shlex
+import subprocess
 import time
 import uuid
 from contextlib import contextmanager
@@ -19,9 +21,9 @@ from typing import Optional
 
 log = logging.getLogger("xcelsior.volumes")
 
-VOLUME_PRICE_PER_GB_MONTH_CAD = 0.07
+VOLUME_PRICE_PER_GB_MONTH_CAD = 0.03
 MAX_VOLUME_SIZE_GB = int(os.environ.get("XCELSIOR_MAX_VOLUME_GB", "2000"))
-MAX_TOTAL_STORAGE_GB = int(os.environ.get("XCELSIOR_MAX_TOTAL_STORAGE_GB", "100"))
+MAX_TOTAL_STORAGE_GB = int(os.environ.get("XCELSIOR_MAX_TOTAL_STORAGE_GB", "2000"))
 DEFAULT_MOUNT_PATH = "/workspace"
 NFS_SERVER = os.environ.get("XCELSIOR_NFS_SERVER", "")
 NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
@@ -84,6 +86,86 @@ class VolumeEngine:
                             ip, attempt + 1, max_retries, delay, err[:120])
                 time.sleep(delay)
         return rc, out, err  # last attempt's result
+
+    # ── SSH with stdin (for piping LUKS keys) ──────────────────────────
+
+    def _ssh_exec_with_stdin(
+        self, ip: str, cmd: str, stdin_data: bytes, *, timeout: int = 60
+    ) -> tuple[int, str, str]:
+        """SSH exec that pipes stdin_data to the remote command.
+
+        Used for LUKS operations where the key must be piped via stdin
+        (never written to disk on the remote host).
+        """
+        from scheduler import SSH_KEY_PATH, SSH_USER
+        full_cmd = [
+            "ssh", "-i", SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=5",
+            f"{SSH_USER}@{ip}",
+            cmd,
+        ]
+        try:
+            result = subprocess.run(
+                full_cmd, input=stdin_data,
+                capture_output=True, timeout=timeout,
+            )
+            return (
+                result.returncode,
+                result.stdout.decode(errors="replace").strip(),
+                result.stderr.decode(errors="replace").strip(),
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("SSH+stdin command timed out after %ds to %s", timeout, ip)
+            return 255, "", f"ssh timeout after {timeout}s"
+
+    # ── Volume Encryption Key Management ─────────────────────────────
+    # Keys are 256-bit random, Fernet-encrypted, stored in DB.
+    # LUKS key material never touches disk on the NFS server — piped via stdin.
+
+    @staticmethod
+    def _generate_volume_key() -> bytes:
+        """Generate a 256-bit random key for LUKS encryption."""
+        return os.urandom(32)
+
+    @staticmethod
+    def _encrypt_key(raw_key: bytes) -> str:
+        """Fernet-encrypt a raw LUKS key for DB storage."""
+        from security import encrypt_secret
+        return encrypt_secret(base64.b64encode(raw_key).decode())
+
+    @staticmethod
+    def _decrypt_key(ciphertext: str) -> bytes:
+        """Recover raw LUKS key from Fernet ciphertext."""
+        from security import decrypt_secret
+        return base64.b64decode(decrypt_secret(ciphertext))
+
+    def _store_key(self, conn, volume_id: str, raw_key: bytes) -> None:
+        """Encrypt and store a LUKS key in the database."""
+        ct = self._encrypt_key(raw_key)
+        conn.execute(
+            "UPDATE volumes SET key_ciphertext = %s WHERE volume_id = %s",
+            (ct, volume_id),
+        )
+
+    def _retrieve_key(self, conn, volume_id: str) -> bytes | None:
+        """Retrieve and decrypt the LUKS key for a volume. Returns None if no key."""
+        row = conn.execute(
+            "SELECT key_ciphertext FROM volumes WHERE volume_id = %s",
+            (volume_id,),
+        ).fetchone()
+        if not row or not row["key_ciphertext"]:
+            return None
+        return self._decrypt_key(row["key_ciphertext"])
+
+    def _destroy_key(self, conn, volume_id: str) -> None:
+        """Destroy the stored encryption key (cryptographic erasure)."""
+        conn.execute(
+            "UPDATE volumes SET key_ciphertext = '' WHERE volume_id = %s",
+            (volume_id,),
+        )
+        log.info("Volume %s: encryption key destroyed (cryptographic erasure)", volume_id)
 
     def _emit_event(self, event_type: str, volume_id: str, actor: str = "", data: dict | None = None):
         """Best-effort emit a volume lifecycle event into the tamper-evident event store."""
@@ -229,11 +311,16 @@ class VolumeEngine:
             )
 
         # Provision actual storage on the NFS server
-        provision_ok = self._provision_volume_storage(volume_id, size_gb)
+        raw_key = self._generate_volume_key() if encrypted else None
+        provision_ok = self._provision_volume_storage(
+            volume_id, size_gb, encrypted=encrypted, raw_key=raw_key,
+        )
 
         with self._conn() as conn:
             new_status = "available" if provision_ok else "error"
             self._transition_status(conn, volume_id, new_status, current="provisioning")
+            if provision_ok and encrypted and raw_key:
+                self._store_key(conn, volume_id, raw_key)
 
         if not provision_ok:
             log.error("Volume storage provisioning failed for %s", volume_id)
@@ -251,31 +338,121 @@ class VolumeEngine:
             "encrypted": encrypted,
         }
 
-    def _provision_volume_storage(self, volume_id: str, size_gb: int) -> bool:
-        """Create the volume directory on the NFS server."""
+    def _provision_volume_storage(
+        self, volume_id: str, size_gb: int, *, encrypted: bool = False, raw_key: bytes | None = None,
+    ) -> bool:
+        """Create the volume directory/image on the NFS server.
+
+        For encrypted volumes: creates a sparse LUKS2 loopback image,
+        formats with ext4, and mounts at the export path. Key is piped via
+        stdin and never written to disk on the NFS server.
+        For unencrypted: simple mkdir -p.
+        """
         if not NFS_SERVER:
             log.warning("XCELSIOR_NFS_SERVER not configured — volume %s is metadata-only", volume_id)
             return True  # Allow metadata-only operation in dev/test
 
         vol_path = f"{NFS_EXPORT_BASE}/{volume_id}"
         safe_path = shlex.quote(vol_path)
-        # Create directory and set ownership to allow container writes
-        cmd = f"mkdir -p {safe_path} && chmod 1777 {safe_path}"
-        rc, _, stderr = self._ssh_exec_with_retry(NFS_SERVER, cmd)
-        if rc != 0:
-            log.error("NFS volume provision failed for %s: %s", volume_id, stderr)
+
+        if not encrypted:
+            # Plain unencrypted NFS directory
+            cmd = f"mkdir -p {safe_path} && chmod 1777 {safe_path}"
+            rc, _, stderr = self._ssh_exec_with_retry(NFS_SERVER, cmd)
+            if rc != 0:
+                log.error("NFS volume provision failed for %s: %s", volume_id, stderr)
+                return False
+            log.info("NFS storage created for volume %s at %s:%s", volume_id, NFS_SERVER, vol_path)
+            return True
+
+        # ── Encrypted volume: LUKS2 loopback ──────────────────────────
+        if not raw_key:
+            log.error("Cannot provision encrypted volume %s without a key", volume_id)
             return False
-        log.info("NFS storage created for volume %s at %s:%s", volume_id, NFS_SERVER, vol_path)
+
+        img_path = f"{vol_path}.img"
+        safe_img = shlex.quote(img_path)
+        mapper = f"xcelsior-vol-{volume_id[:12]}"
+        safe_mapper = shlex.quote(mapper)
+
+        # Step 0: Clean up stale LUKS state from any previous failed attempt
+        self._ssh_exec_with_retry(
+            NFS_SERVER,
+            f"sudo umount -l {safe_path} 2>/dev/null; "
+            f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true",
+        )
+
+        # Step 1: Create sparse image file
+        rc, _, err = self._ssh_exec_with_retry(
+            NFS_SERVER, f"truncate -s {size_gb}G {safe_img}",
+        )
+        if rc != 0:
+            log.error("LUKS truncate failed for %s: %s", volume_id, err)
+            return False
+
+        # Step 2: luksFormat — key piped via stdin
+        # --key-size 512 = AES-256-XTS (256-bit AES + 256-bit XTS tweak)
+        rc, _, err = self._ssh_exec_with_stdin(
+            NFS_SERVER,
+            f"sudo cryptsetup luksFormat --batch-mode --type luks2 "
+            f"--key-file /dev/stdin --key-size 512 "
+            f"--cipher aes-xts-plain64 --hash sha256 {safe_img}",
+            raw_key, timeout=120,
+        )
+        if rc != 0:
+            log.error("LUKS luksFormat failed for %s: %s", volume_id, err)
+            self._ssh_exec_with_retry(NFS_SERVER, f"rm -f {safe_img}")
+            return False
+
+        # Step 3: luksOpen — key piped via stdin
+        rc, _, err = self._ssh_exec_with_stdin(
+            NFS_SERVER,
+            f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
+            raw_key, timeout=60,
+        )
+        if rc != 0:
+            log.error("LUKS luksOpen failed for %s: %s", volume_id, err)
+            self._ssh_exec_with_retry(NFS_SERVER, f"rm -f {safe_img}")
+            return False
+
+        # Step 4: mkfs.ext4
+        rc, _, err = self._ssh_exec_with_retry(
+            NFS_SERVER,
+            f"sudo mkfs.ext4 -q -L vol-{volume_id[:8]} /dev/mapper/{safe_mapper}",
+        )
+        if rc != 0:
+            log.error("LUKS mkfs failed for %s: %s", volume_id, err)
+            self._ssh_exec_with_retry(NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}")
+            return False
+
+        # Step 5: Mount
+        rc, _, err = self._ssh_exec_with_retry(
+            NFS_SERVER,
+            f"mkdir -p {safe_path} && sudo mount /dev/mapper/{safe_mapper} {safe_path} && chmod 1777 {safe_path}",
+        )
+        if rc != 0:
+            log.error("LUKS mount failed for %s: %s", volume_id, err)
+            self._ssh_exec_with_retry(
+                NFS_SERVER,
+                f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}; rmdir {safe_path} 2>/dev/null",
+            )
+            return False
+
+        log.info(
+            "Encrypted NFS storage created for volume %s: LUKS2 %dGB at %s:%s",
+            volume_id, size_gb, NFS_SERVER, vol_path,
+        )
         return True
 
     def retry_provision(self, volume_id: str, owner_id: str) -> dict:
         """Retry provisioning for a volume stuck in 'error' status.
 
         Only the owner can retry. Transitions error → provisioning → available/error.
+        For encrypted volumes, re-uses the existing key from the DB (or generates new).
         """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT volume_id, owner_id, status, size_gb FROM volumes WHERE volume_id = %s",
+                "SELECT volume_id, owner_id, status, size_gb, encrypted, key_ciphertext FROM volumes WHERE volume_id = %s",
                 (volume_id,),
             ).fetchone()
             if not row:
@@ -287,11 +464,25 @@ class VolumeEngine:
 
             self._transition_status(conn, volume_id, "provisioning", current="error")
 
-        provision_ok = self._provision_volume_storage(volume_id, row["size_gb"])
+        # Prepare encryption key if needed
+        raw_key = None
+        is_encrypted = bool(row["encrypted"])
+        if is_encrypted:
+            if row["key_ciphertext"]:
+                raw_key = self._decrypt_key(row["key_ciphertext"])
+            else:
+                raw_key = self._generate_volume_key()
+
+        provision_ok = self._provision_volume_storage(
+            volume_id, row["size_gb"], encrypted=is_encrypted, raw_key=raw_key,
+        )
 
         with self._conn() as conn:
             new_status = "available" if provision_ok else "error"
             self._transition_status(conn, volume_id, new_status, current="provisioning")
+            # Store key if we generated a new one and provisioning succeeded
+            if provision_ok and raw_key and not row["key_ciphertext"]:
+                self._store_key(conn, volume_id, raw_key)
 
         if not provision_ok:
             raise RuntimeError("Re-provisioning failed — NFS server may be unavailable")
@@ -321,6 +512,41 @@ class VolumeEngine:
             ).fetchone()
             vol["attached_to"] = att["instance_id"] if att else None
             return vol
+
+    def rename_volume(self, volume_id: str, owner_id: str, new_name: str) -> dict:
+        """Rename a volume. Only the owner can rename."""
+        new_name = (new_name or "").strip()
+        if not new_name:
+            raise ValueError("Volume name is required")
+        if len(new_name) > 128:
+            raise ValueError("Volume name must be 128 characters or fewer")
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$', new_name):
+            raise ValueError("Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots")
+
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT volume_id, owner_id, name, status FROM volumes WHERE volume_id = %s AND status != 'deleted'",
+                (volume_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Volume {volume_id} not found")
+            if row["owner_id"] != owner_id:
+                raise PermissionError("Not authorised to rename this volume")
+            # Check name uniqueness for this owner
+            existing = conn.execute(
+                "SELECT volume_id FROM volumes WHERE owner_id = %s AND name = %s AND status != 'deleted' AND volume_id != %s",
+                (owner_id, new_name, volume_id),
+            ).fetchone()
+            if existing:
+                raise ValueError(f"Volume name '{new_name}' already exists")
+            conn.execute(
+                "UPDATE volumes SET name = %s WHERE volume_id = %s",
+                (new_name, volume_id),
+            )
+
+        log.info("Volume renamed: %s → %s (owner=%s)", volume_id, new_name, owner_id)
+        self._emit_event("volume.renamed", volume_id, actor=owner_id, data={"name": new_name})
+        return {"volume_id": volume_id, "name": new_name}
 
     def list_volumes(self, owner_id: str) -> list[dict]:
         with self._conn() as conn:
@@ -377,7 +603,7 @@ class VolumeEngine:
             )
 
         # Destroy actual storage on the NFS server
-        destroyed = self._destroy_volume_storage(volume_id)
+        destroyed = self._destroy_volume_storage(volume_id, encrypted=bool(vol.get("encrypted")))
         if not destroyed:
             # Revert from 'deleting' back to 'available' — storage still exists
             with self._conn() as conn:
@@ -390,20 +616,47 @@ class VolumeEngine:
 
         with self._conn() as conn:
             self._transition_status(conn, volume_id, "deleted", current="deleting")
+            if vol.get("encrypted"):
+                self._destroy_key(conn, volume_id)
 
         log.info("Volume deleted: %s", volume_id)
         self._emit_event("volume.deleted", volume_id, actor=owner_id)
         return {"volume_id": volume_id, "status": "deleted"}
 
-    def _destroy_volume_storage(self, volume_id: str) -> bool:
-        """Remove the volume directory from the NFS server."""
+    def _destroy_volume_storage(self, volume_id: str, *, encrypted: bool = False) -> bool:
+        """Remove the volume storage from the NFS server.
+
+        For encrypted volumes: unmount, close LUKS, delete image file.
+        For unencrypted: remove directory.
+        """
         if not NFS_SERVER:
             log.warning("XCELSIOR_NFS_SERVER not configured — skipping storage deletion for %s", volume_id)
             return True
 
         vol_path = f"{NFS_EXPORT_BASE}/{volume_id}"
         safe_path = shlex.quote(vol_path)
-        # Safety: resolve symlinks, verify path is under exports base, use --one-file-system
+
+        if encrypted:
+            img_path = f"{vol_path}.img"
+            safe_img = shlex.quote(img_path)
+            mapper = f"xcelsior-vol-{volume_id[:12]}"
+            safe_mapper = shlex.quote(mapper)
+
+            # Unmount (lazy to handle busy)
+            self._ssh_exec_with_retry(NFS_SERVER, f"sudo umount -l {safe_path} 2>/dev/null; true")
+            # Close LUKS device
+            self._ssh_exec_with_retry(NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true")
+            # Remove backing image and mount point
+            rc, _, err = self._ssh_exec_with_retry(
+                NFS_SERVER, f"rm -f {safe_img} && rmdir {safe_path} 2>/dev/null; true",
+            )
+            if rc != 0:
+                log.error("NFS encrypted volume cleanup failed for %s: %s", volume_id, err)
+                return False
+            log.info("Encrypted NFS storage destroyed for volume %s (LUKS + image removed)", volume_id)
+            return True
+
+        # Unencrypted: safe rm -rf with symlink traversal guard
         cmd = (
             f"real=$(readlink -f {safe_path}) && "
             f"[[ \"$real\" == {shlex.quote(NFS_EXPORT_BASE)}/* ]] && "
@@ -414,6 +667,49 @@ class VolumeEngine:
             log.error("NFS volume deletion failed for %s: %s", volume_id, stderr)
             return False
         log.info("NFS storage destroyed for volume %s", volume_id)
+        return True
+
+    def reopen_luks_volume(self, volume_id: str) -> bool:
+        """Re-open and mount a LUKS volume after NFS server reboot.
+
+        Retrieves the encryption key from the database, opens the LUKS
+        device, and re-mounts it at the export path.
+        """
+        if not NFS_SERVER:
+            return False
+        with self._conn() as conn:
+            raw_key = self._retrieve_key(conn, volume_id)
+        if not raw_key:
+            log.error("Cannot reopen volume %s: no encryption key in database", volume_id)
+            return False
+
+        vol_path = f"{NFS_EXPORT_BASE}/{volume_id}"
+        img_path = f"{vol_path}.img"
+        mapper = f"xcelsior-vol-{volume_id[:12]}"
+        safe_img = shlex.quote(img_path)
+        safe_path = shlex.quote(vol_path)
+        safe_mapper = shlex.quote(mapper)
+
+        # luksOpen — key piped via stdin
+        rc, _, err = self._ssh_exec_with_stdin(
+            NFS_SERVER,
+            f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
+            raw_key,
+        )
+        if rc != 0:
+            log.error("luksOpen failed for %s: %s", volume_id, err)
+            return False
+
+        # Mount
+        rc, _, err = self._ssh_exec_with_retry(
+            NFS_SERVER,
+            f"mkdir -p {safe_path} && sudo mount /dev/mapper/{safe_mapper} {safe_path}",
+        )
+        if rc != 0:
+            log.error("Mount failed for %s: %s", volume_id, err)
+            return False
+
+        log.info("Volume %s LUKS device reopened and mounted successfully", volume_id)
         return True
 
     def attach_volume(

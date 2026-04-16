@@ -421,6 +421,7 @@ export interface LaunchInstanceParams {
   command?: string;
   ssh_port?: number;
   volume_ids?: string[];
+  encrypted_workspace?: boolean;
 }
 
 /** Single entry-point for launching instances — marketplace, new-instance page, spot, on-demand.
@@ -2328,6 +2329,13 @@ export async function detachVolume(volumeId: string) {
 
 export async function listAvailableVolumes() {
   return apiFetch<{ ok: boolean; volumes: Volume[] }>("/api/v2/volumes/available");
+}
+
+export async function renameVolume(volumeId: string, name: string) {
+  return apiFetch<{ ok: boolean; volume: { volume_id: string; name: string } }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
 }
 
 // ── v2 Billing API ────────────────────────────────────────────────────

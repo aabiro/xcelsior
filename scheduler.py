@@ -1135,6 +1135,7 @@ def submit_job(
     ssh_port=22,
     owner="",
     volume_ids=None,
+    encrypted_workspace=False,
 ):
     """
     Submit a job to the queue.
@@ -1189,6 +1190,7 @@ def submit_job(
         "command": command or "",
         "ssh_port": int(ssh_port or 22),
         "volume_ids": volume_ids or [],
+        "encrypted_workspace": bool(encrypted_workspace),
     }
 
     # Spot jobs are preemptible and participate in the spot pricing market

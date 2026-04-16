@@ -11,7 +11,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import {
   HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, Globe, Lock,
-  Rocket, ExternalLink, Search, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Database,
+  Rocket, ExternalLink, Search, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Database, Pencil, X,
 } from "lucide-react";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { useAuth } from "@/lib/auth";
@@ -21,7 +21,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const PRICE_PER_GB = 0.07;
+const PRICE_PER_GB = 0.03;
 
 type SortKey = "name" | "size_gb" | "status" | "region" | "monthly_cost";
 type SortDir = "asc" | "desc";
@@ -56,10 +56,13 @@ export default function VolumesPage() {
   const [newName, setNewName] = useState("");
   const [newSize, setNewSize] = useState(50);
   const [newRegion, setNewRegion] = useState("ca-east");
+  const [newEncrypted, setNewEncrypted] = useState(true);
   const [attachingId, setAttachingId] = useState<string | null>(null);
   const [selectedInstance, setSelectedInstance] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -80,7 +83,7 @@ export default function VolumesPage() {
 
   // Live updates — re-fetch on volume/instance lifecycle changes
   useEventStream({
-    eventTypes: ["volume_created", "volume_deleted", "volume_attached", "volume_detached", "job_status"],
+    eventTypes: ["volume_created", "volume_deleted", "volume_attached", "volume_detached", "volume_renamed", "job_status"],
     onEvent: () => { load(); },
   });
 
@@ -88,7 +91,7 @@ export default function VolumesPage() {
     if (!newName.trim()) return toast.error("Volume name required");
     setCreating(true);
     try {
-      await api.createVolume({ name: newName.trim(), size_gb: newSize, region: newRegion });
+      await api.createVolume({ name: newName.trim(), size_gb: newSize, region: newRegion, encrypted: newEncrypted });
       toast.success("Volume created");
       setNewName("");
       setShowCreate(false);
@@ -121,6 +124,20 @@ export default function VolumesPage() {
       load();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to attach volume");
+    }
+  };
+
+  const handleRename = async (volumeId: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    try {
+      await api.renameVolume(volumeId, trimmed);
+      toast.success("Volume renamed");
+      setRenamingId(null);
+      setRenameValue("");
+      load();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to rename volume");
     }
   };
 
@@ -193,7 +210,7 @@ export default function VolumesPage() {
               </div>
             </div>
             <p className="text-sm text-text-muted max-w-lg mt-3">
-              Create and manage encrypted block storage volumes. Attach them to running instances for persistent data that survives instance restarts.
+              Create and manage persistent block storage volumes. Attach them to running instances for persistent data that survives instance restarts.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -224,7 +241,7 @@ export default function VolumesPage() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         title="Create Volume"
-        description="Provision encrypted persistent storage. Billed in real-time from your credits."
+        description="Provision persistent storage. Billed in real-time from your credits."
         maxWidth="max-w-lg"
       >
         <div className="space-y-4">
@@ -269,6 +286,33 @@ export default function VolumesPage() {
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setNewEncrypted(!newEncrypted)}
+            className={cn(
+              "flex items-center gap-3 w-full rounded-lg border p-3 text-sm transition-colors text-left",
+              newEncrypted
+                ? "border-accent-violet/50 bg-accent-violet/5"
+                : "border-border/60 bg-surface-hover/40 hover:border-border",
+            )}
+          >
+            <Lock className={cn("h-4 w-4 shrink-0", newEncrypted ? "text-accent-violet" : "text-text-muted")} />
+            <div className="flex-1 min-w-0">
+              <span className={cn("font-medium", newEncrypted ? "text-text-primary" : "text-text-secondary")}>
+                LUKS2 Encryption
+              </span>
+              <p className="text-xs text-text-muted mt-0.5">AES-256 at rest &middot; per-volume key &middot; cryptographic erasure on delete</p>
+            </div>
+            <div className={cn(
+              "h-5 w-9 rounded-full relative transition-colors shrink-0",
+              newEncrypted ? "bg-accent-violet" : "bg-border",
+            )}>
+              <div className={cn(
+                "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform shadow-sm",
+                newEncrypted ? "translate-x-4" : "translate-x-0.5",
+              )} />
+            </div>
+          </button>
           <div className="rounded-lg border border-border/60 bg-surface-hover/40 p-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-text-muted">${PRICE_PER_GB}/GB/month &middot; {newSize} GB</span>
@@ -336,7 +380,7 @@ export default function VolumesPage() {
               </div>
               <h3 className="text-xl font-semibold mb-2">No volumes yet</h3>
               <p className="text-sm text-text-secondary mb-8 max-w-md mx-auto">
-                Create encrypted persistent storage to keep your data safe across instance restarts and migrations.
+                Create persistent storage to keep your data safe across instance restarts and migrations.
               </p>
               <Button
                 className="h-11 bg-accent-violet hover:bg-accent-violet/90 text-white"
@@ -436,7 +480,34 @@ export default function VolumesPage() {
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="font-medium text-text-primary">{vol.name || "Unnamed"}</p>
+                              {renamingId === vol.volume_id ? (
+                                <form
+                                  className="flex items-center gap-1"
+                                  onSubmit={(e) => { e.preventDefault(); handleRename(vol.volume_id); }}
+                                >
+                                  <input
+                                    autoFocus
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); } }}
+                                    onBlur={() => { setRenamingId(null); setRenameValue(""); }}
+                                    className="h-7 w-40 rounded border border-border bg-background px-2 text-sm font-medium text-text-primary focus:outline-none focus:ring-1 focus:ring-ice-blue"
+                                  />
+                                  <button type="submit" onMouseDown={(e) => e.preventDefault()} className="text-emerald hover:text-emerald/80 p-0.5"><Check className="h-3.5 w-3.5" /></button>
+                                  <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setRenamingId(null); setRenameValue(""); }} className="text-text-muted hover:text-text-primary p-0.5"><X className="h-3.5 w-3.5" /></button>
+                                </form>
+                              ) : (
+                                <>
+                                  <p className="font-medium text-text-primary">{vol.name || "Unnamed"}</p>
+                                  <button
+                                    onClick={() => { setRenamingId(vol.volume_id); setRenameValue(vol.name || ""); }}
+                                    className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-ice-blue transition-all p-0.5"
+                                    title="Rename volume"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                </>
+                              )}
                               {vol.encrypted && (
                                 <Lock className="h-3 w-3 text-accent-violet" />
                               )}
