@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
-const BACKEND = process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
+// INTERNAL_API_URL: server-side only (rewrites/SSR), never shipped to browser.
+// Falls back to NEXT_PUBLIC_API_URL (baked into client JS at build time).
+const BACKEND = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'",
