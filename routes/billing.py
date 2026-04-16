@@ -284,9 +284,7 @@ def api_deposit(customer_id: str, req: DepositRequest):
 
 @router.post("/api/billing/wallet/{customer_id}/reset-testing", tags=["Billing"])
 def api_reset_wallet_testing_state(customer_id: str, request: Request):
-    """Reset wallet balance and promo state for admin testing. Disabled in production."""
-    if XCELSIOR_ENV in ("production", "prod"):
-        raise HTTPException(403, "Wallet reset is disabled in production")
+    """Reset wallet balance and promo state for admin testing."""
     _require_admin(request)
     be = get_billing_engine()
     result = be.reset_wallet_testing_state(customer_id)

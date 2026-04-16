@@ -151,6 +151,7 @@ services:
     environment:
       <<: *api-env
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
+      XCELSIOR_BG_TASKS: "false"
     network_mode: host
     volumes: *api-volumes
     restart: unless-stopped
@@ -168,6 +169,7 @@ services:
     environment:
       <<: *api-env
       XCELSIOR_API_PORT: ${XCELSIOR_API_BLUE_PORT:-9501}
+      XCELSIOR_BG_TASKS: "false"
     network_mode: host
     profiles: ["blue"]
     volumes: *api-volumes
@@ -228,6 +230,21 @@ services:
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
       - ${HOME}/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     restart: unless-stopped
+
+  # ── Background Task Worker ─────────────────────────────────────────
+  # Runs billing, webhooks, spot pricing, inference, cloudburst, SLA,
+  # events, privacy, session cleanup, FINTRAC, log cleanup, notifications,
+  # and Lightning deposit watcher — all outside the API server process.
+  bg-worker:
+    build: .
+    command: python bg_worker.py
+    network_mode: host
+    environment:
+      <<: *api-env
+    volumes: *api-volumes
+    restart: unless-stopped
+    depends_on:
+      - api
 
   frontend:
     build:

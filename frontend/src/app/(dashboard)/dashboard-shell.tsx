@@ -503,7 +503,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 {user && (
                   <div className="hidden sm:block text-left">
                     <p className="text-base font-medium leading-none">{user.name || user.email}</p>
-                    <p className="text-sm text-text-muted">{user.role || "user"}</p>
+                    <p className="text-sm text-text-muted">{user.is_admin ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin") : user.role || "user"}</p>
                   </div>
                 )}
                 <ChevronDown className={cn("h-4 w-4 text-text-muted transition-transform hidden sm:block", profileOpen && "rotate-180")} />

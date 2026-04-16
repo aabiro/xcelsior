@@ -666,6 +666,27 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 timeout=timeout_sec,
             )
 
+        # Fast-fail if the remote host is unreachable (avoids 30 s timeout)
+        if is_remote:
+            _reach_ok = await loop.run_in_executor(
+                None,
+                lambda: subprocess.call(
+                    ["ping", "-c", "1", "-W", "3", host_ip],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                ) == 0,
+            )
+            if not _reach_ok:
+                log.warning("TERMINAL host %s unreachable (ping failed)", host_ip)
+                await _send_error(
+                    websocket,
+                    f"GPU host {host_ip} is offline — check Tailscale mesh connectivity",
+                    4410,
+                )
+                await websocket.close(code=4410)
+                _conn_errors.labels(reason="host_unreachable").inc()  # type: ignore[attr-defined]
+                return
+
         for attempt in range(_CONTAINER_POLL_MAX_ATTEMPTS):
             exists = await loop.run_in_executor(
                 None,
