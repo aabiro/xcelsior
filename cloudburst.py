@@ -42,6 +42,25 @@ BURST_GCP_PROJECT = os.environ.get("XCELSIOR_BURST_GCP_PROJECT", "")
 BURST_GCP_IMAGE_FAMILY = os.environ.get("XCELSIOR_BURST_GCP_IMAGE_FAMILY", "pytorch-latest-gpu")
 BURST_GCP_ZONE = os.environ.get("XCELSIOR_BURST_GCP_ZONE", "northamerica-northeast1-a")
 
+# OCI (Oracle Cloud) configuration — cheapest A10G pricing
+BURST_OCI_TENANCY = os.environ.get("XCELSIOR_BURST_OCI_TENANCY", "")
+BURST_OCI_USER = os.environ.get("XCELSIOR_BURST_OCI_USER", "")
+BURST_OCI_COMPARTMENT = os.environ.get("XCELSIOR_BURST_OCI_COMPARTMENT", "")
+BURST_OCI_REGION = os.environ.get("XCELSIOR_BURST_OCI_REGION", "ca-toronto-1")
+BURST_OCI_SUBNET = os.environ.get("XCELSIOR_BURST_OCI_SUBNET", "")
+BURST_OCI_IMAGE = os.environ.get("XCELSIOR_BURST_OCI_IMAGE", "")  # GPU image OCID
+
+# Hetzner Cloud configuration — cheapest L4/A100 in EU
+BURST_HETZNER_TOKEN = os.environ.get("XCELSIOR_BURST_HETZNER_TOKEN", "")
+BURST_HETZNER_LOCATION = os.environ.get("XCELSIOR_BURST_HETZNER_LOCATION", "nbg1")  # Nuremberg
+BURST_HETZNER_SSH_KEY_NAME = os.environ.get("XCELSIOR_BURST_HETZNER_SSH_KEY_NAME", "")
+BURST_HETZNER_IMAGE = os.environ.get("XCELSIOR_BURST_HETZNER_IMAGE", "ubuntu-24.04")
+
+# Provider priority: try cheapest first
+BURST_PROVIDER_PRIORITY = [p.strip() for p in os.environ.get(
+    "XCELSIOR_BURST_PROVIDER_PRIORITY", "hetzner,oci,gcp,aws"
+).split(",") if p.strip()]
+
 # Cloud provider instance types and pricing
 CLOUD_INSTANCE_TYPES = {
     "aws": {
@@ -52,6 +71,15 @@ CLOUD_INSTANCE_TYPES = {
     "gcp": {
         "a2-highgpu-1g": {"gpu_model": "A100", "gpu_count": 1, "cost_per_hour_cad": 5.50, "region": "northamerica-northeast1"},
         "g2-standard-4": {"gpu_model": "L4", "gpu_count": 1, "cost_per_hour_cad": 1.20, "region": "northamerica-northeast1"},
+    },
+    "oci": {
+        "VM.GPU.A10.1": {"gpu_model": "A10G", "gpu_count": 1, "cost_per_hour_cad": 1.10, "region": "ca-toronto-1"},
+        "VM.GPU.A10.2": {"gpu_model": "A10G", "gpu_count": 2, "cost_per_hour_cad": 2.20, "region": "ca-toronto-1"},
+        "BM.GPU.A100-v2.8": {"gpu_model": "A100", "gpu_count": 8, "cost_per_hour_cad": 45.0, "region": "ca-toronto-1"},
+    },
+    "hetzner": {
+        "gpu-a100-80": {"gpu_model": "A100", "gpu_count": 1, "cost_per_hour_cad": 3.20, "region": "nbg1"},
+        "gpu-l4": {"gpu_model": "L4", "gpu_count": 1, "cost_per_hour_cad": 0.95, "region": "nbg1"},
     },
 }
 
@@ -180,6 +208,35 @@ class CloudBurstEngine:
             "status": "provisioning",
         }
 
+    def select_best_instance(self, gpu_model: str = "", min_gpu_count: int = 1) -> Optional[tuple]:
+        """Pick the cheapest available instance type across all configured providers.
+
+        Respects BURST_PROVIDER_PRIORITY ordering (tie-break by cost).
+        Returns (provider, instance_type) or None.
+        """
+        candidates = []
+        for provider in BURST_PROVIDER_PRIORITY:
+            types = CLOUD_INSTANCE_TYPES.get(provider, {})
+            for itype, info in types.items():
+                if gpu_model and info["gpu_model"] != gpu_model:
+                    continue
+                if info["gpu_count"] < min_gpu_count:
+                    continue
+                # Check provider is configured
+                if provider == "aws" and not BURST_AWS_AMI:
+                    continue
+                if provider == "gcp" and not BURST_GCP_PROJECT:
+                    continue
+                if provider == "oci" and not BURST_OCI_COMPARTMENT:
+                    continue
+                if provider == "hetzner" and not BURST_HETZNER_TOKEN:
+                    continue
+                candidates.append((info["cost_per_hour_cad"], provider, itype))
+        if not candidates:
+            return None
+        candidates.sort()  # cheapest first
+        return (candidates[0][1], candidates[0][2])
+
     def _launch_cloud_vm(self, provider: str, instance_type: str,
                          xcelsior_id: str, type_info: dict) -> Optional[str]:
         """Launch a VM via the cloud provider CLI. Returns the cloud instance ID."""
@@ -187,6 +244,10 @@ class CloudBurstEngine:
             return self._launch_aws(instance_type, xcelsior_id, type_info)
         elif provider == "gcp":
             return self._launch_gcp(instance_type, xcelsior_id, type_info)
+        elif provider == "oci":
+            return self._launch_oci(instance_type, xcelsior_id, type_info)
+        elif provider == "hetzner":
+            return self._launch_hetzner(instance_type, xcelsior_id, type_info)
         else:
             log.error("Unsupported cloud provider: %s", provider)
             return None
@@ -285,6 +346,84 @@ class CloudBurstEngine:
             return None
         except Exception as e:
             log.error("GCP launch error: %s", e)
+            return None
+
+    def _launch_oci(self, instance_type: str, xcelsior_id: str, type_info: dict) -> Optional[str]:
+        """Launch an OCI GPU instance via the OCI CLI."""
+        if not BURST_OCI_COMPARTMENT:
+            log.error("XCELSIOR_BURST_OCI_COMPARTMENT not configured — cannot launch OCI instance")
+            return None
+
+        display_name = f"xcelsior-{xcelsior_id}"
+        cmd = [
+            "oci", "compute", "instance", "launch",
+            "--compartment-id", BURST_OCI_COMPARTMENT,
+            "--availability-domain", f"{BURST_OCI_REGION}-AD-1",
+            "--shape", instance_type,
+            "--display-name", display_name,
+            "--image-id", BURST_OCI_IMAGE,
+            "--freeform-tags", _json.dumps({"xcelsior-id": xcelsior_id}),
+            "--output", "json",
+        ]
+        if BURST_OCI_SUBNET:
+            cmd.extend(["--subnet-id", BURST_OCI_SUBNET])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                log.error("OCI launch failed: %s", result.stderr)
+                return None
+            data = _json.loads(result.stdout)
+            cloud_id = data.get("data", {}).get("id", "")
+            log.info("OCI instance launched: %s", cloud_id)
+            return cloud_id
+        except FileNotFoundError:
+            log.error("OCI CLI not installed — cannot launch burst instance")
+            return None
+        except subprocess.TimeoutExpired:
+            log.error("OCI launch timed out")
+            return None
+        except Exception as e:
+            log.error("OCI launch error: %s", e)
+            return None
+
+    def _launch_hetzner(self, instance_type: str, xcelsior_id: str, type_info: dict) -> Optional[str]:
+        """Launch a Hetzner Cloud GPU server via the hcloud CLI."""
+        if not BURST_HETZNER_TOKEN:
+            log.error("XCELSIOR_BURST_HETZNER_TOKEN not configured — cannot launch Hetzner instance")
+            return None
+
+        server_name = f"xcelsior-{xcelsior_id}"
+        cmd = [
+            "hcloud", "server", "create",
+            "--name", server_name,
+            "--type", instance_type,
+            "--image", BURST_HETZNER_IMAGE,
+            "--location", BURST_HETZNER_LOCATION,
+            "--label", f"xcelsior-id={xcelsior_id}",
+            "--output", "json",
+        ]
+        if BURST_HETZNER_SSH_KEY_NAME:
+            cmd.extend(["--ssh-key", BURST_HETZNER_SSH_KEY_NAME])
+
+        env = {**os.environ, "HCLOUD_TOKEN": BURST_HETZNER_TOKEN}
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+            if result.returncode != 0:
+                log.error("Hetzner launch failed: %s", result.stderr)
+                return None
+            data = _json.loads(result.stdout)
+            cloud_id = str(data.get("server", {}).get("id", server_name))
+            log.info("Hetzner server launched: %s", cloud_id)
+            return cloud_id
+        except FileNotFoundError:
+            log.error("hcloud CLI not installed — cannot launch burst instance")
+            return None
+        except subprocess.TimeoutExpired:
+            log.error("Hetzner launch timed out")
+            return None
+        except Exception as e:
+            log.error("Hetzner launch error: %s", e)
             return None
 
     def mark_running(self, instance_id: str, host_id: str = "", cloud_instance_id: str = ""):
@@ -406,6 +545,30 @@ class CloudBurstEngine:
                     log.error("GCP terminate failed for %s: %s", cloud_id, result.stderr)
                 else:
                     log.info("GCP instance terminated: %s", cloud_id)
+
+            elif provider == "oci":
+                result = subprocess.run(
+                    ["oci", "compute", "instance", "terminate",
+                     "--instance-id", cloud_id,
+                     "--force"],
+                    capture_output=True, text=True, timeout=120,
+                )
+                if result.returncode != 0:
+                    log.error("OCI terminate failed for %s: %s", cloud_id, result.stderr)
+                else:
+                    log.info("OCI instance terminated: %s", cloud_id)
+
+            elif provider == "hetzner":
+                env = {**os.environ, "HCLOUD_TOKEN": BURST_HETZNER_TOKEN}
+                result = subprocess.run(
+                    ["hcloud", "server", "delete", cloud_id],
+                    capture_output=True, text=True, timeout=60, env=env,
+                )
+                if result.returncode != 0:
+                    log.error("Hetzner terminate failed for %s: %s", cloud_id, result.stderr)
+                else:
+                    log.info("Hetzner server terminated: %s", cloud_id)
+
         except FileNotFoundError:
             log.error("Cloud CLI not installed — cannot terminate %s/%s", provider, cloud_id)
         except Exception as e:
