@@ -154,6 +154,7 @@ export function LaunchInstanceModal({
   const [submitting, setSubmitting] = useState(false);
   const [launchError, setLaunchError] = useState<LaunchErrorInfo | null>(null);
   const [instanceId, setInstanceId] = useState("");
+  const [gpuLoading, setGpuLoading] = useState(true);
 
   const resolvedImage = image.trim();
   const selectedTemplate = templates.find((t) => t.image === image);
@@ -201,7 +202,7 @@ export function LaunchInstanceModal({
     countAvailable: 0,
     minPricePerHourCad: entry.on_demand_cad,
   }));
-  const gpuModelOptions = gpuInventoryOptions.length > 0 ? gpuInventoryOptions : fallbackGpuOptions;
+  const gpuModelOptions = gpuInventoryOptions;
   const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
 
   // VRAM options per selected GPU model — derived from inventory
@@ -265,9 +266,11 @@ export function LaunchInstanceModal({
     fetchPricingReference()
       .then((r) => setPricing(r.reference || []))
       .catch(() => {});
+    setGpuLoading(true);
     fetchAvailableGPUs()
       .then((r) => setAvailableGpus(r.gpus || []))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setGpuLoading(false));
     fetchProvinces()
       .then((r) => setProvinces(r.provinces || {}))
       .catch(() => {});
@@ -390,10 +393,11 @@ export function LaunchInstanceModal({
       const res = await launchInstance(params);
       const jobId = res.instance?.job_id || "";
       setInstanceId(jobId);
-      setStep("success");
       markInstanceLaunched();
       toast.success("Instance launched successfully");
       onLaunched?.(jobId, res.instance);
+      onClose();
+      router.push(`/dashboard/instances/${jobId}`);
     } catch (err) {
       const info = classifyLaunchError(err);
       if (info.action) {
@@ -537,8 +541,9 @@ export function LaunchInstanceModal({
                       <Select
                         value={gpuModel}
                         onChange={(e) => setGpuModel(e.target.value)}
+                        disabled={gpuLoading}
                       >
-                        <option value="">Auto-select best available</option>
+                        <option value="">{gpuLoading ? "Loading GPU inventory…" : "Auto-select best available"}</option>
                         {gpuModelOptions.map((option) => (
                           <option key={option.gpu_model} value={option.gpu_model}>
                             {option.gpu_model}
@@ -548,7 +553,9 @@ export function LaunchInstanceModal({
                         ))}
                       </Select>
                       <p className="text-[11px] text-text-muted">
-                        {hasLiveInventory
+                        {gpuLoading
+                          ? "Loading live GPU inventory…"
+                          : hasLiveInventory
                           ? "Live GPU inventory is aggregated across active hosts."
                           : hasHostedInventory
                             ? "Hosted GPU inventory is aggregated from registered hosts; none are active right now."
@@ -850,9 +857,9 @@ export function LaunchInstanceModal({
                 <Button
                   className="w-full"
                   onClick={() => setStep("confirm")}
-                  disabled={!instanceName.trim() || !resolvedImage}
+                  disabled={!instanceName.trim() || !resolvedImage || gpuLoading}
                 >
-                  Continue
+                  {gpuLoading ? <>Loading GPU inventory…</> : "Continue"}
                 </Button>
               </>
             )}
@@ -868,14 +875,14 @@ export function LaunchInstanceModal({
                       <div className="flex justify-between"><span className="text-text-muted">GPUs</span><span>×{numGpus}</span></div>
                     )}
                     <div className="flex justify-between"><span className="text-text-muted">Instance</span><span>{instanceName}</span></div>
-                    <div className="flex justify-between"><span className="text-text-muted">Image</span><span className="text-right max-w-[220px] truncate" title={resolvedImage}>{resolvedImage}</span></div>
+                    <div className="flex justify-between"><span className="text-text-muted">Image</span><span className="text-right" title={resolvedImage}>{resolvedImage}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Pricing</span><span className="capitalize">{pricingMode === "on_demand" ? "On-Demand" : "Spot"}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Tier</span><span className="capitalize">{tier}</span></div>
                     <div className="flex justify-between"><span className="text-text-muted">Priority</span><span>{PRIORITIES.find((p) => p.value === priority)?.label ?? "Normal"}</span></div>
                     {selectedVolumeIds.length > 0 && (
                       <div className="flex justify-between">
                         <span className="text-text-muted">Volumes</span>
-                        <span className="text-right max-w-[220px] truncate" title={selectedVolumeIds.map((id) => availableVolumes.find((v) => v.volume_id === id)?.name || id.slice(0, 8)).join(", ")}>
+                        <span className="text-right" title={selectedVolumeIds.map((id) => availableVolumes.find((v) => v.volume_id === id)?.name || id.slice(0, 8)).join(", ")}>
                           {selectedVolumeIds.map((id) => availableVolumes.find((v) => v.volume_id === id)?.name || id.slice(0, 8)).join(", ")}
                         </span>
                       </div>

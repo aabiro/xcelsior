@@ -568,7 +568,7 @@ deploy_docker() {
 
     if [[ "$DEPLOY_BUILD_API" == true ]]; then
         log "Building API + scheduler-worker images..."
-        ssh_cmd "cd /opt/xcelsior && docker compose build api scheduler-worker" || error "API/scheduler-worker build failed"
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue build api api-blue scheduler-worker" || error "API/scheduler-worker build failed"
         success "API + scheduler-worker images built"
     else
         log "API build inputs unchanged — skipping api/scheduler-worker image rebuild"
@@ -590,38 +590,100 @@ deploy_docker() {
     ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration failed — may need manual attention"
     success "Migrations applied"
 
-    # Rolling restart — bring up new containers one at a time to minimize downtime
-    log "Rolling restart (zero-downtime)..."
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps api" || error "API restart failed"
-    # Wait for API health before continuing
-    local api_ok=false
-    for i in {1..20}; do
-        if ssh_cmd "curl -sf http://localhost:9500/healthz" &>/dev/null; then
-            api_ok=true
+    # ── Blue-green zero-downtime swap ────────────────────────────────────
+    # State file tracks which colour is currently live.
+    # Default: "green" (api on 9500).  After swap: "blue" (api-blue on 9501).
+    local state_file="/opt/xcelsior/.deploy_colour"
+    local live_colour
+    live_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
+
+    local standby_service standby_port live_service live_port
+    if [[ "$live_colour" == "green" ]]; then
+        live_service="api"        ; live_port=9500
+        standby_service="api-blue"; standby_port=9501
+    else
+        live_service="api-blue"   ; live_port=9501
+        standby_service="api"     ; standby_port=9500
+    fi
+
+    log "Blue-green deploy: live=$live_colour ($live_service:$live_port) → standby=$standby_service:$standby_port"
+
+    # 1. Start the standby service on the other port
+    log "Starting standby API on port $standby_port..."
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
+
+    # 2. Wait for standby to become healthy
+    local standby_ok=false
+    for i in {1..30}; do
+        if ssh_cmd "curl -sf http://localhost:$standby_port/healthz" &>/dev/null; then
+            standby_ok=true
             break
         fi
         sleep 2
     done
-    if [ "$api_ok" = true ]; then
-        success "API is healthy"
+
+    if [ "$standby_ok" != true ]; then
+        warn "Standby API ($standby_service:$standby_port) not healthy after 60s — aborting swap"
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop $standby_service 2>/dev/null" || true
+        # Fall back: just restart the live service in-place
+        log "Falling back to in-place restart of $live_service..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $live_service" || error "In-place API restart failed"
+        local fallback_ok=false
+        for i in {1..20}; do
+            if ssh_cmd "curl -sf http://localhost:$live_port/healthz" &>/dev/null; then
+                fallback_ok=true; break
+            fi
+            sleep 2
+        done
+        if [ "$fallback_ok" = true ]; then
+            success "API is healthy (in-place restart — no zero-downtime this deploy)"
+        else
+            warn "API not healthy after in-place restart"
+        fi
     else
-        warn "API not healthy after 40s — continuing anyway"
+        success "Standby API ($standby_service:$standby_port) is healthy"
+
+        # 3. Swap nginx upstream to point at the standby (now primary)
+        #    We use sed to reorder the upstream servers so the new primary is first.
+        log "Swapping nginx upstream to port $standby_port..."
+        ssh_cmd "sudo sed -i \
+            -e '/upstream xcelsior_api/,/}/{ \
+                s/server 127.0.0.1:${standby_port} backup;/server 127.0.0.1:${standby_port};/; \
+                s/server 127.0.0.1:${live_port};/server 127.0.0.1:${live_port} backup;/ \
+            }' /etc/nginx/sites-available/xcelsior && sudo nginx -t && sudo nginx -s reload" \
+            || error "Nginx upstream swap failed"
+        success "Nginx now routing to $standby_service:$standby_port"
+
+        # 4. Gracefully stop the old live service (30s drain via stop_grace_period)
+        log "Draining old API ($live_service:$live_port)..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue stop -t 30 $live_service" || warn "Old API stop returned non-zero"
+        success "Old API ($live_service) stopped"
+
+        # 5. Record the new live colour
+        local new_colour
+        if [[ "$live_colour" == "green" ]]; then new_colour="blue"; else new_colour="green"; fi
+        ssh_cmd "echo $new_colour > $state_file"
+        success "Deploy state: $new_colour is now live"
     fi
 
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
     success "Scheduler-worker restarted"
 
     ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
     success "Frontend restarted"
 
     # Remove orphans quietly
-    ssh_cmd "cd /opt/xcelsior && docker compose up -d --remove-orphans 2>/dev/null" || true
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --remove-orphans 2>/dev/null" || true
 
-    # Final health check
+    # Final health check — whichever port is now live
+    local final_port
+    final_port=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
+    if [[ "$final_port" == "blue" ]]; then final_port=9501; else final_port=9500; fi
+
     log "Verifying all services..."
     local healthy=false
     for i in {1..10}; do
-        if ssh_cmd "curl -sf http://localhost:9500/healthz" &>/dev/null; then
+        if ssh_cmd "curl -sf http://localhost:$final_port/healthz" &>/dev/null; then
             healthy=true
             break
         fi
@@ -629,14 +691,14 @@ deploy_docker() {
     done
 
     if [ "$healthy" = true ]; then
-        success "API is healthy"
+        success "API is healthy on port $final_port"
     else
         warn "API not healthy after 60s — fetching logs..."
-        ssh_cmd "cd /opt/xcelsior && docker compose logs --tail=30" || true
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue logs --tail=30" || true
     fi
 
-    ssh_cmd "cd /opt/xcelsior && docker compose ps"
-    success "Docker deployment complete"
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue ps"
+    success "Docker deployment complete (blue-green)"
 }
 
 deploy_systemd() {

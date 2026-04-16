@@ -480,6 +480,13 @@ export async function terminateInstance(instanceId: string) {
   return apiFetch(`/instances/${encodeURIComponent(instanceId)}/terminate`, { method: "POST" });
 }
 
+export async function renameInstance(instanceId: string, name: string) {
+  return apiFetch<{ ok: boolean; job_id: string; name: string }>(
+    `/instance/${encodeURIComponent(instanceId)}/name`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+}
+
 export async function createTerminalTicket(instanceId: string) {
   return apiFetch<{ ok: boolean; ticket: string; expires_in: number }>(
     "/api/terminal/ticket",
