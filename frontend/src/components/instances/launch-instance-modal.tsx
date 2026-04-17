@@ -97,6 +97,8 @@ export interface LaunchInstanceModalProps {
   onLaunched?: (instanceId: string, instance?: import("@/lib/api").Instance) => void;
   /** Pre-fill from a marketplace listing */
   listing?: MarketplaceListing;
+  /** Pre-select volumes to attach (e.g. launched from volumes page) */
+  preSelectedVolumeIds?: string[];
 }
 
 /* ───────────────────────── Component ───────────────────────── */
@@ -106,6 +108,7 @@ export function LaunchInstanceModal({
   onClose,
   onLaunched,
   listing,
+  preSelectedVolumeIds,
 }: LaunchInstanceModalProps) {
   const router = useRouter();
   const [step, setStep] = useState<"configure" | "confirm" | "success">("configure");
@@ -360,7 +363,7 @@ export function LaunchInstanceModal({
       setTier("standard");
       setMaxBid("");
       setPriority("normal");
-      setSelectedVolumeIds([]);
+      setSelectedVolumeIds(preSelectedVolumeIds ?? []);
       setLaunchError(null);
       setInstanceId("");
       setDynamicRate(null);
