@@ -101,7 +101,7 @@ const CONFIRM_CONFIGS: Record<NonNullable<ConfirmAction>, {
 }> = {
   stop: {
     title: "Stop instance?",
-    description: "The container will be gracefully stopped (SIGTERM). Your data and volumes are preserved. Storage billing continues. You can start it again at any time.",
+    description: "The container will be gracefully stopped. Your data and volumes are preserved. Storage billing continues. You can start it again at any time.",
     confirmLabel: "Stop",
     variant: "default",
   },
@@ -119,7 +119,7 @@ const CONFIRM_CONFIGS: Record<NonNullable<ConfirmAction>, {
   },
   terminate: {
     title: "Terminate instance?",
-    description: "This will hard-kill and permanently destroy the container. This action cannot be undone. Named volumes are preserved, but all other container data will be lost.",
+    description: "This will permanently shut down and remove the container. This action cannot be undone. Named volumes are preserved, but all other container data will be lost.",
     confirmLabel: "Terminate",
     variant: "danger",
   },

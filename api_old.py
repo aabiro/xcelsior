@@ -1735,7 +1735,7 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
 
 
 # ── WebSocket Terminal Proxy ──────────────────────────────────────────
-# xterm.js <-> WebSocket <-> docker exec via Tailscale mesh
+# xterm.js <-> WebSocket <-> docker exec via Headscale mesh
 # Security: JWT auth, 30-min session timeout, 10 KB/s rate limit
 
 _TERMINAL_SESSION_TIMEOUT = 1800  # 30 minutes
@@ -1796,7 +1796,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
 
     Proxies stdin/stdout between the browser (xterm.js) and
     ``docker exec -it <container_id> /bin/bash`` on the worker host
-    reached through the Tailscale mesh.
+    reached through the Headscale mesh.
 
     Protocol:
     - Client sends: ``{"type": "input", "data": "<chars>"}``
@@ -1877,8 +1877,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         _release_legacy_terminal_session_slot(user)
         return
 
-    # Build docker exec command via Tailscale
-    # In production: ssh through Tailscale mesh to the worker host
+    # Build docker exec command via Headscale
+    # In production: ssh through Headscale mesh to the worker host
     # For local dev: direct docker exec
     shell = str(instance.get("shell", "/bin/bash") or "/bin/bash")
     if shell not in _LEGACY_TERMINAL_ALLOWED_SHELLS:

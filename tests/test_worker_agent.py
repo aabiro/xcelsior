@@ -1,7 +1,7 @@
 """Xcelsior Worker Agent unit tests — Phase 7.4
 
 Tests GPU detection, heartbeat, API communication, lease management,
-image cache, mining detection helpers, telemetry, Tailscale, and config
+image cache, mining detection helpers, telemetry, Headscale, and config
 validation using monkeypatched subprocess/requests calls.
 """
 

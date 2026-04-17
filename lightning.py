@@ -1,7 +1,7 @@
 # Xcelsior — Lightning Network Deposit Support
 # Instant BTC deposits via Core Lightning (CLN) node.
 # Credits the existing CAD wallet at a locked BTC/CAD spot rate.
-# Uses the CLN clnrest HTTP API over Tailscale.
+# Uses the CLN clnrest HTTP API over Headscale.
 
 import json
 import logging

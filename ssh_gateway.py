@@ -5,11 +5,11 @@ Architecture:
   - Runs on the VPS alongside the API as a docker-compose service (network_mode: host)
   - Queries the DB for all running instances → opens TCP listeners on their ssh_port
   - Subscribes to Postgres NOTIFY events for real-time instance lifecycle updates
-  - When a client connects to VPS_IP:ssh_port, relays TCP bidirectionally to GPU_HOST_IP:ssh_port via Tailscale
+  - When a client connects to VPS_IP:ssh_port, relays TCP bidirectionally to GPU_HOST_IP:ssh_port via Headscale
   - Handles connection limits, idle timeouts, graceful drain, health endpoint
 
 Port range: 10000–64999 (deterministic from job_id hash, set by worker_agent.py)
-GPU hosts are reachable via Tailscale mesh (100.64.x.x)
+GPU hosts are reachable via Headscale mesh (100.64.x.x)
 """
 
 import asyncio
@@ -49,7 +49,7 @@ class InstanceRoute:
     """Represents a routable SSH instance."""
     job_id: str
     ssh_port: int           # Port on the VPS we listen on (same as host-side mapped port)
-    host_ip: str            # Tailscale IP of the GPU host (e.g. 100.64.0.2)
+    host_ip: str            # Headscale IP of the GPU host (e.g. 100.64.0.2)
     host_id: str
     status: str
     instance_name: str = ""
@@ -195,7 +195,7 @@ class SSHGateway:
         relay_stats = {"bytes": 0}
 
         try:
-            # Connect to GPU host via Tailscale
+            # Connect to GPU host via Headscale
             backend_reader, backend_writer = await asyncio.wait_for(
                 asyncio.open_connection(route.host_ip, route.ssh_port),
                 timeout=10.0,

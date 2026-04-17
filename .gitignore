@@ -92,28 +92,9 @@ scripts/canada_svg_generator.py
 scripts/gen_alaska_path.py
 scripts/globe_transform.py
 
-frontend/public/xcelsior-*
-frontend/public/xcelsior_*
 frontend/public/sw*
 frontend/playwright-report/
 frontend/test-results/
-# ── Allow branding assets used by the app ─────────────────────────────────
-!frontend/public/xcelsior-logo-wordmark-iconbg.svg
-!frontend/public/xcelsior-logo-wordmark-iconbg-light.svg
-!frontend/public/xcelsior-favicon.svg
-!frontend/public/xcelsior-og-card.svg
-!frontend/public/xcelsior_icon_*.png
-!frontend/public/xcelsior_og_card_1200x630.png
-!frontend/public/xcelsior-bmc-cover-light.svg
-!frontend/public/xcelsior-bmc-cover-light.png
-!frontend/public/xcelsior-hosts-setup-light.svg
-!frontend/public/xcelsior-hosts-setup-light.png
-!frontend/public/xcelsior-hosts-setup-dark.svg
-!frontend/public/xcelsior-hosts-setup-dark.png
-!frontend/public/xcelsior-hosts-setup-arc-light.svg
-!frontend/public/xcelsior-hosts-setup-arc-light.png
-!frontend/public/xcelsior-hosts-setup-arc-dark.svg
-!frontend/public/xcelsior-hosts-setup-arc-dark.png
 
 # ── Checkpoints (test artifacts) ─────────────────────────────────────────
 checkpoints/

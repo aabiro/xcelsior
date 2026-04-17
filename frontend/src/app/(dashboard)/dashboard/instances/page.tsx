@@ -31,7 +31,7 @@ const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
 }> = {
   stop: {
     title: "Stop instance?",
-    description: "The container is gracefully stopped (SIGTERM). Data and volumes are preserved. Storage billing continues.",
+    description: "The container is gracefully stopped. Data and volumes are preserved. Storage billing continues.",
     confirmLabel: "Stop",
     variant: "default",
   },
@@ -49,7 +49,7 @@ const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
   },
   terminate: {
     title: "Terminate instance?",
-    description: "Hard-kills and permanently removes the container. Named volumes are preserved, but all other container data is lost. This cannot be undone.",
+    description: "Permanently shuts down and removes the container. Named volumes are preserved, but all other container data is lost. This cannot be undone.",
     confirmLabel: "Terminate",
     variant: "danger",
   },

@@ -83,7 +83,7 @@ x-api-environment: &api-env
   XCELSIOR_BTC_RPC_PASS: ${XCELSIOR_BTC_RPC_PASS:-}
   XCELSIOR_BTC_CONFIRMATIONS: ${XCELSIOR_BTC_CONFIRMATIONS:-3}
   XCELSIOR_BTC_DEPOSIT_EXPIRY: ${XCELSIOR_BTC_DEPOSIT_EXPIRY:-1800}
-  # Lightning Network Deposits (via clnrest over Tailscale)
+  # Lightning Network Deposits (via clnrest over Headscale)
   XCELSIOR_LN_ENABLED: ${XCELSIOR_LN_ENABLED:-false}
   XCELSIOR_LN_CLNREST_URL: ${XCELSIOR_LN_CLNREST_URL:-https://127.0.0.1:3010}
   XCELSIOR_LN_RUNE: ${XCELSIOR_LN_RUNE:-}
@@ -184,7 +184,7 @@ services:
 
   scheduler-worker:
     build: .
-    # network_mode: host — scheduler must reach Tailscale IPs for ping + SSH
+    # network_mode: host — scheduler must reach Headscale IPs for ping + SSH
     network_mode: host
     command: python -c "from scheduler import scheduler_main; scheduler_main()"
     environment:

@@ -381,7 +381,7 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
     Translates the job to an sbatch script and submits. Set dry_run=true
     to see the generated script without submitting.
     """
-    _require_provider_or_admin(request)
+    _require_admin(request)
     from slurm_adapter import submit_to_slurm, register_slurm_job
 
     job_dict = {
@@ -407,7 +407,7 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
 @router.get("/api/slurm/status/{slurm_job_id}", tags=["Infrastructure"])
 def api_slurm_status(slurm_job_id: str, request: Request):
     """Check the status of a Slurm job."""
-    _require_provider_or_admin(request)
+    _require_admin(request)
     from slurm_adapter import get_slurm_job_status
 
     status = get_slurm_job_status(slurm_job_id)
@@ -418,7 +418,7 @@ def api_slurm_status(slurm_job_id: str, request: Request):
 @router.delete("/api/slurm/{slurm_job_id}", tags=["Infrastructure"])
 def api_slurm_cancel(slurm_job_id: str, request: Request):
     """Cancel a Slurm job."""
-    _require_provider_or_admin(request)
+    _require_admin(request)
     from slurm_adapter import cancel_slurm_job
 
     result = cancel_slurm_job(slurm_job_id)
@@ -429,7 +429,7 @@ def api_slurm_cancel(slurm_job_id: str, request: Request):
 @router.get("/api/slurm/profiles", tags=["Infrastructure"])
 def api_slurm_profiles(request: Request):
     """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
-    _require_provider_or_admin(request)
+    _require_admin(request)
     from slurm_adapter import CLUSTER_PROFILES
 
     return {"profiles": {k: v["name"] for k, v in CLUSTER_PROFILES.items()}}
@@ -839,7 +839,7 @@ def api_set_alert_config_alias(cfg: AlertConfig, request: Request):
 @router.get("/api/slurm/instances", tags=["Infrastructure"])
 def api_slurm_list_instances(request: Request):
     """List all tracked Slurm jobs."""
-    _require_provider_or_admin(request)
+    _require_admin(request)
     from slurm_adapter import _load_slurm_map, get_slurm_job_status
     job_map = _load_slurm_map()
     jobs = []
