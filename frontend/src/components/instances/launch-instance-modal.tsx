@@ -161,7 +161,9 @@ export function LaunchInstanceModal({
   const resolvedGpu = listing?.gpu_model || gpuModel;
   const templateVramGb = selectedTemplate ? Number(selectedTemplate.vram) : undefined;
   const isAutoGpuSelection = !listing && !resolvedGpu;
-  const eligibleInventory = availableGpus.filter((gpu) => templateVramGb == null || gpu.vram_gb >= templateVramGb);
+  // Show ALL GPUs in the dropdown — don't hide GPUs that have less VRAM than the template recommends.
+  // Users can still launch on a smaller GPU (they'll see a warning).
+  const eligibleInventory = availableGpus;
   const liveInventory = eligibleInventory.filter((gpu) => gpu.count_available > 0);
   const hasLiveInventory = liveInventory.length > 0;
   const hasHostedInventory = eligibleInventory.length > 0;

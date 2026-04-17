@@ -5,7 +5,7 @@
    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
    xmlns:svg="http://www.w3.org/2000/svg"
    xmlns="http://www.w3.org/2000/svg"
-   viewBox="0 0 2666.6667 2666.6667"
+   viewBox="720 400 1200 1720"
    xml:space="preserve"
    id="svg2"
    version="1.1"><metadata
@@ -19,9 +19,9 @@
       <stop offset="100%" stop-color="#dc2626" stop-opacity="0.8"/>
     </linearGradient>
     <linearGradient id="cornerFill" gradientUnits="userSpaceOnUse" x1="2000" y1="16000" x2="16000" y2="2000">
-      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.15"/>
-      <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.08"/>
+      <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.08"/>
+      <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.04"/>
     </linearGradient>
     <linearGradient id="arcHighlight" gradientUnits="userSpaceOnUse" x1="2000" y1="9000" x2="16000" y2="9000">
       <stop offset="0%" stop-color="#00d4ff"/>

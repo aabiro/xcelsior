@@ -10,7 +10,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import {
-  HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, Globe, Lock,
+  HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, ChevronUp, Globe, Lock,
   Rocket, ExternalLink, Search, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Database, Pencil, X,
 } from "lucide-react";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
@@ -145,7 +145,10 @@ export default function VolumesPage() {
   const attachedCount = volumes.filter((v) => v.status === "attached").length;
   const estimatedCost = (newSize * PRICE_PER_GB).toFixed(2);
   const runningInstances = instances.filter((i) => i.status === "running");
-  const regions = [...new Set(gpus.map((g) => g.region))];
+  const regions = [...new Set([
+    ...gpus.map((g) => g.region).filter(Boolean),
+    ...volumes.map((v) => v.region).filter(Boolean),
+  ])];
   if (regions.length === 0) regions.push("ca-east");
   const totalMonthlyCost = volumes.reduce((sum, v) => sum + (v.monthly_cost_cad ?? v.size_gb * PRICE_PER_GB), 0);
 
@@ -257,7 +260,7 @@ export default function VolumesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-text-secondary mb-1.5 block">Size</label>
-              <div className="relative">
+              <div className="relative group">
                 <Input
                   type="number"
                   min={1}
@@ -265,9 +268,27 @@ export default function VolumesPage() {
                   placeholder="Size"
                   value={newSize}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewSize(Math.max(1, Number(e.target.value) || 1))}
-                  className="pr-10"
+                  className="pr-16"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted pointer-events-none">GB</span>
+                <span className="absolute right-9 top-1/2 -translate-y-1/2 text-xs text-text-muted pointer-events-none">GB</span>
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setNewSize(Math.min(2000, newSize + 10))}
+                    className="flex items-center justify-center h-4 w-6 rounded-t text-text-muted hover:text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
+                  >
+                    <ChevronUp className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setNewSize(Math.max(1, newSize - 10))}
+                    className="flex items-center justify-center h-4 w-6 rounded-b text-text-muted hover:text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
             </div>
             <div>

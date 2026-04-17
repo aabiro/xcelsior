@@ -698,6 +698,11 @@ deploy_docker() {
     fi
 
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue ps"
+
+    # Clean up dangling images and build cache to prevent disk bloat
+    log "Pruning unused Docker images and build cache..."
+    ssh_cmd "docker image prune -af 2>/dev/null; docker builder prune -af --keep-storage=1G 2>/dev/null" || true
+    success "Docker cleanup complete"
     success "Docker deployment complete (blue-green)"
 }
 

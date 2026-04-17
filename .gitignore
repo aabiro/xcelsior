@@ -103,3 +103,4 @@ checkpoints/
 # ── Stray files ──────────────────────────────────────────────────────────
 tatus\ --short
 et
+wget-log
