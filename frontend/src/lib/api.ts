@@ -2346,6 +2346,13 @@ export async function renameVolume(volumeId: string, name: string) {
   );
 }
 
+export async function retryVolume(volumeId: string) {
+  return apiFetch<{ ok: boolean; volume: Volume }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/retry`,
+    { method: "POST" },
+  );
+}
+
 // ── v2 Billing API ────────────────────────────────────────────────────
 
 export async function configureAutoTopup(data: {

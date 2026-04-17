@@ -106,10 +106,6 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://docs.xcelsior.ca" />
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
-        <link rel="preload" href="/rocket.svg?v=2" as="image" type="image/svg+xml" />
-        <link rel="preload" href="/gpu.svg" as="image" type="image/svg+xml" />
-        <link rel="preload" href="/rocket-light.svg?v=2" as="image" type="image/svg+xml" />
-        <link rel="preload" href="/gpu-light.svg" as="image" type="image/svg+xml" />
         {GA_ID && (
           <>
             <Script
@@ -164,6 +160,7 @@ export default function RootLayout({
         <Toaster
           position="bottom-right"
           theme="dark"
+          closeButton
           toastOptions={{
             style: {
               background: "#1e293b",

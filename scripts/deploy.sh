@@ -666,14 +666,6 @@ deploy_docker() {
         success "Deploy state: $new_colour is now live"
     fi
 
-    # 6. Update INTERNAL_API_URL so the frontend proxy targets the live API port
-    local final_colour_pre
-    final_colour_pre=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
-    local live_api_port
-    if [[ "$final_colour_pre" == "blue" ]]; then live_api_port=9501; else live_api_port=9500; fi
-    ssh_cmd "cd /opt/xcelsior && sed -i '/^INTERNAL_API_URL=/d' .env && echo 'INTERNAL_API_URL=http://localhost:${live_api_port}' >> .env"
-    log "INTERNAL_API_URL updated to http://localhost:${live_api_port}"
-
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
     success "Scheduler-worker restarted"
 

@@ -524,7 +524,16 @@ export function LaunchInstanceModal({
                             : "border-border/80 bg-background/30 text-text-secondary hover:border-text-muted hover:text-text-primary",
                         )}
                       >
-                        <TemplateArtwork template={tpl.id} size={44} className="transition-transform duration-300 group-hover:scale-[1.03]" />
+                        <div
+                          className={cn(
+                            "flex h-14 w-14 items-center justify-center rounded-2xl transition-transform group-hover:scale-105",
+                            image === tpl.image
+                              ? "bg-ice-blue/10"
+                              : "bg-surface/60",
+                          )}
+                        >
+                          <TemplateArtwork template={tpl.id} size={32} />
+                        </div>
                         <span className="font-medium text-text-primary">{tpl.label}</span>
                         <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{tpl.vram} GB VRAM</span>
                       </button>
