@@ -263,7 +263,7 @@ services:
     network_mode: host
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://xcelsior.ca}
-      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://localhost:${XCELSIOR_API_PORT:-9500}}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://localhost:9555}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
     depends_on:
       - api

@@ -91,8 +91,12 @@ export default function VolumesPage() {
     if (!newName.trim()) return toast.error("Volume name required");
     setCreating(true);
     try {
-      await api.createVolume({ name: newName.trim(), size_gb: newSize, region: newRegion, encrypted: newEncrypted });
-      toast.success("Volume created");
+      const res = await api.createVolume({ name: newName.trim(), size_gb: newSize, region: newRegion, encrypted: newEncrypted });
+      if (res.volume?.status === "error") {
+        toast.error("Volume created but storage provisioning failed — click Retry to try again");
+      } else {
+        toast.success("Volume created");
+      }
       setNewName("");
       setShowCreate(false);
       load();
@@ -124,6 +128,20 @@ export default function VolumesPage() {
       load();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to attach volume");
+    }
+  };
+
+  const handleRetry = async (volumeId: string) => {
+    try {
+      const res = await api.retryVolume(volumeId);
+      if (res.volume?.status === "available") {
+        toast.success("Volume provisioned successfully");
+      } else {
+        toast.error("Retry failed — storage server may be unreachable");
+      }
+      load();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to retry provisioning");
     }
   };
 
@@ -589,6 +607,25 @@ export default function VolumesPage() {
                             >
                               <Unlink className="h-3.5 w-3.5 mr-1" /> Detach
                             </Button>
+                          ) : vol.status === "error" ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-accent-gold hover:bg-accent-gold/10"
+                                onClick={() => handleRetry(vol.volume_id)}
+                              >
+                                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Retry
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-text-muted hover:text-red-500 hover:bg-red-500/10"
+                                onClick={() => handleDelete(vol.volume_id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
                           ) : attachingId === vol.volume_id ? (
                             <div className="flex items-center gap-2">
                               <select
@@ -599,7 +636,7 @@ export default function VolumesPage() {
                                 <option value="">Select instance…</option>
                                 {runningInstances.map((inst) => (
                                   <option key={inst.job_id} value={inst.job_id}>
-                                    {inst.name || inst.job_id} ({inst.gpu_model})
+                                    {inst.name || inst.job_id}{inst.gpu_model ? ` (${inst.gpu_model})` : ""}
                                   </option>
                                 ))}
                               </select>
