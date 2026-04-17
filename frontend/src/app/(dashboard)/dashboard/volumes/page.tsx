@@ -20,6 +20,7 @@ import type { Volume, Instance, GpuAvailability } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
 
 const PRICE_PER_GB = 0.03;
 
@@ -67,6 +68,7 @@ export default function VolumesPage() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
+  const [launchVolumeId, setLaunchVolumeId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -170,9 +172,10 @@ export default function VolumesPage() {
   if (regions.length === 0) regions.push("ca-east");
   const totalMonthlyCost = volumes.reduce((sum, v) => sum + (v.monthly_cost_cad ?? v.size_gb * PRICE_PER_GB), 0);
 
-  const statusColor = (s: string): "default" | "active" | "warning" => {
+  const statusColor = (s: string): "default" | "active" | "warning" | "failed" => {
     if (s === "available") return "default";
     if (s === "attached") return "active";
+    if (s === "error") return "failed";
     return "warning";
   };
 
@@ -394,6 +397,7 @@ export default function VolumesPage() {
               <option value="all">All Statuses</option>
               <option value="available">Available</option>
               <option value="attached">Attached</option>
+              <option value="error">Error</option>
               <option value="creating">Creating</option>
               <option value="deleting">Deleting</option>
             </Select>
@@ -657,11 +661,14 @@ export default function VolumesPage() {
                               >
                                 <Link className="h-3.5 w-3.5 mr-1" /> Attach
                               </Button>
-                              <NextLink href="/dashboard/instances">
-                                <Button variant="ghost" size="sm" className="h-8 text-ice-blue hover:bg-ice-blue/10">
-                                  <Rocket className="h-3.5 w-3.5 mr-1" /> Launch
-                                </Button>
-                              </NextLink>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-ice-blue hover:bg-ice-blue/10"
+                                onClick={() => setLaunchVolumeId(vol.volume_id)}
+                              >
+                                <Rocket className="h-3.5 w-3.5 mr-1" /> Launch
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -691,6 +698,14 @@ export default function VolumesPage() {
         </Card>
         </FadeIn>
       )}
+
+      {/* Launch Instance Modal — pre-selects the chosen volume */}
+      <LaunchInstanceModal
+        open={launchVolumeId !== null}
+        onClose={() => setLaunchVolumeId(null)}
+        onLaunched={() => { setLaunchVolumeId(null); load(); }}
+        preSelectedVolumeIds={launchVolumeId ? [launchVolumeId] : undefined}
+      />
     </div>
   );
 }
