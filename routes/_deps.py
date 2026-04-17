@@ -97,6 +97,9 @@ PUBLIC_PATHS = {
     # GPU / pricing / hosts — non-sensitive inventory data needed by dropdowns
     "/api/v2/gpu/available", "/hosts", "/api/pricing/reference",
     "/api/pricing/rates", "/api/pricing/spot", "/api/provinces",
+    # Crypto / Lightning service-status checks (no sensitive data)
+    "/api/billing/crypto/enabled", "/api/billing/crypto/rate",
+    "/api/billing/lightning/enabled", "/api/billing/lightning/rate",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
