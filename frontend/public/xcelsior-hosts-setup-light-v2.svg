@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="136" y1="42" x2="1036" y2="862" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="58%" stop-color="#F5FAFF"/>
+      <stop offset="100%" stop-color="#FFF6F2"/>
+    </linearGradient>
+
+    <!-- Color washes — using light-map palette: #0891b2 teal, #6d28d9 purple, #ea580c red-orange -->
+    <radialGradient id="cyanGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(320 160) rotate(90) scale(420 540)">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(760 280) rotate(90) scale(380 500)">
+      <stop offset="0%" stop-color="#6d28d9" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#6d28d9" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="redGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1020 540) rotate(90) scale(300 380)">
+      <stop offset="0%" stop-color="#ea580c" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0"/>
+    </radialGradient>
+
+    <pattern id="majorGrid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" stroke="#94a3b8" stroke-opacity="0.2" stroke-width="0.8"/>
+    </pattern>
+    <pattern id="minorGrid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M22 0H0V22" stroke="#cbd5e1" stroke-opacity="0.22" stroke-width="0.5"/>
+    </pattern>
+
+    <!-- Asymmetric fade -->
+    <linearGradient id="gridFadeV" x1="0" y1="0" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="35%" stop-color="white" stop-opacity="0.85"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0.45"/>
+      <stop offset="72%" stop-color="white" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gridFadeH" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.2"/>
+      <stop offset="18%" stop-color="white"/>
+      <stop offset="60%" stop-color="white" stop-opacity="0.7"/>
+      <stop offset="85%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.08"/>
+    </linearGradient>
+    <mask id="gridMask">
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeV)"/>
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeH)" style="mix-blend-mode:multiply"/>
+    </mask>
+
+    <!-- Accent line gradients — richer, matching light map opacities -->
+    <linearGradient id="brandH" x1="60" y1="0" x2="1140" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="12%" stop-color="#0891b2" stop-opacity="0.55"/>
+      <stop offset="48%" stop-color="#6d28d9" stop-opacity="0.42"/>
+      <stop offset="82%" stop-color="#ea580c" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="brandV" x1="0" y1="30" x2="0" y2="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0.6"/>
+      <stop offset="40%" stop-color="#6d28d9" stop-opacity="0.38"/>
+      <stop offset="75%" stop-color="#ea580c" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Server defs — using light-map tonal palette -->
+    <linearGradient id="rackStroke" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0f766e" stop-opacity="0.65"/>
+      <stop offset="50%" stop-color="#5b21b6" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0.4"/>
+    </linearGradient>
+    <radialGradient id="serverHalo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(980 680) rotate(90) scale(280 260)">
+      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0.12"/>
+      <stop offset="50%" stop-color="#0891b2" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="serverMaskG" x1="740" y1="420" x2="1180" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.95"/>
+      <stop offset="45%" stop-color="white" stop-opacity="0.75"/>
+      <stop offset="75%" stop-color="white" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="serverMask">
+      <rect x="0" y="0" width="1200" height="900" fill="black"/>
+      <rect x="690" y="380" width="520" height="520" rx="8" fill="url(#serverMaskG)"/>
+    </mask>
+
+    <filter id="dotGlow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Fade mask for top and left edges -->
+    <linearGradient id="edgeFadeLeft" x1="0" y1="0" x2="125" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="edgeFadeTop" x1="0" y1="0" x2="0" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="1"/>
+    </linearGradient>
+    <mask id="edgeFadeMask">
+      <rect x="0" y="0" width="1200" height="900" fill="black"/>
+      <rect x="0" y="0" width="1200" height="900" fill="white"/>
+      <rect x="0" y="0" width="125" height="900" fill="url(#edgeFadeLeft)"/>
+      <rect x="0" y="0" width="1200" height="50" fill="url(#edgeFadeTop)"/>
+    </mask>
+
+    <style>
+      .twinkle{animation:twinkle 3s ease-in-out infinite}
+      .twinkle-slow{animation:twinkle 4.8s ease-in-out infinite}
+      .twinkle-fast{animation:twinkle 3.2s ease-in-out infinite}
+      .twinkle-drift{animation:twinkle 6.5s ease-in-out infinite}
+      .pulse-city{animation:twinkle 3.6s ease-in-out infinite}
+      .pulse-city-alt{animation:twinkle 5.2s ease-in-out infinite}
+      @keyframes twinkle{0%,100%{opacity:1}50%{opacity:.18}}
+    </style>
+  </defs>
+
+  <!-- Background with fade mask applied -->
+  <g mask="url(#edgeFadeMask)">
+    <rect width="1200" height="900" rx="40" fill="url(#bg)"/>
+    <rect width="1200" height="900" rx="40" fill="url(#cyanGlow)"/>
+    <rect width="1200" height="900" rx="40" fill="url(#violetGlow)"/>
+    <rect width="1200" height="900" rx="40" fill="url(#redGlow)"/>
+  </g>
+
+  <!-- Grid — asymmetric fade -->
+  <g mask="url(#gridMask)">
+    <rect width="1200" height="900" fill="url(#majorGrid)" opacity="0.75"/>
+    <rect width="1200" height="900" fill="url(#minorGrid)" opacity="0.7"/>
+
+    <g opacity="0.75">
+      <path d="M60 96H1140" stroke="url(#brandH)" stroke-width="1.6"/>
+      <path d="M60 192H1140" stroke="url(#brandH)" stroke-width="1.6"/>
+      <path d="M60 256H1140" stroke="url(#brandH)" stroke-width="2.2"/>
+      <path d="M60 352H1140" stroke="url(#brandH)" stroke-width="1.6"/>
+      <path d="M60 416H1140" stroke="url(#brandH)" stroke-width="1.6"/>
+      <path d="M60 512H1140" stroke="url(#brandH)" stroke-width="1.2"/>
+    </g>
+
+    <g opacity="0.7">
+      <path d="M160 30V760" stroke="url(#brandV)" stroke-width="1.6"/>
+      <path d="M320 30V760" stroke="url(#brandV)" stroke-width="1.6"/>
+      <path d="M480 30V760" stroke="url(#brandV)" stroke-width="2.2"/>
+      <path d="M640 30V760" stroke="url(#brandV)" stroke-width="1.6"/>
+      <path d="M800 30V760" stroke="url(#brandV)" stroke-width="1.2"/>
+      <path d="M960 30V760" stroke="url(#brandV)" stroke-width="1.2"/>
+    </g>
+
+    <!-- Node dots — richer colors matching light map -->
+    <g filter="url(#dotGlow)" opacity="0.7">
+      <circle cx="320" cy="192" r="4" fill="#0891b2" class="pulse-city"/>
+      <circle cx="480" cy="256" r="4" fill="#6d28d9" class="pulse-city-alt"/>
+      <circle cx="640" cy="96" r="4" fill="#5b21b6" class="twinkle-drift"/>
+      <circle cx="800" cy="352" r="4" fill="#ea580c" class="pulse-city"/>
+      <circle cx="160" cy="416" r="4" fill="#0f766e" class="twinkle-slow"/>
+      <circle cx="960" cy="192" r="4" fill="#ea580c" class="pulse-city-alt"/>
+    </g>
+
+    <!-- Connection arcs — matching light map style with higher opacity -->
+    <g opacity="0.3" fill="none" stroke-width="1.4" stroke-linecap="round">
+      <path d="M320 192 Q400 140 480 256" stroke="#0f766e" stroke-opacity="0.7" stroke-width="2.2"/>
+      <path d="M480 256 Q560 160 640 96" stroke="#5b21b6" stroke-opacity="0.7" stroke-width="2.2"/>
+      <path d="M640 96 Q720 200 800 352" stroke="#6d28d9" stroke-opacity="0.7" stroke-width="2.2"/>
+      <path d="M160 416 Q240 300 320 192" stroke="#0891b2" stroke-opacity="0.7" stroke-width="2.2"/>
+    </g>
+  </g>
+
+  <!-- Server halo -->
+  <ellipse cx="976" cy="680" rx="260" ry="250" fill="url(#serverHalo)"/>
+
+  <!-- Server rack — matching light-map tone: visible strokes, richer colors -->
+  <g mask="url(#serverMask)">
+    <g transform="translate(740 460)">
+      <!-- Rear chassis hint -->
+      <rect x="48" y="14" width="370" height="500" rx="6" fill="#f1f5f9" fill-opacity="0.5" stroke="#5b21b6" stroke-opacity="0.15" stroke-width="0.8"/>
+
+      <!-- Main chassis -->
+      <rect x="14" y="0" width="370" height="500" rx="6" fill="white" fill-opacity="0.6" stroke="url(#rackStroke)" stroke-width="3.2"/>
+
+      <!-- Bay 1 -->
+      <rect x="30" y="24" width="338" height="78" rx="4" fill="#f8fafc" fill-opacity="0.6" stroke="#0891b2" stroke-opacity="0.4" stroke-width="1.0"/>
+      <path d="M128 58H280" stroke="#0891b2" stroke-opacity="0.75" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M128 68H242" stroke="#0891b2" stroke-opacity="0.3" stroke-width="1.0" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="46" r="2.5" fill="#0891b2" fill-opacity="0.9" class="twinkle-fast"/>
+        <circle cx="330" cy="46" r="2.5" fill="#5b21b6" fill-opacity="0.7"/>
+        <circle cx="344" cy="46" r="2.5" fill="#0f766e" fill-opacity="0.35"/>
+      </g>
+      <rect x="306" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#0891b2" stroke-opacity="0.35" stroke-width="0.5"/>
+      <rect x="320" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.28" stroke-width="0.5"/>
+      <rect x="334" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#94a3b8" stroke-opacity="0.2" stroke-width="0.5"/>
+
+      <!-- Bay 2 -->
+      <rect x="30" y="118" width="338" height="78" rx="4" fill="#f8fafc" fill-opacity="0.45" stroke="#6d28d9" stroke-opacity="0.35" stroke-width="1.0"/>
+      <path d="M128 152H296" stroke="#5b21b6" stroke-opacity="0.7" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M128 162H226" stroke="#6d28d9" stroke-opacity="0.28" stroke-width="1.0" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="140" r="2.5" fill="#0891b2" fill-opacity="0.5"/>
+        <circle cx="330" cy="140" r="2.5" fill="#5b21b6" fill-opacity="0.85" class="twinkle"/>
+        <circle cx="344" cy="140" r="2.5" fill="#0f766e" fill-opacity="0.25"/>
+      </g>
+      <rect x="306" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.28" stroke-width="0.5"/>
+      <rect x="320" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#0891b2" stroke-opacity="0.22" stroke-width="0.5"/>
+      <rect x="334" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#6d28d9" stroke-opacity="0.2" stroke-width="0.5"/>
+
+      <!-- Bay 3 -->
+      <rect x="30" y="212" width="338" height="78" rx="4" fill="#f8fafc" fill-opacity="0.3" stroke="#ea580c" stroke-opacity="0.25" stroke-width="1.0"/>
+      <path d="M128 246H264" stroke="#ea580c" stroke-opacity="0.58" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M128 256H210" stroke="#ea580c" stroke-opacity="0.2" stroke-width="1.0" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="234" r="2.5" fill="#0891b2" fill-opacity="0.25"/>
+        <circle cx="330" cy="234" r="2.5" fill="#5b21b6" fill-opacity="0.45"/>
+        <circle cx="344" cy="234" r="2.5" fill="#ea580c" fill-opacity="0.8" class="twinkle-slow"/>
+      </g>
+      <rect x="306" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#ea580c" stroke-opacity="0.25" stroke-width="0.5"/>
+      <rect x="320" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#94a3b8" stroke-opacity="0.15" stroke-width="0.5"/>
+      <rect x="334" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#ea580c" stroke-opacity="0.18" stroke-width="0.5"/>
+
+      <!-- Bay 4 — fading out -->
+      <rect x="30" y="306" width="338" height="78" rx="4" fill="#f8fafc" fill-opacity="0.14" stroke="#ea580c" stroke-opacity="0.12" stroke-width="0.8"/>
+      <path d="M128 340H240" stroke="#ea580c" stroke-opacity="0.22" stroke-width="1.6" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)" opacity="0.4">
+        <circle cx="316" cy="328" r="2.5" fill="#ea580c" fill-opacity="0.3"/>
+        <circle cx="330" cy="328" r="2.5" fill="#5b21b6" fill-opacity="0.22"/>
+        <circle cx="344" cy="328" r="2.5" fill="#ea580c" fill-opacity="0.4"/>
+      </g>
+
+      <!-- Bay 5 — barely visible -->
+      <rect x="30" y="400" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.05" stroke-width="0.6"/>
+      <path d="M128 434H200" stroke="#ea580c" stroke-opacity="0.08" stroke-width="1.2" stroke-linecap="round"/>
+
+      <!-- Bottom trace line -->
+      <path d="M30 488H180" stroke="url(#rackStroke)" stroke-opacity="0.15" stroke-width="0.8" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- Outer frame -->
+  <rect x="14" y="14" width="1172" height="872" rx="28" stroke="#cbd5e1" stroke-opacity="0.4" stroke-width="1"/>
+</svg>

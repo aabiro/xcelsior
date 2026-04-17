@@ -94,6 +94,9 @@ PUBLIC_PATHS = {
     "/api/stream", "/api/transparency/report",
     "/api/providers/webhook",
     "/.well-known/oauth-authorization-server",
+    # GPU / pricing / hosts — non-sensitive inventory data needed by dropdowns
+    "/api/v2/gpu/available", "/hosts", "/api/pricing/reference",
+    "/api/pricing/rates", "/api/pricing/spot", "/api/provinces",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")

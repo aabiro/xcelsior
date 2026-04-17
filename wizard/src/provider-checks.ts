@@ -544,7 +544,7 @@ export interface NetworkSetupResult {
 export async function setupNetworking(): Promise<NetworkSetupResult> {
     const { execSync } = await import("child_process");
 
-    // Check if Tailscale is installed and running
+    // Check if Headscale/Tailscale mesh is available
     try {
         const tsStatus = execSync("tailscale status --json 2>/dev/null", {
             encoding: "utf-8",
@@ -565,7 +565,7 @@ export async function setupNetworking(): Promise<NetworkSetupResult> {
             };
         }
     } catch {
-        // Tailscale not available or not connected
+        // Mesh networking not available or not connected
     }
 
     // Check for public IP (if no mesh available, use public IP with warning)

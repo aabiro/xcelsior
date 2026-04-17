@@ -68,7 +68,7 @@ detect_network() {
     if command -v tailscale >/dev/null 2>&1; then
         HOST_IP=$(tailscale ip -4 2>/dev/null || true)
         if [ -n "$HOST_IP" ]; then
-            ok "Tailscale mesh network: $HOST_IP"
+            ok "Headscale mesh network: $HOST_IP"
             return
         fi
     fi

@@ -222,7 +222,8 @@ export default function DashboardOverview() {
     onEvent: () => { load(); },
   });
 
-  const activeHosts = hosts.filter((h) => h.status === "active").length;
+  const admittedHosts = hosts.filter((h) => h.admitted !== false && String(h.admitted) !== "false");
+  const activeHosts = admittedHosts.filter((h) => h.status === "active").length;
   const runningInstances = instances.filter((j) => j.status === "running").length;
   const queuedInstances = instances.filter((j) => j.status === "queued").length;
 
@@ -248,14 +249,14 @@ export default function DashboardOverview() {
 
         {/* Canada Map Hero */}
         <FadeIn>
-          <CanadaMapHero hostCount={hosts.length} />
+          <CanadaMapHero hostCount={admittedHosts.length} />
         </FadeIn>
 
         {/* Stats Row */}
         <StaggerList className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StaggerItem><StatCard label={t("dash.overview.active_hosts")} value={activeHosts} icon={Server} glow="cyan" /></StaggerItem>
           <StaggerItem><StatCard label={t("dash.overview.running_instances")} value={runningInstances} icon={Zap} glow="violet" /></StaggerItem>
-          <StaggerItem><StatCard label={t("dash.overview.total_hosts")} value={hosts.length} icon={Cpu} glow="emerald" /></StaggerItem>
+          <StaggerItem><StatCard label={t("dash.overview.total_hosts")} value={admittedHosts.length} icon={Cpu} glow="emerald" /></StaggerItem>
           <StaggerItem><StatCard label={t("dash.overview.queued")} value={queuedInstances} icon={Activity} glow="gold" /></StaggerItem>
         </StaggerList>
 

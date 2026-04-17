@@ -1898,6 +1898,7 @@ export interface Host {
   reputation_score?: number;
   verified?: boolean;
   compute_score?: number;
+  admitted?: boolean;
 }
 
 export interface Instance {

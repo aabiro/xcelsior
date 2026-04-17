@@ -46,7 +46,7 @@ const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles
   { href: "/dashboard/trust", key: "dash.trust", icon: Shield },
   { href: "/dashboard/analytics", key: "dash.analytics", icon: BarChart3 },
   { href: "/dashboard/artifacts", key: "dash.artifacts", icon: Package },
-  { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin", "provider"] },
+  { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin"] },
   { href: "/dashboard/events", key: "dash.events", icon: Calendar },
   { href: "/dashboard/admin", key: "dash.admin", icon: Users, roles: ["admin"] },
 ];

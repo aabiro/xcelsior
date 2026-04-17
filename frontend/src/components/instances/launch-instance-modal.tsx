@@ -268,8 +268,11 @@ export function LaunchInstanceModal({
       .catch(() => {});
     setGpuLoading(true);
     fetchAvailableGPUs()
-      .then((r) => setAvailableGpus(r.gpus || []))
-      .catch(() => {})
+      .then((r) => {
+        console.debug("[gpu] fetchAvailableGPUs →", r.gpus?.length ?? 0, "models");
+        setAvailableGpus(r.gpus || []);
+      })
+      .catch((err) => { console.error("[gpu] fetchAvailableGPUs failed:", err); })
       .finally(() => setGpuLoading(false));
     fetchProvinces()
       .then((r) => setProvinces(r.provinces || {}))

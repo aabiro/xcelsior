@@ -211,7 +211,7 @@ def get_host_ip():
     if override:
         return override
 
-    # If Tailscale is active, prefer the Tailscale IP
+    # If Headscale mesh is active, prefer the mesh IP
     if TAILSCALE_ENABLED:
         try:
             r = subprocess.run(
@@ -478,7 +478,7 @@ def setup_tailscale():
             status = json.loads(r.stdout)
             if status.get("BackendState") == "Running":
                 log.info(
-                    "Tailscale already connected (IP: %s)", status.get("TailscaleIPs", ["?"])[0]
+                    "Headscale mesh already connected (IP: %s)", status.get("TailscaleIPs", ["?"])[0]
                 )
                 return True
 
@@ -491,14 +491,14 @@ def setup_tailscale():
 
         r = subprocess.run(up_cmd, capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
-            log.info("Tailscale connected successfully")
+            log.info("Headscale mesh connected successfully")
             return True
         else:
-            log.warning("Tailscale up failed: %s", r.stderr.strip())
+            log.warning("Headscale mesh up failed: %s", r.stderr.strip())
             return False
 
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        log.warning("Tailscale setup failed: %s", e)
+        log.warning("Headscale mesh setup failed: %s", e)
         return False
 
 
@@ -2679,7 +2679,7 @@ def print_startup_banner(gpu_info, host_ip, admitted, runtime):
     log.info("  Runtime:        %s", runtime)
     log.info("  Auth:           %s", auth_mode)
     log.info("  Admitted:       %s", "YES" if admitted else "NO (limited to heartbeats)")
-    log.info("  Tailscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
+    log.info("  Headscale:      %s", "enabled" if TAILSCALE_ENABLED else "disabled")
     log.info("=" * 64)
 
 

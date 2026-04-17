@@ -680,7 +680,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 log.warning("TERMINAL host %s unreachable (ping failed)", host_ip)
                 await _send_error(
                     websocket,
-                    f"GPU host {host_ip} is offline — check Tailscale mesh connectivity",
+                    f"GPU host {host_ip} is offline — check Headscale mesh connectivity",
                     4410,
                 )
                 await websocket.close(code=4410)
@@ -742,7 +742,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             ):
                 raise DockerException("Resolved container identity does not match the instance record")
 
-            env_vars = {"TERM": "xterm-256color"}
+            env_vars = {"TERM": "xterm-256color", "PS1": "\\u@xcelsior:\\w\\$ "}
             if has_tmux:
                 env_vars["TMUX_SESSION"] = tmux_session
                 exec_cmd = ["tmux", "new-session", "-A", "-s", tmux_session, shell]
