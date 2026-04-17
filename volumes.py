@@ -323,10 +323,11 @@ class VolumeEngine:
                 self._store_key(conn, volume_id, raw_key)
 
         if not provision_ok:
-            log.error("Volume storage provisioning failed for %s", volume_id)
-            raise ValueError("Failed to provision volume storage — check NFS server configuration")
+            log.warning("Volume storage provisioning deferred for %s — NFS unreachable, will retry on attach", volume_id)
+            # Status already set to 'error' above — user can retry via UI
 
-        log.info("Volume created: %s name=%s size=%dGB owner=%s", volume_id, name, size_gb, owner_id)
+        vol_status = "available" if provision_ok else "error"
+        log.info("Volume created: %s name=%s size=%dGB owner=%s status=%s", volume_id, name, size_gb, owner_id, vol_status)
         self._emit_event("volume.created", volume_id, actor=owner_id, data={
             "name": name, "size_gb": size_gb, "region": region, "encrypted": encrypted,
         })
@@ -334,7 +335,7 @@ class VolumeEngine:
             "volume_id": volume_id,
             "name": name,
             "size_gb": size_gb,
-            "status": "available",
+            "status": vol_status,
             "encrypted": encrypted,
         }
 

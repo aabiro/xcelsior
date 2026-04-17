@@ -48,6 +48,11 @@ from scheduler import (
 )
 from db import UserStore
 from collections import defaultdict
+
+# Maximum concurrent active (queued/assigned/starting/running) instances per user.
+MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES", "5"))
+
+_ACTIVE_STATUSES = {"queued", "assigned", "starting", "running"}
 from routes.agent import _agent_lock, _agent_preempt
 
 router = APIRouter()
@@ -197,6 +202,18 @@ def api_submit_instance(j: JobIn, request: Request):
         customer_id = user.get("customer_id", user.get("user_id", ""))
         _wallet_preflight(customer_id)
 
+        # ── Per-user concurrent instance cap ───────────────────
+        active_count = sum(
+            1 for j2 in list_jobs()
+            if j2.get("owner") == customer_id and j2.get("status") in _ACTIVE_STATUSES
+        )
+        if active_count >= MAX_CONCURRENT_INSTANCES_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Concurrent instance limit reached ({MAX_CONCURRENT_INSTANCES_PER_USER}). "
+                       "Please stop an existing instance before launching a new one.",
+            )
+
         # ── Validate volume_ids ownership and status ─────────────
         validated_volume_ids = None
         if j.volume_ids:
@@ -204,6 +221,8 @@ def api_submit_instance(j: JobIn, request: Request):
             ve = get_volume_engine()
             validated_volume_ids = []
             seen_vids: set[str] = set()
+            # Volumes use user_id as owner_id (not customer_id)
+            volume_owner_id = user.get("user_id", user.get("email", ""))
             for vid in j.volume_ids:
                 if vid in seen_vids:
                     continue  # deduplicate
@@ -214,7 +233,7 @@ def api_submit_instance(j: JobIn, request: Request):
                     raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
                 if not vol:
                     raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
-                if vol.get("owner_id") != customer_id:
+                if vol.get("owner_id") != volume_owner_id:
                     raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
                 if vol.get("status") not in ("available", "attached"):
                     raise HTTPException(

@@ -133,6 +133,11 @@ self.addEventListener("push", (event) => {
       badge: payload.badge ?? "/xcelsior_icon_192x192.png",
       tag: payload.tag ?? "xcelsior-notification",
       data: notificationData,
+      requireInteraction: false,
+      actions: [
+        { action: "open", title: "Open" },
+        { action: "dismiss", title: "Dismiss" },
+      ],
     }).then(() =>
       broadcastWebPushLifecycleEvent("received", {
         notificationId:
@@ -146,6 +151,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+
+  // "Dismiss" action — just close the notification, no navigation
+  if (event.action === "dismiss") {
+    return;
+  }
 
   const url =
     typeof event.notification.data?.url === "string" ? event.notification.data.url : DEFAULT_NOTIFICATION_URL;

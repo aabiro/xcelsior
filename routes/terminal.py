@@ -667,15 +667,23 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             )
 
         # Fast-fail if the remote host is unreachable (avoids 30 s timeout)
+        # Fast-fail if the remote host is unreachable (avoids 30 s Docker timeout).
+        # Retry once after 1 s to tolerate brief network blips.
         if is_remote:
-            _reach_ok = await loop.run_in_executor(
-                None,
-                lambda: subprocess.call(
-                    ["ping", "-c", "1", "-W", "3", host_ip],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                ) == 0,
-            )
+            _reach_ok = False
+            for _ping_attempt in range(2):
+                _reach_ok = await loop.run_in_executor(
+                    None,
+                    lambda: subprocess.call(
+                        ["ping", "-c", "1", "-W", "3", host_ip],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    ) == 0,
+                )
+                if _reach_ok:
+                    break
+                # Brief pause before retry
+                await asyncio.sleep(1)
             if not _reach_ok:
                 log.warning("TERMINAL host %s unreachable (ping failed)", host_ip)
                 await _send_error(

@@ -485,6 +485,12 @@ setup_scheduler_only() {
 setup_worker_only() {
     print_section "Worker Only Setup"
     
+    # Install cryptsetup for encrypted workspace support (LUKS2)
+    if ! command -v cryptsetup &>/dev/null; then
+        print_info "Installing cryptsetup for encrypted workspace support..."
+        sudo apt-get install -y cryptsetup-bin || print_warning "cryptsetup install failed — encrypted workspaces will be unavailable"
+    fi
+    
     # Verify GPU is available
     if [ "$NVIDIA_INSTALLED" != "true" ]; then
         print_error "NVIDIA GPU not detected. This mode requires a GPU."
