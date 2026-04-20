@@ -49,6 +49,7 @@ rich~=14.3.3
 
 # ── Docker SDK ────────────────────────────────────────────────────────
 docker~=7.1.0
+paramiko~=3.5.0  # enables docker SDK ssh:// support for remote host exec (web terminal)
 
 # ── Prometheus ────────────────────────────────────────────────────────
 prometheus-client~=0.22.1
