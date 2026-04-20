@@ -24,7 +24,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type SortKey = "name" | "gpu_type" | "status" | "created_at";
 type SortDir = "asc" | "desc";
-type ActionPending = { id: string; action: "stop" | "start" | "restart" | "terminate" | "cancel" } | null;
+type ActionPending = { id: string; action: "stop" | "start" | "restart" | "terminate" | "cancel" | "requeue" } | null;
 
 const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
   title: string; description: string; confirmLabel: string; variant: "danger" | "default";
@@ -58,6 +58,12 @@ const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
     description: "The queued or provisioning instance will be removed from the queue.",
     confirmLabel: "Cancel",
     variant: "danger",
+  },
+  requeue: {
+    title: "Requeue instance?",
+    description: "The instance is returned to the queue and reassigned to a fresh host. Job definition and volumes are preserved; container state is reset.",
+    confirmLabel: "Requeue",
+    variant: "default",
   },
 };
 
@@ -107,7 +113,7 @@ function RowActions({
           { label: "Restart", action: "restart" as const, icon: <Restart className="h-3.5 w-3.5" />, className: "text-ice-blue" },
         ]
       : []),
-    ...(isFailed ? [{ label: "Requeue", action: "restart" as const, icon: <RotateCcw className="h-3.5 w-3.5" /> }] : []),
+    ...(isTerminal ? [{ label: "Requeue", action: "requeue" as const, icon: <RotateCcw className="h-3.5 w-3.5" /> }] : []),
     ...(isQueued ? [{ label: "Cancel", action: "cancel" as const, icon: <XCircle className="h-3.5 w-3.5" />, className: "text-accent-red" }] : []),
     ...(!isTerminal ? [{ label: "Terminate", action: "terminate" as const, icon: <Zap className="h-3.5 w-3.5" />, className: "text-accent-red" }] : []),
   ];
@@ -215,6 +221,7 @@ export default function InstancesPage() {
       restart: "starting",
       terminate: "terminated",
       cancel: "cancelled",
+      requeue: "queued",
     };
     const prevInstances = instances;
     setInstances((curr) =>
@@ -229,6 +236,7 @@ export default function InstancesPage() {
         case "restart":   await restartInstance(id);     toast.success("Instance restarting…"); break;
         case "terminate": await terminateInstance(id);   toast.success("Instance terminating…"); break;
         case "cancel":    await api.cancelInstance(id);  toast.success("Instance cancelled"); break;
+        case "requeue":   await api.requeueInstance(id); toast.success("Instance requeued"); break;
       }
       load();
     } catch (err) {
