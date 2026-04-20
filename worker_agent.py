@@ -1667,6 +1667,7 @@ def run_job(job):
     )
     nfs_mounted = False
     log_fwd = None
+    is_interactive = bool(job.get("interactive", False))
 
     if not image:
         log.error("Job %s has no image specified — skipping", job_id)
