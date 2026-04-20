@@ -81,6 +81,12 @@ def _clean():
     _clear_state_namespace(deps_mod._WS_CONNECT_STATE_NAMESPACE)
     _clear_state_namespace(deps_mod._WS_TICKET_STATE_NAMESPACE)
     _clear_state_namespace(term_mod._TERMINAL_SESSION_STATE_NAMESPACE)
+    # Reset the probe/tmux positive-result caches so tests that reuse the
+    # same container_ref across mocked "found / not_found" cases don't see
+    # a stale positive from a prior test.
+    with term_mod._probe_cache_lock:
+        term_mod._probe_cache.clear()
+        term_mod._tmux_cache.clear()
     yield
     with deps_mod._WS_CONNECT_LOCK:
         deps_mod._WS_CONNECT_BUCKETS.clear()
@@ -91,6 +97,9 @@ def _clean():
     _clear_state_namespace(deps_mod._WS_CONNECT_STATE_NAMESPACE)
     _clear_state_namespace(deps_mod._WS_TICKET_STATE_NAMESPACE)
     _clear_state_namespace(term_mod._TERMINAL_SESSION_STATE_NAMESPACE)
+    with term_mod._probe_cache_lock:
+        term_mod._probe_cache.clear()
+        term_mod._tmux_cache.clear()
 
 
 def _inject_job(job_id="j-1", status="running", owner="user-1", host_id="h-1",
