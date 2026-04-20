@@ -127,18 +127,19 @@ self.addEventListener("push", (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? "Xcelsior", {
+    (self.registration.showNotification(payload.title ?? "Xcelsior", {
       body: payload.body ?? "You have a new Xcelsior notification.",
       icon: payload.icon ?? "/xcelsior_icon_192x192.png",
       badge: payload.badge ?? "/xcelsior_icon_192x192.png",
       tag: payload.tag ?? "xcelsior-notification",
       data: notificationData,
       requireInteraction: false,
+      // @ts-expect-error -- actions is valid in ServiceWorker NotificationOptions
       actions: [
         { action: "open", title: "Open" },
         { action: "dismiss", title: "Dismiss" },
       ],
-    }).then(() =>
+    }) as Promise<void>).then(() =>
       broadcastWebPushLifecycleEvent("received", {
         notificationId:
           typeof notificationData.notification_id === "string" ? notificationData.notification_id : null,

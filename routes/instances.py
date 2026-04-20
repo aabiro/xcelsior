@@ -1017,6 +1017,14 @@ async def _job_log_generator(request: Request, job_id: str):
 
         yield f"event: connected\ndata: {json.dumps({'job_id': job_id, 'status': 'streaming'})}\n\n"
 
+        # Back off PG polling once a job is terminal and we've observed a few
+        # empty polls — terminal jobs won't produce new log rows, so keep the
+        # connection alive with just keepalives. Prevents an idle tab from
+        # hammering PG forever.
+        _TERMINAL_STATES = {"completed", "failed", "cancelled", "terminated", "preempted"}
+        empty_polls_after_terminal = 0
+        skip_pg_poll = False
+
         while True:
             if await request.is_disconnected():
                 break
@@ -1025,26 +1033,45 @@ async def _job_log_generator(request: Request, job_id: str):
             # which logs written from other processes (scheduler-worker,
             # worker-agent uploads) reach this SSE client — the in-process
             # broadcast bus only sees writes from this same API worker.
-            try:
-                from db import _get_pg_pool
-                from psycopg.rows import dict_row
-                with _get_pg_pool().connection() as conn:
-                    with conn.cursor(row_factory=dict_row) as cur:
-                        new_rows = cur.execute(
-                            "SELECT ts AS timestamp, level, line, line AS message "
-                            "FROM job_logs WHERE job_id = %s AND ts > %s "
-                            "ORDER BY ts ASC LIMIT 200",
-                            (job_id, last_ts),
-                        ).fetchall()
-                for row in new_rows:
-                    yield f"event: job_log\ndata: {json.dumps({'job_id': job_id, **row})}\n\n"
-                    try:
-                        last_ts = max(last_ts, float(row.get("timestamp") or 0))
-                    except (TypeError, ValueError):
-                        pass
-            except Exception:
-                # PG hiccup — keep the stream alive; will retry on next tick.
-                pass
+            if not skip_pg_poll:
+                try:
+                    from db import _get_pg_pool
+                    from psycopg.rows import dict_row
+                    with _get_pg_pool().connection() as conn:
+                        with conn.cursor(row_factory=dict_row) as cur:
+                            new_rows = cur.execute(
+                                "SELECT ts AS timestamp, level, line, line AS message "
+                                "FROM job_logs WHERE job_id = %s AND ts > %s "
+                                "ORDER BY ts ASC LIMIT 200",
+                                (job_id, last_ts),
+                            ).fetchall()
+                            # Check status once per poll so we can quiesce
+                            # terminal jobs and free up DB connections.
+                            status_row = cur.execute(
+                                "SELECT status FROM jobs WHERE job_id = %s",
+                                (job_id,),
+                            ).fetchone()
+                            cur_status = (status_row or {}).get("status", "") if status_row else ""
+                    for row in new_rows:
+                        yield f"event: job_log\ndata: {json.dumps({'job_id': job_id, **row})}\n\n"
+                        try:
+                            last_ts = max(last_ts, float(row.get("timestamp") or 0))
+                        except (TypeError, ValueError):
+                            pass
+
+                    if cur_status in _TERMINAL_STATES:
+                        if not new_rows:
+                            empty_polls_after_terminal += 1
+                            # After ~30 empty polls (~60s) on a terminal job,
+                            # stop polling. Client still gets keepalives and
+                            # in-process broadcast events.
+                            if empty_polls_after_terminal >= 30:
+                                skip_pg_poll = True
+                        else:
+                            empty_polls_after_terminal = 0
+                except Exception:
+                    # PG hiccup — keep the stream alive; will retry on next tick.
+                    pass
 
             try:
                 msg = await asyncio.wait_for(queue.get(), timeout=2)

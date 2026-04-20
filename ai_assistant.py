@@ -22,6 +22,11 @@ log = logging.getLogger("xcelsior.ai_assistant")
 
 # ── Configuration ─────────────────────────────────────────────────────
 
+_BASE_URL = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
+_SSH_HOST = os.environ.get("XCELSIOR_SSH_HOST", "connect.xcelsior.ca")
+_BASE_DOMAIN = _BASE_URL.replace("https://", "").replace("http://", "").rstrip("/")
+_API_DOMAIN = f"api.{_BASE_DOMAIN}"
+
 FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in ("true", "1", "yes")
 AI_PROVIDER = os.environ.get("AI_ASSISTANT_PROVIDER", "xai").strip().lower() or "xai"
 AI_FALLBACK_PROVIDERS = os.environ.get("AI_ASSISTANT_FALLBACK_PROVIDERS", "anthropic,openai")
@@ -2246,8 +2251,8 @@ WHEN NETWORK BENCH FAILED — diagnose:
 
 **Cannot reach scheduler (connection refused / timeout on 443 or 8080):**
 ```bash
-curl -v https://api.xcelsior.ca/health  # test 443
-curl -v http://api.xcelsior.ca:8080/ping  # test 8080
+curl -v https://{_API_DOMAIN}/health  # test 443
+curl -v http://{_API_DOMAIN}:8080/ping  # test 8080
 # If blocked: check UFW/iptables on this machine first:
 sudo ufw status
 sudo iptables -L OUTPUT -n  # look for REJECT/DROP on port 443 or 8080
@@ -2256,7 +2261,7 @@ If local firewall is open: the problem is upstream (ISP, corporate firewall, clo
 AWS/GCP/Azure users: check Security Groups / VPC firewall rules — add outbound TCP 443, 8080.
 
 **High latency (>200ms):**
-- `traceroute api.xcelsior.ca` — identify the hop causing delay
+- `traceroute {_API_DOMAIN}` — identify the hop causing delay
 - Residential ISP with traffic shaping: run at off-peak hours (midnight–6am)
 - Switch to wired ethernet — WiFi adds 20–80ms of variable latency
 - VPN active? Disable it — VPNs add latency and may block port 8080
@@ -2382,7 +2387,7 @@ YOUR ROLE AS HEXARA:
 1. Call `search_marketplace` with the GPU model to show current live rates for comparable GPUs.
 2. Call `estimate_cost` for this GPU at 40%, 60%, and 80% utilisation to show monthly earnings.
 3. Present the three options with concrete CAD numbers (e.g., "Recommended would set you at $1.18/hr; at 60% uptime that's ~$510/month CAD").
-4. For a first-time provider: recommend Option 1 (Recommended). Explain they can switch to custom any time from xcelsior.ca/dashboard.
+4. For a first-time provider: recommend Option 1 (Recommended). Explain they can switch to custom any time from {_BASE_DOMAIN}/dashboard.
 5. If they're a returning provider who knows the market: let them decide between Competitive and Custom after seeing the data.
 6. NEVER recommend a rate without first pulling real marketplace data with `search_marketplace`."""
 
@@ -2409,7 +2414,7 @@ POWER COST CONTEXT (for helping them think about it):
 - A100: ~400W TDP = ~$0.08/hr electricity at $0.20/kWh CAD
 - Minimum profitable rate = electricity cost + $0.10/hr margin at minimum
 
-RATE CAN CHANGE ANY TIME: xcelsior.ca/dashboard → My GPU → Edit Rate
+RATE CAN CHANGE ANY TIME: {_BASE_DOMAIN}/dashboard → My GPU → Edit Rate
 Current bookings are NOT affected by rate changes — only new bookings use the new rate.
 
 After they enter a rate, confirm it makes sense vs market data before they proceed."""
@@ -2431,7 +2436,7 @@ WHAT HAPPENS DURING REGISTRATION:
 2. The wizard writes the worker config: `~/.xcelsior/config.toml` and `~/.xcelsior/.env`
 3. systemd unit `xcelsior-worker.service` is installed and started
 4. Worker opens an outbound WebSocket to the scheduler — host goes "online"
-5. Host appears on xcelsior.ca/marketplace within 2–5 minutes
+5. Host appears on {_BASE_DOMAIN}/marketplace within 2–5 minutes
 
 FILES WRITTEN TO THE PROVIDER'S SYSTEM:
 - `~/.xcelsior/config.toml` — host_id, gpu config, pricing tier, jurisdiction settings
@@ -2449,7 +2454,7 @@ journalctl -u xcelsior-worker -f   # live worker logs
 
 WHEN REGISTRATION SUCCEEDED:
 - Congratulate them warmly — their GPU is now on the Canadian compute marketplace.
-- Host ID is `{host_id or "now assigned"}` — they'll see it in xcelsior.ca/dashboard → My GPU.
+- Host ID is `{host_id or "now assigned"}` — they'll see it in {_BASE_DOMAIN}/dashboard → My GPU.
 - Tell them: first bookings may take minutes to hours depending on marketplace demand.
 - Summarise: rate set, worker running, host online.
 
@@ -2458,11 +2463,11 @@ WHEN REGISTRATION FAILED — diagnose:
 **"API token invalid" or 401 error:**
 - Their token expired or was revoked. Go back to device-auth step.
 - `cat ~/.xcelsior/token.json` to inspect the token (it's a JWT — check `exp` field)
-- If they switched to manual API key entry, create a fresh key at xcelsior.ca/dashboard/settings → API & SSH
+- If they switched to manual API key entry, create a fresh key at {_BASE_DOMAIN}/dashboard/settings → API & SSH
 
 **"Network timeout" or connection error:**
 ```bash
-curl -v https://api.xcelsior.ca/health  # test API reachability
+curl -v https://{_API_DOMAIN}/health  # test API reachability
 # Registration is idempotent — safe to retry, will return existing host_id if already created
 ```
 Tell user to press **r** to retry — the API will return the existing record safely.
@@ -2536,7 +2541,7 @@ cat /etc/cdi/nvidia.yaml | head -5  # confirm GPU device IDs
 ```
 Tell user to press **r** to retry after running the above.
 
-PROVIDER CAN UPGRADE LATER: Community → Secure upgrade available any time at xcelsior.ca/dashboard → My GPU → Security Settings. No re-registration needed."""
+PROVIDER CAN UPGRADE LATER: Community → Secure upgrade available any time at {_BASE_DOMAIN}/dashboard → My GPU → Security Settings. No re-registration needed."""
 
 
 def _prompt_provider_summary(kv: dict) -> str:
@@ -2558,7 +2563,7 @@ WHAT WAS ACCOMPLISHED:
 - GPU benchmarked, verified, and registered on the marketplace
 - Pricing set at {rate}/hr CAD ({tier} tier)
 - Worker agent deployed and running: `xcelsior-worker.service`
-- Host visible at xcelsior.ca/marketplace within a few minutes
+- Host visible at {_BASE_DOMAIN}/marketplace within a few minutes
 
 FILES ON THEIR SYSTEM (summarise these if they ask):
 - `~/.xcelsior/config.toml` — host_id, GPU config, pricing, jurisdiction
@@ -2575,14 +2580,14 @@ journalctl -u xcelsior-worker -f    # live logs
 
 WHAT TO WATCH FOR:
 - First job arrival time: varies by demand. Consumer GPUs often get first job within 1 hour during peak hours (weekday 9am–6pm ET).
-- xcelsior.ca/dashboard → Revenue tab: shows live earnings, uptime %, and booking history.
-- xcelsior.ca/dashboard → My GPU: change rate, pause/resume, view reviews.
+- {_BASE_DOMAIN}/dashboard → Revenue tab: shows live earnings, uptime %, and booking history.
+- {_BASE_DOMAIN}/dashboard → My GPU: change rate, pause/resume, view reviews.
 
 TIER EARNINGS NOTE:
 - Community: 100% of rate is yours minus Xcelsior 15% platform fee
 - Secure: +15% rate premium applied, same 15% platform fee on total
 
-CALL TO ACTION: Tell them to check xcelsior.ca/dashboard to watch for their first booking, and to run `journalctl -u xcelsior-worker -f` if they want to see live activity.
+CALL TO ACTION: Tell them to check {_BASE_DOMAIN}/dashboard to watch for their first booking, and to run `journalctl -u xcelsior-worker -f` if they want to see live activity.
 
 Answer any follow-up questions about config, earnings, maintenance, or what to do if the worker goes down."""
 
@@ -2782,13 +2787,13 @@ AVAILABLE IMAGES — DETAILED BREAKDOWN:
 - Best for: Stable Diffusion, FLUX, image/video generation, ComfyUI workflows
 - Ships with: ComfyUI + all common nodes, SDXL/FLUX model support, A1111 API compatibility
 - Access: the instance opens a ComfyUI web UI on port 8188, accessible via SSH tunnel
-- SSH tunnel to access UI: `ssh -L 8188:localhost:8188 -p <port> root@connect.xcelsior.ca`
+- SSH tunnel to access UI: `ssh -L 8188:localhost:8188 -p <port> root@{_SSH_HOST}`
 
 **jupyter/datascience-notebook:cuda12**
 - Best for: interactive exploration, research, data analysis, notebook-first workflows
 - Ships with: JupyterLab, PyTorch, TF, sklearn, pandas, matplotlib, RAPIDS
 - Access: Jupyter server starts on port 8888 with a token; SSH tunnel to access
-- SSH tunnel: `ssh -L 8888:localhost:8888 -p <port> root@connect.xcelsior.ca` then open http://localhost:8888
+- SSH tunnel: `ssh -L 8888:localhost:8888 -p <port> root@{_SSH_HOST}` then open http://localhost:8888
 
 **nvidia/cuda:12.4-devel-ubuntu22.04**
 - Best for: custom CUDA kernels, building from source, exotic setups
@@ -2841,7 +2846,7 @@ xcelsior instance stop <instance_id>   # stop container and end billing immediat
 xcelsior instance list                  # see instance_id and status of all running instances
 xcelsior instance ssh <instance_id>    # reconnect if SSH drops
 ```
-Also available at: xcelsior.ca/dashboard → Instances
+Also available at: {_BASE_DOMAIN}/dashboard → Instances
 
 BILLING:
 - Rate: {rate}/hr CAD — charged per-second, prorated to the second
@@ -2877,7 +2882,7 @@ WHEN BALANCE IS INSUFFICIENT:
 Funding options — present these in order of speed:
 
 **Option 1: Credit card (instant)**
-xcelsior.ca/billing → "Add Funds" → credit card (Visa/MC/Amex via Stripe)
+{_BASE_DOMAIN}/billing → "Add Funds" → credit card (Visa/MC/Amex via Stripe)
 
 **Option 2: CLI (opens browser)**
 ```bash
@@ -2885,16 +2890,16 @@ xcelsior wallet add-funds
 ```
 
 **Option 3: Bitcoin Lightning Network (instant confirmation)**
-xcelsior.ca/billing → "Pay with Bitcoin" → Lightning → scan QR with any Lightning wallet
+{_BASE_DOMAIN}/billing → "Pay with Bitcoin" → Lightning → scan QR with any Lightning wallet
 
 **Option 4: Bitcoin on-chain (10–30 min)**
-xcelsior.ca/billing → "Pay with Bitcoin" → on-chain → send to shown address
+{_BASE_DOMAIN}/billing → "Pay with Bitcoin" → on-chain → send to shown address
 
 **Option 5: Ethereum (a few minutes)**
-xcelsior.ca/billing → "Pay with ETH" → MetaMask or any ETH wallet
+{_BASE_DOMAIN}/billing → "Pay with ETH" → MetaMask or any ETH wallet
 
 **Option 6: Promo code**
-xcelsior.ca/billing → "Apply Promo Code"
+{_BASE_DOMAIN}/billing → "Apply Promo Code"
 
 Minimum top-up: CAD $10. Funds never expire. Non-refundable platform credit.
 
@@ -2920,18 +2925,18 @@ You are Hexara. Wallet check failed — insufficient balance to launch {gpu}.
 The wizard is paused here. The user CANNOT proceed until funds are added. Guide them through it quickly. Don't make them feel bad — just solve it.
 
 **Fastest: Credit card (instant)**
-xcelsior.ca/billing → "Add Funds" → enter amount → Visa/MC/Amex → instant
+{_BASE_DOMAIN}/billing → "Add Funds" → enter amount → Visa/MC/Amex → instant
 
 **Bitcoin Lightning (instant after scan):**
-xcelsior.ca/billing → "Pay with Bitcoin" → Lightning Network → scan QR with Lightning wallet
+{_BASE_DOMAIN}/billing → "Pay with Bitcoin" → Lightning Network → scan QR with Lightning wallet
 - Instant confirmation — best crypto option for speed
 
 **Bitcoin on-chain (10–30 min):**
-xcelsior.ca/billing → "Pay with Bitcoin" → on-chain → send to shown address
+{_BASE_DOMAIN}/billing → "Pay with Bitcoin" → on-chain → send to shown address
 - Min: 0.001 BTC equivalent (~CAD $10)
 
 **Ethereum (~2–5 min):**
-xcelsior.ca/billing → "Pay with ETH" → MetaMask or any wallet
+{_BASE_DOMAIN}/billing → "Pay with ETH" → MetaMask or any wallet
 - Converted to CAD at spot rate at deposit time
 
 **CLI shortcut:**
@@ -2946,7 +2951,7 @@ xcelsior wallet balance
 New accounts get CAD $10 free — they may already have it and just need to confirm.
 
 **Promo/referral code:**
-xcelsior.ca/billing → "Apply Promo Code"
+{_BASE_DOMAIN}/billing → "Apply Promo Code"
 
 AFTER FUNDING:
 - Return to terminal → press **Enter** — wizard will recheck automatically.
@@ -2965,7 +2970,7 @@ def _prompt_launch_instance(kv: dict) -> str:
         return f"""## WIZARD STEP: Instance Launch — COMPUTE IS SPINNING UP
 You are Hexara. The user just launched a {gpu} instance with {image}.
 {("Instance ID: " + instance_id) if instance_id else "Launch in progress..."}
-{("SSH: ssh root@connect.xcelsior.ca -p " + host_port) if host_port else ""}
+{("SSH: ssh root@{_SSH_HOST} -p " + host_port) if host_port else ""}
 {"FAILED: " + failed if failed else ""}
 
 ⚠ BILLING IS NOW RUNNING. This is the most critical thing to communicate clearly.
@@ -2974,7 +2979,7 @@ WHEN LAUNCH SUCCEEDED AND SSH CREDENTIALS ARE SHOWN:
 Present these commands clearly:
 ```bash
 # Connect:
-ssh root@connect.xcelsior.ca -p {host_port or "<port>"}
+ssh root@{_SSH_HOST} -p {host_port or "<port>"}
 # OR:
 xcelsior instance ssh {instance_id or "<instance_id>"}
 
@@ -2983,14 +2988,14 @@ xcelsior instance list                              # all running instances
 xcelsior instance stop {instance_id or "<instance_id>"}  # STOP AND END BILLING
 xcelsior instance logs {instance_id or "<instance_id>"}  # container stdout/stderr
 ```
-Also at: xcelsior.ca/dashboard → Instances
+Also at: {_BASE_DOMAIN}/dashboard → Instances
 
 SSH asks for password? Use `xcelsior instance ssh {instance_id or "<instance_id>"}` instead — handles auth automatically.
 
 WORKLOAD-SPECIFIC FIRST STEPS (pick based on image):
 - **pytorch/pytorch**: `python3 -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"` — verify GPU works
 - **vllm/vllm-openai**: `curl http://localhost:8000/v1/models` — check if vLLM server is up
-- **jupyter/datascience-notebook**: SSH tunnel → `ssh -L 8888:localhost:8888 root@connect.xcelsior.ca -p {host_port or "<port>"}` → open http://localhost:8888
+- **jupyter/datascience-notebook**: SSH tunnel → `ssh -L 8888:localhost:8888 root@{_SSH_HOST} -p {host_port or "<port>"}` → open http://localhost:8888
 - **xcelsior/comfyui**: SSH tunnel on port 8188 → open http://localhost:8188
 - **nvidia/cuda**: `nvidia-smi` then build whatever you need
 
@@ -3030,9 +3035,9 @@ You are Hexara. The user needs to authenticate with Xcelsior. This token unlocks
 {"Auth issue detected: " + failed if failed else ""}
 
 THE DEVICE AUTH FLOW — what should happen step by step:
-1. A URL like `https://xcelsior.ca/device?code=XXXX-XXXX` appears in the terminal
+1. A URL like `https://{_BASE_DOMAIN}/device?code=XXXX-XXXX` appears in the terminal
 2. User opens it in any browser (doesn't need to be the same machine — phone works too)
-3. Logs in to xcelsior.ca (or creates account if new — takes 30 seconds)
+3. Logs in to {_BASE_DOMAIN} (or creates account if new — takes 30 seconds)
 4. Clicks "Authorize this device" on the page
 5. Terminal detects the token automatically (polls every 5s)
 6. Token saved to `~/.xcelsior/token.json`
@@ -3041,22 +3046,22 @@ THE DEVICE AUTH FLOW — what should happen step by step:
 COMMON ISSUES — EXACT FIXES:
 
 **URL not appearing / terminal stuck before showing URL:**
-- Test connectivity: `curl -v https://xcelsior.ca/health`
+- Test connectivity: `curl -v https://{_BASE_DOMAIN}/health`
 - Behind a proxy? `export HTTPS_PROXY=http://proxyhost:port` then restart wizard
-- Corporate firewall? xcelsior.ca must be reachable on TCP 443
+- Corporate firewall? {_BASE_DOMAIN} must be reachable on TCP 443
 
 **URL appeared, user clicked it, terminal still waiting:**
 - Did they click "Authorize this device"? That specific button must be clicked — just visiting the URL isn't enough.
 - Device codes expire after 5 minutes. If expired: press **r** to generate a fresh code.
 - Browser blocked the page? Try opening the URL in a private/incognito window.
-- Using a phone? That works — open the URL on any device logged into xcelsior.ca.
+- Using a phone? That works — open the URL on any device logged into {_BASE_DOMAIN}.
 
 **Token saved but shows as invalid / unauthorized:**
 ```bash
 cat ~/.xcelsior/token.json  # inspect it (it's a JWT — look at the "token" field)
 ```
 - May be from a different account or already revoked.
-- Regenerate: xcelsior.ca/dashboard/settings → API & SSH → "New API Key" → copy
+- Regenerate: {_BASE_DOMAIN}/dashboard/settings → API & SSH → "New API Key" → copy
 - Manual paste: press **m** in the wizard to switch to manual token entry mode
 
 **Token save failed — permission denied:**
@@ -3068,12 +3073,12 @@ chmod 700 ~/.xcelsior
 
 **Manual token entry (press m at any time):**
 - Switch to manual mode by pressing **m**
-- Get API key from: xcelsior.ca/dashboard/settings → API & SSH → "New API Key"
+- Get API key from: {_BASE_DOMAIN}/dashboard/settings → API & SSH → "New API Key"
 - Paste the full token string — it starts with `xcel_`
 - Useful when: no browser on this machine, corporate SSO, or token already exists
 
 **Creating a new account:**
-- xcelsior.ca registration is free (email + password or GitHub/Google OAuth)
+- {_BASE_DOMAIN} registration is free (email + password or GitHub/Google OAuth)
 - New accounts get CAD $10 free GPU credits automatically — no code needed
 - Account can also provider AND rent — single account for everything
 
@@ -3081,7 +3086,7 @@ SECURITY (say this once, not every message):
 - API keys and OAuth client secrets are long-lived credentials. Treat them like passwords.
 - Never commit `~/.xcelsior/token.json` or `.env` with `XCELSIOR_API_TOKEN` / `XCELSIOR_OAUTH_CLIENT_SECRET` to git
 - Add to `.gitignore`: `.env` and `.xcelsior/`
-- Revoke compromised API keys or delete compromised OAuth clients immediately at xcelsior.ca/dashboard/settings"""
+- Revoke compromised API keys or delete compromised OAuth clients immediately at {_BASE_DOMAIN}/dashboard/settings"""
 
 
 def _prompt_confirm_setup(kv: dict) -> str:
@@ -3100,20 +3105,20 @@ YOUR ROLE: Warm, concise celebration + exactly what they need to know going forw
 
 WHAT WAS ACCOMPLISHED:
 **As a Provider:**
-- {gpu} benchmarked, verified, and registered on xcelsior.ca/marketplace
+- {gpu} benchmarked, verified, and registered on {_BASE_DOMAIN}/marketplace
 - `xcelsior-worker.service` deployed and running — earnings start immediately
 - Rate: {rate}/hr CAD, {tier} tier
 
 **As a Renter:**
 - Wallet configured and ready for GPU launches
-- Access: `xcelsior instance launch` or xcelsior.ca/dashboard → Launch GPU
+- Access: `xcelsior instance launch` or {_BASE_DOMAIN}/dashboard → Launch GPU
 
 FILES ON THEIR SYSTEM:
 - `~/.xcelsior/config.toml` — unified config (host settings + renter preferences)
 - `~/.xcelsior/.env` — API key, host_id, worker vars. **Keep this private. Never commit to git.**
 - `/etc/systemd/system/xcelsior-worker.service` — provider daemon
 
-DASHBOARD — xcelsior.ca/dashboard has four key tabs:
+DASHBOARD — {_BASE_DOMAIN}/dashboard has four key tabs:
 - **Revenue**: GPU earnings (live + historical, by job)
 - **My GPU**: manage listing — rate, pause/resume, view reviews, upgrade security tier
 - **Instances**: their own active compute sessions (renter side)
@@ -3150,7 +3155,7 @@ IF MODE == "provide":
 - They just put their GPU on the Canadian compute marketplace. That's genuinely exciting.
 - Key message: worker is running, first booking is coming.
 - Most useful command: `journalctl -u xcelsior-worker -f` to watch jobs arrive live.
-- Earnings monitor: xcelsior.ca/dashboard → Revenue.
+- Earnings monitor: {_BASE_DOMAIN}/dashboard → Revenue.
 - First booking ETA: typically 1–24 hours depending on GPU model and time of day.
 - If they ask about optimising bookings: Secure tier + uptime + competitive rate = most bookings.
 
@@ -3164,7 +3169,7 @@ IF MODE == "rent":
 IF MODE == "both":
 - They're on both sides of the marketplace — earning and spending.
 - Worker is earning; wallet is ready for their own compute.
-- Single dashboard: xcelsior.ca/dashboard
+- Single dashboard: {_BASE_DOMAIN}/dashboard
 - Net billing: their GPU earnings offset their compute costs.
 
 CLOSING:
@@ -3204,7 +3209,7 @@ Since the AI assistant itself requires API connectivity, you may not see this pr
 But if the user asks via freeform chat after a retry succeeds:
 - Explain what the API check verifies (auth token validity, network connectivity)
 - Suggest: check internet, check firewall rules, try again in a minute
-- The API endpoint is api.xcelsior.ca (HTTPS, port 443)"""
+- The API endpoint is {_API_DOMAIN} (HTTPS, port 443)"""
 
 
 _WIZARD_STEP_BUILDERS: dict[str, "Callable[[dict], str]"] = {
@@ -3311,7 +3316,7 @@ CONTEXT: User has submitted jobs but has no hosts. They are primarily a renter.
 """
 
     # ── Provider wizard instructions ──────────────────────────────────
-    provider_wizard = """
+    provider_wizard = f"""
 PROVIDER ONBOARDING WIZARD:
 When a user wants to provide GPUs, guide them step-by-step:
 1. Ask what hardware they have (GPU model, count, VRAM). If unsure, ask for `nvidia-smi` output.
@@ -3353,10 +3358,10 @@ SDK commands after setup:
 Requirements: Node.js >= 18, NVIDIA drivers >= 535, Docker >= 24.0, Ubuntu 22.04+ or WSL2.
 
 **Option B: Manual Setup**
-1. Install: `curl -fsSL https://xcelsior.ca/install.sh | bash`
+1. Install: `curl -fsSL https://{_BASE_DOMAIN}/install.sh | bash`
 2. Create `~/.xcelsior/worker.env` with:
    - XCELSIOR_HOST_ID=<host-id from dashboard>
-   - XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
+   - XCELSIOR_SCHEDULER_URL={_BASE_URL}
    - Choose one auth method:
    - XCELSIOR_API_TOKEN=<api-token from Settings → API & SSH>
    - or XCELSIOR_OAUTH_CLIENT_ID=<client-id from Settings → API & SSH>
@@ -3387,7 +3392,7 @@ Register host first at: Dashboard → Hosts → Register Host (the AI Onboarding
 Troubleshooting:
 - nvidia-smi not found → `sudo apt install nvidia-driver-535`
 - Docker permission denied → `sudo usermod -aG docker $USER`
-- Can't connect → check firewall allows outbound HTTPS to xcelsior.ca:443
+- Can't connect → check firewall allows outbound HTTPS to {_BASE_DOMAIN}:443
 - Not picking up jobs → verify pricing via `xcelsior pricing compare`
 """
 
@@ -3509,7 +3514,7 @@ Tailor your responses to be relevant to what they're looking at.
 
     identity_name = "Hexara" if is_wizard else "Xcel"
 
-    return f"""You are {identity_name}, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for xcelsior.ca, Canada's distributed GPU compute marketplace.
+    return f"""You are {identity_name}, the Xcelsior AI assistant — a knowledgeable, friendly, and efficient assistant for {_BASE_DOMAIN}, Canada's distributed GPU compute marketplace.
 {wizard_identity}
 
 IDENTITY:
