@@ -70,11 +70,20 @@ from scheduler import (
 
 # -- Prometheus metrics --------------------------------------------------------
 
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 _active_sessions: object = Gauge(
     "xcelsior_terminal_active_sessions",
     "Number of active terminal WebSocket sessions",
+)
+_sessions_opened: object = Counter(
+    "xcelsior_terminal_sessions_opened_total",
+    "Terminal WebSocket sessions that reached the relay loop (PTY ready)",
+)
+_session_duration: object = Histogram(
+    "xcelsior_terminal_session_duration_seconds",
+    "Wall-clock duration of completed terminal sessions",
+    buckets=(1, 5, 15, 60, 300, 900, 1800, 7200, 14400, 28800),
 )
 _bytes_sent: object = Counter(
     "xcelsior_terminal_bytes_sent_total",
@@ -1323,9 +1332,14 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             is_remote,
         )
         _active_sessions.inc()  # type: ignore[attr-defined]
+        _sessions_opened.inc()  # type: ignore[attr-defined]
         session_opened = True
 
         session_start = time.monotonic()
+        # Per-session byte tallies (module-level counters are cumulative across
+        # all sessions; these feed the structured session_close log so we can
+        # correlate duration with traffic volume in a single log line).
+        session_bytes = {"rx": 0, "tx": 0}
         last_input_ts = time.monotonic()
         closed = False
         idle_warned = False
@@ -1393,6 +1407,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 try:
                     await websocket.send_bytes(chunk)
                     _bytes_sent.inc(len(chunk))  # type: ignore[attr-defined]
+                    session_bytes["tx"] += len(chunk)
                 except (WebSocketDisconnect, RuntimeError):
                     _disconnections.labels(cause="client_disconnect").inc()  # type: ignore[attr-defined]
                     closed = True
@@ -1452,6 +1467,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                         try:
                             await loop.sock_sendall(raw_sock, payload_bytes)
                             _bytes_recv.inc(len(payload_bytes))  # type: ignore[attr-defined]
+                            session_bytes["rx"] += len(payload_bytes)
                             last_input_ts = time.monotonic()
                             idle_warned = False
                         except (OSError, ConnectionError):
@@ -1516,6 +1532,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                             encoded = data.encode("utf-8")
                             await loop.sock_sendall(raw_sock, encoded)
                             _bytes_recv.inc(len(encoded))  # type: ignore[attr-defined]
+                            session_bytes["rx"] += len(encoded)
                             last_input_ts = time.monotonic()
                             idle_warned = False
                         except (OSError, ConnectionError):
@@ -1618,12 +1635,23 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
             if session_opened:
                 _active_sessions.dec()  # type: ignore[attr-defined]
+                _duration = time.monotonic() - session_start
+                try:
+                    _session_duration.observe(_duration)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
                 log.info(
-                    "terminal.session.close user=%s ip=%s instance=%s duration=%.1fs",
+                    "terminal.session.close user=%s ip=%s instance=%s "
+                    "duration=%.1fs rx=%d tx=%d exit_code=%s remote=%s tmux=%s",
                     user.get("email", "?"),
                     client_ip,
                     instance_id,
-                    time.monotonic() - session_start,
+                    _duration,
+                    session_bytes["rx"],
+                    session_bytes["tx"],
+                    exit_code,
+                    is_remote,
+                    has_tmux,
                 )
 
             try:
