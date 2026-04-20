@@ -469,6 +469,29 @@ def _ensure_pg_tables(conn):
     )
     _seed_gpu_pricing(cur)
 
+    # ── Agent command queue (admin → worker control plane) ──
+    # Rows are inserted by admin endpoints and consumed once by the target
+    # worker agent's poll loop. The worker deletes the row after successful
+    # dispatch; status='pending' rows older than expires_at are GC'd by the
+    # API (stale hosts shouldn't accumulate commands).
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS agent_commands (
+            id BIGSERIAL PRIMARY KEY,
+            host_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            args JSONB NOT NULL DEFAULT '{}'::jsonb,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            expires_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()) + 900,
+            created_by TEXT,
+            result JSONB
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_commands_host_pending "
+        "ON agent_commands (host_id, status, created_at) WHERE status = 'pending'"
+    )
+
 
 @contextmanager
 def pg_connection():

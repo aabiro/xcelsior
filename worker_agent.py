@@ -127,6 +127,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("xcelsior-worker")
 
+# ── Metrics ──────────────────────────────────────────────────────────
+from prometheus_client import Counter as _PromCounter
+
+_motd_reinjection_total = _PromCounter(
+    "xcelsior_worker_motd_reinjection_total",
+    "Shell/MOTD re-injection attempts by outcome",
+    ["result"],
+)
+
 # ── Shutdown Coordination ────────────────────────────────────────────
 
 _shutdown = threading.Event()
@@ -697,6 +706,67 @@ def check_preemption():
         return []
     except requests.RequestException:
         return []
+
+
+def drain_agent_commands() -> int:
+    """Drain admin control-plane commands from the API and dispatch them.
+
+    GET /agent/commands/{host_id} returns up to 50 pending commands and
+    atomically deletes them. Each command dict has id/command/args/created_by.
+    Unknown commands are logged and ignored (forward-compat — newer API
+    could ship commands older agents don't yet handle).
+
+    Returns the number of commands successfully dispatched.
+    """
+    try:
+        resp = requests.get(
+            _api_url(f"/agent/commands/{HOST_ID}"),
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return 0
+        commands = resp.json().get("commands", []) or []
+    except requests.RequestException as e:
+        log.debug("drain_agent_commands: request failed: %s", e)
+        return 0
+
+    dispatched = 0
+    for cmd in commands:
+        name = cmd.get("command")
+        args = cmd.get("args") or {}
+        cmd_id = cmd.get("id")
+        by = cmd.get("created_by") or "?"
+        try:
+            if name == "reinject_shell":
+                job_id = args.get("job_id") or ""
+                container_name = args.get("container_name") or (f"xcl-{job_id}" if job_id else "")
+                if not job_id or not container_name:
+                    log.warning("reinject_shell cmd=%s missing args: %r", cmd_id, args)
+                    _motd_reinjection_total.labels(result="bad_args").inc()
+                    continue
+                # Verify container still belongs to us and is running
+                inspect = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+                    log.info("reinject_shell cmd=%s container=%s not running — skipped",
+                             cmd_id, container_name)
+                    _motd_reinjection_total.labels(result="skipped").inc()
+                    continue
+                log.info("Executing admin reinject_shell cmd=%s job=%s by=%s",
+                         cmd_id, job_id[:8], by)
+                _inject_ssh_keys(job_id, container_name)
+                _motd_reinjection_total.labels(result="success").inc()
+                dispatched += 1
+            else:
+                log.warning("Unknown agent command cmd=%s name=%r — ignoring", cmd_id, name)
+        except Exception as e:
+            log.warning("agent command cmd=%s name=%s failed: %s", cmd_id, name, e)
+            if name == "reinject_shell":
+                _motd_reinjection_total.labels(result="failure").inc()
+    return dispatched
 
 
 def report_job_status(job_id, status, host_id=None, container_id=None, container_name=None,
@@ -2302,12 +2372,91 @@ def _inject_ssh_keys(job_id: str, container_name: str):
                  "ls /etc/ssh/ssh_host_*_key 2>/dev/null || ssh-keygen -A"],
                 capture_output=True, timeout=10,
             )
-            # Ensure PermitRootLogin is enabled
+            # Ensure PermitRootLogin is enabled and configure keepalive so SSH
+            # sessions don't get cut by NAT/firewall idle timeouts.
             subprocess.run(
                 ["docker", "exec", container_name, "sh", "-c",
-                 "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true"],
+                 "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                 "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
+                 "printf '\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config"],
                 capture_output=True, timeout=5,
             )
+
+            # Set up MOTD + custom shell prompt for the interactive instance.
+            short = job_id[:8]
+            motd = (
+                "\n"
+                "  \033[36m╔═══════════════════════════════════════════════════════╗\033[0m\n"
+                "  \033[36m║\033[0m  \033[1;35m✦ Xcelsior\033[0m \033[2m— GPU compute, on demand\033[0m              \033[36m║\033[0m\n"
+                "  \033[36m╚═══════════════════════════════════════════════════════╝\033[0m\n"
+                "\n"
+                f"  \033[2mInstance\033[0m  \033[1m{short}\033[0m\n"
+                f"  \033[2mContainer\033[0m \033[1m{container_name}\033[0m\n"
+                "  \033[2mGPU      \033[0m $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo 'detached')\n"
+                "  \033[2mDocs     \033[0m \033[34mhttps://xcelsior.ca/docs\033[0m\n"
+                "\n"
+                "  \033[2mTip: run \033[0m\033[33mnvidia-smi\033[0m\033[2m to see GPU status, \033[0m\033[33mexit\033[0m\033[2m to disconnect.\033[0m\n"
+                "\n"
+            )
+            # Shell rc snippet — idempotent. Sets PS1, prints Last login + MOTD once per session.
+            # Uses a sentinel env var so it doesn't print twice if both /etc/profile.d and
+            # /root/.bashrc end up sourcing it.
+            profile = (
+                "# Xcelsior interactive shell setup (managed — safe to re-run)\n"
+                f"export XCELSIOR_INSTANCE='{short}'\n"
+                "# Coloured prompt: user@xcelsior-<id>:cwd $\n"
+                "PS1='\\[\\e[1;36m\\]\\u\\[\\e[0m\\]@\\[\\e[1;35m\\]xcelsior-'\"$XCELSIOR_INSTANCE\"'\\[\\e[0m\\]:\\[\\e[1;33m\\]\\w\\[\\e[0m\\]\\$ '\n"
+                "export PS1\n"
+                "if [ -z \"$XCELSIOR_MOTD_SHOWN\" ] && [ -t 1 ] && [ -r /etc/motd.xcelsior ]; then\n"
+                "  export XCELSIOR_MOTD_SHOWN=1\n"
+                "  printf 'Last login: %s\\n' \"$(date '+%a %b %e %H:%M:%S %Y')\" 2>/dev/null || true\n"
+                "  eval \"echo \\\"$(cat /etc/motd.xcelsior)\\\"\"\n"
+                "fi\n"
+            )
+            # Loader injected into every login-shell startup file. Sourcing /etc/profile.d/xcelsior.sh
+            # directly is safe because the file itself is idempotent (sentinel env guard).
+            loader = "[ -r /etc/profile.d/xcelsior.sh ] && . /etc/profile.d/xcelsior.sh"
+            # `grep -qF` matches literal string; `|| echo >>` makes the append idempotent.
+            append_loader = (
+                f"for rc in /etc/profile /etc/bash.bashrc /root/.bashrc /root/.profile /root/.bash_profile; do "
+                f"  touch \"$rc\" 2>/dev/null; "
+                f"  grep -qF 'profile.d/xcelsior.sh' \"$rc\" 2>/dev/null || "
+                f"  echo {_shell_quote(loader)} >> \"$rc\"; "
+                f"done"
+            )
+            # Some minimal images (Alpine, nvidia/cuda:*-base, distroless-ish) ship /etc/profile
+            # WITHOUT the `for f in /etc/profile.d/*.sh` loop, so profile.d entries are dead.
+            # Detect & inject the loop if missing.
+            ensure_profile_d_loop = (
+                "grep -qF '/etc/profile.d' /etc/profile 2>/dev/null || "
+                "printf '\\n# Xcelsior: source /etc/profile.d/*.sh\\n"
+                "for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done\\n' "
+                ">> /etc/profile"
+            )
+            # Force root's login shell to bash if available (default on ubuntu is /bin/bash already,
+            # but `nvidia/cuda:*-base` on debian-slim defaults root to /bin/sh which doesn't do PS1).
+            set_root_shell = (
+                "if command -v bash >/dev/null 2>&1; then "
+                "  (command -v usermod >/dev/null 2>&1 && usermod -s \"$(command -v bash)\" root) "
+                "  || (command -v chsh    >/dev/null 2>&1 && chsh -s \"$(command -v bash)\" root) "
+                "  || sed -i 's|^root:\\(.*\\):[^:]*$|root:\\1:'\"$(command -v bash)\"'|' /etc/passwd 2>/dev/null "
+                "  || true; "
+                "fi"
+            )
+            subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c",
+                 f"echo {_shell_quote(motd)} > /etc/motd.xcelsior && "
+                 f"echo {_shell_quote(profile)} > /etc/profile.d/xcelsior.sh && "
+                 "chmod 644 /etc/motd.xcelsior /etc/profile.d/xcelsior.sh && "
+                 + ensure_profile_d_loop + " ; "
+                 + append_loader + " ; "
+                 + set_root_shell + " ; "
+                 # Silence default debian/ubuntu motd noise so ours is the only banner shown
+                 "rm -f /etc/update-motd.d/* 2>/dev/null; "
+                 ": > /etc/motd 2>/dev/null || true"],
+                capture_output=True, timeout=15,
+            )
+
             # Start sshd
             sshd_start = subprocess.run(
                 ["docker", "exec", container_name, "/usr/sbin/sshd"],
@@ -2737,6 +2886,79 @@ def adopt_running_containers():
         log.warning("Container adoption failed: %s", e)
 
 
+def reinject_shells_for_running():
+    """Re-run `_inject_ssh_keys` for every running container on this host.
+
+    Rationale: MOTD / PS1 / sshd-config logic in `_inject_ssh_keys` evolves
+    over time. Existing containers started with an older version don't get
+    the new shell setup, so SSH sessions land in a bare prompt. On every
+    worker_agent boot, re-apply the injection (idempotent) to all containers
+    currently in state=running. Each call exec's into the container to write
+    files; safe to run repeatedly.
+
+    Guardrails:
+      - Gated by env `WORKER_AGENT_AUTO_REINJECT` (default "true"); set to
+        anything else to disable (e.g. during debugging).
+      - Rate-limited to 1 container per 2s so a host with many containers
+        coming back online doesn't saturate the docker daemon.
+      - Skips containers whose actual docker state is not `running` (caller
+        list might include briefly stopped/exiting containers).
+      - Each attempt is logged with container name, outcome, and duration.
+    """
+    if os.environ.get("WORKER_AGENT_AUTO_REINJECT", "true").strip().lower() not in ("1", "true", "yes", "on"):
+        log.info("Shell re-injection disabled via WORKER_AGENT_AUTO_REINJECT")
+        return
+
+    try:
+        with _active_lock:
+            candidates = list(_active_containers.items())  # [(job_id, container_name), ...]
+    except Exception:
+        candidates = []
+
+    if not candidates:
+        return
+
+    log.info("Re-injecting shell setup for %d adopted container(s)", len(candidates))
+    stats = {"success": 0, "failure": 0, "skipped": 0}
+
+    for idx, (job_id, container_name) in enumerate(candidates):
+        if _shutdown.is_set():
+            break
+
+        # Rate-limit between containers (but not before the first)
+        if idx > 0:
+            time.sleep(2.0)
+
+        t0 = time.monotonic()
+        try:
+            # Verify container is actually running in docker's view
+            inspect = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+                capture_output=True, text=True, timeout=5,
+            )
+            if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+                stats["skipped"] += 1
+                log.debug("Skipping %s — not in running state", container_name)
+                _motd_reinjection_total.labels(result="skipped").inc()
+                continue
+
+            _inject_ssh_keys(job_id, container_name)
+            dur = time.monotonic() - t0
+            stats["success"] += 1
+            _motd_reinjection_total.labels(result="success").inc()
+            log.info("Re-injected shell for container=%s job=%s duration=%.2fs",
+                     container_name, job_id[:8], dur)
+        except Exception as e:
+            dur = time.monotonic() - t0
+            stats["failure"] += 1
+            _motd_reinjection_total.labels(result="failure").inc()
+            log.warning("Re-inject failed container=%s job=%s duration=%.2fs err=%s",
+                        container_name, job_id[:8], dur, e)
+
+    log.info("Shell re-injection complete: %d success, %d failure, %d skipped",
+             stats["success"], stats["failure"], stats["skipped"])
+
+
 def cleanup_orphaned_volume_mounts():
     """Clean up NFS mounts for managed volumes that have no running container.
 
@@ -2924,6 +3146,15 @@ def main():
     # ── Step 7: Adopt containers started by scheduler (before agent was running) ──
     adopt_running_containers()
 
+    # ── Step 7a: Re-apply shell setup (MOTD/PS1/sshd keepalive) to adopted containers ──
+    # The injection logic evolves; existing containers started under older agent
+    # versions otherwise stay on a bare `#` prompt indefinitely. Idempotent, gated
+    # by WORKER_AGENT_AUTO_REINJECT, rate-limited to 1 container per 2s.
+    try:
+        reinject_shells_for_running()
+    except Exception as e:
+        log.warning("reinject_shells_for_running failed: %s", e)
+
     # ── Step 7b: Clean up orphaned volume mounts ──
     cleanup_orphaned_volume_mounts()
 
@@ -2992,6 +3223,9 @@ def main():
             preempt_jobs = check_preemption()
             if preempt_jobs:
                 handle_preemptions(preempt_jobs)
+
+            # Drain admin control-plane commands (reinject_shell, etc.)
+            drain_agent_commands()
 
             # Poll for new work (only if admitted)
             if admitted:

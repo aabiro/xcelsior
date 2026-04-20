@@ -834,10 +834,10 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
         </div>
       </Card>
 
-      {/* Image — fully transparent background */}
+      {/* Image — fully transparent background, theme-aware */}
       <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
         <img
-          src="/xcelsior-hosts-setup-transparent.svg"
+          src="/xcelsior-hosts-setup-transparent.svg?v=2"
           alt=""
           aria-hidden
           width={1200}
@@ -845,7 +845,18 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
           loading="eager"
           decoding="sync"
           fetchPriority="high"
-          className="h-full w-full object-cover"
+          className="hidden h-full w-full object-cover dark:block"
+        />
+        <img
+          src="/xcelsior-hosts-setup-transparent-light.svg?v=2"
+          alt=""
+          aria-hidden
+          width={1200}
+          height={900}
+          loading="eager"
+          decoding="sync"
+          fetchPriority="high"
+          className="block h-full w-full object-cover dark:hidden"
         />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 20%, color-mix(in srgb, var(--background) 25%, transparent) 45%, transparent 70%)" }} />
         <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to right, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 15%, color-mix(in srgb, var(--background) 25%, transparent) 35%, transparent 60%)" }} />

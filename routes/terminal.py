@@ -67,49 +67,37 @@ from scheduler import (
     list_jobs,
 )
 
-# -- Optional Prometheus metrics (graceful no-op when not installed) -----------
+# -- Prometheus metrics --------------------------------------------------------
 
-try:
-    from prometheus_client import Counter, Gauge  # type: ignore[import]
+from prometheus_client import Counter, Gauge
 
-    _active_sessions: object = Gauge(
-        "xcelsior_terminal_sessions_active",
-        "Currently active interactive terminal WebSocket sessions",
-    )
-    _bytes_sent: object = Counter(
-        "xcelsior_terminal_bytes_sent_total",
-        "Total raw PTY bytes relayed to terminal clients",
-    )
-    _bytes_recv: object = Counter(
-        "xcelsior_terminal_bytes_recv_total",
-        "Total raw bytes received from terminal clients",
-    )
-    _conn_errors: object = Counter(
-        "xcelsior_terminal_errors_total",
-        "Terminal WebSocket connection errors by reason",
-        ["reason"],
-    )
-    _disconnections: object = Counter(
-        "xcelsior_terminal_disconnections_total",
-        "Terminal session disconnections by cause",
-        ["cause"],
-    )
-    _PROMETHEUS = True
-except ImportError:
-    _PROMETHEUS = False
-
-    class _Noop:
-        """Null-object that silently absorbs any metric calls."""
-
-        def inc(self, *a: object, **kw: object) -> None: ...
-        def dec(self, *a: object, **kw: object) -> None: ...
-        def labels(self, *a: object, **kw: object) -> "_Noop": return self
-
-    _active_sessions = _Noop()  # type: ignore[assignment]
-    _bytes_sent = _Noop()       # type: ignore[assignment]
-    _bytes_recv = _Noop()       # type: ignore[assignment]
-    _conn_errors = _Noop()      # type: ignore[assignment]
-    _disconnections = _Noop()   # type: ignore[assignment]
+_active_sessions: object = Gauge(
+    "xcelsior_terminal_active_sessions",
+    "Number of active terminal WebSocket sessions",
+)
+_bytes_sent: object = Counter(
+    "xcelsior_terminal_bytes_sent_total",
+    "Total raw PTY bytes relayed to terminal clients",
+)
+_bytes_recv: object = Counter(
+    "xcelsior_terminal_bytes_recv_total",
+    "Total raw bytes received from terminal clients",
+)
+_conn_errors: object = Counter(
+    "xcelsior_terminal_errors_total",
+    "Terminal WebSocket connection errors by reason",
+    ["reason"],
+)
+_disconnections: object = Counter(
+    "xcelsior_terminal_disconnections_total",
+    "Terminal session disconnections by cause",
+    ["cause"],
+)
+_host_probe_failure_total: object = Counter(
+    "xcelsior_terminal_host_probe_failure_total",
+    "Failed async TCP probes to GPU host SSH port by reason",
+    ["host_id", "reason"],
+)
 
 
 router = APIRouter()
@@ -666,29 +654,52 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 timeout=timeout_sec,
             )
 
-        # Fast-fail if the remote host is unreachable (avoids 30 s timeout)
         # Fast-fail if the remote host is unreachable (avoids 30 s Docker timeout).
-        # Retry once after 1 s to tolerate brief network blips.
+        # Use async TCP probe to the SSH port instead of ICMP ping: Tailscale
+        # meshes sometimes drop ICMP while TCP flows fine, and the worker host
+        # needs SSH open for Docker-over-SSH anyway — so port 22 is the exact
+        # thing we care about. Three retries with 1 s spacing tolerate brief
+        # scheduler/network blips.
         if is_remote:
             _reach_ok = False
-            for _ping_attempt in range(2):
-                _reach_ok = await loop.run_in_executor(
-                    None,
-                    lambda: subprocess.call(
-                        ["ping", "-c", "1", "-W", "3", host_ip],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    ) == 0,
-                )
-                if _reach_ok:
+            _probe_reason = "timeout"
+            for _probe_attempt in range(3):
+                try:
+                    _reader, _writer = await asyncio.wait_for(
+                        asyncio.open_connection(host_ip, 22),
+                        timeout=3.0,
+                    )
+                    _writer.close()
+                    try:
+                        await _writer.wait_closed()
+                    except Exception:
+                        pass
+                    _reach_ok = True
                     break
-                # Brief pause before retry
-                await asyncio.sleep(1)
+                except asyncio.TimeoutError:
+                    _probe_reason = "timeout"
+                except ConnectionRefusedError:
+                    _probe_reason = "refused"
+                except OSError as _oe:
+                    _probe_reason = f"oserror:{_oe.errno}"
+                except Exception as _e:  # pragma: no cover
+                    _probe_reason = f"error:{type(_e).__name__}"
+                if _probe_attempt < 2:
+                    await asyncio.sleep(1)
             if not _reach_ok:
-                log.warning("TERMINAL host %s unreachable (ping failed)", host_ip)
+                log.warning(
+                    "TERMINAL host %s unreachable via tcp/22 (reason=%s) host_id=%s",
+                    host_ip, _probe_reason, host_id,
+                )
+                _host_probe_failure_total.labels(
+                    host_id=host_id or "unknown",
+                    reason=_probe_reason,
+                ).inc()
                 await _send_error(
                     websocket,
-                    f"GPU host {host_ip} is offline — check Headscale mesh connectivity",
+                    f"GPU host {host_ip} is not accepting SSH connections "
+                    f"(tcp/22 {_probe_reason}). If you just launched the instance, "
+                    "retry in ~30 s; otherwise the host may be offline.",
                     4410,
                 )
                 await websocket.close(code=4410)

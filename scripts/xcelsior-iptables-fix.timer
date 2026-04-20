@@ -1,0 +1,16 @@
+[Unit]
+Description=Re-apply Xcelsior iptables fix periodically
+Documentation=file:///opt/xcelsior/scripts/xcelsior-iptables-fix.sh
+
+[Timer]
+# First run 60 s after boot so tailscaled has had time to come up.
+OnBootSec=60s
+# Then every 60 s as a safety net against ufw reloads / docker restarts
+# silently wiping our FORWARD rules.
+OnUnitActiveSec=60s
+Unit=xcelsior-iptables-fix.service
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

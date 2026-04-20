@@ -5,7 +5,7 @@
    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
    xmlns:svg="http://www.w3.org/2000/svg"
    xmlns="http://www.w3.org/2000/svg"
-   viewBox="720 400 1200 1720"
+   viewBox="680 360 1280 1800"
    xml:space="preserve"
    id="svg2"
    version="1.1"><metadata
@@ -13,12 +13,12 @@
          rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" /></cc:Work></rdf:RDF></metadata><defs
      id="defs6">
-    <linearGradient id="provinceFill" gradientUnits="userSpaceOnUse" x1="2000" y1="16000" x2="16000" y2="2000">
+    <linearGradient id="provinceFill" gradientUnits="userSpaceOnUse" x1="3700" y1="14600" x2="12500" y2="2600">
       <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.8"/>
       <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.8"/>
       <stop offset="100%" stop-color="#dc2626" stop-opacity="0.8"/>
     </linearGradient>
-    <linearGradient id="cornerFill" gradientUnits="userSpaceOnUse" x1="2000" y1="16000" x2="16000" y2="2000">
+    <linearGradient id="cornerFill" gradientUnits="userSpaceOnUse" x1="3700" y1="14600" x2="12500" y2="2600">
       <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.08"/>
       <stop offset="55%" stop-color="#7c3aed" stop-opacity="0.05"/>
       <stop offset="100%" stop-color="#dc2626" stop-opacity="0.04"/>
@@ -38,17 +38,17 @@
            style="fill:none;fill-opacity:0;fill-rule:nonzero;stroke:none"
            d="M 16300,0 H 0 V 16300 H 16300 V 0" /></g><path
          id="path18"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:25;stroke-opacity:0.65;stroke-linejoin:round;stroke-linecap:round"
+         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
          d="m 6813.86,5580.3 c -1258.8,1446 -406.33,4248.7 1904.07,6260.1 395.62,344.4 808.33,643.3 1227,894.8 C 9191.2,12450.7 8426.87,11997.7 7724.37,11386.1 5566.06,9507.1 4808.91,6843.8 6033.2,5437.5 6756.48,4606.8 8009.49,4400.6 9358.91,4758.3 8309.73,4655.4 7390.36,4918.1 6813.86,5580.3" /><path
          id="path20"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:25;stroke-opacity:0.65;stroke-linejoin:round;stroke-linecap:round"
+         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
          d="m 12160.1,13098.9 c -146.8,-76.3 -301,-152.1 -458.2,-225.4 l -68.6,-32 -3.7,6.3 -216.7,-1011.8 942.5,1048.1 39.7,330.8 c -78.6,-37.5 -158.1,-76 -235,-116" /><path
          id="path22"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:25;stroke-opacity:0.65;stroke-linejoin:round;stroke-linecap:round"
+         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
          d="m 11356.5,14487.9 c -139.4,-89.1 -281.9,-185 -423.9,-284.8 l -61.9,-43.5 3.7,-6.3 -985.24,316.5 1378.44,294.6 306.6,-130.5 c -71.7,-49.5 -144.7,-99.2 -217.7,-146" /><path
          id="path24"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:25;stroke-opacity:0.65;stroke-linejoin:round;stroke-linecap:round"
+         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
          d="m 10379.3,12481.7 1077.4,419.5 -622.3,1075.6 -900.69,-724.9 445.59,-770.2" /><path
          id="path26"
-         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:25;stroke-opacity:0.65;stroke-linejoin:round;stroke-linecap:round"
+         style="fill:url(#cornerFill);fill-opacity:1;fill-rule:nonzero;stroke:url(#provinceFill);stroke-width:75;stroke-opacity:0.78;stroke-linejoin:round;stroke-linecap:round"
          d="m 12395.1,13903.3 c -205,0 -371.2,166.3 -371.2,371.3 0,205 166.2,371.2 371.2,371.2 205.1,0 371.3,-166.2 371.3,-371.2 0,-205 -166.2,-371.3 -371.3,-371.3 z m 173.1,1184.9 c -421.8,-111.3 -777.8,-420.6 -1167.1,-669.9 -141.2,-90.4 -282.2,-185.3 -420.9,-282.8 l 343.4,-593.5 343.3,-593.6 c 153.7,71.7 306.3,146.6 455,223.9 410.2,213.3 855.7,367.7 1162.5,677.9 381.2,385.5 895.4,955.5 1268.1,1559.8 -709.6,-21.9 -1460.1,-183.5 -1984.3,-321.8" /></g></g></svg>

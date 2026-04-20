@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 from dataclasses import dataclass, field
@@ -38,8 +39,38 @@ HEALTH_PORT = int(os.environ.get("SSH_GW_HEALTH_PORT", "9510"))
 MAX_CONNS_PER_INSTANCE = int(os.environ.get("SSH_GW_MAX_CONNS", "10"))
 IDLE_TIMEOUT_SEC = int(os.environ.get("SSH_GW_IDLE_TIMEOUT", "3600"))  # 1 hour
 RELAY_BUFFER_SIZE = 65536  # 64 KiB — optimal for SSH traffic
-SYNC_INTERVAL_SEC = int(os.environ.get("SSH_GW_SYNC_INTERVAL", "30"))
+SYNC_INTERVAL_SEC = int(os.environ.get("SSH_GW_SYNC_INTERVAL", "10"))
 BIND_ADDR = os.environ.get("SSH_GW_BIND", "0.0.0.0")
+
+# TCP keepalive — without these, NAT/firewalls drop idle SSH sessions in ~60s
+TCP_KEEPIDLE_SEC = int(os.environ.get("SSH_GW_KEEPIDLE", "30"))   # send first probe after 30s idle
+TCP_KEEPINTVL_SEC = int(os.environ.get("SSH_GW_KEEPINTVL", "10"))  # then every 10s
+TCP_KEEPCNT = int(os.environ.get("SSH_GW_KEEPCNT", "6"))           # drop after 6 missed probes (~90s total)
+
+
+def _enable_keepalive(writer: "asyncio.StreamWriter", label: str = "") -> None:
+    """Enable TCP keepalive on a stream writer's underlying socket.
+
+    Critical for long-lived SSH connections: many NAT routers and stateful
+    firewalls drop idle TCP flows after 60-300 seconds. Keepalive packets
+    keep the flow entry warm and detect dead peers within ~90 seconds.
+    """
+    sock = writer.get_extra_info("socket")
+    if sock is None:
+        return
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        # Linux-specific tunables (Headscale + VPS are Linux)
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, TCP_KEEPIDLE_SEC)
+        if hasattr(socket, "TCP_KEEPINTVL"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, TCP_KEEPINTVL_SEC)
+        if hasattr(socket, "TCP_KEEPCNT"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, TCP_KEEPCNT)
+        # Disable Nagle to reduce keystroke latency in interactive SSH sessions
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError as e:
+        log.debug("Could not set keepalive on %s: %s", label, e)
 
 # ── Data Structures ─────────────────────────────────────────────────────────
 
@@ -200,6 +231,13 @@ class SSHGateway:
                 asyncio.open_connection(route.host_ip, route.ssh_port),
                 timeout=10.0,
             )
+
+            # Enable TCP keepalive on BOTH sockets so NAT/firewalls don't kill
+            # idle SSH sessions every 60s (the most common cause of unexpected
+            # disconnects in interactive shells). Also disables Nagle so
+            # keystrokes aren't batched.
+            _enable_keepalive(client_writer, f"client {peer_str}")
+            _enable_keepalive(backend_writer, f"backend {route.host_ip}:{route.ssh_port}")
 
             # Bidirectional relay with backpressure
             await asyncio.gather(
