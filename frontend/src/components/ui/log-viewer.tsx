@@ -41,7 +41,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
   const [logs, setLogs] = useState<InstanceLog[]>([]);
   const [connected, setConnected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true);
   const prevLogLen = useRef(0);
 
   // When WS logs are provided, use those instead of internal state

@@ -609,14 +609,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         status_poll_max = 90
         status_poll_sec = 2.0
         if instance.get("status") in ("queued", "assigned", "starting"):
-            # Extend the queued budget to ~8 min (240 polls × 2s) because a job
-            # can legitimately sit in queued while the scheduler looks for a
-            # matching host. Keep starting at the original 90×2s=3m budget by
-            # tracking how long we've been in the pre-running state separately
-            # from total wait time. (Workers will advance queued→assigned→
-            # starting→running; if we reach 8 min total without running, we
-            # drop — the reaper will also be cleaning these up on its cadence.)
-            status_poll_max = 240
+            # Budget: 30 min (600 polls × 3s) for large image pulls (e.g. 20GB
+            # pytorch). Workers advance queued→assigned→starting→running; if we
+            # reach 30 min total without running, we drop. The reaper will also
+            # clean up stale jobs on its cadence.
+            status_poll_max = 600
+            status_poll_sec = 3.0
             prev_status = instance.get("status")
             for s_attempt in range(status_poll_max):
                 await _send_status(

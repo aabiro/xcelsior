@@ -1233,11 +1233,11 @@ def _mount_nfs(server, path, mount_point):
             "nfs",
             "-o",
             os.environ.get("XCELSIOR_NFS_MOUNT_OPTS",
-                           "soft,timeo=150,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"),
+                           "soft,timeo=30,retrans=1,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"),
             f"{server}:{path}",
             mount_point,
         ]
-        r = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=30)
+        r = subprocess.run(mount_cmd, capture_output=True, text=True, timeout=10)
         if r.returncode != 0:
             log.warning("NFS mount failed: %s", r.stderr.strip())
             return False
