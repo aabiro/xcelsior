@@ -87,6 +87,10 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const lastPongAtRef = useRef<number>(0);
   const mountedRef = useRef(true);
   const visChangeRef = useRef<(() => void) | null>(null);
+  // True once we've shown the "reconnecting…" notice for the current
+  // disconnect series. Reset on every successful onopen so a *new* disconnect
+  // shows the notice again, but rapid retry cycles don't spam the terminal.
+  const reconnectNoticeShownRef = useRef(false);
 
   const [connState, setConnState] = useState<ConnState>("connecting");
   const [statusMsg, setStatusMsg] = useState<string>("");
@@ -302,6 +306,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     ws.onopen = () => {
       if (!mountedRef.current) { ws.close(); return; }
       reconnectAttemptsRef.current = 0;
+      reconnectNoticeShownRef.current = false;
       setConnState("connected");
       setStatusMsg("");
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
@@ -396,6 +401,12 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     ws.onclose = (event: CloseEvent) => {
       if (!mountedRef.current) return;
 
+      // Diagnostic — survives through production; cheap and invaluable when
+      // debugging why a socket dropped (code 1006 = abnormal, 1011 = server
+      // internal, 4xxx = our custom errors).
+      // eslint-disable-next-line no-console
+      console.debug("[terminal] ws closed", event.code, event.reason);
+
       // Stop heartbeat timers on every close — they'll be restarted by
       // onopen of the next (reconnected) socket.
       if (heartbeatTimerRef.current) {
@@ -407,11 +418,11 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         staleCheckTimerRef.current = null;
       }
 
-      if (termRef.current) {
-        termRef.current.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
-      }
-
       if (NON_RETRYABLE_WS_CLOSE_CODES.has(event.code)) {
+        // Terminal close: show the user one clear line and stop reconnecting.
+        if (termRef.current) {
+          termRef.current.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
+        }
         if (event.code === 1000) {
           setConnState("disconnected");
           setStatusMsg("Connection closed");
@@ -424,6 +435,14 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
       const att = reconnectAttemptsRef.current;
       if (att < MAX_RECONNECT_ATTEMPTS) {
+        // Retryable close — do NOT spam "[Connection closed]" on every cycle.
+        // Show a single dim "reconnecting…" line for the *series*, and reset
+        // the flag on successful onopen. The status bar shows the live
+        // countdown ("Reconnecting in Ns…").
+        if (!reconnectNoticeShownRef.current && termRef.current) {
+          termRef.current.write("\r\n\x1b[2m\u00b7 reconnecting\u2026\x1b[0m\r\n");
+          reconnectNoticeShownRef.current = true;
+        }
         reconnectAttemptsRef.current = att + 1;
         const delay = Math.min(RECONNECT_BASE_MS * 2 ** att, RECONNECT_CAP_MS);
         setConnState("reconnecting");

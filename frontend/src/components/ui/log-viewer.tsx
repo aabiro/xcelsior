@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createInstanceLogStream, fetchInstanceLogs } from "@/lib/api";
 import type { InstanceLog } from "@/lib/api";
 import { Download } from "lucide-react";
+
+// Generous bottom threshold so inertia / momentum scrolling that stops a
+// pixel or two shy of the true bottom still counts as "at bottom" and
+// re-engages auto-scroll. Matches the UX of Vast.ai / RunPod log panels.
+const AT_BOTTOM_THRESHOLD_PX = 80;
 
 interface LogViewerProps {
   jobId: string;
@@ -86,11 +91,12 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
     return () => es.close();
   }, [jobId, live, useWs]);
 
-  // Bulletproof auto-scroll: only scroll if user is at bottom and new logs arrive
-  useEffect(() => {
+  // Auto-scroll when new logs arrive and the user is at (or scrolled back to)
+  // the bottom. useLayoutEffect so the scroll happens synchronously before
+  // paint — eliminates the one-frame flicker of old-bottom→new-bottom.
+  useLayoutEffect(() => {
     if (!containerRef.current) return;
     const logLen = displayLogs.length;
-    // Only scroll if new logs were added (not on mount/status change)
     if (logLen > prevLogLen.current && autoScroll) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
@@ -98,10 +104,19 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
   }, [displayLogs, autoScroll]);
 
   function handleScroll() {
-    if (!containerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    // Only enable autoScroll if user is within 40px of bottom
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 40);
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distanceFromBottom < AT_BOTTOM_THRESHOLD_PX;
+    // Snap the last few pixels to the exact bottom when the user wheels
+    // back down — otherwise momentum inertia leaves scrollTop just short,
+    // distanceFromBottom fluctuates above 0, and the next new log won't
+    // stick. Only snap when we're transitioning *into* autoScroll=true so
+    // we don't hijack an upward scroll.
+    if (atBottom && !autoScroll && distanceFromBottom > 0) {
+      el.scrollTop = el.scrollHeight;
+    }
+    setAutoScroll(atBottom);
   }
 
   function handleDownload() {
