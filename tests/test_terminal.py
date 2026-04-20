@@ -111,11 +111,18 @@ def _bypass_tcp_preflight(monkeypatch):
     is unroutable, so every WS test that uses a remote host would otherwise
     eat a 9 s timeout and then 4410 out. Individual tests that exercise the
     preflight itself can re-override this monkeypatch.
+
+    Also resets the Docker client pool between tests so stale mocks from
+    TestDockerClientPool don't leak into TestDockerClientFactory.
     """
     async def _ok(host_ip):
         return True, "ok"
     monkeypatch.setattr(term_mod, "_verify_host_reachable", _ok)
+    with term_mod._docker_client_cache_lock:
+        term_mod._docker_client_cache.clear()
     yield
+    with term_mod._docker_client_cache_lock:
+        term_mod._docker_client_cache.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -561,6 +568,124 @@ class TestTmuxAvailable:
         mock_client.containers.get.side_effect = NotFound("nope")
         with patch.object(term_mod, "_docker_client", return_value=mock_client):
             assert term_mod._tmux_available("xcl-j1") is False
+
+
+class TestDockerClientPool:
+    """Coverage for the paramiko-backed Docker client cache (Phase 1.1).
+
+    The pool is keyed by ``(ssh_user, host_ip)`` and stored in
+    ``_docker_client_cache``. Local (no host_ip) always bypasses the pool.
+    """
+
+    def _setup(self, monkeypatch):
+        """Reset cache and stub all the filesystem/paramiko side-effects."""
+        with term_mod._docker_client_cache_lock:
+            term_mod._docker_client_cache.clear()
+        monkeypatch.setattr(term_mod, "_ensure_remote_host_key_pinned", lambda *_: None)
+        monkeypatch.setattr(term_mod, "_ensure_ssh_identity", lambda *_: None)
+        monkeypatch.setattr(term_mod, "_patch_paramiko_host_keys", lambda: True)
+        # Transport probe sees a live transport by default.
+        monkeypatch.setattr(
+            term_mod, "_paramiko_transport_from_client",
+            lambda cl: MagicMock(is_active=MagicMock(return_value=True)),
+        )
+
+    def test_pool_reuses_client_per_host(self, monkeypatch):
+        self._setup(monkeypatch)
+        built = []
+
+        def _fake_ctor(*args, **kwargs):
+            inst = MagicMock(name=f"dc{len(built)}")
+            built.append(inst)
+            return inst
+
+        monkeypatch.setattr(term_mod.docker, "DockerClient", _fake_ctor)
+        c1 = term_mod._docker_client(host_ip="10.0.0.5")
+        c2 = term_mod._docker_client(host_ip="10.0.0.5")
+        assert c1 is c2
+        assert len(built) == 1
+
+    def test_pool_keyed_by_user_and_ip(self, monkeypatch):
+        self._setup(monkeypatch)
+        built = []
+
+        def _fake_ctor(*args, **kwargs):
+            inst = MagicMock(name=f"dc{len(built)}")
+            built.append(inst)
+            return inst
+
+        monkeypatch.setattr(term_mod.docker, "DockerClient", _fake_ctor)
+        a = term_mod._docker_client(host_ip="10.0.0.5")
+        b = term_mod._docker_client(host_ip="10.0.0.6")
+        c = term_mod._docker_client(host_ip="10.0.0.5", ssh_user="other")
+        assert a is not b
+        assert a is not c
+        assert len(built) == 3
+        with term_mod._docker_client_cache_lock:
+            keys = set(term_mod._docker_client_cache.keys())
+        expected_a_key = term_mod._docker_client_cache_key("10.0.0.5", term_mod.SSH_USER)
+        expected_b_key = term_mod._docker_client_cache_key("10.0.0.6", term_mod.SSH_USER)
+        expected_c_key = term_mod._docker_client_cache_key("10.0.0.5", "other")
+        assert keys == {expected_a_key, expected_b_key, expected_c_key}
+
+    def test_pool_rebuilds_after_evict(self, monkeypatch):
+        self._setup(monkeypatch)
+        built = []
+
+        def _fake_ctor(*args, **kwargs):
+            inst = MagicMock(name=f"dc{len(built)}")
+            built.append(inst)
+            return inst
+
+        monkeypatch.setattr(term_mod.docker, "DockerClient", _fake_ctor)
+        c1 = term_mod._docker_client(host_ip="10.0.0.5")
+        key = term_mod._docker_client_cache_key("10.0.0.5", term_mod.SSH_USER)
+        term_mod._evict_docker_client(key)
+        c2 = term_mod._docker_client(host_ip="10.0.0.5")
+        assert c1 is not c2
+        assert len(built) == 2
+        c1.close.assert_called_once()
+
+    def test_local_bypasses_pool(self, monkeypatch):
+        """Local clients (no host_ip) must come fresh from docker.from_env()."""
+        self._setup(monkeypatch)
+        calls = []
+
+        def _fake_from_env():
+            inst = MagicMock(name=f"local{len(calls)}")
+            calls.append(inst)
+            return inst
+
+        monkeypatch.setattr(term_mod.docker, "from_env", _fake_from_env)
+        a = term_mod._docker_client(host_ip=None)
+        b = term_mod._docker_client(host_ip="127.0.0.1")
+        c = term_mod._docker_client(host_ip="localhost")
+        assert a is not b is not c
+        assert len(calls) == 3
+        with term_mod._docker_client_cache_lock:
+            assert term_mod._docker_client_cache == {}
+
+    def test_dead_transport_triggers_rebuild(self, monkeypatch):
+        """A cached client with a dead transport is dropped and rebuilt."""
+        self._setup(monkeypatch)
+        built = []
+
+        def _fake_ctor(*args, **kwargs):
+            inst = MagicMock(name=f"dc{len(built)}")
+            built.append(inst)
+            return inst
+
+        monkeypatch.setattr(term_mod.docker, "DockerClient", _fake_ctor)
+        c1 = term_mod._docker_client(host_ip="10.0.0.5")
+        # Flip the transport to dead for the next call.
+        monkeypatch.setattr(
+            term_mod, "_paramiko_transport_from_client",
+            lambda cl: MagicMock(is_active=MagicMock(return_value=False)),
+        )
+        c2 = term_mod._docker_client(host_ip="10.0.0.5")
+        assert c1 is not c2
+        assert len(built) == 2
+        c1.close.assert_called_once()
 
 
 # ===============================================================================
