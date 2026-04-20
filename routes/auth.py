@@ -934,7 +934,14 @@ def api_auth_oauth_callback(provider: str, request: Request):
 
     access_token = token_data.get("access_token")
     if not access_token:
-        log.error("No access_token in OAuth response for %s: %s", provider, token_data)
+        # Do NOT log token_data — may contain refresh_token/id_token even when
+        # access_token is missing. Only log the set of returned keys + any error field.
+        returned_keys = sorted(token_data.keys()) if isinstance(token_data, dict) else []
+        err_field = token_data.get("error") if isinstance(token_data, dict) else None
+        log.error(
+            "No access_token in OAuth response for %s (keys=%s, error=%s)",
+            provider, returned_keys, err_field,
+        )
         return RedirectResponse("/dashboard?error=oauth_no_token")
 
     # Fetch user profile from provider
