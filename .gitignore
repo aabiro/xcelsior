@@ -104,3 +104,4 @@ checkpoints/
 tatus\ --short
 et
 wget-log
+.hypothesis/
