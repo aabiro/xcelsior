@@ -1271,13 +1271,17 @@ def _mount_nfs(server, path, mount_point):
             return True  # Already mounted
 
         # Mount NFS
+        # Use `hard` mount + long timeo/retrans so I/O blocks-and-retries on
+        # NFS server reboot instead of silently returning errors (which would
+        # cause data corruption on write-back caches). Do not change to `soft`
+        # without an explicit durability review.
         mount_cmd = [
             "mount",
             "-t",
             "nfs",
             "-o",
             os.environ.get("XCELSIOR_NFS_MOUNT_OPTS",
-                           "soft,timeo=30,retrans=1,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"),
+                           "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"),
             f"{server}:{path}",
             mount_point,
         ]
