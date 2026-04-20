@@ -249,7 +249,13 @@ def api_submit_instance(j: JobIn, request: Request):
 
     # Respect the requested VRAM for scheduler matching and host selection.
     # A zero value remains valid and means "no minimum VRAM preference".
-    vram_needed = max(float(j.vram_needed_gb or 0.0), 0.0)
+    # Interactive instances get exclusive GPU access (one per host), so force
+    # vram_needed=0 to skip fractional VRAM reservation logic which only applies
+    # to HPC batch jobs sharing a GPU.
+    if j.interactive:
+        vram_needed = 0.0
+    else:
+        vram_needed = max(float(j.vram_needed_gb or 0.0), 0.0)
 
     # ── Marketplace flow requires a Docker image ──────────────────────
     if target_host_id and not j.image:
