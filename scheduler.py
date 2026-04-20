@@ -1443,6 +1443,13 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
         if kwargs:
             j.update(kwargs)
 
+        # Stamp updated_at so the stuck-job reaper's cutoff query measures
+        # time-since-last-transition, not time-since-submission. Without this
+        # the reaper falls back to submitted_at (via COALESCE) — it still
+        # works, but can either miss recently-stuck jobs with old submissions
+        # or fire on legitimately long-queued jobs that just transitioned.
+        j["updated_at"] = time.time()
+
         _upsert_job_row(conn, j)
 
         if status == "failed":

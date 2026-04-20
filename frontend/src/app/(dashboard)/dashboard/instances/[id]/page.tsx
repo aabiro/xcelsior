@@ -298,9 +298,22 @@ export default function InstanceDetailPage() {
   const isFailed = status === "failed";
   const isTerminal = ["completed", "failed", "cancelled", "terminated", "preempted"].includes(status);
 
-  const currentStepIdx = STATUS_STEPS.indexOf(
-    (status === "failed" || status === "cancelled") ? "running" : (status as typeof STATUS_STEPS[number]),
-  );
+  // Determine furthest reached step from timestamps + host assignment rather
+  // than blindly mapping failed/cancelled → running. This fixes a bug where
+  // jobs that failed during image pull (status=starting) incorrectly lit up
+  // the entire timeline through "running". Truth sources:
+  //   started_at → actually transitioned to running at some point
+  //   host_id    → scheduler assigned a host
+  //   status     → current state (authoritative for in-flight values)
+  const furthestStep: typeof STATUS_STEPS[number] = (() => {
+    if (status === "completed") return "completed";
+    if (status === "running") return "running";
+    if (instance.started_at) return "running"; // was running then stopped/failed
+    if (status === "starting") return "starting";
+    if (instance.host_id) return "assigned";
+    return "queued";
+  })();
+  const currentStepIdx = STATUS_STEPS.indexOf(furthestStep);
 
   return (
     <div className="space-y-6">
