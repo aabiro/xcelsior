@@ -32,6 +32,9 @@ interface WebTerminalProps {
 const MAX_RECONNECT_ATTEMPTS = 8;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
+// 4410 = host unreachable (SSH tcp/22 timeout). Retrying every few seconds is
+// pointless — the host isn't coming back in ~30s. Let the user click Reconnect.
+// 4500 = server internal error; retrying won't help either.
 const NON_RETRYABLE_WS_CLOSE_CODES = new Set([
   1000,
   1008,
@@ -40,7 +43,9 @@ const NON_RETRYABLE_WS_CLOSE_CODES = new Set([
   4003,
   4004,
   4408,
+  4410,
   4429,
+  4500,
 ]);
 
 // ── Badge helper ──────────────────────────────────────────────────────────────

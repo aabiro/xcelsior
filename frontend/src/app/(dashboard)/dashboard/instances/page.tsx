@@ -69,7 +69,9 @@ function RowActions({
   onAction: (id: string, action: NonNullable<ActionPending>["action"]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const { status } = inst;
   const isRunning = status === "running";
   const isStopped = ["stopped", "user_paused", "paused_low_balance"].includes(status);
@@ -112,13 +114,24 @@ function RowActions({
 
   if (actions.length === 0) return null;
 
+  const toggleOpen = () => {
+    if (!open && btnRef.current) {
+      // Decide whether to flip upward. Each menu item is ~36px tall + 2px border.
+      const estHeight = actions.length * 36 + 4;
+      const rect = btnRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setFlipUp(spaceBelow < estHeight + 12);
+    }
+    setOpen(!open);
+  };
+
   return (
     <div className="relative" ref={ref}>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(!open)}>
+      <Button ref={btnRef as unknown as React.RefObject<HTMLButtonElement>} variant="ghost" size="sm" onClick={toggleOpen}>
         <MoreVertical className="h-3.5 w-3.5" />
       </Button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-36 rounded-lg border border-border bg-surface shadow-xl">
+        <div className={`absolute right-0 ${flipUp ? "bottom-full mb-1" : "top-full mt-1"} z-50 w-36 rounded-lg border border-border bg-surface shadow-xl`}>
           {actions.map((a) => (
             <button
               key={a.action + a.label}
