@@ -896,6 +896,19 @@ async def _send_status(ws: WebSocket, message: str, *, retry: bool = False) -> N
 
 
 async def _send_error(ws: WebSocket, message: str, code: int) -> None:
+    """Send a structured ``{type:'error'}`` frame to the client.
+
+    INVARIANT (Phase 1.7): every ``await websocket.close(code=...)`` that
+    happens *after* ``websocket.accept()`` MUST be preceded by a matching
+    ``_send_error(ws, msg, code)`` so the client always has a structured
+    reason available (the ``close`` ``reason`` field is opaque/unavailable
+    in many browser WS APIs). Silent failure modes — e.g. send on a
+    half-closed socket — are swallowed so the close can still proceed.
+
+    Pre-accept closes (origin check, rate limit, auth, session cap) don't
+    use this helper because no frames can be sent before ``accept``; they
+    pass a human-readable string in ``close(reason=...)`` instead.
+    """
     try:
         await ws.send_json({"type": "error", "message": message, "code": code})
     except Exception:
@@ -928,6 +941,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
     """Interactive terminal session for a running GPU instance."""
     client_ip = _get_ws_client_ip(websocket)
 
+    # ---- Pre-accept rejections --------------------------------------------
+    # Each of the closes below happens BEFORE ``websocket.accept()``, so no
+    # frames can be sent on the socket — we pass a human-readable reason in
+    # the close() call itself. Post-accept closes (everywhere else in this
+    # file) go through _send_error() first per the invariant documented on
+    # that helper. See Phase 1.7.
     if not _validate_ws_origin(
         websocket,
         require_for_cookie_auth=True,
