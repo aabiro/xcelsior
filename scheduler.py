@@ -4107,7 +4107,13 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
 
     # 1. Jurisdiction filter
     if constraint:
-        hosts = filter_hosts_by_jurisdiction(hosts, constraint)
+        # ``filter_hosts_by_jurisdiction`` expects a (hosts, jurisdictions, constraint)
+        # triple. There is no ``HostJurisdictionStore`` in the repo — jurisdiction
+        # metadata is built ad-hoc by callers when present. Pass an empty mapping
+        # so ``host_meets_constraint`` falls back to the host payload fields
+        # (``country``/``province``), which is the correct behaviour when no
+        # explicit jurisdiction record has been registered for the host.
+        hosts = filter_hosts_by_jurisdiction(hosts, {}, constraint)
         if not hosts:
             log.warning(
                 "ALLOCATE no hosts match jurisdiction constraint for job=%s", job.get("name", "?")

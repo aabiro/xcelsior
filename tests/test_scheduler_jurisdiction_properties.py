@@ -3,19 +3,18 @@
 Target: ``scheduler.allocate_jurisdiction_aware(job, hosts, constraint)``
 at scheduler.py L4096.
 
-We only exercise the ``constraint=None`` path — this avoids a pre-existing
-signature mismatch where scheduler.py calls
-``filter_hosts_by_jurisdiction(hosts, constraint)`` with 2 args but the
-jurisdiction.py implementation takes 3 args (hosts, jurisdictions, constraint).
-That bug is pre-existing and tracked separately; the no-constraint path is
-still widely used in production via process_queue_sovereign().
+Covers both the ``constraint=None`` fast path and the ``constraint!=None``
+jurisdiction-filter path (the latter regressed historically due to an
+arg-count mismatch with ``filter_hosts_by_jurisdiction`` — see the
+``test_constraint_non_none_…`` test at the bottom of this file).
 
-Invariants asserted with constraint=None:
+Invariants asserted:
   1. Empty hosts → None.
   2. Result is one of the input hosts.
   3. Result satisfies ``_vram_fits``.
   4. Determinism.
-  5. Skipping the verification engine (monkeypatch None) still returns a valid host.
+  5. When ``constraint`` restricts to Canada-only, the returned host
+     has ``country == "CA"``.
 """
 
 from __future__ import annotations
@@ -118,3 +117,28 @@ def test_determinism(job, hosts):
     else:
         assert r2 is not None
         assert r1.get("host_id") == r2.get("host_id")
+
+
+# ── Non-None constraint path (regression for scheduler.py:4110 arg-count bug) ─
+
+from jurisdiction import JurisdictionConstraint
+
+
+@given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
+@settings(
+    deadline=None, max_examples=100,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_constraint_non_none_does_not_crash_and_respects_country(job, hosts):
+    """With an explicit country constraint, no non-matching host may be returned.
+
+    Before the scheduler.py:4110 fix, this call raised ``TypeError`` because
+    ``filter_hosts_by_jurisdiction`` was called with 2 args instead of 3.
+    """
+    constraint = JurisdictionConstraint(canada_only=True)
+    result = scheduler.allocate_jurisdiction_aware(job, hosts, constraint=constraint)
+    if result is not None:
+        assert result.get("country") == "CA", (
+            f"canada_only=True but got host with country={result.get('country')!r}"
+        )
+        assert scheduler._vram_fits(result, job["vram_needed_gb"])
