@@ -109,6 +109,10 @@ _host_probe_failure_total: object = Counter(
     ["host_id", "reason"],
 )
 
+# Flag indicating the real prometheus_client is available (vs. _Noop fallback).
+# Tests assert on this to distinguish "metrics no-op" vs "metrics live" modes.
+_PROMETHEUS: bool = True
+
 
 router = APIRouter()
 
@@ -392,6 +396,44 @@ def _invalidate_probe_cache(scope: str) -> None:
             _probe_cache.pop(key, None)
         for key in [k for k in _tmux_cache if k[0] == scope]:
             _tmux_cache.pop(key, None)
+
+
+async def _verify_host_reachable(host_ip: str) -> tuple[bool, str]:
+    """Async TCP probe to ``host_ip:22`` with 3 attempts at 1 s spacing.
+
+    Returns ``(ok, reason)``. ``reason`` is "ok" on success, or one of
+    "timeout" / "refused" / "oserror:<errno>" / "error:<ExcName>" on failure.
+
+    Isolated at module scope so tests can monkeypatch the whole function
+    without standing up a real listener on tcp/22. We probe the SSH port
+    (not ICMP) because Tailscale meshes sometimes drop ICMP while TCP flows
+    fine, and Docker-over-SSH needs 22 open anyway — so tcp/22 is the exact
+    precondition we care about.
+    """
+    reason = "timeout"
+    for attempt in range(3):
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host_ip, 22),
+                timeout=3.0,
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True, "ok"
+        except asyncio.TimeoutError:
+            reason = "timeout"
+        except ConnectionRefusedError:
+            reason = "refused"
+        except OSError as oe:
+            reason = f"oserror:{oe.errno}"
+        except Exception as e:  # pragma: no cover
+            reason = f"error:{type(e).__name__}"
+        if attempt < 2:
+            await asyncio.sleep(1)
+    return False, reason
 
 
 def _paramiko_transport_from_client(cl: "docker.DockerClient"):
@@ -1117,37 +1159,10 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             )
 
         # Fast-fail if the remote host is unreachable (avoids 30 s Docker timeout).
-        # Use async TCP probe to the SSH port instead of ICMP ping: Tailscale
-        # meshes sometimes drop ICMP while TCP flows fine, and the worker host
-        # needs SSH open for Docker-over-SSH anyway — so port 22 is the exact
-        # thing we care about. Three retries with 1 s spacing tolerate brief
-        # scheduler/network blips.
+        # Delegates to the module-level _verify_host_reachable helper so tests
+        # can monkeypatch it without needing an actual listener on tcp/22.
         if is_remote:
-            _reach_ok = False
-            _probe_reason = "timeout"
-            for _probe_attempt in range(3):
-                try:
-                    _reader, _writer = await asyncio.wait_for(
-                        asyncio.open_connection(host_ip, 22),
-                        timeout=3.0,
-                    )
-                    _writer.close()
-                    try:
-                        await _writer.wait_closed()
-                    except Exception:
-                        pass
-                    _reach_ok = True
-                    break
-                except asyncio.TimeoutError:
-                    _probe_reason = "timeout"
-                except ConnectionRefusedError:
-                    _probe_reason = "refused"
-                except OSError as _oe:
-                    _probe_reason = f"oserror:{_oe.errno}"
-                except Exception as _e:  # pragma: no cover
-                    _probe_reason = f"error:{type(_e).__name__}"
-                if _probe_attempt < 2:
-                    await asyncio.sleep(1)
+            _reach_ok, _probe_reason = await _verify_host_reachable(host_ip)
             if not _reach_ok:
                 log.warning(
                     "TERMINAL host %s unreachable via tcp/22 (reason=%s) host_id=%s",

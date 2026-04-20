@@ -102,6 +102,53 @@ def _clean():
         term_mod._tmux_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _bypass_tcp_preflight(monkeypatch):
+    """Stub the tcp/22 host-reachability probe so tests don't need a live listener.
+
+    The real ``_verify_host_reachable`` does three 3-second TCP connect attempts
+    against ``host_ip:22``. In the test environment the mock host ``10.0.0.5``
+    is unroutable, so every WS test that uses a remote host would otherwise
+    eat a 9 s timeout and then 4410 out. Individual tests that exercise the
+    preflight itself can re-override this monkeypatch.
+    """
+    async def _ok(host_ip):
+        return True, "ok"
+    monkeypatch.setattr(term_mod, "_verify_host_reachable", _ok)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _container_probe_shim(monkeypatch):
+    """Route ``_container_probe`` through ``_container_exists`` for legacy tests.
+
+    The endpoint switched from ``_container_exists`` → ``_container_probe`` in
+    Phase 1.5 (probe returns {found, reason, error}). Most tests still
+    monkeypatch ``_container_exists``, so we install a thin shim that lets
+    ``_container_exists`` patches take effect. When ``_container_exists`` has
+    NOT been patched we fall back to the real probe — that keeps direct
+    ``_container_exists``/``_container_probe`` unit tests (TestContainerExists,
+    TestContainerProbe) free from infinite recursion.
+    """
+    original_exists = term_mod._container_exists
+    original_probe = term_mod._container_probe
+
+    def _shim_probe(container_ref, host_ip=None):
+        # Only delegate when a test has replaced _container_exists.
+        if term_mod._container_exists is original_exists:
+            return original_probe(container_ref, host_ip)
+        try:
+            found = term_mod._container_exists(container_ref, host_ip)
+        except Exception as exc:
+            return {"found": False, "reason": "error", "error": str(exc)}
+        if found:
+            return {"found": True, "reason": "ok", "error": None}
+        return {"found": False, "reason": "not_found", "error": None}
+
+    monkeypatch.setattr(term_mod, "_container_probe", _shim_probe)
+    yield
+
+
 def _inject_job(job_id="j-1", status="running", owner="user-1", host_id="h-1",
                 host_ip="10.0.0.5", name="test-instance", **extra):
     """Insert a fake job directly into the scheduler store."""
@@ -802,7 +849,7 @@ class TestWsInstanceResolution:
             "routes.terminal._container_exists", lambda *a, **kw: False,
         )
         # Speed up polling
-        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_MAX_ATTEMPTS", 1)
+        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_BUDGET_SEC", 0.05)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
 
         with client.websocket_connect("/ws/terminal/j-admin") as ws:
@@ -832,7 +879,7 @@ class TestContainerPolling:
         )
         _inject_job(job_id="j-poll", status="running", owner="user-1")
         monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: False)
-        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_MAX_ATTEMPTS", 2)
+        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_BUDGET_SEC", 0.05)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
 
         with client.websocket_connect("/ws/terminal/j-poll") as ws:
@@ -845,7 +892,7 @@ class TestContainerPolling:
             # Should see status messages during polling
             status_msgs = [m for m in msgs if m.get("type") == "status"]
             assert len(status_msgs) >= 1
-            assert any("starting" in m["message"].lower() for m in status_msgs)
+            assert any("waiting" in m["message"].lower() for m in status_msgs)
             # Final error
             err_msgs = [m for m in msgs if m.get("type") == "error"]
             assert any(m["code"] == 4410 for m in err_msgs)
@@ -1296,7 +1343,7 @@ class TestControlFrames:
         )
         _inject_job(job_id="j-retry", status="running", owner="user-1")
         monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: False)
-        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_MAX_ATTEMPTS", 1)
+        monkeypatch.setattr(term_mod, "_CONTAINER_POLL_BUDGET_SEC", 0.05)
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_INTERVAL_SEC", 0.01)
 
         with client.websocket_connect("/ws/terminal/j-retry") as ws:
