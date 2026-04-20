@@ -82,6 +82,9 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const observerRef = useRef<ResizeObserver | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const staleCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPongAtRef = useRef<number>(0);
   const mountedRef = useRef(true);
   const visChangeRef = useRef<(() => void) | null>(null);
 
@@ -303,6 +306,27 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       setStatusMsg("");
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
       term.focus();
+
+      // Heartbeat: ping every 20s, close as stale if no pong in 45s. This
+      // prevents zombie TCP connections (e.g. silent NAT rebind) from
+      // appearing 'connected' while bytes silently drop on the floor.
+      lastPongAtRef.current = Date.now();
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = setInterval(() => {
+        const w = wsRef.current;
+        if (w && w.readyState === WebSocket.OPEN) {
+          try { w.send(JSON.stringify({ type: "ping", ts: Date.now() })); } catch { /* ignore */ }
+        }
+      }, 20_000);
+      if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
+      staleCheckTimerRef.current = setInterval(() => {
+        const w = wsRef.current;
+        if (!w || w.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - lastPongAtRef.current > 45_000) {
+          // Force close; onclose drives the reconnect.
+          try { w.close(4000, "stale"); } catch { /* ignore */ }
+        }
+      }, 5_000);
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -360,7 +384,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
             break;
 
           case "pong":
-            // Keepalive acknowledged — no UI action needed
+            // Keepalive acknowledged — refresh liveness timestamp.
+            lastPongAtRef.current = Date.now();
             break;
         }
       } catch {
@@ -370,6 +395,18 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
     ws.onclose = (event: CloseEvent) => {
       if (!mountedRef.current) return;
+
+      // Stop heartbeat timers on every close — they'll be restarted by
+      // onopen of the next (reconnected) socket.
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
+      if (staleCheckTimerRef.current) {
+        clearInterval(staleCheckTimerRef.current);
+        staleCheckTimerRef.current = null;
+      }
+
       if (termRef.current) {
         termRef.current.write("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n");
       }
@@ -446,6 +483,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     return () => {
       mountedRef.current = false;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+      if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
       observerRef.current?.disconnect();
       wsRef.current?.close();
       webglAddonRef.current?.dispose();
