@@ -795,6 +795,19 @@ def metrics_prometheus():
     except Exception as e:
         log.debug("inference tokens/sec metric failed: %s", e)
 
+    # Append the live prometheus_client default registry (Counter/Gauge/Histogram
+    # objects declared in routes/terminal.py and elsewhere). Without this the
+    # hand-rolled lines above would miss xcelsior_terminal_* and any other
+    # metric that uses the prometheus_client API directly.
+    try:
+        from prometheus_client import generate_latest, REGISTRY
+        prom_bytes = generate_latest(REGISTRY)
+        if prom_bytes:
+            lines.append("")
+            lines.append(prom_bytes.decode("utf-8").rstrip("\n"))
+    except Exception as e:
+        log.debug("prometheus_client registry export failed: %s", e)
+
     from starlette.responses import Response
     return Response(
         content="\n".join(lines) + "\n",
