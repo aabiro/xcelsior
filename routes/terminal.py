@@ -272,23 +272,46 @@ def _ensure_ssh_identity(ssh_key_path: str) -> None:
 _paramiko_host_keys_patched = False
 
 
-def _patch_paramiko_host_keys() -> None:
-    """Ensure paramiko's SSHClient auto-loads ~/.ssh/known_hosts on connect.
+def _patch_paramiko_host_keys() -> bool:
+    """Ensure paramiko's SSHClient auto-loads host keys on connect.
 
-    The Docker SDK (use_ssh_client=False) instantiates `paramiko.SSHClient`
-    without calling `load_system_host_keys()`, which causes
-    `SSHException: Server 'X' not found in known_hosts` even when we've
-    already pinned the host key via ssh-keyscan. We patch `connect` once
-    per process so every SDK-created client picks up the system file.
+    Why a monkey-patch?
+        The Docker SDK (``use_ssh_client=False``) instantiates
+        ``paramiko.SSHClient`` inside ``SSHHTTPAdapter._create_paramiko_client``
+        and gives callers no hook to supply a pre-configured client. Docker-py
+        7.1.0 *does* call ``load_system_host_keys()`` (sshconn.py L213), but
+        on hosts where the system file is empty / missing while
+        ``~/.ssh/known_hosts`` has been populated out-of-band (our ssh-keyscan
+        pinning), paramiko can still raise ``SSHException: not found in
+        known_hosts``. Belt-and-braces: we wrap ``connect`` so every SDK
+        client also explicitly loads ``~/.ssh/known_hosts`` before dialing.
+        Load-time idempotent \u2014 second call is a no-op.
+
+    Hardening (Phase 1.6):
+        * Every step is wrapped in try/except so a paramiko API change in a
+          future release degrades to a logged warning instead of crashing
+          module import.
+        * Returns ``True`` when the patch is live, ``False`` if the import
+          was unavailable or the target attribute couldn't be reassigned \u2014
+          callers can log this but must still function (direct SSH fallback).
+        * Never raises.
     """
     global _paramiko_host_keys_patched
     if _paramiko_host_keys_patched:
-        return
+        return True
     try:
         import paramiko  # type: ignore
-    except Exception:
-        return
-    _orig_connect = paramiko.SSHClient.connect
+    except Exception as e:
+        log.warning("TERMINAL paramiko unavailable \u2014 host-key patch skipped: %s", e)
+        return False
+    if not hasattr(paramiko, "SSHClient"):
+        log.warning("TERMINAL paramiko.SSHClient missing \u2014 host-key patch skipped")
+        return False
+    try:
+        _orig_connect = paramiko.SSHClient.connect
+    except Exception as e:
+        log.warning("TERMINAL paramiko.SSHClient.connect unavailable \u2014 patch skipped: %s", e)
+        return False
 
     def _patched_connect(self, *args, **kwargs):  # type: ignore[override]
         try:
@@ -303,8 +326,14 @@ def _patch_paramiko_host_keys() -> None:
             pass
         return _orig_connect(self, *args, **kwargs)
 
-    paramiko.SSHClient.connect = _patched_connect  # type: ignore[assignment]
+    try:
+        paramiko.SSHClient.connect = _patched_connect  # type: ignore[assignment]
+    except Exception as e:
+        log.warning("TERMINAL paramiko.SSHClient.connect not patchable: %s", e)
+        return False
     _paramiko_host_keys_patched = True
+    log.info("TERMINAL paramiko.SSHClient.connect patched for auto known_hosts load")
+    return True
 
 
 # -- Docker client pool --------------------------------------------------------
@@ -451,7 +480,11 @@ def _docker_client(
         # Build a fresh client. Prerequisites live on disk / global paramiko.
         _ensure_remote_host_key_pinned(host_ip)
         _ensure_ssh_identity(ssh_key_path)
-        _patch_paramiko_host_keys()
+        if not _patch_paramiko_host_keys():
+            log.warning(
+                "TERMINAL paramiko host-key patch not active \u2014 SSH to %s "
+                "may fail with 'not found in known_hosts'", host_ip,
+            )
         # paramiko-native transport (use_ssh_client=False). The subprocess-ssh
         # path breaks with BrokenPipeError during `docker system dial-stdio`.
         cl = docker.DockerClient(
