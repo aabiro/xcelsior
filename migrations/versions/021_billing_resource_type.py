@@ -22,17 +22,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "billing_cycles",
-        sa.Column("resource_type", sa.Text(), nullable=False, server_default="gpu"),
+    # Idempotent: db.py's CREATE TABLE IF NOT EXISTS may have already added
+    # this column on fresh installs before alembic runs. Use raw SQL with
+    # IF NOT EXISTS to be safe across both upgrade paths.
+    op.execute(
+        "ALTER TABLE billing_cycles "
+        "ADD COLUMN IF NOT EXISTS resource_type TEXT NOT NULL DEFAULT 'gpu'"
     )
     # Backfill existing rows based on the old convention
     op.execute("UPDATE billing_cycles SET resource_type = 'volume' WHERE tier = 'volume'")
     op.execute("UPDATE billing_cycles SET resource_type = 'inference' WHERE tier = 'inference'")
-    op.create_index(
-        "idx_billing_cycles_resource_type",
-        "billing_cycles",
-        ["resource_type"],
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_resource_type "
+        "ON billing_cycles (resource_type)"
     )
 
 

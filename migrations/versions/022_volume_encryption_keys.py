@@ -21,9 +21,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "volumes",
-        sa.Column("key_ciphertext", sa.Text(), nullable=False, server_default=""),
+    # Idempotent: db.py's CREATE TABLE IF NOT EXISTS may have already added
+    # this column on fresh installs before alembic runs.
+    op.execute(
+        "ALTER TABLE volumes "
+        "ADD COLUMN IF NOT EXISTS key_ciphertext TEXT NOT NULL DEFAULT ''"
     )
 
 
