@@ -278,9 +278,13 @@ def _docker_client(
 
     _ensure_remote_host_key_pinned(host_ip)
     _ensure_ssh_identity(ssh_key_path)
+    # Use paramiko-native SSH transport (use_ssh_client=False) — it reads
+    # ~/.ssh/config for IdentityFile and uses the pinned known_hosts directly.
+    # The subprocess-ssh path (use_ssh_client=True) breaks with BrokenPipeError
+    # when invoking `docker system dial-stdio` over a non-interactive shell.
     return docker.DockerClient(
         base_url=f"ssh://{ssh_user}@{host_ip}",
-        use_ssh_client=True,
+        use_ssh_client=False,
         timeout=_REMOTE_DOCKER_TIMEOUT_SEC,
         environment={"SSH_KEY_PATH": ssh_key_path},
     )
