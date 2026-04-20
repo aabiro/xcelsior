@@ -737,6 +737,20 @@ def process_queue_binpack(canada_only=None, province=None):
             assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
             # Reduce host's available VRAM for subsequent allocations (clamped)
             host["free_vram_gb"] = max(0, host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0))
+            # Lifecycle log — surface the match decision so users see "Assigned
+            # to host X" instead of a silent jump from queued → starting. Also
+            # gives admins a forensic trail for capacity planning.
+            try:
+                from routes.instances import push_job_log
+                push_job_log(
+                    job["job_id"],
+                    f"Assigned to host {host['host_id']} "
+                    f"({host.get('gpu_model', 'unknown GPU')}, "
+                    f"{host.get('free_vram_gb', '?')} GB free VRAM)",
+                    level="info",
+                )
+            except Exception:
+                pass
         else:
             skipped.append(job["job_id"])
 

@@ -49,10 +49,69 @@ from scheduler import (
 from db import UserStore
 from collections import defaultdict
 
-# Maximum concurrent active (queued/assigned/starting/running) instances per user.
+# Maximum concurrent active (queued/assigned/starting/running) instances per user
+# if the user has no explicit `users.max_concurrent_instances` override.
 MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES", "5"))
 
 _ACTIVE_STATUSES = {"queued", "assigned", "starting", "running"}
+
+
+def _get_user_concurrency_cap(customer_id: str) -> int:
+    """Return the active-instance cap for a user.
+
+    Hierarchy (first match wins):
+      1. `users.max_concurrent_instances` column if non-NULL — per-user override
+         set by admins (e.g. for power users or trial restrictions).
+      2. `MAX_CONCURRENT_INSTANCES` env default (5 if unset).
+
+    Future extension: tier-based defaults can slot in between 1 and 2 without
+    changing callers. Failures to look up the user fall through to the env
+    default — we never block job submission on a metadata query glitch.
+    """
+    if not customer_id:
+        return MAX_CONCURRENT_INSTANCES_PER_USER
+    try:
+        from db import _get_pg_pool
+        with _get_pg_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT max_concurrent_instances FROM users WHERE customer_id = %s LIMIT 1",
+                (customer_id,),
+            )
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return int(row[0])
+    except Exception as e:
+        log.debug("concurrency cap lookup failed for %s: %s", customer_id, e)
+    return MAX_CONCURRENT_INSTANCES_PER_USER
+
+
+def _count_active_instances(customer_id: str) -> int:
+    """Count a user's active (non-terminal) instances via a single SQL query.
+
+    Uses `payload->>'owner'` because the jobs table stores owner inside the
+    JSONB payload (thin-schema convention — see repo memory). `status = ANY(...)`
+    lets PostgreSQL use the status index for the set membership.
+    """
+    try:
+        from db import _get_pg_pool
+        with _get_pg_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM jobs "
+                "WHERE payload->>'owner' = %s AND status = ANY(%s)",
+                (customer_id, list(_ACTIVE_STATUSES)),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row else 0
+    except Exception as e:
+        # If the SQL path breaks, fall back to the Python filter so we never
+        # completely lose the gate. (Worst case: O(N) on all jobs once.)
+        log.warning("SQL active-instance count failed for %s: %s — falling back", customer_id, e)
+        return sum(
+            1 for j in list_jobs()
+            if j.get("owner") == customer_id and j.get("status") in _ACTIVE_STATUSES
+        )
+
+
 from routes.agent import _agent_lock, _agent_preempt
 
 router = APIRouter()
@@ -203,14 +262,14 @@ def api_submit_instance(j: JobIn, request: Request):
         _wallet_preflight(customer_id)
 
         # ── Per-user concurrent instance cap ───────────────────
-        active_count = sum(
-            1 for j2 in list_jobs()
-            if j2.get("owner") == customer_id and j2.get("status") in _ACTIVE_STATUSES
-        )
-        if active_count >= MAX_CONCURRENT_INSTANCES_PER_USER:
+        # Uses single SQL COUNT on payload->>'owner' (see _count_active_instances)
+        # instead of an O(N) Python filter over every job in the system.
+        user_cap = _get_user_concurrency_cap(customer_id)
+        active_count = _count_active_instances(customer_id)
+        if active_count >= user_cap:
             raise HTTPException(
                 status_code=429,
-                detail=f"Concurrent instance limit reached ({MAX_CONCURRENT_INSTANCES_PER_USER}). "
+                detail=f"Concurrent instance limit reached ({user_cap}). "
                        "Please stop an existing instance before launching a new one.",
             )
 
@@ -275,6 +334,19 @@ def api_submit_instance(j: JobIn, request: Request):
         job["submitted_by"] = user.get("email", "")
         job["customer_id"] = customer_id
         broadcast_sse(event_name, {"job_id": job["job_id"], "name": job["name"]})
+
+        # Lifecycle log — record the queued event so users and admin audit can
+        # see the job entered the system even if it never advances further.
+        try:
+            tier_label = j.tier or "any"
+            gpu_label = j.gpu_model or "any"
+            push_job_log(
+                job["job_id"],
+                f"Queued — waiting for GPU matching tier={tier_label}, gpu_model={gpu_label}",
+                level="info",
+            )
+        except Exception:
+            pass
 
         # Direct host assignment: assign + start immediately
         if target_host_id:
@@ -836,12 +908,43 @@ def api_terminate_instance(job_id: str, request: Request):
 # ── Helper: push_job_log ──
 
 def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float | None = None):
-    """Push a log line into the per-job log buffer (called from scheduler/worker)."""
-    entry = {"timestamp": timestamp or time.time(), "line": line, "message": line, "level": level}
+    """Push a log line into the per-job log buffer + persist to PG + SSE broadcast.
+
+    Three sinks, in this priority:
+      1. In-memory ring buffer (`_job_log_buffers`) — fastest path for
+         active terminal viewers; trimmed to `_JOB_LOG_MAX` entries per job.
+      2. PG `job_logs` table — durable; survives API restart and lets the
+         terminal WS replay history for jobs that haven't reached running yet.
+      3. SSE broadcast — pushes to any connected dashboard clients live.
+
+    Persisting to PG here (vs. only on worker-uploaded logs via routes/agent.py)
+    means lifecycle events like "Queued", "Assigned to host X", "Starting" are
+    preserved even if no one was connected at the moment they happened — which
+    matters most for short-lived jobs that fail before a user opens the UI.
+
+    The PG write is wrapped in a broad try/except: we never want a logging
+    failure to abort the caller (scheduler, worker claim handler, reaper, etc).
+    """
+    ts = timestamp or time.time()
+    entry = {"timestamp": ts, "line": line, "message": line, "level": level}
     buf = _job_log_buffers[job_id]
     buf.append(entry)
     if len(buf) > _JOB_LOG_MAX:
         _job_log_buffers[job_id] = buf[-_JOB_LOG_MAX:]
+
+    # Durable persist — best-effort, never raise. Small writes; the pool
+    # handles transient connectivity issues on its own.
+    try:
+        from db import _get_pg_pool
+        with _get_pg_pool().connection() as conn:
+            conn.execute(
+                "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
+                (job_id, ts, level, line),
+            )
+    except Exception:
+        # Intentionally silent — in-memory + SSE still delivered the message.
+        pass
+
     # Also broadcast to general SSE stream
     broadcast_sse("job_log", {"job_id": job_id, **entry})
 

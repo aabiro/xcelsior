@@ -568,7 +568,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             await websocket.close(code=ws_code)
             return
 
-        if instance.get("status") not in ("running", "starting"):
+        # Allow WS connections for any active (non-terminal) status. For
+        # queued/assigned/starting we stream lifecycle log lines while polling
+        # for the running transition — the UX is "you can open a terminal as
+        # soon as you click launch; it'll auto-connect when the container is
+        # up" rather than "connection refused until fully booted". Only
+        # terminal states (failed/completed/cancelled/terminated) get rejected.
+        if instance.get("status") not in ("running", "starting", "queued", "assigned"):
             await _send_error(
                 websocket,
                 f"Instance is '{instance.get('status', 'unknown')}', not running",
@@ -580,11 +586,20 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
         status_poll_max = 90
         status_poll_sec = 2.0
-        if instance.get("status") == "starting":
+        if instance.get("status") in ("queued", "assigned", "starting"):
+            # Extend the queued budget to ~8 min (240 polls × 2s) because a job
+            # can legitimately sit in queued while the scheduler looks for a
+            # matching host. Keep starting at the original 90×2s=3m budget by
+            # tracking how long we've been in the pre-running state separately
+            # from total wait time. (Workers will advance queued→assigned→
+            # starting→running; if we reach 8 min total without running, we
+            # drop — the reaper will also be cleaning these up on its cadence.)
+            status_poll_max = 240
+            prev_status = instance.get("status")
             for s_attempt in range(status_poll_max):
                 await _send_status(
                     websocket,
-                    f"Image pulling / container starting… ({s_attempt + 1})",
+                    f"{prev_status.capitalize()}… ({s_attempt + 1})",
                     retry=True,
                 )
                 await asyncio.sleep(status_poll_sec)
@@ -594,6 +609,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     await websocket.close(code=4004)
                     return
                 cur = instance.get("status", "")
+                if cur != prev_status:
+                    prev_status = cur
                 if cur == "running":
                     break
                 if cur in ("failed", "cancelled", "terminated"):
@@ -603,7 +620,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             else:
                 await _send_error(
                     websocket,
-                    "Instance still starting after 3 min — please retry",
+                    "Instance did not reach running state in time — please retry",
                     4410,
                 )
                 await websocket.close(code=4410)

@@ -189,16 +189,36 @@ export default function InstancesPage() {
     if (!pendingAction) return;
     const { id, action } = pendingAction;
     setPendingAction(null);
+    // Optimistic UI — immediately reflect the intended terminal/transitional
+    // state so the row visually responds to the click rather than waiting on
+    // the server round-trip (the terminate endpoint is 202 accepted + async
+    // SSH kill, so ground truth can lag several seconds). If the API call
+    // fails, `load()` in the catch path corrects the optimistic state.
+    const optimisticStatus: Record<typeof action, string> = {
+      stop: "stopping",
+      start: "starting",
+      restart: "starting",
+      terminate: "terminated",
+      cancel: "cancelled",
+    };
+    const prevInstances = instances;
+    setInstances((curr) =>
+      curr.map((inst) =>
+        inst.job_id === id ? { ...inst, status: optimisticStatus[action] } : inst,
+      ),
+    );
     try {
       switch (action) {
         case "stop":      await stopInstance(id);        toast.success("Instance stopping…"); break;
         case "start":     await startInstance(id);       toast.success("Instance starting…"); break;
         case "restart":   await restartInstance(id);     toast.success("Instance restarting…"); break;
-        case "terminate": await terminateInstance(id);   toast.success("Instance terminated"); break;
+        case "terminate": await terminateInstance(id);   toast.success("Instance terminating…"); break;
         case "cancel":    await api.cancelInstance(id);  toast.success("Instance cancelled"); break;
       }
       load();
     } catch (err) {
+      // Rollback optimistic state so the user sees the real status on failure
+      setInstances(prevInstances);
       toast.error(err instanceof Error ? err.message : `${action} failed`);
     }
   }
