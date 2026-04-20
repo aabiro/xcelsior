@@ -1841,7 +1841,7 @@ def run_job(job):
         if image_already_cached:
             log.info("Image %s already cached — skipping pull", image)
             _push_log_lines(job_id, [{"message": f"Image {image} (cached ✓)", "level": "info", "timestamp": time.time()}])
-            cache_record_usage(image)
+            cache_track_pull(image)
         else:
             cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
             log.info("Pulling image %s...", image)
