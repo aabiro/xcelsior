@@ -108,8 +108,9 @@ _SESSION_TIMEOUT_SEC: int = 14_400
 _IDLE_WARN_THRESHOLD_SEC: int = _SESSION_TIMEOUT_SEC - 300
 _RATE_LIMIT_BYTES_PER_SEC: int = 524_288
 _EXEC_READ_CHUNK: int = 4096
-_CONTAINER_POLL_INTERVAL_SEC: float = 2.0
-_CONTAINER_POLL_MAX_ATTEMPTS: int = 15
+_CONTAINER_POLL_INTERVAL_SEC: float = 1.0
+_CONTAINER_POLL_MAX_ATTEMPTS: int = 15  # kept for backwards compat (unused after refactor)
+_CONTAINER_POLL_BUDGET_SEC: float = 60.0  # total wait for container to appear
 _STDIN_RECV_TIMEOUT_SEC: float = 10.0
 _EXEC_READ_TIMEOUT_SEC: float = 30.0
 _EXEC_INSPECT_TIMEOUT_SEC: float = 2.0
@@ -267,6 +268,44 @@ def _ensure_ssh_identity(ssh_key_path: str) -> None:
             log.warning("TERMINAL _ensure_ssh_identity failed: %s", e)
 
 
+_paramiko_host_keys_patched = False
+
+
+def _patch_paramiko_host_keys() -> None:
+    """Ensure paramiko's SSHClient auto-loads ~/.ssh/known_hosts on connect.
+
+    The Docker SDK (use_ssh_client=False) instantiates `paramiko.SSHClient`
+    without calling `load_system_host_keys()`, which causes
+    `SSHException: Server 'X' not found in known_hosts` even when we've
+    already pinned the host key via ssh-keyscan. We patch `connect` once
+    per process so every SDK-created client picks up the system file.
+    """
+    global _paramiko_host_keys_patched
+    if _paramiko_host_keys_patched:
+        return
+    try:
+        import paramiko  # type: ignore
+    except Exception:
+        return
+    _orig_connect = paramiko.SSHClient.connect
+
+    def _patched_connect(self, *args, **kwargs):  # type: ignore[override]
+        try:
+            self.load_system_host_keys()
+        except Exception:
+            pass
+        try:
+            kh = os.path.expanduser("~/.ssh/known_hosts")
+            if os.path.isfile(kh):
+                self.load_host_keys(kh)
+        except Exception:
+            pass
+        return _orig_connect(self, *args, **kwargs)
+
+    paramiko.SSHClient.connect = _patched_connect  # type: ignore[assignment]
+    _paramiko_host_keys_patched = True
+
+
 def _docker_client(
     host_ip: str | None = None,
     ssh_user: str = SSH_USER,
@@ -278,6 +317,7 @@ def _docker_client(
 
     _ensure_remote_host_key_pinned(host_ip)
     _ensure_ssh_identity(ssh_key_path)
+    _patch_paramiko_host_keys()
     # Use paramiko-native SSH transport (use_ssh_client=False) — it reads
     # ~/.ssh/config for IdentityFile and uses the pinned known_hosts directly.
     # The subprocess-ssh path (use_ssh_client=True) breaks with BrokenPipeError
@@ -286,7 +326,6 @@ def _docker_client(
         base_url=f"ssh://{ssh_user}@{host_ip}",
         use_ssh_client=False,
         timeout=_REMOTE_DOCKER_TIMEOUT_SEC,
-        environment={"SSH_KEY_PATH": ssh_key_path},
     )
 
 
@@ -294,22 +333,34 @@ def _docker_client(
 
 def _container_exists(container_ref: str, host_ip: str | None = None) -> bool:
     """Return True when *container_ref* exists on the Docker daemon."""
+    return _container_probe(container_ref, host_ip)["found"]
+
+
+def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
+    """Probe the Docker daemon for *container_ref*.
+
+    Returns a dict with keys:
+        found  (bool)          — True iff the container exists
+        reason (str|None)      — "ok" | "not_found" | "unreachable"
+        error  (str|None)      — human-readable error detail (if any)
+    """
     cl = None
     try:
         cl = _docker_client(host_ip)
         cl.containers.get(container_ref)
-        return True
+        return {"found": True, "reason": "ok", "error": None}
     except NotFound:
-        return False
+        return {"found": False, "reason": "not_found", "error": None}
     except Exception as e:
-        # Log unexpected errors (SSH/paramiko/timeout) so we can see why the
-        # container probe is failing rather than silently treating them as
-        # "container missing" which causes the 30s "Container starting…" stall.
         log.warning(
-            "TERMINAL _container_exists(%s, host=%s) failed: %s: %s",
+            "TERMINAL _container_probe(%s, host=%s) unreachable: %s: %s",
             container_ref, host_ip, type(e).__name__, e,
         )
-        return False
+        return {
+            "found": False,
+            "reason": "unreachable",
+            "error": f"{type(e).__name__}: {e}",
+        }
     finally:
         if cl is not None:
             try:
@@ -533,10 +584,21 @@ def _container_identity_matches(
 def _ensure_remote_host_key_pinned(host_ip: str) -> None:
     if not host_ip or not _REQUIRE_PINNED_HOST_KEYS:
         return
-    if not os.path.exists(_KNOWN_HOSTS_PATH):
-        # Create the known_hosts file if it doesn't exist
-        os.makedirs(os.path.dirname(_KNOWN_HOSTS_PATH), exist_ok=True)
-        open(_KNOWN_HOSTS_PATH, "a").close()
+    # Paramiko (used by docker SDK with use_ssh_client=False) only reads the
+    # user's ~/.ssh/known_hosts via load_system_host_keys(). Maintain BOTH the
+    # primary managed path and the home-dir path so subprocess-ssh and
+    # paramiko transports stay in sync.
+    targets = [_KNOWN_HOSTS_PATH]
+    home_kh = os.path.expanduser("~/.ssh/known_hosts")
+    if home_kh not in targets:
+        targets.append(home_kh)
+    for path in targets:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if not os.path.exists(path):
+                open(path, "a").close()
+        except OSError:
+            continue
     try:
         result = subprocess.run(
             ["ssh-keygen", "-F", host_ip, "-f", _KNOWN_HOSTS_PATH],
@@ -548,7 +610,11 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
         raise DockerException("ssh-keygen is required for remote host key verification") from exc
     except subprocess.TimeoutExpired as exc:
         raise DockerException(f"Timed out verifying pinned SSH host key for {host_ip}") from exc
-    if result.returncode != 0 or not result.stdout.strip():
+
+    pinned_key_block: str | None = None
+    if result.returncode == 0 and result.stdout.strip():
+        pinned_key_block = result.stdout
+    else:
         # TOFU: auto-scan and pin the key on first encounter (Tailscale already
         # authenticates both endpoints via WireGuard, so this is safe).
         try:
@@ -559,8 +625,7 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
                 timeout=10,
             )
             if scan.returncode == 0 and scan.stdout.strip():
-                with open(_KNOWN_HOSTS_PATH, "a") as f:
-                    f.write(scan.stdout)
+                pinned_key_block = scan.stdout
                 log.info("TERMINAL: auto-pinned host key for %s", host_ip)
             else:
                 raise DockerException(
@@ -570,6 +635,22 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
             raise DockerException(f"Timed out scanning SSH host key for {host_ip}")
         except OSError as exc:
             raise DockerException(f"Failed to pin host key for {host_ip}: {exc}")
+
+    # Mirror the pinned key into every target that doesn't already have it.
+    if pinned_key_block:
+        for path in targets:
+            try:
+                # Skip if already present
+                check = subprocess.run(
+                    ["ssh-keygen", "-F", host_ip, "-f", path],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if check.returncode == 0 and check.stdout.strip():
+                    continue
+                with open(path, "a") as f:
+                    f.write(pinned_key_block)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                log.warning("TERMINAL: could not mirror host key to %s: %s", path, exc)
 
 
 def _check_terminal_access(user: dict, instance: dict | None, *, instance_id: str) -> None:
@@ -842,30 +923,53 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 _conn_errors.labels(reason="host_unreachable").inc()  # type: ignore[attr-defined]
                 return
 
-        for attempt in range(_CONTAINER_POLL_MAX_ATTEMPTS):
-            exists = await loop.run_in_executor(
+        # Attempt to attach to the container. First call is immediate — if the
+        # docker daemon is reachable and the container is present we proceed
+        # right away (no artificial 2 s delay). We only keep polling while the
+        # container is genuinely not yet created; any non-NotFound error
+        # (ssh/paramiko/timeout/auth) surfaces immediately with the real reason.
+        attach_deadline = time.monotonic() + _CONTAINER_POLL_BUDGET_SEC
+        attempt = 0
+        last_probe_error: str | None = None
+        while True:
+            attempt += 1
+            probe_result = await loop.run_in_executor(
                 None,
-                _container_exists,
+                _container_probe,
                 container_ref,
                 host_ip if is_remote else None,
             )
-            if exists:
+            if probe_result["found"]:
                 break
+            last_probe_error = probe_result.get("error")
+            # Non-NotFound failure → fail immediately with actionable detail.
+            if last_probe_error and probe_result.get("reason") != "not_found":
+                await _send_error(
+                    websocket,
+                    f"Cannot reach docker daemon on host: {last_probe_error}",
+                    4410,
+                )
+                await websocket.close(code=4410)
+                _conn_errors.labels(reason="docker_unreachable").inc()  # type: ignore[attr-defined]
+                return
+            # Genuine "container not yet created" — wait briefly and retry until budget.
+            if time.monotonic() >= attach_deadline:
+                await _send_error(
+                    websocket,
+                    f"Container {container_ref} was not created within "
+                    f"{_CONTAINER_POLL_BUDGET_SEC:.0f} s — the instance may have "
+                    "failed to start. Check the instance logs for details.",
+                    4410,
+                )
+                await websocket.close(code=4410)
+                _conn_errors.labels(reason="container_not_found").inc()  # type: ignore[attr-defined]
+                return
             await _send_status(
                 websocket,
-                f"Container starting… ({attempt + 1}/{_CONTAINER_POLL_MAX_ATTEMPTS})",
+                f"Waiting for container {container_ref}…",
                 retry=True,
             )
             await asyncio.sleep(_CONTAINER_POLL_INTERVAL_SEC)
-        else:
-            await _send_error(
-                websocket,
-                "Container did not start within 30 s — please retry in a moment",
-                4410,
-            )
-            await websocket.close(code=4410)
-            _conn_errors.labels(reason="container_not_found").inc()  # type: ignore[attr-defined]
-            return
 
         has_tmux = await loop.run_in_executor(
             None,
