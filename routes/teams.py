@@ -5,7 +5,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     _require_user_grant,
@@ -97,21 +97,21 @@ def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str |
 # ── Model: CreateTeamRequest ──
 
 class CreateTeamRequest(BaseModel):
-    name: str
-    plan: str = "free"  # free | pro | enterprise
+    name: str = Field(min_length=1, max_length=128)
+    plan: str = Field(default="free", pattern="^(free|pro|enterprise)$")
 
 
 # ── Model: AddTeamMemberRequest ──
 
 class AddTeamMemberRequest(BaseModel):
-    email: str
-    role: str = "member"  # admin | member | viewer
+    email: str = Field(min_length=3, max_length=254)  # RFC 5321 max
+    role: str = Field(default="member", pattern="^(admin|member|viewer)$")
 
 
 # ── Model: UpdateTeamMemberRoleRequest ──
 
 class UpdateTeamMemberRoleRequest(BaseModel):
-    role: str  # admin | member | viewer
+    role: str = Field(pattern="^(admin|member|viewer)$")
 
 @router.post("/api/teams", tags=["Teams"])
 def api_create_team(body: CreateTeamRequest, request: Request):

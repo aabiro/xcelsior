@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     XCELSIOR_ENV,
@@ -126,16 +126,16 @@ def api_get_wallet(customer_id: str):
 # ── Model: DepositRequest ──
 
 class DepositRequest(BaseModel):
-    amount_cad: float
-    description: str = "Credit deposit"
+    amount_cad: float = Field(gt=0, le=10000)
+    description: str = Field(default="Credit deposit", max_length=500)
 
 
 # ── Model: PaymentIntentRequest ──
 
 class PaymentIntentRequest(BaseModel):
-    customer_id: str
-    amount_cad: float
-    description: str = "Compute credits"
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
+    description: str = Field(default="Compute credits", max_length=500)
 
 @router.post("/api/billing/payment-intent", tags=["Billing"])
 def api_create_payment_intent(req: PaymentIntentRequest):
@@ -176,13 +176,13 @@ def _paypal_access_token() -> str:
 
 
 class PayPalCreateOrderRequest(BaseModel):
-    customer_id: str
-    amount_cad: float
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
 
 
 class PayPalCaptureRequest(BaseModel):
-    customer_id: str
-    order_id: str
+    customer_id: str = Field(min_length=1, max_length=128)
+    order_id: str = Field(min_length=1, max_length=128)
 
 
 @router.get("/api/billing/paypal/enabled", tags=["Billing"])
@@ -582,8 +582,8 @@ def api_process_refund(req: RefundRequest):
 # ── Model: CryptoDepositRequest ──
 
 class CryptoDepositRequest(BaseModel):
-    customer_id: str
-    amount_cad: float
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
 
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
 def api_crypto_deposit(req: CryptoDepositRequest):
@@ -654,8 +654,8 @@ def api_crypto_enabled():
 
 
 class LnDepositRequest(BaseModel):
-    customer_id: str
-    amount_cad: float
+    customer_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
 
 
 @router.get("/api/billing/lightning/enabled", tags=["Billing"])
