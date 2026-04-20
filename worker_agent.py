@@ -1986,12 +1986,8 @@ def run_job(job):
             ])
 
         # 4b. Inject user's SSH keys into the container (best-effort)
-        _inject_ssh_keys(job_id, container_name)
-        if is_interactive:
-            _push_log_lines(job_id, [
-                {"message": "SSH keys injected — ready for connections",
-                 "level": "info", "timestamp": time.time()},
-            ])
+        #     _inject_ssh_keys pushes its own user-visible log lines for each phase.
+        _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
         # 5. Apply egress rules (best-effort)
         try:
@@ -2401,27 +2397,45 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
             time.sleep(1)
 
 
-def _inject_ssh_keys(job_id: str, container_name: str):
+def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False):
     """Fetch the job owner's SSH public keys from the API and inject into the container.
 
     Sets up /root/.ssh/authorized_keys and starts sshd if available.
-    Best-effort: failures are logged but don't block the job.
+    Best-effort: failures are logged but don't block the job. For interactive
+    jobs, pushes user-visible log lines at each phase so the UI log stream
+    doesn't silently end at "Setting up SSH…".
     """
+    def _note(msg: str, level: str = "info"):
+        """Push a user-visible log line (only for interactive jobs)."""
+        if interactive:
+            try:
+                _push_log_lines(job_id, [{"message": msg, "level": level, "timestamp": time.time()}])
+            except Exception:
+                pass
+
+    keys: list[str] = []
     try:
         resp = requests.get(
             _api_url(f"/agent/ssh-keys/{job_id}"),
             headers=_api_headers(),
             timeout=10,
         )
-        if resp.status_code != 200:
+        if resp.status_code == 200:
+            keys = resp.json().get("keys", []) or []
+        else:
             log.debug("SSH keys endpoint returned %d for job %s", resp.status_code, job_id)
-            return
-        keys = resp.json().get("keys", [])
-        if not keys:
-            log.debug("No SSH keys found for job %s owner", job_id)
-            return
+    except Exception as e:
+        log.warning("SSH key fetch failed for job %s: %s", job_id, e)
 
-        # Create .ssh directory
+    if not keys:
+        _note(
+            "No SSH public keys on file — web terminal still works. Add keys at https://xcelsior.ca/account to enable direct SSH.",
+            level="warning",
+        )
+        log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
+    try:
+
+        # Create .ssh directory (always — sshd needs it even with no keys)
         subprocess.run(
             ["docker", "exec", container_name, "mkdir", "-p", "/root/.ssh"],
             capture_output=True, timeout=5,
@@ -2431,16 +2445,17 @@ def _inject_ssh_keys(job_id: str, container_name: str):
             capture_output=True, timeout=5,
         )
 
-        # Write authorized_keys
-        authorized_keys = "\n".join(keys) + "\n"
-        subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c",
-             f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
-             "chmod 600 /root/.ssh/authorized_keys"],
-            capture_output=True, timeout=5,
-        )
-
-        log.info("Injected %d SSH key(s) into container %s for job %s", len(keys), container_name, job_id)
+        if keys:
+            # Write authorized_keys
+            authorized_keys = "\n".join(keys) + "\n"
+            subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c",
+                 f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
+                 "chmod 600 /root/.ssh/authorized_keys"],
+                capture_output=True, timeout=5,
+            )
+            log.info("Injected %d SSH key(s) into container %s for job %s", len(keys), container_name, job_id)
+            _note(f"Injected {len(keys)} SSH key(s)")
 
         # Try to start sshd if available (best-effort)
         sshd_check = subprocess.run(
@@ -2546,13 +2561,18 @@ def _inject_ssh_keys(job_id: str, container_name: str):
             )
             if sshd_start.returncode == 0:
                 log.info("sshd started in container %s", container_name)
+                _note("SSH daemon ready — connections accepted" if keys else "SSH daemon started (add keys to connect)")
             else:
-                log.debug("sshd start failed: %s", sshd_start.stderr.strip())
+                err = sshd_start.stderr.decode(errors="replace").strip() if isinstance(sshd_start.stderr, bytes) else (sshd_start.stderr or "").strip()
+                log.warning("sshd start failed in %s: %s", container_name, err)
+                _note(f"SSH daemon failed to start: {err[:200]}", level="warning")
         else:
-            log.debug("sshd not found in container %s — SSH keys injected but no daemon", container_name)
+            log.info("sshd not found in image — web terminal only (container %s)", container_name)
+            _note("Image has no sshd — use the web terminal above for shell access")
 
     except Exception as e:
         log.warning("SSH key injection failed for job %s: %s", job_id, e)
+        _note(f"SSH setup encountered an error: {e}", level="warning")
 
 
 def _shell_quote(s: str) -> str:
