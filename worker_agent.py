@@ -1923,7 +1923,7 @@ def run_job(job):
             report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
             log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
             _push_log_lines(job_id, [
-                {"message": f"Interactive instance ready — SSH: root@{HOST_IP or 'host'}:{host_port}",
+                {"message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
                  "level": "info", "timestamp": time.time()},
             ])
 
