@@ -28,8 +28,8 @@ log = logging.getLogger("xcelsior.stripe_connect_v2")
 router = APIRouter(tags=["Stripe Connect V2"])
 
 # ── Environment / Configuration ───────────────────────────────────────
-# PLACEHOLDER: Set your Stripe secret key in .env or environment.
-# Must start with "sk_test_" or "sk_live_".
+# Stripe secret key — must start with "sk_test_" or "sk_live_".
+# Set via .env or environment. Missing key → routes return 503.
 STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
 if not STRIPE_SECRET_KEY:
     log.warning(
@@ -37,8 +37,9 @@ if not STRIPE_SECRET_KEY:
         "Stripe Connect V2 routes will return errors until a valid key is provided."
     )
 
-# PLACEHOLDER: Set your Stripe webhook secret for thin events.
-# Obtain this from the Stripe Dashboard → Developers → Webhooks.
+# Stripe webhook secret for thin events. Obtain from
+# Stripe Dashboard → Developers → Webhooks. Missing secret → webhook
+# signature verification will fail (webhooks will be rejected).
 STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
 if not STRIPE_WEBHOOK_SECRET:
     log.warning(
