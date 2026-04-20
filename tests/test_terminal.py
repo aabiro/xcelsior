@@ -437,8 +437,8 @@ class TestConstants:
         assert term_mod._RATE_LIMIT_BYTES_PER_SEC == 524_288  # 512 KB/s
 
     def test_container_poll_total(self):
-        total = term_mod._CONTAINER_POLL_INTERVAL_SEC * term_mod._CONTAINER_POLL_MAX_ATTEMPTS
-        assert total == 30.0
+        # Replaced fixed-attempt polling with a wall-clock budget.
+        assert term_mod._CONTAINER_POLL_BUDGET_SEC == 60.0
 
 
 # ===============================================================================
