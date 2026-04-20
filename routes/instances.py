@@ -171,6 +171,7 @@ class StatusUpdate(BaseModel):
     container_name: str | None = None
     ssh_port: int | None = None
     interactive: bool | None = None
+    error_message: str | None = None
 
 
 def _wallet_preflight(customer_id: str):
@@ -527,9 +528,14 @@ def api_update_instance(job_id: str, update: StatusUpdate):
             extras["ssh_port"] = update.ssh_port
         if update.interactive is not None:
             extras["interactive"] = update.interactive
+        if update.error_message:
+            extras["error_message"] = update.error_message[:500]
         if extras:
             from scheduler import _set_job_fields
             _set_job_fields(job_id, **extras)
+        # Push error_message as a log line so it appears in the UI log viewer
+        if update.error_message and update.status == "failed":
+            push_job_log(job_id, f"Instance failed: {update.error_message[:500]}", "error")
         broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
         return {"ok": True, "job_id": job_id, "status": update.status}
 
@@ -630,6 +636,15 @@ def api_requeue_instance(job_id: str, request: Request):
             status_code=400,
             detail=f"Could not requeue job {job_id} (max retries exceeded or not found)",
         )
+    # Clear stale logs from previous attempt so the UI starts fresh
+    _job_log_buffers.pop(job_id, None)
+    try:
+        from db import _get_pg_pool
+        with _get_pg_pool().connection() as conn:
+            conn.execute("DELETE FROM job_logs WHERE job_id = %s", (job_id,))
+    except Exception:
+        pass  # non-critical — logs will be overwritten anyway
+    push_job_log(job_id, "Requeued — waiting for GPU assignment", "info")
     return {"ok": True, "instance": result}
 
 
@@ -919,14 +934,16 @@ def api_terminate_instance(job_id: str, request: Request):
 
 # ── Helper: push_job_log ──
 
-def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float | None = None):
-    """Push a log line into the per-job log buffer + persist to PG + SSE broadcast.
+def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float | None = None,
+                 *, persist: bool = True):
+    """Push a log line into the per-job log buffer + optionally persist to PG + SSE broadcast.
 
     Three sinks, in this priority:
       1. In-memory ring buffer (`_job_log_buffers`) — fastest path for
          active terminal viewers; trimmed to `_JOB_LOG_MAX` entries per job.
       2. PG `job_logs` table — durable; survives API restart and lets the
          terminal WS replay history for jobs that haven't reached running yet.
+         Skipped when *persist=False* (caller already wrote to PG).
       3. SSE broadcast — pushes to any connected dashboard clients live.
 
     Persisting to PG here (vs. only on worker-uploaded logs via routes/agent.py)
@@ -944,18 +961,19 @@ def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float |
     if len(buf) > _JOB_LOG_MAX:
         _job_log_buffers[job_id] = buf[-_JOB_LOG_MAX:]
 
-    # Durable persist — best-effort, never raise. Small writes; the pool
-    # handles transient connectivity issues on its own.
-    try:
-        from db import _get_pg_pool
-        with _get_pg_pool().connection() as conn:
-            conn.execute(
-                "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
-                (job_id, ts, level, line),
-            )
-    except Exception:
-        # Intentionally silent — in-memory + SSE still delivered the message.
-        pass
+    # Durable persist — best-effort, never raise. Skipped when caller
+    # already wrote to PG (persist=False) to avoid duplicate rows.
+    if persist:
+        try:
+            from db import _get_pg_pool
+            with _get_pg_pool().connection() as conn:
+                conn.execute(
+                    "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
+                    (job_id, ts, level, line),
+                )
+        except Exception:
+            # Intentionally silent — in-memory + SSE still delivered the message.
+            pass
 
     # Also broadcast to general SSE stream
     broadcast_sse("job_log", {"job_id": job_id, **entry})

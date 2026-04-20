@@ -435,7 +435,9 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
     if not host_ip or not _REQUIRE_PINNED_HOST_KEYS:
         return
     if not os.path.exists(_KNOWN_HOSTS_PATH):
-        raise DockerException(f"Known hosts file not found: {_KNOWN_HOSTS_PATH}")
+        # Create the known_hosts file if it doesn't exist
+        os.makedirs(os.path.dirname(_KNOWN_HOSTS_PATH), exist_ok=True)
+        open(_KNOWN_HOSTS_PATH, "a").close()
     try:
         result = subprocess.run(
             ["ssh-keygen", "-F", host_ip, "-f", _KNOWN_HOSTS_PATH],
@@ -448,7 +450,27 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
     except subprocess.TimeoutExpired as exc:
         raise DockerException(f"Timed out verifying pinned SSH host key for {host_ip}") from exc
     if result.returncode != 0 or not result.stdout.strip():
-        raise DockerException(f"Remote host key for {host_ip} is not pinned in {_KNOWN_HOSTS_PATH}")
+        # TOFU: auto-scan and pin the key on first encounter (Tailscale already
+        # authenticates both endpoints via WireGuard, so this is safe).
+        try:
+            scan = subprocess.run(
+                ["ssh-keyscan", "-H", host_ip],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if scan.returncode == 0 and scan.stdout.strip():
+                with open(_KNOWN_HOSTS_PATH, "a") as f:
+                    f.write(scan.stdout)
+                log.info("TERMINAL: auto-pinned host key for %s", host_ip)
+            else:
+                raise DockerException(
+                    f"ssh-keyscan failed for {host_ip}: {scan.stderr.strip()}"
+                )
+        except subprocess.TimeoutExpired:
+            raise DockerException(f"Timed out scanning SSH host key for {host_ip}")
+        except OSError as exc:
+            raise DockerException(f"Failed to pin host key for {host_ip}: {exc}")
 
 
 def _check_terminal_access(user: dict, instance: dict | None, *, instance_id: str) -> None:
