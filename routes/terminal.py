@@ -156,9 +156,38 @@ _REQUIRE_PINNED_HOST_KEYS: bool = os.environ.get(
     "XCELSIOR_TERMINAL_REQUIRE_PINNED_HOST_KEYS",
     "true" if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"prod", "production"} else "false",
 ).lower() not in {"0", "false", "no", "off"}
-_KNOWN_HOSTS_PATH: str = os.path.expanduser(
-    os.environ.get("XCELSIOR_TERMINAL_KNOWN_HOSTS_PATH", "~/.ssh/known_hosts")
-)
+def _resolve_known_hosts_path() -> str:
+    """Find or create a writable known_hosts file. Tries in order:
+    1. Explicit env override
+    2. /data/.ssh/known_hosts (persistent volume)
+    3. ~/.ssh/known_hosts (home dir)
+    4. /tmp/.ssh/known_hosts (always writable fallback)
+    """
+    explicit = os.environ.get("XCELSIOR_TERMINAL_KNOWN_HOSTS_PATH")
+    if explicit:
+        candidates = [explicit]
+    else:
+        candidates = [
+            "/data/.ssh/known_hosts",
+            os.path.expanduser("~/.ssh/known_hosts"),
+            "/tmp/.ssh/known_hosts",
+        ]
+    for path in candidates:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            # Test write access
+            with open(path, "a") as f:
+                f.flush()
+            return path
+        except OSError:
+            continue
+    # Last resort: /tmp is always writable
+    fallback = "/tmp/.ssh/known_hosts"
+    os.makedirs("/tmp/.ssh", exist_ok=True)
+    open(fallback, "a").close()
+    return fallback
+
+_KNOWN_HOSTS_PATH: str = _resolve_known_hosts_path()
 
 _HOST_IP_RE: _re.Pattern[str] = _re.compile(r"\A[a-zA-Z0-9.\-]+\Z")
 _CONTAINER_REF_RE: _re.Pattern[str] = _re.compile(

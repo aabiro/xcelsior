@@ -142,7 +142,6 @@ x-api-environment: &api-env
 x-api-volumes: &api-volumes
   - xcelsior-data:/data
   - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
-  - ${HOME}/.ssh/known_hosts:/root/.ssh/known_hosts:ro
 
 services:
   api:
