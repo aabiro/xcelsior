@@ -195,14 +195,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Logo */}
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
-          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 52 : undefined }}>
+          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 40 : undefined }}>
             {/* Rounded icon — visible when collapsed */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/xcelsior-logo-rounded.svg"
               alt="Xcelsior"
               className={cn(
-                "h-[52px] w-[52px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
+                "h-[40px] w-[40px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
                 collapsed && !mobile
                   ? "opacity-100 scale-100 -translate-y-1/2"
                   : "opacity-0 scale-75 -translate-y-1/2 pointer-events-none"
@@ -210,7 +210,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             />
             <div
               className={cn(
-                "flex items-center gap-1.5 transition-all duration-300 ease-in-out",
+                "flex items-center gap-1 transition-all duration-300 ease-in-out",
                 collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
               )}
             >

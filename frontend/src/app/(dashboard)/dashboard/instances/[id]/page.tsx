@@ -28,6 +28,7 @@ const WebTerminal = dynamic(
   { ssr: false },
 );
 
+const SSH_HOST = process.env.NEXT_PUBLIC_SSH_HOST || "connect.xcelsior.ca";
 const STATUS_STEPS = ["queued", "assigned", "starting", "running", "completed"] as const;
 
 function formatUptime(seconds: number): string {
@@ -669,10 +670,10 @@ export default function InstanceDetailPage() {
               <Globe className="h-4 w-4 text-ice-blue shrink-0" />
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="text-xs text-text-muted shrink-0">SSH:</span>
-                <code className="text-xs font-mono text-ice-blue select-all truncate">ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}</code>
+                <code className="text-xs font-mono text-ice-blue select-all truncate">ssh root@{SSH_HOST} -p {instance.ssh_port || 22}</code>
               </div>
               <button
-                onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied SSH command"); }}
+                onClick={() => { navigator.clipboard.writeText(`ssh root@${SSH_HOST} -p ${instance.ssh_port || 22}`); toast.success("Copied SSH command"); }}
                 className="text-text-muted hover:text-ice-blue transition-colors shrink-0"
                 title="Copy SSH command"
               >
@@ -779,10 +780,10 @@ export default function InstanceDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-sm font-mono text-ice-blue bg-background rounded px-2.5 py-2 select-all border border-border">
-                      ssh root@connect.xcelsior.ca -p {instance.ssh_port || 22}
+                      ssh root@{SSH_HOST} -p {instance.ssh_port || 22}
                     </code>
                     <button
-                      onClick={() => { navigator.clipboard.writeText(`ssh root@connect.xcelsior.ca -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
+                      onClick={() => { navigator.clipboard.writeText(`ssh root@${SSH_HOST} -p ${instance.ssh_port || 22}`); toast.success("Copied"); }}
                       className="text-text-muted hover:text-text-primary transition-colors shrink-0"
                       title="Copy"
                     >

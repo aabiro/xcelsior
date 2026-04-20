@@ -633,7 +633,10 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 /* ── Install Worker Section (renders inside Dialog) ──────────────── */
 
-const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at xcelsior.ca. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
+const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
+
+const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
 
 ## Option A: SDK + AI Onboarding Wizard (Recommended)
 
@@ -662,7 +665,7 @@ xcelsior earnings --period 30d                   # Earnings summary
 ### 1. Install worker agent
 
 \`\`\`bash
-curl -fsSL https://xcelsior.ca/install.sh | bash
+curl -fsSL ${APP_URL}/install.sh | bash
 \`\`\`
 
 ### 2. Create environment file
@@ -671,7 +674,7 @@ Create \`~/.xcelsior/worker.env\`:
 
 \`\`\`bash
 XCELSIOR_HOST_ID=<your-host-id>            # From dashboard after registering
-XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
+XCELSIOR_SCHEDULER_URL=${APP_URL}
 # Choose one auth method below. If both are set, the worker prefers OAuth.
 XCELSIOR_API_TOKEN=<your-api-token>        # Settings → API & SSH
 XCELSIOR_OAUTH_CLIENT_ID=<your-client-id>  # Settings → API & SSH
@@ -714,10 +717,10 @@ journalctl -u xcelsior-worker -f
 \`\`\`
 
 ## Notes
-- Register your host first at https://xcelsior.ca/dashboard/hosts → "Register Host" (the AI Onboarding Wizard handles this automatically).
+- Register your host first at ${APP_URL}/dashboard/hosts → "Register Host" (the AI Onboarding Wizard handles this automatically).
 - \`nvidia-smi\` not found → \`sudo apt install nvidia-driver-535\`
 - Docker permission denied → \`sudo usermod -aG docker $USER\`
-- Can't connect → check firewall allows outbound HTTPS to xcelsior.ca:443
+- Can't connect → check firewall allows outbound HTTPS to ${APP_HOST}:443
 - Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
 
 function CodeSnippet({
@@ -923,7 +926,7 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
         "Click Install Worker above for setup instructions",
         "The agent runs as a background process and sends heartbeats every 30s",
         "Make sure Docker is installed and your user is in the docker group",
-        "Allow outbound HTTPS to xcelsior.ca:443 through your firewall",
+        `Allow outbound HTTPS to ${APP_HOST}:443 through your firewall`,
         "Once running, your host status will change to 'active' automatically",
       ],
       cta: { label: "Install Worker", action: "install" },
@@ -1202,10 +1205,10 @@ xcelsior earnings --period 30d`;
 /* ── Manual Quickstart View ──────────────────────────────────────── */
 
 function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const installCmd = `curl -fsSL https://xcelsior.ca/install.sh | bash`;
+  const installCmd = `curl -fsSL ${APP_URL}/install.sh | bash`;
 
   const envTemplate = `XCELSIOR_HOST_ID=<your-host-id>
-XCELSIOR_SCHEDULER_URL=https://xcelsior.ca
+XCELSIOR_SCHEDULER_URL=${APP_URL}
 # Choose one auth method below. If both are set, the worker prefers OAuth.
 XCELSIOR_API_TOKEN=<your-api-token>
 XCELSIOR_OAUTH_CLIENT_ID=<your-client-id>

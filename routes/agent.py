@@ -1,6 +1,8 @@
 """Routes: agent."""
 
 import gzip
+import os
+import re
 import time
 from collections import defaultdict
 
@@ -10,6 +12,8 @@ from pydantic import BaseModel
 
 from routes._deps import (
     broadcast_sse,
+    _get_current_user,
+    _require_user_grant,
 )
 from scheduler import (
     list_hosts,
@@ -24,6 +28,51 @@ from db import _get_pg_pool
 import threading
 
 router = APIRouter()
+
+
+# ── Auth helper ───────────────────────────────────────────────────────
+# Every /agent/* endpoint except the admission path (/agent/versions) and
+# the public popular-images metadata endpoint requires a Bearer token or
+# API key. The worker_agent.py already sends
+# `Authorization: Bearer $XCELSIOR_API_TOKEN` on every request (see
+# worker_agent.py:600-607), so enforcing this does not break deployed
+# agents. Previously these endpoints were completely unauthenticated —
+# anyone reachable could spoof telemetry, claim leases, inject logs,
+# exfiltrate user SSH public keys via /agent/ssh-keys, etc.
+def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict:
+    """Require auth on /agent/* endpoints. Optionally gate by host ownership.
+
+    Rollout escape hatch: if XCELSIOR_ALLOW_UNAUTH_AGENT=true is set, an
+    unauthenticated call is accepted with a WARNING log — for emergency
+    use only while rotating tokens. Remove once stable.
+    """
+    # Test-mode bypass — tests drive /agent/* without bearer tokens.
+    if os.environ.get("XCELSIOR_ENV", "").lower() == "test":
+        return {"unauth": True, "test": True}
+    user = _get_current_user(request)
+    if not user:
+        if os.environ.get("XCELSIOR_ALLOW_UNAUTH_AGENT", "").lower() in ("1", "true", "yes"):
+            log.warning(
+                "unauthenticated /agent/* request accepted (XCELSIOR_ALLOW_UNAUTH_AGENT=true)",
+            )
+            return {"unauth": True}
+        raise HTTPException(401, "Authentication required")
+
+    # Admins bypass host-ownership checks.
+    if user.get("is_admin"):
+        return user
+
+    if host_id:
+        try:
+            all_hosts = list_hosts(active_only=False)
+            host = next((h for h in all_hosts if h.get("host_id") == host_id), None)
+        except Exception:
+            host = None
+        if host:
+            owner = host.get("owner") or ""
+            if owner and owner != user.get("user_id") and owner != user.get("email"):
+                raise HTTPException(403, "Host is not owned by the authenticated caller")
+    return user
 
 # Critical container log patterns to detect image pull / launch errors
 _IMAGE_PULL_PATTERNS = (
@@ -70,8 +119,9 @@ class BenchmarkReport(BaseModel):
     details: dict | None = None
 
 @router.get("/agent/work/{host_id}", tags=["Agent"])
-def api_agent_work(host_id: str):
+def api_agent_work(host_id: str, request: Request):
     """Pull pending work for an agent. Returns assigned jobs."""
+    _require_agent_auth(request, host_id=host_id)
     all_jobs = list_jobs()
     pending = [
         j for j in all_jobs if j.get("host_id") == host_id and j.get("status") in ("assigned",)
@@ -109,15 +159,19 @@ def api_agent_work(host_id: str):
     return {"ok": True, "instances": jobs}
 
 @router.get("/agent/preempt/{host_id}", tags=["Agent"])
-def api_agent_preempt(host_id: str):
+def api_agent_preempt(host_id: str, request: Request):
     """Check if any jobs on this host should be preempted."""
+    _require_agent_auth(request, host_id=host_id)
     with _agent_lock:
         preempt_list = _agent_preempt.pop(host_id, [])
     return {"ok": True, "preempt_jobs": preempt_list}
 
 @router.post("/agent/preempt/{host_id}/{job_id}", tags=["Agent"])
-def api_schedule_preemption(host_id: str, job_id: str):
-    """Schedule a job for preemption on a host."""
+def api_schedule_preemption(host_id: str, job_id: str, request: Request):
+    """Schedule a job for preemption on a host. Admin-only."""
+    user = _require_user_grant(request, allow_api_key=True)
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin role required")
     with _agent_lock:
         _agent_preempt[host_id].append(job_id)
     broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
@@ -134,12 +188,13 @@ _AGENT_COMMAND_ALLOWED = {"reinject_shell"}
 
 
 @router.get("/agent/commands/{host_id}", tags=["Agent"])
-def api_agent_commands_drain(host_id: str):
+def api_agent_commands_drain(host_id: str, request: Request):
     """Drain pending agent commands for this host.
 
     Returns up to 50 pending, non-expired commands and deletes them in the
     same transaction. Also GCs rows whose expires_at has passed.
     """
+    _require_agent_auth(request, host_id=host_id)
     if not host_id or len(host_id) > 128:
         raise HTTPException(400, "Invalid host_id")
     pool = _get_pg_pool()
@@ -353,8 +408,9 @@ def api_agent_versions(report: VersionReport):
     }
 
 @router.post("/agent/mining-alert", tags=["Agent"])
-def api_mining_alert(alert: MiningAlert):
+def api_mining_alert(alert: MiningAlert, request: Request):
     """Receive mining detection alert from an agent."""
+    _require_agent_auth(request, host_id=alert.host_id)
     log.warning(
         "MINING ALERT host=%s gpu=%d confidence=%.0f%% — %s",
         alert.host_id,
@@ -374,8 +430,9 @@ def api_mining_alert(alert: MiningAlert):
     return {"ok": True, "received": True}
 
 @router.post("/agent/benchmark", tags=["Agent"])
-def api_agent_benchmark(report: BenchmarkReport):
+def api_agent_benchmark(report: BenchmarkReport, request: Request):
     """Receive compute benchmark results from an agent."""
+    _require_agent_auth(request, host_id=report.host_id)
     register_compute_score(
         report.host_id,
         report.gpu_model,
@@ -419,12 +476,13 @@ class LeaseReleaseRequest(BaseModel):
         return {"completed", "failed", "preempted"}
 
 @router.post("/agent/lease/claim", tags=["Agent"])
-def api_agent_lease_claim(req: LeaseClaimRequest):
+def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
     """Agent claims a lease for an assigned job.
 
     This transitions the job from ASSIGNED → LEASED and starts
     the lease clock. The agent must renew before expiry.
     """
+    _require_agent_auth(request, host_id=req.host_id)
     store = get_event_store()
     sm = get_state_machine()
 
@@ -485,8 +543,9 @@ def api_agent_lease_claim(req: LeaseClaimRequest):
     }
 
 @router.post("/agent/lease/renew", tags=["Agent"])
-def api_agent_lease_renew(req: LeaseRenewRequest):
+def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
     """Agent renews its lease on a job. Must be called before expiry."""
+    _require_agent_auth(request, host_id=req.host_id)
     store = get_event_store()
     lease = store.renew_lease(req.job_id, req.host_id)
     if not lease:
@@ -501,8 +560,9 @@ def api_agent_lease_renew(req: LeaseRenewRequest):
     }
 
 @router.post("/agent/lease/release", tags=["Agent"])
-def api_agent_lease_release(req: LeaseReleaseRequest):
+def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
     """Agent releases its lease (job completed/failed/preempted)."""
+    _require_agent_auth(request)
     store = get_event_store()
     released = store.release_lease(req.job_id)
     if not released:
@@ -510,12 +570,13 @@ def api_agent_lease_release(req: LeaseReleaseRequest):
     return {"ok": True, "released": True}
 
 @router.get("/agent/popular-images", tags=["Agent"])
-def api_agent_popular_images():
+def api_agent_popular_images(request: Request):
     """Return popular container images for agent pre-pulling.
 
     Agents call this during idle time to pre-cache frequently-used images,
     reducing cold-start latency for future jobs.
     """
+    _require_agent_auth(request)
     # Aggregate image usage from completed/running jobs
     jobs = list_jobs()
     image_counts: dict[str, int] = defaultdict(int)
@@ -537,8 +598,9 @@ class TelemetryPayload(BaseModel):
     metrics: dict = {}
 
 @router.post("/agent/telemetry", tags=["Telemetry"])
-def api_agent_telemetry(payload: TelemetryPayload):
+def api_agent_telemetry(payload: TelemetryPayload, request: Request):
     """Receive periodic GPU telemetry from agent (every 5s)."""
+    _require_agent_auth(request, host_id=payload.host_id)
     _host_telemetry[payload.host_id] = {
         "timestamp": payload.timestamp or time.time(),
         "metrics": payload.metrics,
@@ -547,8 +609,9 @@ def api_agent_telemetry(payload: TelemetryPayload):
     return {"ok": True}
 
 @router.get("/agent/telemetry/{host_id}", tags=["Telemetry"])
-def api_get_telemetry(host_id: str):
+def api_get_telemetry(host_id: str, request: Request):
     """Get latest telemetry for a host (dashboard live gauges)."""
+    _require_user_grant(request, allow_api_key=True)
     if host_id not in _host_telemetry:
         raise HTTPException(404, f"No telemetry for host {host_id}")
 
@@ -557,8 +620,11 @@ def api_get_telemetry(host_id: str):
     return {"ok": True, "host_id": host_id, "stale": stale, **data}
 
 @router.get("/api/telemetry/all", tags=["Telemetry"])
-def api_all_telemetry():
+def api_all_telemetry(request: Request):
     """Get latest telemetry for all hosts (dashboard overview)."""
+    user = _require_user_grant(request, allow_api_key=True)
+    if not user.get("is_admin") and user.get("role") != "provider":
+        raise HTTPException(403, "Admin or provider role required")
     now = time.time()
     result = {}
     for host_id, data in _host_telemetry.items():
@@ -579,12 +645,32 @@ async def api_agent_logs(job_id: str, request: Request):
     Accepts JSON body (LogBatch) or gzip-compressed JSON.
     Persists to job_logs table, pushes to in-memory buffer + SSE.
     """
+    _require_agent_auth(request)
+    # Basic shape validation on job_id (prevents injection of rows with weird
+    # keys). Accept hex/slug forms used by our job-id generator.
+    if not job_id or len(job_id) > 128 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_\-]*", job_id):
+        raise HTTPException(400, "Invalid job_id")
+
+    # Cap the raw body at 2 MiB (uncompressed or compressed) to prevent gzip
+    # bombs and abuse. 2 MiB is generous for 500 log lines × ~4 KiB each.
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > 2 * 1024 * 1024:
+        raise HTTPException(413, "Payload too large")
+
     # Handle gzip-compressed body
     content_encoding = request.headers.get("content-encoding", "")
     raw = await request.body()
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(413, "Payload too large")
     if content_encoding == "gzip":
         try:
-            raw = gzip.decompress(raw)
+            # Bound decompression too — refuse anything that would expand past 8 MiB
+            decomp = gzip.decompress(raw)
+            if len(decomp) > 8 * 1024 * 1024:
+                raise HTTPException(413, "Decompressed payload too large")
+            raw = decomp
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(400, "Invalid gzip payload")
 
@@ -601,6 +687,30 @@ async def api_agent_logs(job_id: str, request: Request):
     # Cap batch size to prevent abuse
     if len(lines) > 500:
         lines = lines[:500]
+
+    # Silently drop logs for jobs that don't exist OR that have been in a
+    # terminal state for >1h. Prevents zombie log-line floods from a
+    # forgotten/rogue worker agent and keeps the job_logs table bounded.
+    try:
+        from db import load_jobs_snapshot
+        snap = {j["job_id"]: j for j in load_jobs_snapshot()}
+        job = snap.get(job_id)
+        if not job:
+            return {"ok": True, "accepted": 0, "dropped": "unknown_job"}
+        if job.get("status") in {"completed", "failed", "cancelled", "terminated", "preempted"}:
+            last_ts = job.get("completed_at") or job.get("updated_at") or 0
+            try:
+                last_ts_f = float(last_ts) if last_ts else 0.0
+            except (TypeError, ValueError):
+                last_ts_f = 0.0
+            if last_ts_f and (time.time() - last_ts_f) > 3600:
+                return {"ok": True, "accepted": 0, "dropped": "job_terminal"}
+    except HTTPException:
+        raise
+    except Exception:
+        # Snapshot failure — fall through and accept the log (fail-open so
+        # a transient DB blip doesn't lose diagnostics).
+        pass
 
     now = time.time()
     accepted = 0
@@ -629,7 +739,13 @@ async def api_agent_logs(job_id: str, request: Request):
         with pool.connection() as conn:
             for entry in lines:
                 msg = entry.get("message", "")
+                # Cap individual line length to 8 KiB — protects the log
+                # viewer, SSE wire, and PG column from pathological lines.
+                if isinstance(msg, str) and len(msg) > 8192:
+                    msg = msg[:8192] + "…[truncated]"
                 level = entry.get("level", "info")
+                if level not in {"debug", "info", "warn", "warning", "error", "fatal", "stdout", "stderr"}:
+                    level = "info"
                 ts = entry.get("timestamp") or now
                 if not msg:
                     continue
@@ -650,6 +766,8 @@ async def api_agent_logs(job_id: str, request: Request):
         # Still try to push to SSE even if PG fails
         for entry in lines:
             msg = entry.get("message", "")
+            if isinstance(msg, str) and len(msg) > 8192:
+                msg = msg[:8192] + "…[truncated]"
             if msg:
                 push_job_log(job_id, msg, entry.get("level", "info"), entry.get("timestamp") or now)
                 accepted += 1
@@ -658,8 +776,13 @@ async def api_agent_logs(job_id: str, request: Request):
 
 
 @router.get("/agent/ssh-keys/{job_id}", tags=["Agent"])
-def api_agent_ssh_keys(job_id: str):
-    """Return the job owner's SSH public keys so the agent can inject them into containers."""
+def api_agent_ssh_keys(job_id: str, request: Request):
+    """Return the job owner's SSH public keys so the agent can inject them into containers.
+
+    Requires authentication — this endpoint previously leaked every user's
+    authorized public keys to any unauthenticated caller who guessed a job id.
+    """
+    _require_agent_auth(request)
     from db import UserStore
 
     # Look up the job to find its owner

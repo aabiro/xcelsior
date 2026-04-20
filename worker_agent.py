@@ -1850,9 +1850,19 @@ def run_job(job):
         effective_command = command
         if is_interactive:
             log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
-            # Override entrypoint to keep container alive indefinitely
-            extra_docker_args.extend(["--entrypoint", "sleep"])
-            effective_command = ["infinity"]
+            # Override entrypoint with an init script that prints startup info
+            # (forwarded to UI via LogForwarder) then keeps the container alive.
+            init_script = (
+                "echo '[xcelsior] Initialising interactive instance…';"
+                "echo '[xcelsior] GPU:' $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'not detected');"
+                "echo '[xcelsior] CUDA:' $(nvcc --version 2>/dev/null | grep -oP 'release \\K[0-9.]+' || echo 'N/A');"
+                "echo '[xcelsior] Python:' $(python3 --version 2>/dev/null || python --version 2>/dev/null || echo 'N/A');"
+                "echo '[xcelsior] PyTorch:' $(python3 -c 'import torch;print(torch.__version__)' 2>/dev/null || echo 'N/A');"
+                "echo '[xcelsior] Setting up SSH…';"
+                "exec tail -f /dev/null"
+            )
+            extra_docker_args.extend(["--entrypoint", "sh"])
+            effective_command = ["-c", init_script]
             # Expose SSH port (map to a unique host port based on job_id hash)
             host_port = 10000 + (int(job_id[:4], 16) % 55000)
             extra_docker_args.extend(["-p", f"{host_port}:{ssh_port}"])
@@ -1912,9 +1922,18 @@ def run_job(job):
         if is_interactive:
             report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
             log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
+            _push_log_lines(job_id, [
+                {"message": f"Interactive instance ready — SSH: root@{HOST_IP or 'host'}:{host_port}",
+                 "level": "info", "timestamp": time.time()},
+            ])
 
         # 4b. Inject user's SSH keys into the container (best-effort)
         _inject_ssh_keys(job_id, container_name)
+        if is_interactive:
+            _push_log_lines(job_id, [
+                {"message": "SSH keys injected — ready for connections",
+                 "level": "info", "timestamp": time.time()},
+            ])
 
         # 5. Apply egress rules (best-effort)
         try:
