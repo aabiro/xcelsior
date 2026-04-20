@@ -39,6 +39,7 @@ import json
 import os
 import re as _re
 import secrets
+import socket
 import subprocess
 import threading
 import time
@@ -1159,6 +1160,36 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
         raw_sock = exec_socket._sock
         raw_sock.setblocking(False)
+
+        # --- Phase 1.2: exec socket hardening + initial prompt render -------
+        # TCP keepalive so long-idle sessions don't silently die behind NAT.
+        try:
+            raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            if hasattr(socket, "TCP_KEEPIDLE"):
+                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
+            if hasattr(socket, "TCP_KEEPINTVL"):
+                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+            if hasattr(socket, "TCP_KEEPCNT"):
+                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+        except (OSError, AttributeError):
+            pass
+
+        # Seed PTY with sensible default dims so bash has a WINSIZE before it
+        # renders PS1; client's real dims arrive on the first resize frame.
+        try:
+            await _docker_call(
+                lambda: docker_cl.api.exec_resize(exec_id, height=24, width=80),
+                _DOCKER_EXEC_CREATE_TIMEOUT_SEC,
+            )
+        except (asyncio.TimeoutError, APIError, DockerException, OSError, Exception):
+            pass
+        # Force an immediate prompt render so the user sees PS1 right away
+        # instead of a blank screen (root cause of "no initial $ prompt").
+        try:
+            await loop.sock_sendall(raw_sock, b"\r")
+        except (OSError, ConnectionError):
+            pass
+        # --- end Phase 1.2 --------------------------------------------------
 
         log.info(
             "terminal.session.open user=%s ip=%s instance=%s container=%s tmux=%s remote=%s",
