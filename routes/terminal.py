@@ -319,6 +319,42 @@ _PARAMIKO_KEEPALIVE_INTERVAL_SEC: int = int(
     os.environ.get("XCELSIOR_TERMINAL_PARAMIKO_KEEPALIVE_SEC", "20")
 )
 
+# -- Probe / capability result cache ------------------------------------------
+# Caches *positive* container-probe and tmux-availability results for a short
+# TTL so that back-to-back calls within a WS session (probe → tmux_check →
+# exec_create) don't each pay a full SSH+exec round trip, and so a quick
+# client reconnect inside the TTL skips re-verification.
+#
+# NotFound and unreachable results are NEVER cached — those must always be
+# re-probed so a freshly-created container is picked up without delay.
+# Entries are invalidated whenever the underlying Docker client is evicted
+# (e.g. the SSH transport died), so a rebuilt daemon reference always
+# re-verifies its containers.
+_PROBE_CACHE_TTL_SEC: float = float(
+    os.environ.get("XCELSIOR_TERMINAL_PROBE_CACHE_TTL_SEC", "30")
+)
+# Key: (cache_key-or-"local", container_ref)  →  (expires_at, result_dict)
+_probe_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+# Key: (cache_key-or-"local", container_ref)  →  (expires_at, tmux_present)
+_tmux_cache: dict[tuple[str, str], tuple[float, bool]] = {}
+_probe_cache_lock = threading.RLock()
+
+
+def _probe_cache_scope(host_ip: str | None) -> str:
+    return _docker_client_cache_key(host_ip, SSH_USER) or "local"
+
+
+def _invalidate_probe_cache(scope: str) -> None:
+    """Drop every cached probe/tmux entry whose scope matches *scope*.
+
+    Called from ``_evict_docker_client`` so a dead SSH tunnel never leaves
+    stale positive results behind."""
+    with _probe_cache_lock:
+        for key in [k for k in _probe_cache if k[0] == scope]:
+            _probe_cache.pop(key, None)
+        for key in [k for k in _tmux_cache if k[0] == scope]:
+            _tmux_cache.pop(key, None)
+
 
 def _paramiko_transport_from_client(cl: "docker.DockerClient"):
     """Best-effort: reach into the docker SDK to get the paramiko Transport.
@@ -358,9 +394,14 @@ def _docker_client_alive(cl: "docker.DockerClient") -> bool:
 
 
 def _evict_docker_client(cache_key: str) -> None:
-    """Remove and close a cached Docker client. Safe to call repeatedly."""
+    """Remove and close a cached Docker client. Safe to call repeatedly.
+
+    Also invalidates every cached probe/tmux result scoped to this client
+    so a stale positive can never survive a tunnel rebuild.
+    """
     with _docker_client_cache_lock:
         cl = _docker_client_cache.pop(cache_key, None)
+    _invalidate_probe_cache(cache_key)
     if cl is not None:
         try:
             cl.close()
@@ -448,13 +489,27 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
     Uses the pooled remote client for remote hosts — does NOT close it. On
     unreachable errors we evict the pooled entry so the next call rebuilds
     the SSH tunnel.
+
+    Positive results are cached for ``_PROBE_CACHE_TTL_SEC`` seconds so the
+    probe→tmux_available→exec_create sequence inside a single WS session
+    pays at most one SSH round trip per step. Negative and error results
+    are never cached.
     """
+    scope = _probe_cache_scope(host_ip)
     cache_key = _docker_client_cache_key(host_ip, SSH_USER)
+    now = time.monotonic()
+    with _probe_cache_lock:
+        entry = _probe_cache.get((scope, container_ref))
+        if entry is not None and entry[0] > now:
+            return entry[1]
     cl = None
     try:
         cl = _docker_client(host_ip)
         cl.containers.get(container_ref)
-        return {"found": True, "reason": "ok", "error": None}
+        result = {"found": True, "reason": "ok", "error": None}
+        with _probe_cache_lock:
+            _probe_cache[(scope, container_ref)] = (now + _PROBE_CACHE_TTL_SEC, result)
+        return result
     except NotFound:
         return {"found": False, "reason": "not_found", "error": None}
     except Exception as e:
@@ -479,14 +534,29 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
 
 
 def _tmux_available(container_ref: str, host_ip: str | None = None) -> bool:
-    """Return True when tmux is on PATH inside *container_ref*."""
+    """Return True when tmux is on PATH inside *container_ref*.
+
+    Result is cached for ``_PROBE_CACHE_TTL_SEC`` — tmux presence doesn't
+    change for the lifetime of a container image, so this is safe and
+    eliminates an SSH round-trip on every reconnect. Cache scope is tied
+    to the Docker client; ``_evict_docker_client`` invalidates it.
+    """
+    scope = _probe_cache_scope(host_ip)
     cache_key = _docker_client_cache_key(host_ip, SSH_USER)
+    now = time.monotonic()
+    with _probe_cache_lock:
+        entry = _tmux_cache.get((scope, container_ref))
+        if entry is not None and entry[0] > now:
+            return entry[1]
     cl = None
     try:
         cl = _docker_client(host_ip)
         container = cl.containers.get(container_ref)
         result = container.exec_run("which tmux")
-        return result.exit_code == 0
+        has_tmux = result.exit_code == 0
+        with _probe_cache_lock:
+            _tmux_cache[(scope, container_ref)] = (now + _PROBE_CACHE_TTL_SEC, has_tmux)
+        return has_tmux
     except NotFound:
         return False
     except Exception:
