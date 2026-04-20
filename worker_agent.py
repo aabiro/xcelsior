@@ -2801,8 +2801,9 @@ def telemetry_loop():
                                     continue
                                 try:
                                     # Use a subprocess with timeout to avoid hanging Python
-                                    # if the NFS mount is stale (soft mount returns EIO quickly,
-                                    # but stat may still block briefly on slow NFS).
+                                    # if the NFS mount is stale. With hard mounts, stat will
+                                    # block indefinitely on an unreachable server, so the 3s
+                                    # timeout is the critical safety guard here.
                                     stat_result = subprocess.run(
                                         ["stat", "-f", "--format=%b %f %S", mp],
                                         capture_output=True, text=True, timeout=3,

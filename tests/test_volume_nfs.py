@@ -22,14 +22,21 @@ os.environ.setdefault("XCELSIOR_NFS_SERVER", "")
 class TestNFSMountOpts:
     """Verify the NFS mount options constant is correct."""
 
-    def test_soft_mount(self):
+    def test_hard_mount(self):
+        """Must be `hard` (never `soft`) — locked by volume-attachment plan.
+
+        Soft NFS silently returns EIO on server reboot, corrupting write-back
+        caches. Hard blocks-and-retries, preserving durability for
+        checkpoints. The 3s stat timeout in telemetry guards against hangs.
+        """
         from volumes import NFS_MOUNT_OPTS
-        assert "soft" in NFS_MOUNT_OPTS
-        assert "hard" not in NFS_MOUNT_OPTS
+        opts = NFS_MOUNT_OPTS.split(",")
+        assert "hard" in opts
+        assert "soft" not in opts
 
     def test_timeo_set(self):
         from volumes import NFS_MOUNT_OPTS
-        assert "timeo=150" in NFS_MOUNT_OPTS
+        assert "timeo=600" in NFS_MOUNT_OPTS
 
     def test_retrans_set(self):
         from volumes import NFS_MOUNT_OPTS
@@ -57,23 +64,19 @@ class TestNFSMountOpts:
             source = f.read()
         assert "from volumes import NFS_MOUNT_OPTS" in source
 
-    def test_no_hard_mounts_in_codebase(self):
-        """Zero 'hard' NFS mount references in production code."""
+    def test_no_soft_mounts_in_codebase(self):
+        """Zero 'soft' NFS mount references in production code."""
         for filename in ["volumes.py", "scheduler.py", "worker_agent.py"]:
             with open(filename) as f:
                 content = f.read()
-            # Check that 'hard' doesn't appear as a mount option
-            # (it can appear in comments or variable names, but not as ',hard,' or 'hard,')
             lines = content.split("\n")
             for i, line in enumerate(lines, 1):
                 stripped = line.strip()
                 if stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''"):
                     continue
-                # Look for hard as a mount option (surrounded by commas or at start)
-                if "hard," in stripped and "NFS" not in stripped.upper():
-                    # Allow references in comments about the change
-                    if not any(w in stripped.lower() for w in ["# ", "log.", "comment", "doc"]):
-                        pytest.fail(f"Found 'hard' mount option in {filename}:{i}: {stripped}")
+                # Look for soft as a mount option (surrounded by commas or at start)
+                if "soft," in stripped and "NFS" not in stripped.upper():
+                    pytest.fail(f"Found 'soft' mount option in {filename}:{i}: {stripped}")
 
 
 # ── SSH exec timeout handling ────────────────────────────────────────
