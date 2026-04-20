@@ -286,6 +286,7 @@ class TestResponseShape:
     """Verify API responses contain expected fields."""
 
     def test_create_includes_pricing(self, client, auth_headers, cleanup_vids):
+        from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
         name = _unique_name()
         r = client.post("/api/v2/volumes", json={"name": name, "size_gb": 10}, headers=auth_headers)
         vol = r.json()["volume"]
@@ -293,7 +294,7 @@ class TestResponseShape:
 
         assert "price_per_gb_month_cad" in vol
         assert "estimated_monthly_cost_cad" in vol
-        assert vol["estimated_monthly_cost_cad"] == round(10 * 0.07, 2)
+        assert vol["estimated_monthly_cost_cad"] == round(10 * VOLUME_PRICE_PER_GB_MONTH_CAD, 2)
 
     def test_list_includes_pricing(self, client, auth_headers, cleanup_vids):
         name = _unique_name()

@@ -195,8 +195,8 @@ class TestVolumeLifecycle:
             yield FakeConn()
 
         monkeypatch.setattr(engine, "_conn", _mock_conn)
-        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz: True)
-        monkeypatch.setattr(engine, "_destroy_volume_storage", lambda vid: True)
+        monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz, **kw: True)
+        monkeypatch.setattr(engine, "_destroy_volume_storage", lambda vid, **kw: True)
         monkeypatch.setattr(engine, "_mount_on_host", lambda *a: True)
         monkeypatch.setattr(engine, "_unmount_from_host", lambda *a: True)
         return engine
@@ -340,9 +340,11 @@ class TestVolumeBillingConstants:
     """Verify volume billing configuration is correct."""
 
     def test_billing_rate_per_gb_month(self):
-        """Volume price constant should be $0.07/GB/month."""
+        """Volume price constant should match the canonical rate in volumes.py."""
         from routes.volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
-        assert VOLUME_PRICE_PER_GB_MONTH_CAD == 0.07
+        from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD as CANONICAL
+        assert VOLUME_PRICE_PER_GB_MONTH_CAD == CANONICAL
+        assert CANONICAL == 0.03
 
     def test_billing_uses_storage_model(self):
         """Billing should categorize volumes as gpu_model='storage', tier='volume'."""

@@ -31,8 +31,8 @@ def engine(monkeypatch):
     """VolumeEngine with NFS provisioning stubbed out (metadata-only)."""
     from volumes import VolumeEngine
     e = VolumeEngine()
-    monkeypatch.setattr(e, "_provision_volume_storage", lambda vid, sz: True)
-    monkeypatch.setattr(e, "_destroy_volume_storage", lambda vid: True)
+    monkeypatch.setattr(e, "_provision_volume_storage", lambda vid, sz, **kw: True)
+    monkeypatch.setattr(e, "_destroy_volume_storage", lambda vid, **kw: True)
     monkeypatch.setattr(e, "_mount_on_host", lambda *a, **kw: True)
     monkeypatch.setattr(e, "_unmount_from_host", lambda *a, **kw: True)
     monkeypatch.setattr(e, "_emit_event", lambda *a, **kw: None)

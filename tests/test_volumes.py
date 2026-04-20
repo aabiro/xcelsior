@@ -108,14 +108,20 @@ class TestVolumeEngineCreate:
             engine.create_volume("user-1", "dupe", 10)
 
     def test_create_provision_failure(self, monkeypatch):
+        """Provision failure → status='error' with deferred-retry, not ValueError.
+
+        Per volume-attachment plan (locked decision): NFS-unreachable at create
+        time is non-fatal — volume is created with status='error' and retried
+        on first attach. This preserves UX when NFS is temporarily down.
+        """
         engine = self._make_engine(monkeypatch, conn_rows=[
             None,            # FOR UPDATE lock (unused)
             {"total": 0},
             None,
         ])
         monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz, **kw: False)
-        with pytest.raises(ValueError, match="Failed to provision"):
-            engine.create_volume("user-1", "bad-nfs", 10)
+        result = engine.create_volume("user-1", "bad-nfs", 10)
+        assert result["status"] == "error"
 
 
 class TestVolumeEngineAttach:
