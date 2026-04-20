@@ -834,7 +834,10 @@ health_check() {
     ssh_cmd "cd /opt/xcelsior && docker compose ps" || true
 
     log "API health:"
-    ssh_cmd "curl -s http://localhost:9500/healthz" || warn "API not responding"
+    local live_port
+    live_port=$(ssh_cmd "cat /opt/xcelsior/.deploy-colour 2>/dev/null || echo green")
+    if [[ "$live_port" == "blue" ]]; then live_port=9501; else live_port=9500; fi
+    ssh_cmd "curl -s http://localhost:$live_port/healthz" || warn "API not responding"
 
     log "Nginx status:"
     ssh_cmd "sudo systemctl status nginx --no-pager -l | head -10" || true

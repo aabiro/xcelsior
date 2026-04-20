@@ -1833,46 +1833,56 @@ def run_job(job):
 
         # 1. Pull image (with cache tracking + LRU eviction)
         current_stage = "pulling image"
-        cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
-        log.info("Pulling image %s...", image)
-        _push_log_lines(job_id, [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}])
 
-        pull_proc = subprocess.Popen(
-            ["docker", "pull", image],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        pull_last_send = time.time()
-        pull_lines = []
-        for raw_line in pull_proc.stdout:
-            line = raw_line.rstrip("\n")
-            if not line:
-                continue
-            # Send pull progress to API every 3 seconds (avoid flooding)
-            now = time.time()
-            if now - pull_last_send >= 3.0:
-                pull_lines.append({"message": line, "level": "info", "timestamp": now})
+        # Check if image already cached — skip eviction + pull if so
+        with _image_cache_lock:
+            image_already_cached = image in _image_cache_index
+
+        if image_already_cached:
+            log.info("Image %s already cached — skipping pull", image)
+            _push_log_lines(job_id, [{"message": f"Image {image} (cached ✓)", "level": "info", "timestamp": time.time()}])
+            cache_record_usage(image)
+        else:
+            cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
+            log.info("Pulling image %s...", image)
+            _push_log_lines(job_id, [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}])
+
+            pull_proc = subprocess.Popen(
+                ["docker", "pull", image],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            pull_last_send = time.time()
+            pull_lines = []
+            for raw_line in pull_proc.stdout:
+                line = raw_line.rstrip("\n")
+                if not line:
+                    continue
+                # Send pull progress to API every 3 seconds (avoid flooding)
+                now = time.time()
+                if now - pull_last_send >= 3.0:
+                    pull_lines.append({"message": line, "level": "info", "timestamp": now})
+                    _push_log_lines(job_id, pull_lines)
+                    pull_lines = []
+                    pull_last_send = now
+                else:
+                    pull_lines.append({"message": line, "level": "info", "timestamp": now})
+            # Flush remaining
+            if pull_lines:
                 _push_log_lines(job_id, pull_lines)
-                pull_lines = []
-                pull_last_send = now
-            else:
-                pull_lines.append({"message": line, "level": "info", "timestamp": now})
-        # Flush remaining
-        if pull_lines:
-            _push_log_lines(job_id, pull_lines)
 
-        pull_rc = pull_proc.wait(timeout=1800)
-        if pull_rc != 0:
-            log.error("Image pull failed for %s (exit %d)", image, pull_rc)
-            _push_log_lines(job_id, [{"message": f"Image pull failed (exit {pull_rc})", "level": "error", "timestamp": time.time()}])
-            report_job_status(job_id, "failed")
-            return
+            pull_rc = pull_proc.wait(timeout=1800)
+            if pull_rc != 0:
+                log.error("Image pull failed for %s (exit %d)", image, pull_rc)
+                _push_log_lines(job_id, [{"message": f"Image pull failed (exit {pull_rc})", "level": "error", "timestamp": time.time()}])
+                report_job_status(job_id, "failed")
+                return
 
-        # Track in LRU cache index
-        local_images = _get_local_images()
-        cache_track_pull(image, local_images.get(image, 0))
+            # Track in LRU cache index
+            local_images = _get_local_images()
+            cache_track_pull(image, local_images.get(image, 0))
 
         # 2. Determine runtime
         gpu_info = get_gpu_info()
