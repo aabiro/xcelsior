@@ -757,19 +757,20 @@ async def api_agent_logs(job_id: str, request: Request):
                 )
 
                 # Push to in-memory buffer + SSE (feeds LogViewer in real-time)
-                push_job_log(job_id, msg, level, ts)
+                # persist=False because we already inserted to PG above
+                push_job_log(job_id, msg, level, ts, persist=False)
                 accepted += 1
 
             conn.commit()
     except Exception as e:
         log.error("Failed to persist logs for job %s: %s", job_id, e)
-        # Still try to push to SSE even if PG fails
+        # PG failed — push to SSE only (persist=True to retry PG for these)
         for entry in lines:
             msg = entry.get("message", "")
             if isinstance(msg, str) and len(msg) > 8192:
                 msg = msg[:8192] + "…[truncated]"
             if msg:
-                push_job_log(job_id, msg, entry.get("level", "info"), entry.get("timestamp") or now)
+                push_job_log(job_id, msg, entry.get("level", "info"), entry.get("timestamp") or now, persist=True)
                 accepted += 1
 
     return {"ok": True, "accepted": accepted}

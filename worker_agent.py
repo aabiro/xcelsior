@@ -770,7 +770,7 @@ def drain_agent_commands() -> int:
 
 
 def report_job_status(job_id, status, host_id=None, container_id=None, container_name=None,
-                      ssh_port=None, interactive=None):
+                      ssh_port=None, interactive=None, error_message=None):
     """Update job status on the scheduler.
 
     PATCH /instance/{job_id}
@@ -786,6 +786,8 @@ def report_job_status(job_id, status, host_id=None, container_id=None, container
         data["ssh_port"] = ssh_port
     if interactive is not None:
         data["interactive"] = interactive
+    if error_message:
+        data["error_message"] = error_message[:500]
     try:
         resp = requests.patch(
             _api_url(f"/instance/{job_id}"),
@@ -1719,8 +1721,9 @@ def run_job(job):
     managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
     current_stage = "preparing instance"
     try:
-        # 0. Mount NFS volume (if configured)
-        if nfs_server and nfs_path:
+        # 0. Mount NFS volume (if configured — skip for interactive instances
+        #    which don't need shared storage and the 30s timeout blocks startup)
+        if nfs_server and nfs_path and not is_interactive:
             nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
             if nfs_mounted:
                 log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
@@ -1970,8 +1973,13 @@ def run_job(job):
         release_lease(job_id, "failed")
     except Exception as e:
         log.error("Job %s failed: %s", job_id, e, exc_info=True)
+        _push_log_lines(job_id, [{
+            "message": f"Instance failed: {e}",
+            "level": "error",
+            "timestamp": time.time(),
+        }])
         _kill_container(container_name)
-        report_job_status(job_id, "failed")
+        report_job_status(job_id, "failed", error_message=str(e))
         release_lease(job_id, "failed")
     finally:
         # Stop log forwarding (final flush)
