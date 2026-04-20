@@ -299,7 +299,16 @@ def _container_exists(container_ref: str, host_ip: str | None = None) -> bool:
         cl = _docker_client(host_ip)
         cl.containers.get(container_ref)
         return True
-    except (NotFound, DockerException, Exception):
+    except NotFound:
+        return False
+    except Exception as e:
+        # Log unexpected errors (SSH/paramiko/timeout) so we can see why the
+        # container probe is failing rather than silently treating them as
+        # "container missing" which causes the 30s "Container starting…" stall.
+        log.warning(
+            "TERMINAL _container_exists(%s, host=%s) failed: %s: %s",
+            container_ref, host_ip, type(e).__name__, e,
+        )
         return False
     finally:
         if cl is not None:
