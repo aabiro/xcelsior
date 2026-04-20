@@ -973,6 +973,7 @@ def ping_host(ip):
             ["ping", "-c", "1", "-W", "2", ip],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            timeout=5,
         )
         return result.returncode == 0
     except Exception:
@@ -1784,6 +1785,7 @@ def generate_ssh_keypair(path=None):
         ["ssh-keygen", "-t", "ed25519", "-f", path, "-N", "", "-C", "xcelsior"],
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if result.returncode == 0:
         os.chmod(path, 0o600)
