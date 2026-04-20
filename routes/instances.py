@@ -756,6 +756,47 @@ def api_restart_instance(job_id: str, request: Request):
     return {"ok": True, "instance": result}
 
 
+@router.post("/admin/instances/{job_id}/reinject-shell", tags=["Instances"])
+def api_admin_reinject_shell(job_id: str, request: Request):
+    """Admin-only: re-apply MOTD/PS1/sshd setup to the instance's container.
+
+    Enqueues a `reinject_shell` command for the host running this instance.
+    The worker agent picks it up within one poll cycle (~5-10 s) and
+    re-runs `_inject_ssh_keys` against the container. Idempotent — safe
+    to call repeatedly. Returns the enqueued command id.
+
+    Use case: an admin updated the MOTD/PS1 logic or debugged a stuck
+    container and needs to refresh shell setup without restarting the
+    worker agent.
+    """
+    user = _require_auth(request)
+    if not (user.get("role") == "admin" or user.get("is_admin")):
+        raise HTTPException(403, "Admin only")
+
+    from scheduler import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"Instance {job_id} not found")
+
+    host_id = job.get("host_id", "")
+    if not host_id:
+        raise HTTPException(400, "Instance has no host assigned")
+
+    container_name = job.get("container_name") or f"xcl-{job_id}"
+    from routes.agent import enqueue_agent_command
+    cmd_id = enqueue_agent_command(
+        host_id=host_id,
+        command="reinject_shell",
+        args={"job_id": job_id, "container_name": container_name},
+        created_by=user.get("customer_id", user.get("user_id", "admin")),
+    )
+    log.info(
+        "Admin %s enqueued reinject_shell cmd=%d host=%s job=%s",
+        user.get("email", "?"), cmd_id, host_id, job_id,
+    )
+    return {"ok": True, "command_id": cmd_id, "host_id": host_id, "job_id": job_id}
+
+
 @router.post("/instances/{job_id}/terminate", tags=["Instances"])
 def api_terminate_instance(job_id: str, request: Request):
     """Permanently terminate an instance. This action is irreversible.

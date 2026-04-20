@@ -124,6 +124,88 @@ def api_schedule_preemption(host_id: str, job_id: str):
     return {"ok": True, "host_id": host_id, "job_id": job_id}
 
 
+# ── Agent command queue (admin control plane → worker) ────────────────
+# Admins enqueue commands via /admin/* endpoints; worker agents drain
+# them via this endpoint in their poll loop. Rows are deleted on fetch —
+# delivery is at-most-once by design (re-inject is idempotent so a lost
+# command is harmless; admins can re-issue).
+
+_AGENT_COMMAND_ALLOWED = {"reinject_shell"}
+
+
+@router.get("/agent/commands/{host_id}", tags=["Agent"])
+def api_agent_commands_drain(host_id: str):
+    """Drain pending agent commands for this host.
+
+    Returns up to 50 pending, non-expired commands and deletes them in the
+    same transaction. Also GCs rows whose expires_at has passed.
+    """
+    if not host_id or len(host_id) > 128:
+        raise HTTPException(400, "Invalid host_id")
+    pool = _get_pg_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        # Drop expired rows for any host (cheap housekeeping).
+        cur.execute(
+            "DELETE FROM agent_commands WHERE expires_at < EXTRACT(EPOCH FROM NOW())"
+        )
+        # Atomically claim pending rows for this host.
+        cur.execute(
+            """
+            DELETE FROM agent_commands
+            WHERE id IN (
+                SELECT id FROM agent_commands
+                WHERE host_id = %s AND status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 50
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id, command, args, created_at, created_by
+            """,
+            (host_id,),
+        )
+        rows = cur.fetchall()
+    commands = [
+        {
+            "id": r[0],
+            "command": r[1],
+            "args": r[2] or {},
+            "created_at": float(r[3]),
+            "created_by": r[4],
+        }
+        for r in rows
+    ]
+    return {"ok": True, "commands": commands}
+
+
+def enqueue_agent_command(
+    host_id: str,
+    command: str,
+    args: dict | None = None,
+    created_by: str | None = None,
+    ttl_sec: int = 900,
+) -> int:
+    """Insert an agent command row; returns the new command id.
+
+    Rejects unknown command names at the API boundary so a typo in an
+    admin endpoint can't ship a bogus instruction to workers.
+    """
+    if command not in _AGENT_COMMAND_ALLOWED:
+        raise HTTPException(400, f"Unknown agent command: {command}")
+    import json as _json
+    pool = _get_pg_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agent_commands (host_id, command, args, created_by, expires_at)
+            VALUES (%s, %s, %s::jsonb, %s, EXTRACT(EPOCH FROM NOW()) + %s)
+            RETURNING id
+            """,
+            (host_id, command, _json.dumps(args or {}), created_by, int(ttl_sec)),
+        )
+        row = cur.fetchone()
+    return int(row[0])
+
+
 # ── Admission failure notification (throttled: once per hour per host) ─────
 _admission_notified: dict[str, float] = {}
 
