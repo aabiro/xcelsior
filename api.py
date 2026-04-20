@@ -309,6 +309,15 @@ def _start_background_tasks():
             log.error("Notification cleanup error: %s", e)
     tasks.append(("notification_cleanup", _notification_cleanup, 21600))
 
+    # 15. Stuck-job reaper — fails jobs wedged in queued/assigned/starting past
+    # their configured deadlines. See reaper.py for timeout rationale. Uses
+    # compare-and-swap so it's safe to run alongside the scheduler + workers.
+    try:
+        from reaper import reaper_tick
+        tasks.append(("reaper_tick", reaper_tick, 60))
+    except Exception as _reaper_err:
+        log.warning("reaper not registered: %s", _reaper_err)
+
     # 14. Scheduler tick — DISABLED: runs in dedicated scheduler-worker container
     # tasks.append(("scheduler_tick", scheduler_tick, 2))
 

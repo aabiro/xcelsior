@@ -492,6 +492,20 @@ def _ensure_pg_tables(conn):
         "ON agent_commands (host_id, status, created_at) WHERE status = 'pending'"
     )
 
+    # ── Users table: per-user concurrency override ──
+    # NULL means "use env default MAX_CONCURRENT_INSTANCES". The users table
+    # itself is created via alembic migrations elsewhere; this ALTER is
+    # idempotent and silently noops if users doesn't exist yet (fresh bootstrap).
+    try:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS max_concurrent_instances INTEGER"
+        )
+    except Exception as _e:
+        # users table may not exist in very fresh deployments; harmless — the
+        # concurrency lookup falls back to the env default when the column
+        # isn't present.
+        pass
+
 
 @contextmanager
 def pg_connection():

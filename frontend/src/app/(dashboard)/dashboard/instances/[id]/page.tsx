@@ -222,16 +222,33 @@ export default function InstanceDetailPage() {
     if (!action) return;
     setConfirmAction(null);
     setActionPending(true);
+    // Optimistic local status update so the detail page's badges, action
+    // buttons, and polling loop reflect the intent immediately. The terminate
+    // endpoint returns 202 (async SSH kill), so without this the page can
+    // show "running" for several seconds after the user clicks Terminate.
+    const optimisticStatus: Record<Exclude<ConfirmAction, null>, string> = {
+      stop: "stopping",
+      start: "starting",
+      restart: "starting",
+      terminate: "terminated",
+      cancel: "cancelled",
+    };
+    const prevInstance = instance;
+    if (instance) {
+      setInstance({ ...instance, status: optimisticStatus[action] });
+    }
     try {
       switch (action) {
         case "stop":      await stopInstance(id);      toast.success("Instance stopping…"); break;
         case "start":     await startInstance(id);     toast.success("Instance starting…"); break;
         case "restart":   await restartInstance(id);   toast.success("Instance restarting…"); break;
-        case "terminate": await terminateInstance(id); toast.success("Instance terminated"); break;
+        case "terminate": await terminateInstance(id); toast.success("Instance terminating…"); break;
         case "cancel":    await cancelInstance(id);    toast.success("Instance cancelled"); break;
       }
       load();
     } catch (err) {
+      // Rollback so the user sees reality, not the aspirational status.
+      if (prevInstance) setInstance(prevInstance);
       toast.error(err instanceof Error ? err.message : `${action} failed`);
     } finally {
       setActionPending(false);
