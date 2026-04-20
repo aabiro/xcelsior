@@ -994,8 +994,8 @@ def report_telemetry(metrics):
 # "local image caching" (REPORT_EXCELSIOR_TECHNICAL_2.md §3.4).
 # LRU tracking, cache eviction, and idle-time pre-pulling.
 
-IMAGE_CACHE_MAX_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_MAX_GB", "50"))
-IMAGE_CACHE_EVICT_LOW_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_EVICT_LOW_GB", "40"))
+IMAGE_CACHE_MAX_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_MAX_GB", "200"))
+IMAGE_CACHE_EVICT_LOW_GB = float(os.environ.get("XCELSIOR_IMAGE_CACHE_EVICT_LOW_GB", "150"))
 
 _image_cache_lock = threading.Lock()
 # {image_tag: {"last_used": timestamp, "size_mb": float, "pull_count": int}}
@@ -1132,10 +1132,26 @@ def cache_evict_lru(exclude_images: set | None = None):
 
 
 def cache_init():
-    """Initialize cache index from locally available Docker images."""
+    """Initialize cache index from locally available Docker images.
+
+    Prunes dangling (<none>:<none>) images first so the cache only
+    tracks real, reusable tagged images.
+    """
+    # Remove dangling images — they waste disk and inflate cache size
+    try:
+        subprocess.run(
+            ["docker", "image", "prune", "-f"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
     images = _get_local_images()
     with _image_cache_lock:
         for tag, size_mb in images.items():
+            # Skip any residual untagged entries
+            if "<none>" in tag:
+                continue
             if tag not in _image_cache_index:
                 _image_cache_index[tag] = {
                     "last_used": time.time(),
@@ -1144,15 +1160,20 @@ def cache_init():
                 }
 
 
-def cache_prepull_popular(popular_images):
+def cache_prepull_popular(popular_images, max_concurrent=3):
     """Pre-pull popular images during idle time.
 
     Called from the main loop when the agent has no active work.
     Only pulls images not already cached, respecting cache limits.
+    Pulls up to max_concurrent images in parallel.
 
     Args:
         popular_images: List of image tags ordered by popularity.
+        max_concurrent: Max simultaneous docker pulls.
     """
+    import concurrent.futures
+
+    to_pull = []
     for image_tag in popular_images:
         with _image_cache_lock:
             if image_tag in _image_cache_index:
@@ -1162,23 +1183,46 @@ def cache_prepull_popular(popular_images):
         if total_mb >= IMAGE_CACHE_MAX_GB * 1024:
             log.debug("Cache full — skipping pre-pull of %s", image_tag)
             break
+        to_pull.append(image_tag)
 
-        log.info("Pre-pulling popular image: %s", image_tag)
+    if not to_pull:
+        return
+
+    def _pull_one(img_tag):
+        if _shutdown.is_set():
+            return False
+        log.info("Pre-pulling: %s", img_tag)
         try:
-            pull = subprocess.run(
-                ["docker", "pull", image_tag],
-                capture_output=True,
+            pull = subprocess.Popen(
+                ["docker", "pull", img_tag],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                timeout=600,
             )
+            # Poll with shutdown check so we can abort quickly on SIGTERM
+            while pull.poll() is None:
+                if _shutdown.is_set():
+                    pull.terminate()
+                    pull.wait(timeout=5)
+                    return False
+                time.sleep(1)
             if pull.returncode == 0:
-                # Get size of pulled image
                 images = _get_local_images()
-                size_mb = images.get(image_tag, 0)
-                cache_track_pull(image_tag, size_mb)
-                log.info("Pre-pulled %s (%.0f MB)", image_tag, size_mb)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+                size_mb = images.get(img_tag, 0)
+                cache_track_pull(img_tag, size_mb)
+                log.info("Pre-pulled %s (%.0f MB)", img_tag, size_mb)
+                return True
+            else:
+                stderr = pull.stdout.read() if pull.stdout else ""
+                log.warning("Pre-pull failed %s: %s", img_tag, stderr[:200] if stderr else "unknown")
+        except subprocess.TimeoutExpired:
+            log.warning("Pre-pull timed out: %s (>15 min)", img_tag)
+        except FileNotFoundError:
+            log.error("docker not found — cannot pre-pull")
+        return False
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as pool:
+        list(pool.map(_pull_one, to_pull))  # list() forces consumption, surfaces exceptions
 
 
 def fetch_popular_images():
@@ -3171,6 +3215,46 @@ def main():
         _total_cache_size_mb(),
     )
 
+    # ── Step 6b: Startup image warmer ──
+    # Like RunPod/Lambda — pre-pull ALL catalog images on boot so instances
+    # start in seconds, not minutes. Runs on a background thread so it doesn't
+    # block the main loop.
+    def _startup_image_warmer():
+        """Pre-pull entire IMAGE_TEMPLATES catalog on startup."""
+        try:
+            from security import IMAGE_TEMPLATES
+            catalog_images = [t["image"] for t in IMAGE_TEMPLATES]
+            # Also fetch popular images from API (covers user-custom images)
+            api_popular = fetch_popular_images()
+            # Merge: catalog first (guaranteed), then API popular (de-duped)
+            seen = set(catalog_images)
+            for img in api_popular:
+                if img not in seen:
+                    catalog_images.append(img)
+                    seen.add(img)
+            # Filter to only those not already cached locally
+            to_pull = []
+            for img in catalog_images:
+                with _image_cache_lock:
+                    if img in _image_cache_index:
+                        continue
+                to_pull.append(img)
+            if not to_pull:
+                log.info("Image warmer: all %d catalog images already cached", len(catalog_images))
+                return
+            log.info("Image warmer: pre-pulling %d/%d images in background...", len(to_pull), len(catalog_images))
+            cache_prepull_popular(to_pull, max_concurrent=2)
+            log.info("Image warmer: done — all catalog images cached")
+        except Exception as e:
+            log.warning("Image warmer error: %s", e)
+
+    warmer_thread = threading.Thread(
+        target=_startup_image_warmer,
+        name="image-warmer",
+        daemon=True,
+    )
+    warmer_thread.start()
+
     # ── Step 7: Adopt containers started by scheduler (before agent was running) ──
     adopt_running_containers()
 
@@ -3243,7 +3327,7 @@ def main():
     log.info("Entering main polling loop...")
     consecutive_poll_failures = 0
     _last_prepull_time = 0
-    PREPULL_INTERVAL = 600  # Pre-pull popular images every 10 min when idle
+    PREPULL_INTERVAL = 60  # Pre-pull popular images every 60s when idle
 
     while not _shutdown.is_set():
         try:
@@ -3281,7 +3365,7 @@ def main():
                         popular = fetch_popular_images()
                         if popular:
                             log.info("Idle — pre-pulling %d popular images", len(popular))
-                            cache_prepull_popular(popular[:5])  # Max 5 per cycle
+                            cache_prepull_popular(popular)
 
             consecutive_poll_failures = 0
 
