@@ -91,6 +91,7 @@ VALID_ACCOUNT_ROLES = {"submitter", "provider"}
 PUBLIC_PATHS = {
     "/", "/docs", "/redoc", "/openapi.json", "/llms.txt",
     "/dashboard", "/legacy", "/healthz", "/readyz", "/metrics",
+    "/metrics/prometheus",
     "/api/stream", "/api/transparency/report",
     "/api/providers/webhook",
     "/.well-known/oauth-authorization-server",
