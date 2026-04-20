@@ -1972,7 +1972,20 @@ def run_job(job):
         log.info("Container started: %s", container_id)
         _push_log_lines(job_id, [{"message": f"Container started ({container_id})", "level": "info", "timestamp": time.time()}])
 
-        # Report container info to scheduler
+        # 4a. Register container metadata with scheduler (status still "starting")
+        #     so the web terminal backend can resolve container_name before we
+        #     flip to "running". Keeping the UI badge on "starting" until SSH
+        #     injection actually finishes means "Running" is a truthful signal.
+        report_job_status(job_id, "starting", host_id=HOST_ID,
+                          container_id=container_id, container_name=container_name)
+
+        # 4b. Inject user's SSH keys into the container (best-effort, 45s budget).
+        #     _inject_ssh_keys is guaranteed to emit a final summary line via
+        #     both the log stream AND the container's PID-1 stdout, so the user
+        #     never sees "Setting up SSH…" hang indefinitely.
+        _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
+
+        # 4c. SSH is either ready or has emitted a reason — flip to "running".
         report_job_status(job_id, "running", host_id=HOST_ID,
                           container_id=container_id, container_name=container_name)
 
@@ -1984,10 +1997,6 @@ def run_job(job):
                 {"message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
                  "level": "info", "timestamp": time.time()},
             ])
-
-        # 4b. Inject user's SSH keys into the container (best-effort)
-        #     _inject_ssh_keys pushes its own user-visible log lines for each phase.
-        _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
         # 5. Apply egress rules (best-effort)
         try:
@@ -2404,6 +2413,15 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
     Best-effort: failures are logged but don't block the job. For interactive
     jobs, pushes user-visible log lines at each phase so the UI log stream
     doesn't silently end at "Setting up SSH…".
+
+    Production guarantees (Phase 1.4 hardening):
+      * Hard wall-clock budget of 45s — no single subprocess can exceed
+        min(its-default, remaining-budget).
+      * The `finally:` block ALWAYS emits a single summary line via _note()
+        AND mirrors it to the container's PID-1 stdout (/proc/1/fd/1) so
+        an already-attached web terminal sees the final state inline.
+      * Exceptions and timeouts are caught and translated into a
+        user-readable summary — nothing ever escapes this function.
     """
     def _note(msg: str, level: str = "info"):
         """Push a user-visible log line (only for interactive jobs)."""
@@ -2413,36 +2431,68 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             except Exception:
                 pass
 
+    def _mirror_to_container(msg: str):
+        """Best-effort: echo a line to the container's PID-1 stdout so it
+        shows up in docker logs AND any web terminal that's already attached
+        via ``docker exec``. Wrapped in its own try/except with a 3s timeout
+        so this can never block the finally block."""
+        if not interactive:
+            return
+        try:
+            subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c",
+                 f"printf '%s\\n' {_shell_quote(msg)} > /proc/1/fd/1 2>/dev/null || true"],
+                capture_output=True, timeout=3, check=False,
+            )
+        except Exception:
+            pass
+
+    start = time.monotonic()
+    deadline = start + 45.0
+
+    def _remaining(default: float) -> float:
+        """Clamp a subprocess timeout to the remaining wall-clock budget.
+        Never returns less than 1s (so very-near-deadline calls still get
+        a real chance, and TimeoutExpired will cleanly bubble to finally)."""
+        return max(1.0, min(default, deadline - time.monotonic()))
+
+    # Tracking flags for final summary composition.
     keys: list[str] = []
-    try:
-        resp = requests.get(
-            _api_url(f"/agent/ssh-keys/{job_id}"),
-            headers=_api_headers(),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            keys = resp.json().get("keys", []) or []
-        else:
-            log.debug("SSH keys endpoint returned %d for job %s", resp.status_code, job_id)
-    except Exception as e:
-        log.warning("SSH key fetch failed for job %s: %s", job_id, e)
+    sshd_present: bool = False
+    sshd_started: bool = False
+    final_msg: str = "[xcelsior] SSH setup complete"
+    final_level: str = "info"
 
-    if not keys:
-        _note(
-            "No SSH public keys on file — web terminal still works. Add keys at https://xcelsior.ca/dashboard/settings#api-keys to enable direct SSH.",
-            level="warning",
-        )
-        log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
     try:
+        # --- Fetch authorized keys from API (10s budget clamped to remaining) ---
+        try:
+            resp = requests.get(
+                _api_url(f"/agent/ssh-keys/{job_id}"),
+                headers=_api_headers(),
+                timeout=_remaining(10),
+            )
+            if resp.status_code == 200:
+                keys = resp.json().get("keys", []) or []
+            else:
+                log.debug("SSH keys endpoint returned %d for job %s", resp.status_code, job_id)
+        except Exception as e:
+            log.warning("SSH key fetch failed for job %s: %s", job_id, e)
 
-        # Create .ssh directory (always — sshd needs it even with no keys)
+        if not keys:
+            _note(
+                "No SSH public keys on file — web terminal still works. Add keys at https://xcelsior.ca/dashboard/settings#api-keys to enable direct SSH.",
+                level="warning",
+            )
+            log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
+
+        # --- Prepare /root/.ssh (always — sshd needs it even with no keys) ---
         subprocess.run(
             ["docker", "exec", container_name, "mkdir", "-p", "/root/.ssh"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=_remaining(5),
         )
         subprocess.run(
             ["docker", "exec", container_name, "chmod", "700", "/root/.ssh"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=_remaining(5),
         )
 
         if keys:
@@ -2452,22 +2502,24 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 ["docker", "exec", container_name, "sh", "-c",
                  f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
                  "chmod 600 /root/.ssh/authorized_keys"],
-                capture_output=True, timeout=5,
+                capture_output=True, timeout=_remaining(5),
             )
             log.info("Injected %d SSH key(s) into container %s for job %s", len(keys), container_name, job_id)
             _note(f"Injected {len(keys)} SSH key(s)")
 
-        # Try to start sshd if available (best-effort)
+        # --- Detect sshd ---
         sshd_check = subprocess.run(
             ["docker", "exec", container_name, "which", "sshd"],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=_remaining(5),
         )
-        if sshd_check.returncode == 0:
+        sshd_present = sshd_check.returncode == 0
+
+        if sshd_present:
             # Generate host keys if missing
             subprocess.run(
                 ["docker", "exec", container_name, "sh", "-c",
                  "ls /etc/ssh/ssh_host_*_key 2>/dev/null || ssh-keygen -A"],
-                capture_output=True, timeout=10,
+                capture_output=True, timeout=_remaining(10),
             )
             # Ensure PermitRootLogin is enabled and configure keepalive so SSH
             # sessions don't get cut by NAT/firewall idle timeouts.
@@ -2476,7 +2528,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                  "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true; "
                  "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
                  "printf '\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config"],
-                capture_output=True, timeout=5,
+                capture_output=True, timeout=_remaining(5),
             )
 
             # Set up MOTD + custom shell prompt for the interactive instance.
@@ -2551,15 +2603,16 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                  # Silence default debian/ubuntu motd noise so ours is the only banner shown
                  "rm -f /etc/update-motd.d/* 2>/dev/null; "
                  ": > /etc/motd 2>/dev/null || true"],
-                capture_output=True, timeout=15,
+                capture_output=True, timeout=_remaining(15),
             )
 
             # Start sshd
             sshd_start = subprocess.run(
                 ["docker", "exec", container_name, "/usr/sbin/sshd"],
-                capture_output=True, timeout=5,
+                capture_output=True, timeout=_remaining(5),
             )
-            if sshd_start.returncode == 0:
+            sshd_started = sshd_start.returncode == 0
+            if sshd_started:
                 log.info("sshd started in container %s", container_name)
                 _note("SSH daemon ready — connections accepted" if keys else "SSH daemon started (add keys to connect)")
             else:
@@ -2570,9 +2623,35 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             log.info("sshd not found in image — web terminal only (container %s)", container_name)
             _note("Image has no sshd — use the web terminal above for shell access")
 
+        # --- Compose final summary based on observed state ---
+        if sshd_started and keys:
+            final_msg = f"[xcelsior] SSH ready ({len(keys)} key(s), sshd running)"
+        elif sshd_started and not keys:
+            final_msg = "[xcelsior] sshd running, no keys on file — add at xcelsior.ca/dashboard/settings"
+        elif sshd_present and not sshd_started:
+            final_msg = "[xcelsior] SSH keys stored; sshd failed to start — use web terminal"
+            final_level = "warning"
+        elif (not sshd_present) and keys:
+            final_msg = "[xcelsior] SSH keys stored; image has no sshd — use web terminal"
+        else:
+            final_msg = "[xcelsior] Web terminal only (no sshd in image)"
+
+    except subprocess.TimeoutExpired:
+        final_msg = "[xcelsior] SSH setup timed out (45s budget) — web terminal still works"
+        final_level = "warning"
+        log.warning("SSH inject exceeded 45s budget for job %s", job_id)
     except Exception as e:
+        final_msg = f"[xcelsior] SSH setup failed: {e} — web terminal still works"
+        final_level = "warning"
         log.warning("SSH key injection failed for job %s: %s", job_id, e)
-        _note(f"SSH setup encountered an error: {e}", level="warning")
+    finally:
+        elapsed = time.monotonic() - start
+        summary = f"{final_msg} ({elapsed:.1f}s)"
+        log.info("SSH inject for job %s completed in %.1fs: %s", job_id, elapsed, final_msg)
+        # Guarantee: the UI always sees exactly one final summary line, via both
+        # the log stream and the container's PID-1 stdout (for already-attached WS).
+        _note(summary, level=final_level)
+        _mirror_to_container(summary)
 
 
 def _shell_quote(s: str) -> str:
