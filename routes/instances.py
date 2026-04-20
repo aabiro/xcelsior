@@ -257,6 +257,18 @@ def api_submit_instance(j: JobIn, request: Request):
             detail="Docker image is required for marketplace launches — select a template or enter a custom image",
         )
 
+    # ── Pre-validate the image exists on the registry ─────────────────
+    # Catches invalid tags like `nvidia/cuda:11.8-cudnn8-runtime-ubuntu20.04`
+    # (the Ubuntu 20.04 CUDA 11.8 cudnn8 variant was never published) BEFORE
+    # queueing the job, instead of letting it reach the host and fail on pull.
+    # Fail-open on network errors to avoid blocking submissions if Docker Hub
+    # or the auth service is having a blip.
+    if j.image:
+        from security import probe_image_exists
+        problem = probe_image_exists(j.image)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+
     with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
         customer_id = user.get("customer_id", user.get("user_id", ""))
         _wallet_preflight(customer_id)
@@ -987,21 +999,55 @@ async def _job_log_generator(request: Request, job_id: str):
         # SSE retry hint for automatic browser reconnection
         yield "retry: 3000\n\n"
 
-        # Replay buffered log lines (PG fallback if buffer is empty)
-        replay = list(_job_log_buffers.get(job_id, []))
-        if not replay:
-            replay = _load_pg_logs(job_id, limit=200)
+        # Replay buffered log lines (PG fallback if buffer is empty).
+        # Prefer PG if it has MORE rows than the in-memory buffer — covers the
+        # cross-process case where scheduler-worker wrote logs that never hit
+        # this API process's in-memory buffer.
+        in_mem = list(_job_log_buffers.get(job_id, []))
+        pg_rows = _load_pg_logs(job_id, limit=500)
+        replay = pg_rows if len(pg_rows) >= len(in_mem) else in_mem
+        last_ts = 0.0
         for entry in replay:
             data = json.dumps({"job_id": job_id, **entry})
             yield f"event: job_log\ndata: {data}\n\n"
+            try:
+                last_ts = max(last_ts, float(entry.get("timestamp") or entry.get("ts") or 0))
+            except (TypeError, ValueError):
+                pass
 
         yield f"event: connected\ndata: {json.dumps({'job_id': job_id, 'status': 'streaming'})}\n\n"
 
         while True:
             if await request.is_disconnected():
                 break
+
+            # Poll PG for new log rows since last_ts. This is the ONLY path by
+            # which logs written from other processes (scheduler-worker,
+            # worker-agent uploads) reach this SSE client — the in-process
+            # broadcast bus only sees writes from this same API worker.
             try:
-                msg = await asyncio.wait_for(queue.get(), timeout=30)
+                from db import _get_pg_pool
+                from psycopg.rows import dict_row
+                with _get_pg_pool().connection() as conn:
+                    with conn.cursor(row_factory=dict_row) as cur:
+                        new_rows = cur.execute(
+                            "SELECT ts AS timestamp, level, line, line AS message "
+                            "FROM job_logs WHERE job_id = %s AND ts > %s "
+                            "ORDER BY ts ASC LIMIT 200",
+                            (job_id, last_ts),
+                        ).fetchall()
+                for row in new_rows:
+                    yield f"event: job_log\ndata: {json.dumps({'job_id': job_id, **row})}\n\n"
+                    try:
+                        last_ts = max(last_ts, float(row.get("timestamp") or 0))
+                    except (TypeError, ValueError):
+                        pass
+            except Exception:
+                # PG hiccup — keep the stream alive; will retry on next tick.
+                pass
+
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=2)
                 event_type = msg.get("event", "message")
                 event_data = msg.get("data", {})
                 # Filter: only pass through events for this job

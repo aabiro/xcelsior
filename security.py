@@ -375,6 +375,97 @@ def get_image_templates() -> list[dict]:
     return [dict(t) for t in IMAGE_TEMPLATES]
 
 
+def probe_image_exists(image: str, *, timeout: float = 5.0) -> str | None:
+    """Probe a container registry to verify the image tag actually exists.
+
+    Returns a human-readable error string if we can PROVE the image does not
+    exist (e.g. 404 on the manifest endpoint). Returns None if the image
+    exists OR if we cannot determine (network error, auth failure, rate
+    limit, non-Docker-Hub registry we don't know how to probe, etc.).
+
+    This is a best-effort pre-validation. Fail-open on every ambiguous case
+    so we never block a legitimate submission due to a registry hiccup.
+    Catches common user typos (wrong Ubuntu version, CUDA minor, etc.)
+    before the job hits the queue and wastes ~30s of pull time.
+    """
+    try:
+        import urllib.parse
+        import requests  # type: ignore
+    except Exception:
+        return None
+
+    if not image or "@" in image:
+        # Digest-pinned references are too expensive to probe and almost
+        # always correct. Fail-open.
+        return None
+
+    # Parse repo and tag (image was already normalized to lowercase upstream).
+    ref = image.strip()
+    if ":" in ref.rsplit("/", 1)[-1]:
+        repo_part, tag = ref.rsplit(":", 1)
+    else:
+        repo_part, tag = ref, "latest"
+
+    # We only know how to probe Docker Hub (registry-1.docker.io) and ghcr.io
+    # via the v2 token-auth flow. For other registries we fail-open.
+    if repo_part.startswith("ghcr.io/"):
+        registry = "ghcr.io"
+        repo = repo_part[len("ghcr.io/"):]
+        token_url = (
+            f"https://ghcr.io/token?service=ghcr.io&scope="
+            f"repository:{urllib.parse.quote(repo, safe='/')}:pull"
+        )
+        manifest_host = "ghcr.io"
+    elif "/" in repo_part and "." in repo_part.split("/", 1)[0]:
+        # Third-party registry (e.g. nvcr.io, gcr.io) — not supported here.
+        return None
+    else:
+        registry = "docker.io"
+        # Docker Hub official images live under library/<name>
+        repo = repo_part if "/" in repo_part else f"library/{repo_part}"
+        token_url = (
+            f"https://auth.docker.io/token?service=registry.docker.io&scope="
+            f"repository:{urllib.parse.quote(repo, safe='/')}:pull"
+        )
+        manifest_host = "registry-1.docker.io"
+
+    try:
+        tok_r = requests.get(token_url, timeout=timeout)
+        if tok_r.status_code != 200:
+            return None
+        token = tok_r.json().get("token") or tok_r.json().get("access_token")
+        if not token:
+            return None
+
+        url = f"https://{manifest_host}/v2/{repo}/manifests/{urllib.parse.quote(tag, safe='')}"
+        r = requests.head(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": (
+                    "application/vnd.docker.distribution.manifest.v2+json, "
+                    "application/vnd.docker.distribution.manifest.list.v2+json, "
+                    "application/vnd.oci.image.manifest.v1+json, "
+                    "application/vnd.oci.image.index.v1+json"
+                ),
+            },
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        if r.status_code == 404:
+            return (
+                f"Docker image '{image}' not found on {registry}. "
+                f"Check the tag — this repo/tag combination does not exist."
+            )
+        if r.status_code == 401:
+            # Private repo or bad token — we can't verify, fail-open.
+            return None
+        # 200, 307, 429, 5xx, etc. → fail-open.
+        return None
+    except Exception:
+        return None
+
+
 # ── Layer 2: Least Privilege Container Configuration ──────────────────
 # Enforce rootless, no-privileged, no-new-privileges, cap-drop ALL
 

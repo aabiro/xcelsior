@@ -195,14 +195,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Logo */}
       <div className="flex h-[72px] items-center border-b border-border/60 px-4 justify-between">
         <Link href="/dashboard" className="flex items-center overflow-visible pr-2">
-          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 40 : undefined }}>
+          <div className="relative shrink-0" style={{ width: collapsed && !mobile ? 52 : undefined }}>
             {/* Rounded icon — visible when collapsed */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/xcelsior-logo-rounded.svg"
               alt="Xcelsior"
               className={cn(
-                "h-[40px] w-[40px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
+                "h-[52px] w-[52px] transition-all duration-300 ease-in-out absolute top-1/2 left-0",
                 collapsed && !mobile
                   ? "opacity-100 scale-100 -translate-y-1/2"
                   : "opacity-0 scale-75 -translate-y-1/2 pointer-events-none"
@@ -219,13 +219,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <img
                 src="/xcelsior-logo-wordmark-iconbg.svg"
                 alt="Xcelsior"
-                className="hidden h-[40px] w-auto shrink-0 dark:block"
+                className="hidden h-[52px] w-auto shrink-0 dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/xcelsior-logo-wordmark-iconbg-light.svg"
                 alt="Xcelsior"
-                className="block h-[40px] w-auto shrink-0 dark:hidden"
+                className="block h-[52px] w-auto shrink-0 dark:hidden"
               />
               <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>
