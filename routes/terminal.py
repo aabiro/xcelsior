@@ -306,27 +306,127 @@ def _patch_paramiko_host_keys() -> None:
     _paramiko_host_keys_patched = True
 
 
+# -- Docker client pool --------------------------------------------------------
+# One persistent Docker SDK client per (ssh_user, host_ip). This eliminates the
+# ~60 SSH handshakes per terminal open that the previous "new client per call"
+# model produced (container probe loop × 60, plus probe, exec attach, tmux
+# check, etc.). The SSH transport stays up with paramiko keepalive(20), and is
+# evicted + rebuilt on any exception so a dead tunnel can't get stuck.
+_docker_client_cache: dict[str, "docker.DockerClient"] = {}
+_docker_client_cache_lock = threading.RLock()
+_PARAMIKO_KEEPALIVE_INTERVAL_SEC: int = int(
+    os.environ.get("XCELSIOR_TERMINAL_PARAMIKO_KEEPALIVE_SEC", "20")
+)
+
+
+def _paramiko_transport_from_client(cl: "docker.DockerClient"):
+    """Best-effort: reach into the docker SDK to get the paramiko Transport.
+
+    Returns None if the SDK internals change, which is fine — keepalive/health
+    is a nice-to-have, never required for correctness.
+    """
+    try:
+        # SSHHTTPAdapter instance; docker-py registers it for ssh:// base URLs.
+        adapter = getattr(cl.api, "_custom_adapter", None)
+        if adapter is None:
+            return None
+        ssh_client = getattr(adapter, "ssh_client", None)
+        if ssh_client is None:
+            return None
+        return ssh_client.get_transport()
+    except Exception:
+        return None
+
+
+def _docker_client_alive(cl: "docker.DockerClient") -> bool:
+    """Cheap liveness probe: just check the paramiko transport is still up.
+
+    We deliberately DO NOT issue a Docker API call here — that would cost an
+    HTTP round-trip over SSH, negating the pool. Transport.is_active() is a
+    local flag check. If we're wrong and the transport looks active but the
+    next API call fails, callers will evict + rebuild.
+    """
+    transport = _paramiko_transport_from_client(cl)
+    if transport is None:
+        # Can't inspect — assume alive; real failures will cause eviction.
+        return True
+    try:
+        return bool(transport.is_active())
+    except Exception:
+        return False
+
+
+def _evict_docker_client(cache_key: str) -> None:
+    """Remove and close a cached Docker client. Safe to call repeatedly."""
+    with _docker_client_cache_lock:
+        cl = _docker_client_cache.pop(cache_key, None)
+    if cl is not None:
+        try:
+            cl.close()
+        except Exception:
+            pass
+
+
+def _docker_client_cache_key(host_ip: str | None, ssh_user: str) -> str | None:
+    if not host_ip or host_ip in ("127.0.0.1", "localhost", "0.0.0.0"):
+        return None
+    return f"{ssh_user}@{host_ip}"
+
+
 def _docker_client(
     host_ip: str | None = None,
     ssh_user: str = SSH_USER,
     ssh_key_path: str = SSH_KEY_PATH,
 ) -> docker.DockerClient:
-    """Return a Docker SDK client for the given host."""
-    if not host_ip or host_ip in ("127.0.0.1", "localhost", "0.0.0.0"):
+    """Return a (pooled) Docker SDK client for the given host.
+
+    - For LOCAL (no host_ip), returns a fresh docker.from_env() each call —
+      caller owns closing it. These clients are cheap (unix socket).
+    - For REMOTE hosts, returns a pooled paramiko-backed ssh:// client that
+      callers MUST NOT close — use `_evict_docker_client(cache_key)` to drop
+      it on error. Cache is keyed by (ssh_user, host_ip).
+
+    The remote client is built lazily on first use or after eviction. We set
+    paramiko keepalive to keep NAT/firewall state warm.
+    """
+    cache_key = _docker_client_cache_key(host_ip, ssh_user)
+    if cache_key is None:
+        # Local daemon — unix socket is cheap, keep the simple per-call pattern.
         return docker.from_env()
 
-    _ensure_remote_host_key_pinned(host_ip)
-    _ensure_ssh_identity(ssh_key_path)
-    _patch_paramiko_host_keys()
-    # Use paramiko-native SSH transport (use_ssh_client=False) — it reads
-    # ~/.ssh/config for IdentityFile and uses the pinned known_hosts directly.
-    # The subprocess-ssh path (use_ssh_client=True) breaks with BrokenPipeError
-    # when invoking `docker system dial-stdio` over a non-interactive shell.
-    return docker.DockerClient(
-        base_url=f"ssh://{ssh_user}@{host_ip}",
-        use_ssh_client=False,
-        timeout=_REMOTE_DOCKER_TIMEOUT_SEC,
-    )
+    with _docker_client_cache_lock:
+        cached = _docker_client_cache.get(cache_key)
+        if cached is not None and _docker_client_alive(cached):
+            return cached
+        if cached is not None:
+            # Dead transport — drop it and build fresh below.
+            try:
+                cached.close()
+            except Exception:
+                pass
+            _docker_client_cache.pop(cache_key, None)
+
+        # Build a fresh client. Prerequisites live on disk / global paramiko.
+        _ensure_remote_host_key_pinned(host_ip)
+        _ensure_ssh_identity(ssh_key_path)
+        _patch_paramiko_host_keys()
+        # paramiko-native transport (use_ssh_client=False). The subprocess-ssh
+        # path breaks with BrokenPipeError during `docker system dial-stdio`.
+        cl = docker.DockerClient(
+            base_url=f"ssh://{ssh_user}@{host_ip}",
+            use_ssh_client=False,
+            timeout=_REMOTE_DOCKER_TIMEOUT_SEC,
+        )
+        # Enable TCP/SSH keepalive on the underlying paramiko transport so
+        # long-idle tunnels don't silently die behind NAT/firewalls.
+        transport = _paramiko_transport_from_client(cl)
+        if transport is not None:
+            try:
+                transport.set_keepalive(_PARAMIKO_KEEPALIVE_INTERVAL_SEC)
+            except Exception:
+                pass
+        _docker_client_cache[cache_key] = cl
+        return cl
 
 
 # -- Preflight helpers ---------------------------------------------------------
@@ -343,7 +443,12 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
         found  (bool)          — True iff the container exists
         reason (str|None)      — "ok" | "not_found" | "unreachable"
         error  (str|None)      — human-readable error detail (if any)
+
+    Uses the pooled remote client for remote hosts — does NOT close it. On
+    unreachable errors we evict the pooled entry so the next call rebuilds
+    the SSH tunnel.
     """
+    cache_key = _docker_client_cache_key(host_ip, SSH_USER)
     cl = None
     try:
         cl = _docker_client(host_ip)
@@ -356,13 +461,16 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
             "TERMINAL _container_probe(%s, host=%s) unreachable: %s: %s",
             container_ref, host_ip, type(e).__name__, e,
         )
+        if cache_key is not None:
+            _evict_docker_client(cache_key)
         return {
             "found": False,
             "reason": "unreachable",
             "error": f"{type(e).__name__}: {e}",
         }
     finally:
-        if cl is not None:
+        # Close only unpooled (local) clients. Pooled remote clients stay up.
+        if cl is not None and cache_key is None:
             try:
                 cl.close()
             except Exception:
@@ -371,16 +479,21 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
 
 def _tmux_available(container_ref: str, host_ip: str | None = None) -> bool:
     """Return True when tmux is on PATH inside *container_ref*."""
+    cache_key = _docker_client_cache_key(host_ip, SSH_USER)
     cl = None
     try:
         cl = _docker_client(host_ip)
         container = cl.containers.get(container_ref)
         result = container.exec_run("which tmux")
         return result.exit_code == 0
-    except (NotFound, DockerException, Exception):
+    except NotFound:
+        return False
+    except Exception:
+        if cache_key is not None:
+            _evict_docker_client(cache_key)
         return False
     finally:
-        if cl is not None:
+        if cl is not None and cache_key is None:
             try:
                 cl.close()
             except Exception:
@@ -1027,11 +1140,18 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 _DOCKER_EXEC_START_TIMEOUT_SEC,
             )
         except (asyncio.TimeoutError, NotFound, APIError, DockerException, OSError) as exc:
+            # Pooled remote clients: evict so the next session rebuilds the SSH
+            # tunnel. Local clients: close outright.
             if docker_cl is not None:
-                try:
-                    docker_cl.close()
-                except Exception:
-                    pass
+                if is_remote:
+                    cache_key = _docker_client_cache_key(host_ip, SSH_USER)
+                    if cache_key is not None:
+                        _evict_docker_client(cache_key)
+                else:
+                    try:
+                        docker_cl.close()
+                    except Exception:
+                        pass
             await _send_error(websocket, f"Failed to spawn terminal: {exc}", 4500)
             await websocket.close(code=4500)
             _conn_errors.labels(reason="spawn_failed").inc()  # type: ignore[attr-defined]
@@ -1335,7 +1455,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 except Exception:
                     pass
 
-            if docker_cl is not None:
+            # Pool-aware cleanup: remote clients stay in the pool (keep SSH
+            # tunnel alive for subsequent sessions). Local clients close.
+            if docker_cl is not None and not is_remote:
                 try:
                     docker_cl.close()
                 except Exception:
