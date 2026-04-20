@@ -29,10 +29,12 @@ NFS_SERVER = os.environ.get("XCELSIOR_NFS_SERVER", "")
 NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
 
 # Canonical NFS mount options — used by volumes.py, scheduler.py, worker_agent.py.
-# soft: timeouts produce EIO (recoverable) instead of D-state hangs (host-bricking).
-# timeo=150: 15-second initial RPC timeout (in deciseconds); retrans=3: 3 retries.
+# hard: I/O blocks-and-retries on NFS server reboot (never silently fails).
+#   Required for data durability on GPU checkpoints / training state.
+# timeo=600: 60-second initial RPC timeout (in deciseconds); retrans=3: 3 retries.
 # rsize/wsize=1M: large buffers for GPU checkpoint throughput.
-NFS_MOUNT_OPTS = "soft,timeo=150,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"
+# _netdev: wait for network before mounting at boot.
+NFS_MOUNT_OPTS = "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"
 
 
 class VolumeEngine:
