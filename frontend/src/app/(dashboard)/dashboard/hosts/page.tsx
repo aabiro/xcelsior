@@ -736,13 +736,14 @@ function CodeSnippet({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(242,247,255,0.96))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_8px_24px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(5,11,22,0.98),rgba(4,8,18,0.94))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+        "relative flex items-start gap-2 overflow-hidden rounded-2xl border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(242,247,255,0.96))] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_8px_24px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(5,11,22,0.98),rgba(4,8,18,0.94))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
         className,
       )}
     >
+      <pre className="min-w-0 flex-1 overflow-x-auto text-[13px] font-mono leading-relaxed text-slate-800 dark:text-[#d9e8ff]">{text}</pre>
       <button
         onClick={() => onCopy(label, text)}
-        className="absolute right-3 top-3 flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white/80 px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent-cyan/35 hover:text-accent-cyan dark:border-white/10 dark:bg-white/5"
+        className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white/80 px-2 py-1 text-xs text-text-secondary transition-colors hover:border-accent-cyan/35 hover:text-accent-cyan dark:border-white/10 dark:bg-white/5"
       >
         {copied === label ? (
           <>
@@ -754,7 +755,6 @@ function CodeSnippet({
           </>
         )}
       </button>
-      <pre className="overflow-x-auto pr-20 text-[13px] font-mono leading-relaxed text-slate-800 dark:text-[#d9e8ff]">{text}</pre>
     </div>
   );
 }

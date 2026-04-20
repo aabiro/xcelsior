@@ -1,29 +1,75 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" fill="none">
   <defs>
+    <pattern id="majorGrid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" stroke="#94A3B8" stroke-opacity="0.55" stroke-width="0.8"/>
+    </pattern>
+    <pattern id="minorGrid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M22 0H0V22" stroke="#CBD5E1" stroke-opacity="0.55" stroke-width="0.5"/>
+    </pattern>
+
+    <!-- Asymmetric fade -->
+    <linearGradient id="gridFadeV" x1="0" y1="0" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="35%" stop-color="white" stop-opacity="0.85"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0.45"/>
+      <stop offset="72%" stop-color="white" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gridFadeH" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.2"/>
+      <stop offset="18%" stop-color="white"/>
+      <stop offset="60%" stop-color="white" stop-opacity="0.7"/>
+      <stop offset="85%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.08"/>
+    </linearGradient>
+    <mask id="gridMask">
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeV)"/>
+      <rect x="0" y="0" width="1200" height="900" fill="url(#gridFadeH)" style="mix-blend-mode:multiply"/>
+    </mask>
+
+    <!-- Accent line gradients -->
+    <linearGradient id="brandH" x1="60" y1="0" x2="1140" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
+      <stop offset="12%" stop-color="#0891b2" stop-opacity="0.7"/>
+      <stop offset="48%" stop-color="#5b21b6" stop-opacity="0.6"/>
+      <stop offset="82%" stop-color="#ea580c" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="brandV" x1="0" y1="30" x2="0" y2="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0891b2" stop-opacity="0.75"/>
+      <stop offset="40%" stop-color="#5b21b6" stop-opacity="0.55"/>
+      <stop offset="75%" stop-color="#ea580c" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Server defs -->
     <linearGradient id="rackStroke" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
       <stop offset="0%" stop-color="#0891b2" stop-opacity="0.85"/>
       <stop offset="50%" stop-color="#5b21b6" stop-opacity="0.75"/>
-      <stop offset="100%" stop-color="#ea580c" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#ea580c" stop-opacity="0.6"/>
     </linearGradient>
     <radialGradient id="serverHalo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(980 680) rotate(90) scale(280 260)">
-      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0.18"/>
-      <stop offset="50%" stop-color="#0891b2" stop-opacity="0.1"/>
+      <stop offset="0%" stop-color="#5b21b6" stop-opacity="0.14"/>
+      <stop offset="50%" stop-color="#0891b2" stop-opacity="0.08"/>
       <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="serverMaskG" x1="740" y1="420" x2="1180" y2="900" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="white" stop-opacity="0.95"/>
-      <stop offset="45%" stop-color="white" stop-opacity="0.8"/>
-      <stop offset="75%" stop-color="white" stop-opacity="0.4"/>
+      <stop offset="45%" stop-color="white" stop-opacity="0.75"/>
+      <stop offset="75%" stop-color="white" stop-opacity="0.3"/>
       <stop offset="100%" stop-color="white" stop-opacity="0"/>
     </linearGradient>
     <mask id="serverMask">
       <rect x="0" y="0" width="1200" height="900" fill="black"/>
       <rect x="690" y="380" width="520" height="520" rx="8" fill="url(#serverMaskG)"/>
     </mask>
+
     <filter id="dotGlow" x="-200%" y="-200%" width="500%" height="500%">
       <feGaussianBlur stdDeviation="7" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+
+    <!-- Fade mask for top and left edges -->
     <linearGradient id="edgeFadeLeft" x1="0" y1="0" x2="125" y2="0" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="white" stop-opacity="0"/>
       <stop offset="100%" stop-color="white" stop-opacity="1"/>
@@ -37,6 +83,8 @@
       <rect x="0" y="0" width="125" height="900" fill="url(#edgeFadeLeft)"/>
       <rect x="0" y="0" width="1200" height="100" fill="url(#edgeFadeTop)"/>
     </mask>
+
+    <!-- Circuit trace gradients -->
     <linearGradient id="traceCyan" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
       <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
       <stop offset="20%" stop-color="#0891b2" stop-opacity="0.85"/>
@@ -55,6 +103,8 @@
       <stop offset="75%" stop-color="#ea580c" stop-opacity="0.5"/>
       <stop offset="100%" stop-color="#ea580c" stop-opacity="0.12"/>
     </linearGradient>
+
+    <!-- Beam energy animation gradients -->
     <linearGradient id="beamCyan" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
       <stop offset="0%" stop-color="#0891b2" stop-opacity="0"/>
       <stop offset="40%" stop-color="#0891b2" stop-opacity="0"/>
@@ -71,6 +121,7 @@
       <stop offset="100%" stop-color="#5b21b6" stop-opacity="0"/>
       <animateTransform attributeName="gradientTransform" type="translate" values="-1 0;2 0" dur="4s" repeatCount="indefinite"/>
     </linearGradient>
+
     <style>
       .twinkle{animation:twinkle 3s ease-in-out infinite}
       .twinkle-slow{animation:twinkle 4.8s ease-in-out infinite}
@@ -79,105 +130,157 @@
     </style>
   </defs>
 
+  <!-- Everything under edge fade mask — transparent background -->
   <g mask="url(#edgeFadeMask)">
-    <!-- Circuit traces extending from server rack -->
-    <g>
-      <path d="M740 540H420" stroke="url(#traceCyan)" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M740 590H350" stroke="url(#traceViolet)" stroke-width="2.0" stroke-linecap="round"/>
-      <path d="M740 640H480" stroke="url(#traceRed)" stroke-width="1.8" stroke-linecap="round"/>
-      <path d="M740 690H300" stroke="url(#traceCyan)" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M740 740H520" stroke="url(#traceViolet)" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M420 540L320 460" stroke="#0891b2" stroke-opacity="0.6" stroke-width="1.8" stroke-linecap="round"/>
-      <path d="M350 590L250 520" stroke="#5b21b6" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M480 640L380 720" stroke="#ea580c" stroke-opacity="0.5" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M300 690L200 620" stroke="#0891b2" stroke-opacity="0.45" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M740 540H420" stroke="url(#beamCyan)" stroke-width="3" stroke-linecap="round"/>
-      <path d="M740 590H350" stroke="url(#beamViolet)" stroke-width="2.5" stroke-linecap="round"/>
-      <circle cx="420" cy="540" r="4" fill="#0891b2" fill-opacity="0.8" filter="url(#dotGlow)"/>
-      <circle cx="350" cy="590" r="3.5" fill="#5b21b6" fill-opacity="0.75" filter="url(#dotGlow)"/>
-      <circle cx="480" cy="640" r="3" fill="#ea580c" fill-opacity="0.7" filter="url(#dotGlow)"/>
-      <circle cx="300" cy="690" r="3.5" fill="#0891b2" fill-opacity="0.65" filter="url(#dotGlow)"/>
-      <circle cx="520" cy="740" r="2.5" fill="#5b21b6" fill-opacity="0.6" filter="url(#dotGlow)"/>
-      <circle cx="320" cy="460" r="3.5" fill="#0891b2" fill-opacity="0.7" class="twinkle" filter="url(#dotGlow)"/>
-      <circle cx="250" cy="520" r="3" fill="#5b21b6" fill-opacity="0.65" class="twinkle-offset" filter="url(#dotGlow)"/>
-      <circle cx="380" cy="720" r="2.8" fill="#ea580c" fill-opacity="0.6" class="twinkle-slow" filter="url(#dotGlow)"/>
-      <circle cx="200" cy="620" r="3" fill="#0891b2" fill-opacity="0.55" class="twinkle" filter="url(#dotGlow)"/>
-      <path d="M900 440H1050" stroke="#0891b2" stroke-opacity="0.4" stroke-width="1.2" stroke-linecap="round"/>
-      <path d="M950 410H1100" stroke="#5b21b6" stroke-opacity="0.35" stroke-width="1.0" stroke-linecap="round"/>
-      <circle cx="1050" cy="440" r="2.5" fill="#0891b2" fill-opacity="0.5" class="twinkle-offset" filter="url(#dotGlow)"/>
-      <circle cx="1100" cy="410" r="2" fill="#5b21b6" fill-opacity="0.4" filter="url(#dotGlow)"/>
-    </g>
 
-    <!-- Electricity / spark arcs -->
-    <g>
-      <path d="M720 560L700 555L710 548L690 540" stroke="#0891b2" stroke-opacity="0.7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      <path d="M725 620L705 625L715 632L695 638" stroke="#5b21b6" stroke-opacity="0.6" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      <path d="M730 700L712 695L720 688L700 682" stroke="#ea580c" stroke-opacity="0.5" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    </g>
+    <!-- Grid -->
+    <g mask="url(#gridMask)">
+      <rect width="1200" height="900" fill="url(#majorGrid)" opacity="0.85"/>
+      <rect width="1200" height="900" fill="url(#minorGrid)" opacity="0.65"/>
 
-    <!-- Server halo -->
-    <ellipse cx="976" cy="680" rx="260" ry="250" fill="url(#serverHalo)"/>
-
-    <!-- Server rack -->
-    <g mask="url(#serverMask)">
-      <g transform="translate(740 460)">
-        <rect x="48" y="14" width="370" height="500" rx="6" fill="none" stroke="#5b21b6" stroke-opacity="0.2" stroke-width="1.0"/>
-        <rect x="14" y="0" width="370" height="500" rx="6" fill="none" stroke="url(#rackStroke)" stroke-width="3.0"/>
-
-        <!-- Bay 1 -->
-        <rect x="30" y="24" width="338" height="78" rx="4" fill="none" stroke="#0891b2" stroke-opacity="0.55" stroke-width="1.4"/>
-        <path d="M128 58H280" stroke="#0891b2" stroke-opacity="0.85" stroke-width="2.2" stroke-linecap="round"/>
-        <path d="M128 68H242" stroke="#0891b2" stroke-opacity="0.45" stroke-width="1.3" stroke-linecap="round"/>
-        <g filter="url(#dotGlow)">
-          <circle cx="316" cy="46" r="3" fill="#0891b2" fill-opacity="1.0" class="twinkle"/>
-          <circle cx="330" cy="46" r="3" fill="#5b21b6" fill-opacity="0.85"/>
-          <circle cx="344" cy="46" r="3" fill="#0891b2" fill-opacity="0.5"/>
-        </g>
-        <rect x="306" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#0891b2" stroke-opacity="0.5" stroke-width="0.7"/>
-        <rect x="320" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.4" stroke-width="0.7"/>
-        <rect x="334" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#94a3b8" stroke-opacity="0.35" stroke-width="0.7"/>
-
-        <!-- Bay 2 -->
-        <rect x="30" y="118" width="338" height="78" rx="4" fill="none" stroke="#5b21b6" stroke-opacity="0.5" stroke-width="1.4"/>
-        <path d="M128 152H296" stroke="#5b21b6" stroke-opacity="0.8" stroke-width="2.2" stroke-linecap="round"/>
-        <path d="M128 162H226" stroke="#5b21b6" stroke-opacity="0.4" stroke-width="1.3" stroke-linecap="round"/>
-        <g filter="url(#dotGlow)">
-          <circle cx="316" cy="140" r="3" fill="#0891b2" fill-opacity="0.65"/>
-          <circle cx="330" cy="140" r="3" fill="#5b21b6" fill-opacity="1.0" class="twinkle"/>
-          <circle cx="344" cy="140" r="3" fill="#0891b2" fill-opacity="0.4"/>
-        </g>
-        <rect x="306" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.4" stroke-width="0.7"/>
-        <rect x="320" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#0891b2" stroke-opacity="0.35" stroke-width="0.7"/>
-        <rect x="334" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.3" stroke-width="0.7"/>
-
-        <!-- Bay 3 -->
-        <rect x="30" y="212" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.42" stroke-width="1.3"/>
-        <path d="M128 246H264" stroke="#ea580c" stroke-opacity="0.75" stroke-width="2.0" stroke-linecap="round"/>
-        <path d="M128 256H210" stroke="#ea580c" stroke-opacity="0.35" stroke-width="1.2" stroke-linecap="round"/>
-        <g filter="url(#dotGlow)">
-          <circle cx="316" cy="234" r="3" fill="#0891b2" fill-opacity="0.4"/>
-          <circle cx="330" cy="234" r="3" fill="#5b21b6" fill-opacity="0.6"/>
-          <circle cx="344" cy="234" r="3" fill="#ea580c" fill-opacity="0.95" class="twinkle-slow"/>
-        </g>
-        <rect x="306" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#ea580c" stroke-opacity="0.38" stroke-width="0.7"/>
-        <rect x="320" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#94a3b8" stroke-opacity="0.25" stroke-width="0.7"/>
-        <rect x="334" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#ea580c" stroke-opacity="0.3" stroke-width="0.7"/>
-
-        <!-- Bay 4 — fading -->
-        <rect x="30" y="306" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.2" stroke-width="1.0"/>
-        <path d="M128 340H240" stroke="#ea580c" stroke-opacity="0.35" stroke-width="1.8" stroke-linecap="round"/>
-        <g filter="url(#dotGlow)" opacity="0.55">
-          <circle cx="316" cy="328" r="2.5" fill="#ea580c" fill-opacity="0.45"/>
-          <circle cx="330" cy="328" r="2.5" fill="#5b21b6" fill-opacity="0.35"/>
-          <circle cx="344" cy="328" r="2.5" fill="#ea580c" fill-opacity="0.55"/>
-        </g>
-
-        <!-- Bay 5 — nearly gone -->
-        <rect x="30" y="400" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.1" stroke-width="0.8"/>
-        <path d="M128 434H200" stroke="#ea580c" stroke-opacity="0.15" stroke-width="1.4" stroke-linecap="round"/>
-
-        <path d="M30 488H180" stroke="url(#rackStroke)" stroke-opacity="0.22" stroke-width="1.0" stroke-linecap="round"/>
+      <!-- Branded accent lines -->
+      <g opacity="0.75">
+        <path d="M60 96H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+        <path d="M60 192H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+        <path d="M60 256H1140" stroke="url(#brandH)" stroke-width="1.4"/>
+        <path d="M60 352H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+        <path d="M60 416H1140" stroke="url(#brandH)" stroke-width="1.0"/>
+        <path d="M60 512H1140" stroke="url(#brandH)" stroke-width="0.8"/>
       </g>
+      <g opacity="0.7">
+        <path d="M160 0V760" stroke="url(#brandV)" stroke-width="1.0"/>
+        <path d="M320 0V760" stroke="url(#brandV)" stroke-width="1.0"/>
+        <path d="M480 0V760" stroke="url(#brandV)" stroke-width="1.4"/>
+        <path d="M640 0V760" stroke="url(#brandV)" stroke-width="1.0"/>
+        <path d="M800 0V760" stroke="url(#brandV)" stroke-width="0.8"/>
+        <path d="M960 0V760" stroke="url(#brandV)" stroke-width="0.8"/>
+      </g>
+
+      <!-- ═══════════════════════════════════════════════ -->
+      <!--  CIRCUIT BOARD TRACES  (replaces dots + arcs)  -->
+      <!-- ═══════════════════════════════════════════════ -->
+
+      <!-- Trace 1 — cyan: horizontal from left, right-angle down, then right to server area -->
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Main traces — static base layer -->
+        <path d="M100 192 H460 V310 H680" stroke="url(#traceCyan)" stroke-width="1.8"/>
+        <path d="M140 256 H340 V180 H520 V256 H640" stroke="url(#traceViolet)" stroke-width="1.6"/>
+        <path d="M180 352 H380 V420 H560 V352 H720" stroke="url(#traceRed)" stroke-width="1.4"/>
+        <path d="M200 416 H300 V480 H500" stroke="url(#traceCyan)" stroke-width="1.2"/>
+        <path d="M160 140 H280 V96 H440 V192 H580" stroke="url(#traceViolet)" stroke-width="1.2"/>
+        <path d="M240 480 H420 V540 H600 V480 H700" stroke="url(#traceRed)" stroke-width="1.0"/>
+      </g>
+
+      <!-- Branch connectors — T-junctions and stubs -->
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+        <path d="M460 192 V160" stroke="#0891b2" stroke-width="1.2"/>
+        <path d="M460 310 H490 V350" stroke="#0891b2" stroke-width="1.0"/>
+        <path d="M340 256 V290" stroke="#5b21b6" stroke-width="1.0"/>
+        <path d="M520 180 V150" stroke="#5b21b6" stroke-width="1.0"/>
+        <path d="M380 352 V320" stroke="#ea580c" stroke-width="1.0"/>
+        <path d="M560 420 V450" stroke="#ea580c" stroke-width="0.8"/>
+        <path d="M300 416 V390" stroke="#0891b2" stroke-width="0.8"/>
+        <path d="M500 480 V510" stroke="#0891b2" stroke-width="0.8"/>
+        <path d="M280 140 V110" stroke="#5b21b6" stroke-width="0.8"/>
+        <path d="M440 96 V70" stroke="#5b21b6" stroke-width="0.8"/>
+        <path d="M420 480 V450" stroke="#ea580c" stroke-width="0.8"/>
+        <path d="M600 540 V570" stroke="#ea580c" stroke-width="0.8"/>
+      </g>
+
+      <!-- Endpoint pads — filled circles at trace terminations -->
+      <g filter="url(#dotGlow)">
+        <!-- Cyan trace endpoints -->
+        <circle cx="680" cy="310" r="4.5" fill="#0891b2" fill-opacity="0.9" class="twinkle"/>
+        <circle cx="500" cy="480" r="3.5" fill="#0891b2" fill-opacity="0.7"/>
+        <circle cx="460" cy="160" r="3" fill="#0891b2" fill-opacity="0.6"/>
+        <!-- Violet trace endpoints -->
+        <circle cx="640" cy="256" r="4.5" fill="#5b21b6" fill-opacity="0.85" class="twinkle-offset"/>
+        <circle cx="580" cy="192" r="4" fill="#5b21b6" fill-opacity="0.7"/>
+        <circle cx="440" cy="70" r="3" fill="#5b21b6" fill-opacity="0.6"/>
+        <!-- Red trace endpoints -->
+        <circle cx="720" cy="352" r="4" fill="#ea580c" fill-opacity="0.75"/>
+        <circle cx="700" cy="480" r="3.5" fill="#ea580c" fill-opacity="0.65"/>
+        <circle cx="600" cy="570" r="3" fill="#ea580c" fill-opacity="0.55"/>
+      </g>
+
+      <!-- Hollow pads at bend points — IC-style rounded-rect pad -->
+      <g fill="none" stroke-width="1.2" opacity="0.5">
+        <rect x="453" y="184" width="14" height="14" rx="3" stroke="#0891b2"/>
+        <rect x="333" y="249" width="14" height="14" rx="3" stroke="#5b21b6"/>
+        <rect x="373" y="345" width="14" height="14" rx="3" stroke="#ea580c"/>
+        <rect x="513" y="173" width="14" height="14" rx="3" stroke="#5b21b6"/>
+        <rect x="553" y="413" width="14" height="14" rx="3" stroke="#ea580c"/>
+        <rect x="293" y="409" width="14" height="14" rx="3" stroke="#0891b2"/>
+      </g>
+
+      <!-- Beam energy animations — two traces get a moving highlight -->
+      <path d="M100 192 H460 V310 H680" stroke="url(#beamCyan)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.65"/>
+      <path d="M140 256 H340 V180 H520 V256 H640" stroke="url(#beamViolet)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+    </g>
+  </g>
+
+  <!-- Server halo -->
+  <ellipse cx="976" cy="680" rx="260" ry="250" fill="url(#serverHalo)"/>
+
+  <!-- Server rack -->
+  <g mask="url(#serverMask)">
+    <g transform="translate(740 460)">
+      <rect x="48" y="14" width="370" height="500" rx="6" fill="none" stroke="#5b21b6" stroke-opacity="0.18" stroke-width="0.8"/>
+      <rect x="14" y="0" width="370" height="500" rx="6" fill="none" stroke="url(#rackStroke)" stroke-width="2.6"/>
+
+      <!-- Bay 1 -->
+      <rect x="30" y="24" width="338" height="78" rx="4" fill="none" stroke="#0891b2" stroke-opacity="0.5" stroke-width="1.0"/>
+      <path d="M128 58H280" stroke="#0891b2" stroke-opacity="0.85" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M128 68H242" stroke="#0891b2" stroke-opacity="0.4" stroke-width="1.0" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="46" r="2.5" fill="#0891b2" fill-opacity="1.0" class="twinkle"/>
+        <circle cx="330" cy="46" r="2.5" fill="#5b21b6" fill-opacity="0.85"/>
+        <circle cx="344" cy="46" r="2.5" fill="#0891b2" fill-opacity="0.45"/>
+      </g>
+      <rect x="306" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#0891b2" stroke-opacity="0.45" stroke-width="0.5"/>
+      <rect x="320" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.35" stroke-width="0.5"/>
+      <rect x="334" y="68" width="9" height="4.5" rx="1" fill="none" stroke="#94A3B8" stroke-opacity="0.3" stroke-width="0.5"/>
+
+      <!-- Bay 2 -->
+      <rect x="30" y="118" width="338" height="78" rx="4" fill="none" stroke="#5b21b6" stroke-opacity="0.45" stroke-width="1.0"/>
+      <path d="M128 152H296" stroke="#5b21b6" stroke-opacity="0.8" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M128 162H226" stroke="#5b21b6" stroke-opacity="0.38" stroke-width="1.0" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="140" r="2.5" fill="#0891b2" fill-opacity="0.6"/>
+        <circle cx="330" cy="140" r="2.5" fill="#5b21b6" fill-opacity="1.0" class="twinkle"/>
+        <circle cx="344" cy="140" r="2.5" fill="#0891b2" fill-opacity="0.35"/>
+      </g>
+      <rect x="306" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.38" stroke-width="0.5"/>
+      <rect x="320" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#0891b2" stroke-opacity="0.3" stroke-width="0.5"/>
+      <rect x="334" y="162" width="9" height="4.5" rx="1" fill="none" stroke="#5b21b6" stroke-opacity="0.28" stroke-width="0.5"/>
+
+      <!-- Bay 3 -->
+      <rect x="30" y="212" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.38" stroke-width="1.0"/>
+      <path d="M128 246H264" stroke="#ea580c" stroke-opacity="0.72" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M128 256H210" stroke="#ea580c" stroke-opacity="0.3" stroke-width="1.0" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)">
+        <circle cx="316" cy="234" r="2.5" fill="#0891b2" fill-opacity="0.35"/>
+        <circle cx="330" cy="234" r="2.5" fill="#5b21b6" fill-opacity="0.55"/>
+        <circle cx="344" cy="234" r="2.5" fill="#ea580c" fill-opacity="0.95" class="twinkle-slow"/>
+      </g>
+      <rect x="306" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#ea580c" stroke-opacity="0.35" stroke-width="0.5"/>
+      <rect x="320" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#94A3B8" stroke-opacity="0.22" stroke-width="0.5"/>
+      <rect x="334" y="256" width="9" height="4.5" rx="1" fill="none" stroke="#ea580c" stroke-opacity="0.28" stroke-width="0.5"/>
+
+      <!-- Bay 4 — fading -->
+      <rect x="30" y="306" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.18" stroke-width="0.8"/>
+      <path d="M128 340H240" stroke="#ea580c" stroke-opacity="0.3" stroke-width="1.6" stroke-linecap="round"/>
+      <g filter="url(#dotGlow)" opacity="0.55">
+        <circle cx="316" cy="328" r="2.5" fill="#ea580c" fill-opacity="0.4"/>
+        <circle cx="330" cy="328" r="2.5" fill="#5b21b6" fill-opacity="0.3"/>
+        <circle cx="344" cy="328" r="2.5" fill="#ea580c" fill-opacity="0.5"/>
+      </g>
+
+      <!-- Bay 5 — barely visible -->
+      <rect x="30" y="400" width="338" height="78" rx="4" fill="none" stroke="#ea580c" stroke-opacity="0.08" stroke-width="0.6"/>
+      <path d="M128 434H200" stroke="#ea580c" stroke-opacity="0.12" stroke-width="1.2" stroke-linecap="round"/>
+
+      <path d="M30 488H180" stroke="url(#rackStroke)" stroke-opacity="0.22" stroke-width="0.8" stroke-linecap="round"/>
     </g>
   </g>
 </svg>
