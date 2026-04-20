@@ -211,6 +211,62 @@ _terminal_session_lock = threading.Lock()
 
 # -- Docker client factory -----------------------------------------------------
 
+_ssh_identity_configured = False
+_ssh_identity_lock = threading.Lock()
+
+
+def _ensure_ssh_identity(ssh_key_path: str) -> None:
+    """Make *ssh_key_path* discoverable by the system `ssh` client.
+
+    The Docker SDK's ssh:// transport (with use_ssh_client=True) spawns
+    /usr/bin/ssh but does NOT pass `-i <keyfile>`. Without this helper, ssh
+    falls back to ~/.ssh/id_* which doesn't exist in our API container,
+    causing `BrokenPipeError` during the initial API version handshake.
+
+    We write a minimal `~/.ssh/config` that binds the given IdentityFile
+    to any host — idempotent, thread-safe, done once per process.
+    """
+    global _ssh_identity_configured
+    if _ssh_identity_configured:
+        return
+    with _ssh_identity_lock:
+        if _ssh_identity_configured:
+            return
+        try:
+            if not ssh_key_path or not os.path.isfile(ssh_key_path):
+                return
+            ssh_dir = os.path.expanduser("~/.ssh")
+            os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
+            cfg_path = os.path.join(ssh_dir, "config")
+            marker = "# xcelsior-terminal-identity"
+            existing = ""
+            if os.path.isfile(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        existing = f.read()
+                except OSError:
+                    existing = ""
+            if marker not in existing:
+                block = (
+                    f"\n{marker}\n"
+                    "Host *\n"
+                    f"    IdentityFile {ssh_key_path}\n"
+                    "    IdentitiesOnly yes\n"
+                    "    BatchMode yes\n"
+                    "    ConnectTimeout 10\n"
+                )
+                try:
+                    with open(cfg_path, "a", encoding="utf-8") as f:
+                        f.write(block)
+                    os.chmod(cfg_path, 0o600)
+                except OSError as e:
+                    log.warning("TERMINAL could not write ~/.ssh/config: %s", e)
+                    return
+            _ssh_identity_configured = True
+        except Exception as e:  # pragma: no cover - defensive
+            log.warning("TERMINAL _ensure_ssh_identity failed: %s", e)
+
+
 def _docker_client(
     host_ip: str | None = None,
     ssh_user: str = SSH_USER,
@@ -221,6 +277,7 @@ def _docker_client(
         return docker.from_env()
 
     _ensure_remote_host_key_pinned(host_ip)
+    _ensure_ssh_identity(ssh_key_path)
     return docker.DockerClient(
         base_url=f"ssh://{ssh_user}@{host_ip}",
         use_ssh_client=True,
