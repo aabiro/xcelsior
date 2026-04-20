@@ -431,6 +431,28 @@ def _save_json(path, data):
 
 _allocate_blocked_notified: dict[str, float] = {}
 
+# GPU driver / CUDA context overhead — nvidia-smi always reports free_vram_gb
+# as slightly less than total_vram_gb (typically 0.3–1.0 GB lost to driver,
+# display output, and reserved system memory). Without this tolerance,
+# requests for `total_vram_gb` of a card will never match on an idle host
+# (e.g. RTX 2060: total=6.0, free=5.52 — a 6.0GB request would fail despite
+# the card being completely idle). This buffer permits that common case
+# while still rejecting hosts with active reservations consuming most VRAM.
+VRAM_DRIVER_OVERHEAD_GB = 1.0
+
+
+def _vram_fits(host, vram_needed):
+    """Return True if host can accept a job requesting vram_needed GB.
+
+    Checks both physical capacity (total_vram_gb) and current availability
+    with a tolerance for driver overhead on idle hosts.
+    """
+    if vram_needed <= 0:
+        return True
+    total = float(host.get("total_vram_gb", 0) or 0)
+    free = float(host.get("free_vram_gb", 0) or 0)
+    return total >= vram_needed and (free + VRAM_DRIVER_OVERHEAD_GB) >= vram_needed
+
 
 def allocate(job, hosts):
     """Find the best host for this job.
@@ -452,11 +474,12 @@ def allocate(job, hosts):
     num_gpus_needed = job.get("num_gpus", 1) or 1
     requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
 
-    # Step 1: VRAM filter
+    # Step 1: VRAM filter (with driver-overhead tolerance — see _vram_fits)
+    vram_needed = job.get("vram_needed_gb", 0) or 0
     candidates = [
         h for h in hosts
         if h.get("status", "active") == "active"
-        and h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)
+        and _vram_fits(h, vram_needed)
     ]
     if not candidates:
         return None
@@ -588,12 +611,12 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
     requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
     volume_host_ids = volume_host_ids or set()
 
-    # Filter: VRAM + admission
+    # Filter: VRAM (with driver-overhead tolerance) + admission
     candidates = [
         h for h in hosts
         if h.get("status", "active") == "active"
         and h.get("admitted", False)
-        and h.get("free_vram_gb", 0) >= vram_needed
+        and _vram_fits(h, vram_needed)
     ]
     if not candidates:
         return None
@@ -4079,8 +4102,9 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
     except Exception:
         pass
 
-    # 3. VRAM filter
-    candidates = [h for h in hosts if h.get("free_vram_gb", 0) >= job.get("vram_needed_gb", 0)]
+    # 3. VRAM filter (with driver-overhead tolerance)
+    _needed = job.get("vram_needed_gb", 0) or 0
+    candidates = [h for h in hosts if _vram_fits(h, _needed)]
     if not candidates:
         return None
 
