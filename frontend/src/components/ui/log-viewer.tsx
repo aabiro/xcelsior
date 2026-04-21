@@ -3,7 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createInstanceLogStream, fetchInstanceLogs } from "@/lib/api";
 import type { InstanceLog } from "@/lib/api";
-import { Download } from "lucide-react";
+import { Download, Copy } from "lucide-react";
+import { toast } from "sonner";
 
 // Generous bottom threshold so inertia / momentum scrolling that stops a
 // pixel or two shy of the true bottom still counts as "at bottom" and
@@ -94,11 +95,22 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
   // Auto-scroll when new logs arrive and the user is at (or scrolled back to)
   // the bottom. useLayoutEffect so the scroll happens synchronously before
   // paint — eliminates the one-frame flicker of old-bottom→new-bottom.
+  // Suspend auto-scroll while the user has an active text selection inside
+  // the log container — otherwise every incoming line re-paints and wipes
+  // out their highlight, making copy/paste impossible on a live stream.
   useLayoutEffect(() => {
     if (!containerRef.current) return;
     const logLen = displayLogs.length;
     if (logLen > prevLogLen.current && autoScroll) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      const hasSelectionInside =
+        sel &&
+        !sel.isCollapsed &&
+        sel.anchorNode &&
+        containerRef.current.contains(sel.anchorNode);
+      if (!hasSelectionInside) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
     }
     prevLogLen.current = logLen;
   }, [displayLogs, autoScroll]);
@@ -119,8 +131,8 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
     setAutoScroll(atBottom);
   }
 
-  function handleDownload() {
-    const text = displayLogs.map((log) => {
+  function formatLogsAsText(): string {
+    return displayLogs.map((log) => {
       const rawTs = typeof log.timestamp === "number" && log.timestamp < 1e12
         ? log.timestamp * 1000
         : log.timestamp;
@@ -129,6 +141,22 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
       const level = log.level ? `[${log.level.toUpperCase()}]` : "";
       return `${ts} ${level} ${log.message}`;
     }).join("\n");
+  }
+
+  async function handleCopy() {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    const selText = sel && !sel.isCollapsed ? sel.toString() : "";
+    const text = selText || formatLogsAsText();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(selText ? "Selection copied" : `${displayLogs.length} log lines copied`);
+    } catch {
+      toast.error("Copy failed");
+    }
+  }
+
+  function handleDownload() {
+    const text = formatLogsAsText();
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -145,19 +173,37 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
           <span className={`h-2 w-2 rounded-full ${displayConnected ? "bg-emerald animate-pulse" : "bg-text-muted"}`} />
           <span className="text-text-muted">{displayConnected ? "Live" : "Disconnected"}</span>
           {displayLogs.length > 0 && (
-            <button
-              onClick={handleDownload}
-              title="Download logs"
-              className="ml-auto flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Download</span>
-            </button>
+            <div className="ml-auto flex items-center gap-3">
+              <button
+                onClick={handleCopy}
+                title="Copy selection (or all logs if nothing selected)"
+                className="flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span>Copy</span>
+              </button>
+              <button
+                onClick={handleDownload}
+                title="Download logs"
+                className="flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Download</span>
+              </button>
+            </div>
           )}
         </div>
       )}
       {!live && displayLogs.length > 0 && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={handleCopy}
+            title="Copy selection (or all logs if nothing selected)"
+            className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            <span>Copy</span>
+          </button>
           <button
             onClick={handleDownload}
             title="Download logs"
@@ -187,7 +233,7 @@ export function LogViewer({ jobId, live = false, wsLogs, wsConnected }: LogViewe
               : "";
             return (
               <div key={i} className="flex gap-2 hover:bg-surface-hover -mx-1 px-1 rounded">
-                {ts && <span className="text-text-muted shrink-0 select-none">{ts}</span>}
+                {ts && <span className="text-text-muted shrink-0">{ts}</span>}
                 {log.level && (
                   <span className={`shrink-0 uppercase w-12 ${color}`}>{log.level}</span>
                 )}
