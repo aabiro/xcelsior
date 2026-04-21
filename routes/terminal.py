@@ -1314,21 +1314,68 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             _conn_errors.labels(reason="spawn_failed").inc()  # type: ignore[attr-defined]
             return
 
-        raw_sock = exec_socket._sock
-        raw_sock.setblocking(False)
-
-        # --- Phase 1.2: exec socket hardening + initial prompt render -------
-        # TCP keepalive so long-idle sessions don't silently die behind NAT.
+        # docker-py's exec_start(socket=True) returns different types depending
+        # on transport:
+        #   - HTTP(S)/TCP: SocketIO wrapper with ._sock -> real socket.socket
+        #   - SSH (paramiko): a paramiko.Channel directly (no ._sock attr)
+        #   - Unix/npipe: the raw socket itself
+        # Build a uniform async recv/sendall pair so downstream code doesn't
+        # care which transport we're on. (Previously we assumed ._sock always
+        # existed, which crashed every remote SSH terminal with AttributeError.)
+        _paramiko_channel_cls = None
         try:
-            raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            if hasattr(socket, "TCP_KEEPIDLE"):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
-            if hasattr(socket, "TCP_KEEPINTVL"):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
-            if hasattr(socket, "TCP_KEEPCNT"):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
-        except (OSError, AttributeError):
-            pass
+            import paramiko as _paramiko  # local import: only needed here
+            _paramiko_channel_cls = _paramiko.Channel
+        except Exception:
+            _paramiko_channel_cls = None
+
+        _is_paramiko_chan = (
+            _paramiko_channel_cls is not None
+            and isinstance(exec_socket, _paramiko_channel_cls)
+        )
+        if _is_paramiko_chan:
+            raw_sock = exec_socket  # keep non-None so cleanup paths still run
+        else:
+            raw_sock = getattr(exec_socket, "_sock", exec_socket)
+            try:
+                raw_sock.setblocking(False)
+            except (OSError, AttributeError):
+                pass
+            # TCP keepalive so long-idle sessions don't silently die behind NAT.
+            try:
+                raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                if hasattr(socket, "TCP_KEEPIDLE"):
+                    raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
+                if hasattr(socket, "TCP_KEEPINTVL"):
+                    raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                if hasattr(socket, "TCP_KEEPCNT"):
+                    raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+            except (OSError, AttributeError):
+                pass
+
+        async def _exec_recv(n: int) -> bytes:
+            """Read up to n bytes from the exec PTY, uniform across transports."""
+            if _is_paramiko_chan:
+                # paramiko Channel.recv is blocking; run in executor so we don't
+                # block the event loop. EOF returns b"".
+                return await loop.run_in_executor(None, exec_socket.recv, n)
+            return await loop.sock_recv(raw_sock, n)
+
+        async def _exec_sendall(data: bytes) -> None:
+            """Write all bytes to the exec PTY, uniform across transports."""
+            if not data:
+                return
+            if _is_paramiko_chan:
+                def _send_blocking() -> None:
+                    remaining = memoryview(data)
+                    while remaining:
+                        sent = exec_socket.send(remaining)
+                        if sent <= 0:
+                            raise ConnectionError("paramiko channel closed")
+                        remaining = remaining[sent:]
+                await loop.run_in_executor(None, _send_blocking)
+            else:
+                await loop.sock_sendall(raw_sock, data)
 
         # Seed PTY with sensible default dims so bash has a WINSIZE before it
         # renders PS1; client's real dims arrive on the first resize frame.
@@ -1342,10 +1389,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         # Force an immediate prompt render so the user sees PS1 right away
         # instead of a blank screen (root cause of "no initial $ prompt").
         try:
-            await loop.sock_sendall(raw_sock, b"\r")
+            await _exec_sendall(b"\r")
         except (OSError, ConnectionError):
             pass
-        # --- end Phase 1.2 --------------------------------------------------
 
         log.info(
             "terminal.session.open user=%s ip=%s instance=%s container=%s tmux=%s remote=%s",
@@ -1408,7 +1454,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
                 try:
                     chunk = await asyncio.wait_for(
-                        loop.sock_recv(raw_sock, _EXEC_READ_CHUNK),
+                        _exec_recv(_EXEC_READ_CHUNK),
                         timeout=_EXEC_READ_TIMEOUT_SEC,
                     )
                 except asyncio.TimeoutError:
@@ -1490,7 +1536,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                         break
                     if payload_bytes:
                         try:
-                            await loop.sock_sendall(raw_sock, payload_bytes)
+                            await _exec_sendall(payload_bytes)
                             _bytes_recv.inc(len(payload_bytes))  # type: ignore[attr-defined]
                             session_bytes["rx"] += len(payload_bytes)
                             last_input_ts = time.monotonic()
@@ -1555,7 +1601,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     if data:
                         try:
                             encoded = data.encode("utf-8")
-                            await loop.sock_sendall(raw_sock, encoded)
+                            await _exec_sendall(encoded)
                             _bytes_recv.inc(len(encoded))  # type: ignore[attr-defined]
                             session_bytes["rx"] += len(encoded)
                             last_input_ts = time.monotonic()
@@ -1639,9 +1685,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
             if has_tmux and raw_sock is not None:
                 try:
-                    await loop.sock_sendall(raw_sock, b"\x02d")
+                    await _exec_sendall(b"\x02d")
                     await asyncio.sleep(0.1)
-                except (OSError, ConnectionError):
+                except (OSError, ConnectionError, NameError):
                     pass
 
             if exec_socket is not None:
