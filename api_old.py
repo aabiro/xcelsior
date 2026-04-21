@@ -3181,7 +3181,8 @@ def api_auth_oauth_callback(provider: str, request: Request):
 
     access_token = token_data.get("access_token")
     if not access_token:
-        log.error("No access_token in OAuth response for %s: %s", provider, token_data)
+        _safe = {k: token_data[k] for k in ("error", "error_description") if k in token_data}
+        log.error("No access_token in OAuth response for %s: %s", provider, _safe)
         return RedirectResponse("/dashboard?error=oauth_no_token")
 
     # Fetch user profile from provider
