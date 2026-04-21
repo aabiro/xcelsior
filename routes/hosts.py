@@ -31,6 +31,26 @@ from reputation import VerificationType, get_reputation_engine
 router = APIRouter()
 
 
+def _resolve_host_id(host_id: str) -> tuple[str | None, list[dict]]:
+    """Resolve a (possibly truncated) host_id to its full form.
+
+    Returns (resolved_host_id, hosts_list). If resolved_host_id is None,
+    no unique match was found. Accepts prefixes of 8+ chars.
+    Frontend displays commonly truncate UUIDs to 8 or 12 chars; users
+    sometimes copy the truncated form into URLs/CLIs.
+    """
+    hosts = list_hosts(active_only=False)
+    # Exact match first
+    if any(h["host_id"] == host_id for h in hosts):
+        return host_id, hosts
+    # Prefix match fallback (must be unambiguous and at least 8 chars)
+    if len(host_id) >= 8:
+        matches = [h for h in hosts if h["host_id"].startswith(host_id)]
+        if len(matches) == 1:
+            return matches[0]["host_id"], hosts
+    return None, hosts
+
+
 def _interactive_host_jobs(host_id: str) -> list[dict]:
     """Interactive jobs that should block worker maintenance."""
     blocking_statuses = {"assigned", "leased", "running"}
@@ -457,10 +477,10 @@ def api_get_host(host_id: str, request: Request):
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:read")
-    hosts = list_hosts(active_only=False)
-    host = next((h for h in hosts if h["host_id"] == host_id), None)
-    if not host:
+    resolved, hosts = _resolve_host_id(host_id)
+    if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    host = next(h for h in hosts if h["host_id"] == resolved)
     return {"ok": True, "host": host}
 
 @router.get("/hosts", tags=["Hosts"])
@@ -477,10 +497,11 @@ def api_list_hosts(request: Request, active_only: bool = True):
 def api_host_maintenance(host_id: str, request: Request):
     """Return maintenance readiness for a host."""
     _require_admin(request)
-    hosts = list_hosts(active_only=False)
-    host = next((h for h in hosts if h["host_id"] == host_id), None)
-    if not host:
+    resolved, hosts = _resolve_host_id(host_id)
+    if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    host_id = resolved
+    host = next(h for h in hosts if h["host_id"] == host_id)
 
     interactive_jobs = _interactive_host_jobs(host_id)
     summary = [
@@ -510,10 +531,11 @@ def api_host_maintenance(host_id: str, request: Request):
 def api_drain_host(host_id: str, request: Request):
     """Stop new placements on a host without evicting active instances."""
     _require_admin(request)
-    hosts = list_hosts(active_only=False)
-    host = next((h for h in hosts if h["host_id"] == host_id), None)
-    if not host:
+    resolved, hosts = _resolve_host_id(host_id)
+    if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    host_id = resolved
+    host = next(h for h in hosts if h["host_id"] == host_id)
     if host.get("status") == "dead":
         raise HTTPException(status_code=409, detail="Cannot drain a dead host")
 
@@ -530,10 +552,11 @@ def api_drain_host(host_id: str, request: Request):
 def api_undrain_host(host_id: str, request: Request):
     """Restore a drained host to active or pending status."""
     _require_admin(request)
-    hosts = list_hosts(active_only=False)
-    host = next((h for h in hosts if h["host_id"] == host_id), None)
-    if not host:
+    resolved, hosts = _resolve_host_id(host_id)
+    if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    host_id = resolved
+    host = next(h for h in hosts if h["host_id"] == host_id)
     if host.get("status") == "dead":
         raise HTTPException(status_code=409, detail="Cannot undrain a dead host")
 
@@ -548,9 +571,10 @@ def api_remove_host(host_id: str, request: Request):
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:write")
-    hosts = list_hosts(active_only=False)
-    if not any(h["host_id"] == host_id for h in hosts):
+    resolved, _hosts = _resolve_host_id(host_id)
+    if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    host_id = resolved
     remove_host(host_id)
     broadcast_sse("host_removed", {"host_id": host_id})
     return {"ok": True, "removed": host_id}
