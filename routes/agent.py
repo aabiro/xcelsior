@@ -486,14 +486,20 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
     store = get_event_store()
     sm = get_state_machine()
 
-    # Validate the job is in ASSIGNED state
+    # Validate the job is in a claimable state.
+    # Normal flow: job must be "assigned".
+    # Restart-recovery: allow re-claiming if job is already leased/starting/running
+    # on this same host (worker restart without server-side requeue).
+    _RECLAIM_STATUSES = {"leased", "starting", "running"}
     jobs = list_jobs()
     job = next((j for j in jobs if j.get("job_id") == req.job_id), None)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {req.job_id} not found")
 
     current_status = job.get("status", "queued")
-    if current_status != "assigned":
+    is_reclaim = current_status in _RECLAIM_STATUSES
+
+    if current_status != "assigned" and not is_reclaim:
         raise HTTPException(
             status_code=409,
             detail=f"Job {req.job_id} is '{current_status}', expected 'assigned'",
@@ -507,23 +513,31 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
             detail=f"Host {req.host_id} is not assigned to job {req.job_id}",
         )
 
-    # Grant lease
+    # Grant lease (or re-grant after worker restart)
     lease = store.grant_lease(req.job_id, req.host_id)
 
-    # Transition state: assigned → leased
-    try:
-        sm.transition(
-            req.job_id,
-            "assigned",
-            "leased",
-            actor=f"agent:{req.host_id}",
-            data={"lease_id": lease.lease_id},
-        )
-    except ValueError:
-        pass  # Event already recorded by grant_lease
+    if not is_reclaim:
+        # Normal first-claim: transition assigned → leased
+        try:
+            sm.transition(
+                req.job_id,
+                "assigned",
+                "leased",
+                actor=f"agent:{req.host_id}",
+                data={"lease_id": lease.lease_id},
+            )
+        except ValueError:
+            pass  # Event already recorded by grant_lease
 
-    # Update scheduler's job status to leased
-    update_job_status(req.job_id, "leased", host_id=req.host_id)
+        # Update scheduler's job status to leased
+        update_job_status(req.job_id, "leased", host_id=req.host_id)
+    else:
+        # Restart-recovery reclaim: job already past "leased", don't regress its status.
+        # Just refresh the lease clock so the scheduler doesn't requeue a live container.
+        log.info(
+            "LEASE RECLAIM job=%s host=%s (status was '%s') — refreshing lease without status change",
+            req.job_id, req.host_id, current_status,
+        )
 
     broadcast_sse(
         "lease_granted",

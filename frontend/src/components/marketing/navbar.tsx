@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { MapPin, Menu, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -20,6 +21,13 @@ const navKeys = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const { t } = useLocale();
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (!pathname || href.startsWith("http")) return false;
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(href + "/");
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-navy/80 backdrop-blur-lg">
@@ -35,25 +43,21 @@ export function Navbar() {
         </Link>
 
         <nav className="hidden md:flex items-center gap-8">
-          {navKeys.map((l) =>
-            l.external ? (
-              <a
-                key={l.href}
-                href={l.href}
-                className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-              >
+          {navKeys.map((l) => {
+            const active = isActive(l.href);
+            const linkClass = active
+              ? "text-sm text-text-primary font-semibold relative after:absolute after:inset-x-0 after:-bottom-1 after:h-[2px] after:bg-accent-red after:rounded-full"
+              : "text-sm text-text-secondary hover:text-text-primary transition-colors";
+            return l.external ? (
+              <a key={l.href} href={l.href} className={linkClass}>
                 {t(l.key)}
               </a>
             ) : (
-              <Link
-                key={l.href}
-                href={l.href}
-                className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-              >
+              <Link key={l.href} href={l.href} className={linkClass}>
                 {t(l.key)}
               </Link>
-            )
-          )}
+            );
+          })}
         </nav>
 
         <div className="flex items-center gap-3">
@@ -98,13 +102,17 @@ export function Navbar() {
             className="md:hidden overflow-hidden border-t border-border bg-navy/95 backdrop-blur-lg"
           >
             <div className="mx-auto max-w-7xl px-6 py-4 flex flex-col gap-1">
-              {navKeys.map((l) =>
-                l.external ? (
+              {navKeys.map((l) => {
+                const active = isActive(l.href);
+                const mobileClass = active
+                  ? "rounded-lg px-3 py-2.5 text-sm text-text-primary font-semibold bg-surface-hover border-l-2 border-accent-red"
+                  : "rounded-lg px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors";
+                return l.external ? (
                   <a
                     key={l.href}
                     href={l.href}
                     onClick={() => setOpen(false)}
-                    className="rounded-lg px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                    className={mobileClass}
                   >
                     {t(l.key)}
                   </a>
@@ -113,12 +121,12 @@ export function Navbar() {
                     key={l.href}
                     href={l.href}
                     onClick={() => setOpen(false)}
-                    className="rounded-lg px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                    className={mobileClass}
                   >
                     {t(l.key)}
                   </Link>
-                )
-              )}
+                );
+              })}
               <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
                 <div className="flex items-center gap-2 px-3 py-1">
                   <LocaleToggle />

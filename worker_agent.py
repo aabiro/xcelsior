@@ -1747,24 +1747,49 @@ def run_job(job):
     with _active_lock:
         _active_containers[job_id] = container_name
 
-    # Start lease renewal thread
+    # Start lease renewal thread (only when we have an active lease)
     _lease_stop = threading.Event()
 
     def _lease_renewal_loop():
+        consecutive_failures = 0
         while not _lease_stop.is_set() and not _shutdown.is_set():
             _lease_stop.wait(lease_interval)
             if _lease_stop.is_set() or _shutdown.is_set():
                 break
             result = renew_lease(job_id)
             if not result:
-                log.warning("Lease renewal failed for job %s — lease may have expired", job_id)
+                consecutive_failures += 1
+                log.warning(
+                    "Lease renewal failed for job %s — attempt %d",
+                    job_id, consecutive_failures,
+                )
+                if consecutive_failures >= 3:
+                    # Lease may have expired after a VPS restart; try to reclaim.
+                    new_lease = claim_lease(job_id)
+                    if new_lease:
+                        consecutive_failures = 0
+                        log.info("Lease reclaimed for running job %s", job_id)
+                    else:
+                        log.error(
+                            "Lease reclaim failed for job %s — giving up renewal loop",
+                            job_id,
+                        )
+                        break
+            else:
+                consecutive_failures = 0
 
-    lease_thread = threading.Thread(
-        target=_lease_renewal_loop,
-        name=f"lease-{job_id[:8]}",
-        daemon=True,
-    )
-    lease_thread.start()
+    if lease_info:
+        lease_thread = threading.Thread(
+            target=_lease_renewal_loop,
+            name=f"lease-{job_id[:8]}",
+            daemon=True,
+        )
+        lease_thread.start()
+    else:
+        log.warning(
+            "Job %s: no active lease — skipping renewal loop (lease claim failed)",
+            job_id,
+        )
 
     encrypted_vol_ids = []
     managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
@@ -3053,9 +3078,66 @@ def adopt_running_containers():
 
             log.info("Adopting running container %s (job %s)", container_name, job_id)
 
+            # Reclaim the lease for this running job. The server now accepts
+            # claim requests for jobs in leased/starting/running state if the
+            # host matches, so adopted containers can keep their lease fresh
+            # across worker restarts.
+            try:
+                lease_info = claim_lease(job_id)
+            except Exception as e:
+                log.debug("Lease reclaim on adoption failed for %s: %s", job_id, e)
+                lease_info = None
+
             # Start log forwarding
             log_fwd = LogForwarder(job_id, container_name)
             log_fwd.start()
+
+            # Start lease renewal loop if we have a live lease
+            if lease_info:
+                lease_interval = int(lease_info.get("duration_sec", 300)) // 2
+                lease_stop = threading.Event()
+
+                def _adopt_renew(jid=job_id, interval=lease_interval, stop=lease_stop):
+                    fails = 0
+                    while not stop.is_set() and not _shutdown.is_set():
+                        stop.wait(interval)
+                        if stop.is_set() or _shutdown.is_set():
+                            return
+                        with _active_lock:
+                            if jid not in _active_containers:
+                                return  # Container gone
+                        res = renew_lease(jid)
+                        if not res:
+                            fails += 1
+                            log.warning(
+                                "Adopted-lease renewal failed for job %s — attempt %d",
+                                jid, fails,
+                            )
+                            if fails >= 3:
+                                new = claim_lease(jid)
+                                if new:
+                                    fails = 0
+                                    log.info("Adopted-lease reclaimed for job %s", jid)
+                                else:
+                                    log.error(
+                                        "Adopted-lease reclaim failed for job %s — stopping",
+                                        jid,
+                                    )
+                                    return
+                        else:
+                            fails = 0
+
+                renew_thread = threading.Thread(
+                    target=_adopt_renew,
+                    name=f"adopt-lease-{job_id[:8]}",
+                    daemon=True,
+                )
+                renew_thread.start()
+            else:
+                log.warning(
+                    "Adopted container %s has no active lease — running unmonitored",
+                    job_id,
+                )
 
             # Start monitoring in a separate thread
             monitor_thread = threading.Thread(
