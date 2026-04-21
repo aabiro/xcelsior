@@ -8,7 +8,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     broadcast_sse,
@@ -95,27 +95,27 @@ _host_telemetry: dict[str, dict] = {}
 # ── Model: VersionReport ──
 
 class VersionReport(BaseModel):
-    host_id: str
+    host_id: str = Field(min_length=1, max_length=64)
     versions: dict
 
 
 # ── Model: MiningAlert ──
 
 class MiningAlert(BaseModel):
-    host_id: str
-    gpu_index: int
-    confidence: float
-    reason: str
+    host_id: str = Field(min_length=1, max_length=64)
+    gpu_index: int = Field(ge=0, le=64)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str = Field(max_length=500)
     timestamp: float | None = None
 
 
 # ── Model: BenchmarkReport ──
 
 class BenchmarkReport(BaseModel):
-    host_id: str
-    gpu_model: str
-    score: float
-    tflops: float
+    host_id: str = Field(min_length=1, max_length=64)
+    gpu_model: str = Field(max_length=64)
+    score: float = Field(ge=0)
+    tflops: float = Field(ge=0)
     details: dict | None = None
 
 @router.get("/agent/work/{host_id}", tags=["Agent"])

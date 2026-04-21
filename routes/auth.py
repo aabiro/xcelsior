@@ -346,39 +346,39 @@ async def _oauth_token_grant_response(
 # ── Model: RegisterRequest ──
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: str = ""
-    role: str = "submitter"  # submitter | provider
+    email: str = Field(..., min_length=5, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field("", max_length=64)
+    role: str = Field("submitter", max_length=32)  # submitter | provider
 
 
 # ── Model: LoginRequest ──
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(..., min_length=5, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 # ── Model: ProfileUpdateRequest ──
 
 class ProfileUpdateRequest(BaseModel):
-    name: str | None = None
-    role: str | None = None
-    country: str | None = None
-    province: str | None = None
+    name: str | None = Field(None, max_length=64)
+    role: str | None = Field(None, max_length=32)
+    country: str | None = Field(None, max_length=32)
+    province: str | None = Field(None, max_length=32)
 
 
 class OAuthClientCreateRequest(BaseModel):
-    client_name: str
-    redirect_uris: list[str] = []
-    grant_types: list[str] = ["client_credentials"]
-    scopes: list[str] = ["api"]
-    client_type: str = "confidential"
+    client_name: str = Field(min_length=1, max_length=128)
+    redirect_uris: list[str] = Field(default_factory=list, max_length=20)
+    grant_types: list[str] = Field(default_factory=lambda: ["client_credentials"], max_length=10)
+    scopes: list[str] = Field(default_factory=lambda: ["api"], max_length=20)
+    client_type: str = Field(default="confidential", pattern="^(confidential|public)$")
     is_first_party: bool = False
 
 
 class DeviceVerificationRequest(BaseModel):
-    user_code: str
+    user_code: str = Field(min_length=8, max_length=32)
 
 
 @router.get("/.well-known/oauth-authorization-server", tags=["Auth"])
