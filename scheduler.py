@@ -108,6 +108,14 @@ log = setup_logging()
 # Safe name pattern: alphanumeric, hyphens, underscores, dots, colons, slashes, and @
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9._:/@-]+$")
 
+# Host-death detection grace period: don't mark a host dead (or requeue its
+# jobs) until it has been unreachable for this many seconds. Prevents a brief
+# systemd restart of the worker agent from cascading into container churn.
+HOST_DEATH_GRACE_SEC = 120
+
+# First-miss timestamps per host, used to enforce the grace period above.
+_host_first_miss: dict = {}
+
 
 def _validate_name(value, label="value"):
     """Reject shell-unsafe characters in names used in commands."""
@@ -1013,14 +1021,29 @@ def check_hosts():
                 continue
             if alive:
                 current["last_seen"] = time.time()
+                # Clear any pending death timer on revival
+                _host_first_miss.pop(host_id, None)
                 if current.get("status") == "dead":
                     revivals.append((host_id, ip))
                 if current.get("status") != "draining":
                     current["status"] = "active"
             else:
-                if current.get("status") != "dead":
-                    alerts.append((host_id, ip))
-                current["status"] = "dead"
+                # Track first-miss time so brief restarts don't trigger requeue.
+                first_miss = _host_first_miss.setdefault(host_id, now)
+                grace_remaining = HOST_DEATH_GRACE_SEC - (now - first_miss)
+                if grace_remaining > 0:
+                    # Still in grace window — don't mark dead yet.
+                    if current.get("status") not in ("dead", "draining"):
+                        # Keep prior status (active/etc); just note the miss.
+                        log.info(
+                            "Host %s unreachable — in grace period (%.0fs remaining)",
+                            host_id, grace_remaining,
+                        )
+                else:
+                    # Grace exhausted → mark dead and alert (once per death).
+                    if current.get("status") != "dead":
+                        alerts.append((host_id, ip))
+                    current["status"] = "dead"
             _upsert_host_row(conn, current)
 
     for host_id, ip in revivals:

@@ -110,7 +110,15 @@ export default function HostsPage() {
             </div>
             <p className="text-sm text-text-muted max-w-lg mt-3">
               Register GPU machines to earn revenue by providing compute power to the Xcelsior network.
-              Each host runs the worker agent to accept and execute jobs.
+              Each host runs the{" "}
+              <button
+                type="button"
+                onClick={() => setShowInstall(true)}
+                className="text-accent-cyan hover:underline font-medium"
+              >
+                worker agent
+              </button>{" "}
+              to accept and execute jobs.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

@@ -15,9 +15,9 @@ import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 
 const REGIONS = [
-  { value: "ca-central-1", label: "Canada Central (Montreal)" },
-  { value: "ca-west-1", label: "Canada West (Calgary)" },
-  { value: "ca-east-1", label: "Canada East (Toronto)" },
+  { value: "canada_only", label: "Canada only (strict residency)" },
+  { value: "canada_preferred", label: "Canada preferred (cache elsewhere)" },
+  { value: "any", label: "Any region (lowest cost)" },
 ];
 
 const EXPIRY_OPTIONS = [
