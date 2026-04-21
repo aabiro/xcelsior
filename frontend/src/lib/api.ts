@@ -740,7 +740,7 @@ export async function downloadInvoice(
   return res.blob();
 }
 
-export async function exportCaf(customerId: string, periodStart: number, periodEnd: number, format: "json" | "csv" | "html" = "json") {
+export async function exportCaf(customerId: string, periodStart: number, periodEnd: number, format: "json" | "csv" | "html" | "pdf" = "json") {
   if (format === "html") {
     const qs = new URLSearchParams({
       period_start: String(periodStart),
@@ -749,7 +749,7 @@ export async function exportCaf(customerId: string, periodStart: number, periodE
     }).toString();
     return `/api/billing/export/caf/${encodeURIComponent(customerId)}?${qs}`;
   }
-  if (format === "csv") {
+  if (format === "csv" || format === "pdf") {
     const qs = new URLSearchParams({
       period_start: String(periodStart),
       period_end: String(periodEnd),

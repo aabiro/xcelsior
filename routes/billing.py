@@ -414,7 +414,19 @@ def api_export_caf(
             headers={"Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.csv"},
         )
 
-    if format in ("html", "pdf", "form", "print"):
+    if format == "pdf":
+        pdf_bytes = be.export_caf_pdf(
+            customer_id, period_start, period_end, customer_name=customer_name
+        )
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.pdf"
+            },
+        )
+
+    if format in ("html", "form", "print"):
         from fastapi.responses import HTMLResponse
 
         html_data = be.export_caf_html(

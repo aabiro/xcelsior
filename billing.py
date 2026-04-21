@@ -2906,6 +2906,465 @@ class BillingEngine:
 </html>
 """
 
+    def export_caf_pdf(
+        self,
+        customer_id: str,
+        period_start: float,
+        period_end: float,
+        customer_name: str = "",
+    ) -> bytes:
+        """Render the AI Compute Access Fund claim as a real printable PDF (A4).
+
+        Uses reportlab. Returns raw PDF bytes. Mirrors the HTML form layout:
+        claimant info, summary, itemised usage, supplier attestation with
+        checkboxes, signature lines, footer.
+        """
+        import io
+        from datetime import datetime, timezone
+
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+
+        report = self.export_caf_report(customer_id, period_start, period_end)
+        s = report["summary"]
+        att = report["supplier_attestation"]
+        items = report["line_items"]
+
+        def _fmt_cad(v) -> str:
+            try:
+                return f"${float(v):,.2f}"
+            except (TypeError, ValueError):
+                return "$0.00"
+
+        def _fmt_date(ts) -> str:
+            if not ts:
+                return "—"
+            try:
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+            except (TypeError, ValueError, OSError):
+                return "—"
+
+        def _fmt_dt(ts) -> str:
+            if not ts:
+                return "—"
+            try:
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M UTC"
+                )
+            except (TypeError, ValueError, OSError):
+                return "—"
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=A4,
+            leftMargin=15 * mm,
+            rightMargin=15 * mm,
+            topMargin=15 * mm,
+            bottomMargin=15 * mm,
+            title=f"CAF Claim — {customer_id}",
+            author="Xcelsior Inc.",
+        )
+
+        styles = getSampleStyleSheet()
+        accent = colors.HexColor("#8a1d2a")
+        muted = colors.HexColor("#555555")
+        soft = colors.HexColor("#dddddd")
+
+        h_title = ParagraphStyle(
+            "CAFTitle",
+            parent=styles["Title"],
+            fontSize=16,
+            textColor=accent,
+            spaceAfter=2,
+            alignment=0,
+        )
+        h_sub = ParagraphStyle(
+            "CAFSub", parent=styles["Normal"], fontSize=9, textColor=muted
+        )
+        h_section = ParagraphStyle(
+            "CAFSection",
+            parent=styles["Heading3"],
+            fontSize=10,
+            textColor=colors.HexColor("#222222"),
+            spaceBefore=10,
+            spaceAfter=4,
+            underlineWidth=0.5,
+        )
+        h_body = ParagraphStyle(
+            "CAFBody", parent=styles["Normal"], fontSize=9, leading=12
+        )
+        h_small = ParagraphStyle(
+            "CAFSmall",
+            parent=styles["Normal"],
+            fontSize=8,
+            leading=10,
+            textColor=muted,
+        )
+
+        story = []
+
+        # Header banner
+        header_tbl = Table(
+            [
+                [
+                    Paragraph(
+                        "<b>AI Compute Access Fund — Eligible Cost Claim</b>",
+                        h_title,
+                    ),
+                    Paragraph(
+                        f"Form XCL-CAF-01 · Rev 2026-04<br/>Generated {_fmt_dt(report.get('generated_at'))}",
+                        h_small,
+                    ),
+                ]
+            ],
+            colWidths=[120 * mm, 60 * mm],
+        )
+        header_tbl.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                    ("LINEABOVE", (0, 0), (-1, 0), 2, accent),
+                    ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.black),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+                    ("TOPPADDING", (0, 0), (-1, 0), 6),
+                ]
+            )
+        )
+        story.append(header_tbl)
+        story.append(
+            Paragraph(
+                "Xcelsior Inc. · Canadian sovereign GPU compute · All amounts in Canadian Dollars (CAD)",
+                h_sub,
+            )
+        )
+        story.append(Spacer(1, 6 * mm))
+
+        # Part A — Claimant Information
+        story.append(Paragraph("<b>PART A — CLAIMANT INFORMATION</b>", h_section))
+        claimant_tbl = Table(
+            [
+                [
+                    Paragraph("<b>Claimant legal name</b>", h_small),
+                    Paragraph("<b>Customer / Account ID</b>", h_small),
+                ],
+                [
+                    Paragraph(customer_name or customer_id, h_body),
+                    Paragraph(
+                        f'<font face="Courier">{customer_id}</font>', h_body
+                    ),
+                ],
+                [
+                    Paragraph("<b>Claim period (UTC)</b>", h_small),
+                    Paragraph("<b>Reporting currency</b>", h_small),
+                ],
+                [
+                    Paragraph(
+                        f"{_fmt_date(period_start)} → {_fmt_date(period_end)}",
+                        h_body,
+                    ),
+                    Paragraph("Canadian Dollars (CAD)", h_body),
+                ],
+            ],
+            colWidths=[90 * mm, 90 * mm],
+        )
+        claimant_tbl.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LINEBELOW", (0, 1), (-1, 1), 0.5, colors.black),
+                    ("LINEBELOW", (0, 3), (-1, 3), 0.5, colors.black),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ]
+            )
+        )
+        story.append(claimant_tbl)
+
+        # Part B — Claim Summary
+        story.append(Paragraph("<b>PART B — CLAIM SUMMARY</b>", h_section))
+        summary_data = [
+            [
+                Paragraph("<b>Category</b>", h_small),
+                Paragraph("<b>Eligible Cost (CAD)</b>", h_small),
+                Paragraph("<b>Reimbursement Rate</b>", h_small),
+                Paragraph("<b>Reimbursement (CAD)</b>", h_small),
+            ],
+            [
+                Paragraph("Canadian cloud compute", h_body),
+                Paragraph(_fmt_cad(s.get("canadian_compute_cost_cad", 0)), h_body),
+                Paragraph(str(s.get("canadian_reimbursement_rate", "")), h_body),
+                Paragraph(
+                    _fmt_cad(s.get("canadian_eligible_reimbursement_cad", 0)), h_body
+                ),
+            ],
+            [
+                Paragraph("Non-Canadian cloud compute", h_body),
+                Paragraph(
+                    _fmt_cad(s.get("non_canadian_compute_cost_cad", 0)), h_body
+                ),
+                Paragraph(
+                    str(s.get("non_canadian_reimbursement_rate", "")), h_body
+                ),
+                Paragraph(
+                    _fmt_cad(s.get("non_canadian_eligible_reimbursement_cad", 0)),
+                    h_body,
+                ),
+            ],
+            [
+                Paragraph(
+                    f"<b>Total — {int(s.get('total_jobs', 0))} job(s)</b>", h_body
+                ),
+                Paragraph(
+                    f"<b>{_fmt_cad(s.get('total_cost_cad', 0))}</b>", h_body
+                ),
+                Paragraph("—", h_body),
+                Paragraph(
+                    f"<b>{_fmt_cad(s.get('total_eligible_reimbursement_cad', 0))}</b>",
+                    h_body,
+                ),
+            ],
+            [
+                Paragraph(
+                    "Effective cost to claimant after fund reimbursement", h_body
+                ),
+                "",
+                "",
+                Paragraph(
+                    f"<b>{_fmt_cad(s.get('effective_cost_after_fund_cad', 0))}</b>",
+                    h_body,
+                ),
+            ],
+        ]
+        summary_tbl = Table(
+            summary_data, colWidths=[60 * mm, 40 * mm, 40 * mm, 40 * mm]
+        )
+        summary_tbl.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                    ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f3f3")),
+                    ("LINEBELOW", (0, 0), (-1, 0), 1, colors.black),
+                    ("GRID", (0, 0), (-1, -1), 0.25, soft),
+                    ("LINEABOVE", (0, 3), (-1, 3), 1, colors.black),
+                    ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#fafafa")),
+                    ("SPAN", (0, 4), (2, 4)),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.append(summary_tbl)
+
+        # Part C — Itemised Compute Usage
+        story.append(
+            Paragraph("<b>PART C — ITEMISED COMPUTE USAGE</b>", h_section)
+        )
+        items_header = [
+            Paragraph("<b>Job ID</b>", h_small),
+            Paragraph("<b>Start</b>", h_small),
+            Paragraph("<b>End</b>", h_small),
+            Paragraph("<b>GPU</b>", h_small),
+            Paragraph("<b>Hrs</b>", h_small),
+            Paragraph("<b>Cost (CAD)</b>", h_small),
+            Paragraph("<b>Host</b>", h_small),
+            Paragraph("<b>Eligibility</b>", h_small),
+        ]
+        items_rows = [items_header]
+        if not items:
+            items_rows.append(
+                [
+                    Paragraph(
+                        "<i>No eligible compute usage recorded in this period.</i>",
+                        h_small,
+                    ),
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ]
+            )
+        else:
+            for it in items:
+                host_loc = str(it.get("host_country") or "—")
+                if it.get("host_province"):
+                    host_loc += f"/{it.get('host_province')}"
+                items_rows.append(
+                    [
+                        Paragraph(
+                            f'<font face="Courier" size="7">{str(it.get("job_id", ""))[:18]}</font>',
+                            h_small,
+                        ),
+                        Paragraph(_fmt_date(it.get("started_at")), h_small),
+                        Paragraph(_fmt_date(it.get("completed_at")), h_small),
+                        Paragraph(str(it.get("gpu_model") or "—"), h_small),
+                        Paragraph(
+                            f"{float(it.get('duration_hours', 0) or 0):,.2f}",
+                            h_small,
+                        ),
+                        Paragraph(_fmt_cad(it.get("cost_cad", 0)), h_small),
+                        Paragraph(host_loc, h_small),
+                        Paragraph(
+                            "Canadian"
+                            if it.get("is_canadian_compute")
+                            else "Non-Canadian",
+                            h_small,
+                        ),
+                    ]
+                )
+        items_tbl = Table(
+            items_rows,
+            colWidths=[
+                28 * mm,
+                18 * mm,
+                18 * mm,
+                22 * mm,
+                12 * mm,
+                22 * mm,
+                28 * mm,
+                32 * mm,
+            ],
+            repeatRows=1,
+        )
+        items_tbl.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (4, 1), (5, -1), "RIGHT"),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f3f3")),
+                    ("LINEBELOW", (0, 0), (-1, 0), 1, colors.black),
+                    ("GRID", (0, 0), (-1, -1), 0.25, soft),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ]
+            )
+        )
+        story.append(items_tbl)
+
+        # Part D — Supplier Attestation
+        story.append(
+            Paragraph(
+                "<b>PART D — SUPPLIER ATTESTATION (Xcelsior Inc.)</b>", h_section
+            )
+        )
+
+        def _chk(val) -> str:
+            return "[X]" if val else "[ ]"
+
+        att_lines = [
+            f"<b>Attestation ID:</b> <font face='Courier'>{att.get('attestation_id', '')}</font> &nbsp;·&nbsp; "
+            f"<b>Attested:</b> {_fmt_dt(att.get('attested_at'))} &nbsp;·&nbsp; "
+            f"<b>Valid until:</b> {_fmt_date(att.get('valid_until'))}",
+            f"{_chk(att.get('incorporated_in') == 'Canada')} Provider is incorporated in Canada "
+            f"({att.get('provider_name', '')}, {att.get('incorporated_in', '')}; "
+            f"registration: {att.get('registration_number') or '—'}).",
+            f"{_chk(att.get('data_centers_in_canada'))} Compute was performed on physical infrastructure located in Canada.",
+            f"{_chk(att.get('physical_infrastructure_canada'))} Hardware is owned or controlled by the provider and physically located in Canada.",
+            f"{_chk(att.get('data_stays_in_canada'))} Customer data remained within Canadian borders throughout processing (data sovereignty).",
+            f"{_chk(att.get('pipeda_compliant'))} Provider operates in compliance with PIPEDA.",
+            f"{_chk(bool(att.get('security_posture')))} Security posture: {att.get('security_posture', '—')}. "
+            f"Privacy officer: {att.get('privacy_officer_contact') or 'Not designated'}.",
+        ]
+        att_tbl = Table(
+            [[Paragraph(line, h_body)] for line in att_lines],
+            colWidths=[180 * mm],
+        )
+        att_tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafaf4")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccc8a8")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.append(att_tbl)
+        if report.get("notes"):
+            story.append(Spacer(1, 2 * mm))
+            story.append(Paragraph(str(report["notes"]), h_small))
+
+        # Part E — Declaration & Signatures
+        story.append(
+            Paragraph(
+                "<b>PART E — CLAIMANT DECLARATION &amp; SIGNATURES</b>", h_section
+            )
+        )
+        story.append(
+            Paragraph(
+                "I certify that the information in this claim is true, correct, and complete to the "
+                "best of my knowledge, and that the eligible costs above were incurred solely for the "
+                "purpose of AI research, development, or deployment activities eligible under the AI "
+                "Compute Access Fund program guidelines. I retain the underlying invoices, attestation "
+                "bundle, and usage records for audit.",
+                h_body,
+            )
+        )
+        story.append(Spacer(1, 10 * mm))
+        sig_tbl = Table(
+            [
+                [
+                    Paragraph("<b>Claimant — Authorised Signatory</b>", h_small),
+                    Paragraph("<b>Supplier — Xcelsior Inc.</b>", h_small),
+                ],
+                [
+                    Paragraph(
+                        "<br/><br/>Signature · Printed name · Date (YYYY-MM-DD)",
+                        h_small,
+                    ),
+                    Paragraph(
+                        "<br/><br/>Signature · Printed name · Date (YYYY-MM-DD)",
+                        h_small,
+                    ),
+                ],
+            ],
+            colWidths=[90 * mm, 90 * mm],
+        )
+        sig_tbl.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LINEABOVE", (0, 1), (-1, 1), 0.75, colors.black),
+                    ("TOPPADDING", (0, 1), (-1, 1), 2),
+                ]
+            )
+        )
+        story.append(sig_tbl)
+
+        story.append(Spacer(1, 6 * mm))
+        story.append(
+            Paragraph(
+                f"Prepared by Xcelsior Inc. · Form XCL-CAF-01 · "
+                f"Attestation {att.get('attestation_id', '')} · "
+                f"Generated {_fmt_dt(report.get('generated_at'))}. "
+                f"Machine-generated from audited usage meters. Retain alongside invoices "
+                f"for the AI Compute Access Fund claim submission.",
+                h_small,
+            )
+        )
+
+        doc.build(story)
+        return buf.getvalue()
+
 
 # ── Singleton ─────────────────────────────────────────────────────────
 
