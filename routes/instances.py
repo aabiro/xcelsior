@@ -234,6 +234,13 @@ def api_submit_instance(j: JobIn, request: Request):
         all_hosts = list_hosts(active_only=False)
         hmap_all = {h["host_id"]: h for h in all_hosts}
         target_host = hmap_all.get(target_host_id)
+        if not target_host and len(target_host_id) >= 8:
+            # Tolerate truncated host IDs (e.g. from display-truncated UI values)
+            matches = [h for h in all_hosts if h["host_id"].startswith(target_host_id)]
+            if len(matches) == 1:
+                target_host = matches[0]
+                target_host_id = target_host["host_id"]
+                j.host_id = target_host_id
         if not target_host:
             raise HTTPException(status_code=404, detail=f"Host {target_host_id} not found")
         if target_host.get("status") == "draining":
