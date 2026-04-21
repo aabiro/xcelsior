@@ -1,7 +1,7 @@
 """Routes: marketplace."""
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     _get_current_user,
@@ -134,14 +134,14 @@ def api_marketplace_stats(request: Request):
 # ── Model: GPUOfferCreate ──
 
 class GPUOfferCreate(BaseModel):
-    host_id: str
-    gpu_model: str
-    gpu_count_total: int = 1
-    vram_gb: float = 0
-    ask_cents_per_hour: int = 20
-    region: str = "ca-east"
+    host_id: str = Field(min_length=1, max_length=64)
+    gpu_model: str = Field(min_length=1, max_length=64)
+    gpu_count_total: int = Field(default=1, ge=1, le=64)
+    vram_gb: float = Field(default=0, ge=0, le=1024)
+    ask_cents_per_hour: int = Field(default=20, ge=1, le=1_000_000)
+    region: str = Field(default="ca-east", max_length=32)
     spot_enabled: bool = True
-    spot_min_cents: int = 10
+    spot_min_cents: int = Field(default=10, ge=0, le=1_000_000)
 
 @router.post("/api/v2/marketplace/offers", tags=["Marketplace v2"])
 def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
@@ -169,13 +169,13 @@ def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
 # ── Model: MarketplaceSearchParams ──
 
 class MarketplaceSearchParams(BaseModel):
-    gpu_model: str = ""
-    min_vram_gb: float = 0
-    max_price_cents: int = 0
-    region: str = ""
+    gpu_model: str = Field(default="", max_length=64)
+    min_vram_gb: float = Field(default=0, ge=0, le=1024)
+    max_price_cents: int = Field(default=0, ge=0)
+    region: str = Field(default="", max_length=32)
     canada_only: bool = False
-    sort_by: str = "price"
-    limit: int = 50
+    sort_by: str = Field(default="price", pattern="^(price|reputation|region|vram)$")
+    limit: int = Field(default=50, ge=1, le=500)
 
 @router.post("/api/v2/marketplace/search", tags=["Marketplace v2"])
 def api_marketplace_search(body: MarketplaceSearchParams):

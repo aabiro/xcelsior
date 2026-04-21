@@ -49,21 +49,21 @@ def _interactive_host_jobs(host_id: str) -> list[dict]:
 # ── Model: HostIn ──
 
 class HostIn(BaseModel):
-    host_id: str
-    ip: str
-    gpu_model: str
-    total_vram_gb: float
-    free_vram_gb: float
-    cost_per_hour: float = 0.20
-    country: str = "CA"  # ISO 3166-1 alpha-2
-    province: str = ""  # CA province code (ON, QC, BC, etc.)
+    host_id: str = Field(min_length=1, max_length=64)
+    ip: str = Field(min_length=7, max_length=45)  # IPv4 min 7, IPv6 max 45
+    gpu_model: str = Field(min_length=1, max_length=64)
+    total_vram_gb: float = Field(ge=0, le=1024)
+    free_vram_gb: float = Field(ge=0, le=1024)
+    cost_per_hour: float = Field(default=0.20, ge=0, le=1000)
+    country: str = Field(default="CA", min_length=2, max_length=2)  # ISO 3166-1 alpha-2
+    province: str = Field(default="", max_length=10)  # CA province code (ON, QC, BC, etc.)
     # Optional: agent-reported versions for inline admission
     versions: dict | None = None  # {"runc": "1.2.4", "nvidia_ctk": "1.17.8", ...}
     # Canadian company fields (Report #1.B — Provider Onboarding)
-    corporation_name: str = ""  # Legal corporation name
-    business_number: str = ""  # CRA Business Number (BN), e.g. 123456789RC0001
-    gst_hst_number: str = ""  # GST/HST registration number
-    legal_name: str = ""  # Legal name of individual or company
+    corporation_name: str = Field(default="", max_length=256)  # Legal corporation name
+    business_number: str = Field(default="", max_length=64)   # CRA Business Number (BN), e.g. 123456789RC0001
+    gst_hst_number: str = Field(default="", max_length=64)    # GST/HST registration number
+    legal_name: str = Field(default="", max_length=256)       # Legal name of individual or company
 
 
 # ── Model: JobIn ──
@@ -88,10 +88,10 @@ class JobIn(BaseModel):
 # ── Model: StatusUpdate ──
 
 class StatusUpdate(BaseModel):
-    status: str
-    host_id: str | None = None
-    container_id: str | None = None
-    container_name: str | None = None
+    status: str = Field(min_length=1, max_length=32)
+    host_id: str | None = Field(None, max_length=64)
+    container_id: str | None = Field(None, max_length=128)
+    container_name: str | None = Field(None, max_length=128)
 
 @router.put("/host", tags=["Hosts"])
 def api_register_host(h: HostIn, request: Request):

@@ -562,9 +562,9 @@ def api_provider_attestation():
 # ── Model: RefundRequest ──
 
 class RefundRequest(BaseModel):
-    job_id: str
-    exit_code: int
-    failure_reason: str = ""
+    job_id: str = Field(min_length=1, max_length=128)
+    exit_code: int = Field(ge=0, le=255)
+    failure_reason: str = Field(default="", max_length=1000)
 
 @router.post("/api/billing/refund", tags=["Billing"])
 def api_process_refund(req: RefundRequest):
@@ -711,8 +711,8 @@ def api_ln_rate():
 # ── Model: EstimateRequest ──
 
 class EstimateRequest(BaseModel):
-    gpu_model: str = "RTX 4090"
-    duration_hours: float = 1.0
+    gpu_model: str = Field(default="RTX 4090", max_length=64)
+    duration_hours: float = Field(default=1.0, ge=0.0, le=8760)  # max 1 year
     spot: bool = False
     sovereignty: bool = False
     is_canadian: bool = True
@@ -844,11 +844,11 @@ def api_pricing_models():
 # ── Model: ReservedCommitmentRequest ──
 
 class ReservedCommitmentRequest(BaseModel):
-    customer_id: str
-    gpu_model: str = "RTX 4090"
-    commitment_type: str = "1_month"  # 1_month | 3_month | 1_year
-    quantity: int = 1  # number of GPU slots reserved
-    province: str = "ON"
+    customer_id: str = Field(min_length=1, max_length=128)
+    gpu_model: str = Field(default="RTX 4090", max_length=64)
+    commitment_type: str = Field(default="1_month", pattern="^(1_month|3_month|1_year)$")
+    quantity: int = Field(default=1, ge=1, le=1000)  # number of GPU slots reserved
+    province: str = Field(default="ON", max_length=10)
 
 @router.get("/api/pricing/reserved-plans", tags=["Billing"])
 def api_reserved_plans():
