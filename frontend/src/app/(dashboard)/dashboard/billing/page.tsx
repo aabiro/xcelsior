@@ -366,12 +366,18 @@ export default function BillingPage() {
     try {
       const now = Math.floor(Date.now() / 1000);
       const ninetyDaysAgo = now - 90 * 86400;
-      const url = await api.exportCaf(customerId, ninetyDaysAgo, now, "html");
-      if (typeof url === "string") {
-        window.open(url, "_blank", "noopener,noreferrer");
+      const blob = await api.exportCaf(customerId, ninetyDaysAgo, now, "pdf");
+      if (blob instanceof Blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `xcelsior-caf-${new Date().toISOString().slice(0, 10)}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("CAF claim form downloaded");
       }
     } catch {
-      toast.error("Could not open CAF claim form");
+      toast.error("Could not generate CAF claim form");
     }
   };
 
@@ -685,7 +691,7 @@ export default function BillingPage() {
                 <div className="flex items-center gap-2">
                   <Button variant="gold" size="sm" onClick={handleCafPrintable}>
                     <FileText className="h-3.5 w-3.5" />
-                    Printable Form
+                    Claim Form (PDF)
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleCafExport} disabled={cafLoading}>
                     {cafLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}

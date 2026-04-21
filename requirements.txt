@@ -77,3 +77,4 @@ anthropic~=0.86.0
 # ── ML/Inference (optional — only needed if using inference.py) ───────
 # torch>=2.1.0
 # transformers>=4.36.0
+reportlab>=4.0
