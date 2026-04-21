@@ -1282,13 +1282,47 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
 
     await websocket.accept()
 
-    # Verify job exists and send initial snapshot
-    jobs = list_jobs()
-    hosts = list_hosts()
-    host_map = {h["host_id"]: h for h in hosts}
-    instance = next((j for j in jobs if j["job_id"] == job_id), None)
+    # Per-instance snapshot loader. Uses a single-row DB lookup (get_job) and
+    # a cached host_map rather than scanning list_jobs()/list_hosts() on every
+    # status change — those scans on the full tables were blocking the event
+    # loop long enough for nginx/Starlette to drop the WS with 1006, producing
+    # the 2s reconnect loop and stale UI (status stuck on "assigned" even
+    # though the DB had already moved to "running").
+    _host_map_cache: dict[str, dict] = {}
+    _host_map_ts: float = 0.0
+
+    def _load_snapshot() -> dict | None:
+        nonlocal _host_map_cache, _host_map_ts
+        from scheduler import get_job
+        j = get_job(job_id)
+        if not j:
+            return None
+        # Refresh host map at most every 15s — hosts rarely change and the
+        # scan was the expensive part.
+        now_ts = time.time()
+        if now_ts - _host_map_ts > 15.0:
+            _host_map_cache = {h["host_id"]: h for h in list_hosts(active_only=False)}
+            _host_map_ts = now_ts
+        _enrich_instance(j, _host_map_cache)
+        return j
+
+    async def _load_snapshot_async() -> dict | None:
+        return await asyncio.to_thread(_load_snapshot)
+
+    async def _safe_send(payload: dict) -> bool:
+        try:
+            await websocket.send_json(payload)
+            return True
+        except (WebSocketDisconnect, RuntimeError, ConnectionError):
+            return False
+        except Exception as e:
+            log.debug("ws_instance_stream send failed: %s", e)
+            return False
+
+    # Initial snapshot
+    instance = await _load_snapshot_async()
     if not instance:
-        await websocket.send_json({"event": "error", "data": {"message": "Instance not found"}})
+        await _safe_send({"event": "error", "data": {"message": "Instance not found"}})
         await websocket.close(code=4004)
         return
 
@@ -1297,20 +1331,23 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
         job_owner = instance.get("owner", "")
         customer_id = user.get("customer_id", user.get("user_id", ""))
         if job_owner and job_owner != customer_id:
-            await websocket.send_json({"event": "error", "data": {"message": "Not authorized"}})
+            await _safe_send({"event": "error", "data": {"message": "Not authorized"}})
             await websocket.close(code=4003)
             return
 
-    _enrich_instance(instance, host_map)
     _ws_connections[job_id].add(websocket)
-    await websocket.send_json({"event": "instance", "data": instance})
+    if not await _safe_send({"event": "instance", "data": instance}):
+        _ws_connections[job_id].discard(websocket)
+        return
 
     # Replay buffered logs (PG fallback if buffer is empty)
     replay = list(_job_log_buffers.get(job_id, []))[-50:]
     if not replay:
-        replay = _load_pg_logs(job_id, limit=50)
+        replay = await asyncio.to_thread(_load_pg_logs, job_id, 50)
     for entry in replay:
-        await websocket.send_json({"event": "job_log", "data": {"job_id": job_id, **entry}})
+        if not await _safe_send({"event": "job_log", "data": {"job_id": job_id, **entry}}):
+            _ws_connections[job_id].discard(websocket)
+            return
 
     # Subscribe to the broadcast SSE bus
     queue: asyncio.Queue = asyncio.Queue(maxsize=256)
@@ -1325,19 +1362,23 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
             try:
                 msg = await asyncio.wait_for(queue.get(), timeout=30)
             except asyncio.TimeoutError:
-                await websocket.send_json({"event": "ping", "data": {"ts": time.time()}})
+                if not await _safe_send({"event": "ping", "data": {"ts": time.time()}}):
+                    closed = True
+                    return
                 continue
             event_type = msg.get("event", "message")
             event_data = msg.get("data", {})
             if event_data.get("job_id") != job_id:
                 continue
-            await websocket.send_json({"event": event_type, "data": event_data})
+            if not await _safe_send({"event": event_type, "data": event_data}):
+                closed = True
+                return
             # On status change, send full enriched instance snapshot
             if event_type == "job_status":
-                fresh = next((j for j in list_jobs() if j["job_id"] == job_id), None)
-                if fresh:
-                    _enrich_instance(fresh, {h["host_id"]: h for h in list_hosts()})
-                    await websocket.send_json({"event": "instance", "data": fresh})
+                fresh = await _load_snapshot_async()
+                if fresh and not await _safe_send({"event": "instance", "data": fresh}):
+                    closed = True
+                    return
 
     async def _recv_loop():
         nonlocal closed
@@ -1346,10 +1387,10 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
                 raw = await websocket.receive_text()
                 data = json.loads(raw)
                 if data.get("event") == "refresh":
-                    fresh = next((j for j in list_jobs() if j["job_id"] == job_id), None)
-                    if fresh:
-                        _enrich_instance(fresh, {h["host_id"]: h for h in list_hosts()})
-                        await websocket.send_json({"event": "instance", "data": fresh})
+                    fresh = await _load_snapshot_async()
+                    if fresh and not await _safe_send({"event": "instance", "data": fresh}):
+                        closed = True
+                        return
             except (WebSocketDisconnect, RuntimeError):
                 closed = True
                 break

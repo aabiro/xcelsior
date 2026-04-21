@@ -1044,7 +1044,16 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
     try:
         await websocket.accept()
 
-        instance = next((j for j in list_jobs() if j["job_id"] == instance_id), None)
+        # Use a single-row DB lookup via scheduler.get_job() executed in a
+        # thread pool — scanning list_jobs() on every poll was blocking the
+        # event loop and causing the WS to drop with 1006 every ~2 s while
+        # the user waited for a queued/assigned instance to start.
+        from scheduler import get_job as _get_job_by_id
+
+        async def _load_instance():
+            return await asyncio.to_thread(_get_job_by_id, instance_id)
+
+        instance = await _load_instance()
         try:
             _check_terminal_access(user, instance, instance_id=instance_id)
         except HTTPException as exc:
@@ -1090,7 +1099,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     retry=True,
                 )
                 await asyncio.sleep(status_poll_sec)
-                instance = next((j for j in list_jobs() if j["job_id"] == instance_id), None)
+                instance = await _load_instance()
                 if not instance:
                     await _send_error(websocket, "Instance disappeared", 4004)
                     await websocket.close(code=4004)
@@ -1125,7 +1134,8 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
 
         host_ip = str(instance.get("host_ip") or "").strip()
         if not host_ip and host_id:
-            hmap = {h["host_id"]: h for h in list_hosts(active_only=False)}
+            hosts = await asyncio.to_thread(list_hosts, False)
+            hmap = {h["host_id"]: h for h in hosts}
             host_rec = hmap.get(host_id)
             host_ip = str(host_rec.get("ip", "") if host_rec else "").strip()
 
