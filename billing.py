@@ -2602,6 +2602,310 @@ class BillingEngine:
 
         return output.getvalue()
 
+    def export_caf_html(
+        self,
+        customer_id: str,
+        period_start: float,
+        period_end: float,
+        customer_name: str = "",
+    ) -> str:
+        """Generate a print-ready HTML claim form for the AI Compute Access Fund.
+
+        Designed to be opened in a browser and printed to PDF (A4). Fills in
+        all claimant and supplier data from the usage meters + provider
+        attestation so the customer can sign and submit.
+        """
+        from datetime import datetime, timezone
+        from html import escape as _h
+
+        report = self.export_caf_report(customer_id, period_start, period_end)
+        s = report["summary"]
+        att = report["supplier_attestation"]
+        items = report["line_items"]
+
+        def _fmt_cad(v) -> str:
+            try:
+                return f"${float(v):,.2f}"
+            except (TypeError, ValueError):
+                return "$0.00"
+
+        def _fmt_date(ts) -> str:
+            if not ts:
+                return "—"
+            try:
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+            except (TypeError, ValueError, OSError):
+                return "—"
+
+        def _fmt_dt(ts) -> str:
+            if not ts:
+                return "—"
+            try:
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            except (TypeError, ValueError, OSError):
+                return "—"
+
+        period_label = f"{_fmt_date(period_start)} → {_fmt_date(period_end)}"
+        generated_label = _fmt_dt(report.get("generated_at"))
+        valid_until_label = _fmt_date(att.get("valid_until"))
+        attested_at_label = _fmt_dt(att.get("attested_at"))
+        customer_display = _h(customer_name or customer_id)
+
+        rows_html_parts = []
+        if not items:
+            rows_html_parts.append(
+                '<tr><td colspan="8" class="empty">No eligible compute usage recorded in this period.</td></tr>'
+            )
+        else:
+            for it in items:
+                rows_html_parts.append(
+                    "<tr>"
+                    f'<td class="mono">{_h(str(it.get("job_id", "")))}</td>'
+                    f'<td>{_fmt_date(it.get("started_at"))}</td>'
+                    f'<td>{_fmt_date(it.get("completed_at"))}</td>'
+                    f'<td>{_h(str(it.get("gpu_model", "") or "—"))}</td>'
+                    f'<td class="num">{float(it.get("duration_hours", 0) or 0):,.2f}</td>'
+                    f'<td class="num">{_fmt_cad(it.get("cost_cad", 0))}</td>'
+                    f'<td>{_h(str(it.get("host_country", "") or "—"))}'
+                    f'{("/" + _h(str(it.get("host_province")))) if it.get("host_province") else ""}</td>'
+                    f'<td class="{"ca" if it.get("is_canadian_compute") else "noca"}">'
+                    f'{"Canadian" if it.get("is_canadian_compute") else "Non-Canadian"}</td>'
+                    "</tr>"
+                )
+        rows_html = "\n".join(rows_html_parts)
+
+        reg_no = att.get("registration_number") or "—"
+        priv_officer = att.get("privacy_officer_contact") or "Not designated"
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>AI Compute Access Fund — Eligible Cost Claim · {_h(customer_id)}</title>
+<style>
+  :root {{
+    --ink: #111;
+    --muted: #555;
+    --line: #333;
+    --soft: #888;
+    --bg: #fff;
+    --accent: #8a1d2a;
+    --ca: #0a5c2f;
+    --noca: #7a4a00;
+  }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ background: #e9e9ee; margin: 0; padding: 0; color: var(--ink); font-family: "Helvetica Neue", Arial, "Segoe UI", sans-serif; }}
+  .toolbar {{
+    position: sticky; top: 0; z-index: 10;
+    background: #1a1a1a; color: #fff;
+    padding: 10px 20px; display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  }}
+  .toolbar .title {{ font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }}
+  .toolbar button {{
+    background: #fff; color: #111; border: 0;
+    padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 4px;
+    cursor: pointer;
+  }}
+  .toolbar button:hover {{ background: #f0f0f0; }}
+  .page {{
+    background: var(--bg); width: 210mm; min-height: 297mm;
+    margin: 24px auto; padding: 18mm 18mm 22mm 18mm;
+    box-shadow: 0 0 18px rgba(0,0,0,.1);
+    font-size: 11.5px; line-height: 1.45;
+  }}
+  .banner {{
+    border-top: 6px solid var(--accent); border-bottom: 1px solid var(--line);
+    padding-bottom: 10px; margin-bottom: 14px;
+  }}
+  .banner .crest {{ float: right; text-align: right; font-size: 10px; color: var(--muted); }}
+  .banner h1 {{ font-size: 19px; margin: 8px 0 2px; color: var(--accent); letter-spacing: .01em; }}
+  .banner .sub {{ font-size: 11px; color: var(--muted); }}
+  h2 {{ font-size: 13px; margin: 18px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); color: #222; text-transform: uppercase; letter-spacing: .05em; }}
+  .kv {{ display: grid; grid-template-columns: 180px 1fr; gap: 4px 14px; font-size: 11.5px; }}
+  .kv dt {{ color: var(--muted); }}
+  .kv dd {{ margin: 0; color: var(--ink); }}
+  .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
+  .field {{ border-bottom: 1px solid #999; padding: 3px 2px 1px; min-height: 18px; }}
+  .field.filled {{ font-weight: 600; }}
+  .label {{ font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 10px; display: block; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10.5px; }}
+  th, td {{ padding: 5px 6px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }}
+  th {{ background: #f3f3f3; border-bottom: 1.5px solid var(--line); font-weight: 600; font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; }}
+  td.num, th.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
+  td.mono {{ font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10px; }}
+  td.ca {{ color: var(--ca); font-weight: 600; }}
+  td.noca {{ color: var(--noca); }}
+  td.empty {{ color: var(--muted); text-align: center; font-style: italic; padding: 14px; }}
+  .summary {{ margin-top: 10px; }}
+  .summary table th, .summary table td {{ border-bottom: 1px solid #ddd; }}
+  .summary .total td {{ border-top: 1.5px solid var(--line); border-bottom: 2px solid var(--line); font-weight: 700; background: #fafafa; }}
+  .attestation {{ background: #fafaf4; border: 1px solid #ccc8a8; padding: 12px 14px; font-size: 10.5px; }}
+  .attestation .chk {{ display: inline-block; width: 11px; height: 11px; border: 1px solid #333; margin-right: 6px; vertical-align: -1px; background: #fff; position: relative; }}
+  .attestation .chk.on::after {{
+    content: "✓"; position: absolute; left: 1px; top: -4px; font-size: 12px; color: var(--ca); font-weight: bold;
+  }}
+  .signatures {{ margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }}
+  .sig {{ margin-top: 28px; border-top: 1px solid #000; padding-top: 4px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }}
+  .footer {{ margin-top: 22px; font-size: 9.5px; color: var(--muted); border-top: 1px solid #ddd; padding-top: 8px; }}
+  .notes {{ font-size: 10px; color: var(--muted); margin-top: 6px; }}
+  @media print {{
+    html, body {{ background: #fff; }}
+    .toolbar {{ display: none; }}
+    .page {{ margin: 0; box-shadow: none; width: auto; min-height: auto; padding: 14mm; }}
+    @page {{ size: A4; margin: 12mm; }}
+  }}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <div class="title">AI Compute Access Fund — Claim Form (CAD)</div>
+  <div>
+    <button onclick="window.print()">Print / Save as PDF</button>
+  </div>
+</div>
+<div class="page">
+  <div class="banner">
+    <div class="crest">Form XCL-CAF-01 · Rev 2026-04<br/>Generated {_h(generated_label)}</div>
+    <h1>AI Compute Access Fund — Eligible Cost Claim</h1>
+    <div class="sub">Xcelsior Inc. · Canadian sovereign GPU compute · All amounts in Canadian Dollars (CAD)</div>
+  </div>
+
+  <h2>Part A — Claimant Information</h2>
+  <div class="grid-2">
+    <div>
+      <span class="label">Claimant legal name</span>
+      <div class="field filled">{customer_display}</div>
+      <span class="label">Customer / Account ID</span>
+      <div class="field filled mono">{_h(customer_id)}</div>
+    </div>
+    <div>
+      <span class="label">Claim period (UTC)</span>
+      <div class="field filled">{_h(period_label)}</div>
+      <span class="label">Reporting currency</span>
+      <div class="field filled">Canadian Dollars (CAD)</div>
+    </div>
+  </div>
+
+  <h2>Part B — Claim Summary</h2>
+  <div class="summary">
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th class="num">Eligible Cost (CAD)</th>
+          <th class="num">Reimbursement Rate</th>
+          <th class="num">Reimbursement (CAD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Canadian cloud compute</td>
+          <td class="num">{_fmt_cad(s.get("canadian_compute_cost_cad", 0))}</td>
+          <td class="num">{_h(s.get("canadian_reimbursement_rate", ""))}</td>
+          <td class="num">{_fmt_cad(s.get("canadian_eligible_reimbursement_cad", 0))}</td>
+        </tr>
+        <tr>
+          <td>Non-Canadian cloud compute</td>
+          <td class="num">{_fmt_cad(s.get("non_canadian_compute_cost_cad", 0))}</td>
+          <td class="num">{_h(s.get("non_canadian_reimbursement_rate", ""))}</td>
+          <td class="num">{_fmt_cad(s.get("non_canadian_eligible_reimbursement_cad", 0))}</td>
+        </tr>
+        <tr class="total">
+          <td>Total — {int(s.get("total_jobs", 0))} job(s)</td>
+          <td class="num">{_fmt_cad(s.get("total_cost_cad", 0))}</td>
+          <td class="num">—</td>
+          <td class="num">{_fmt_cad(s.get("total_eligible_reimbursement_cad", 0))}</td>
+        </tr>
+        <tr>
+          <td colspan="3">Effective cost to claimant after fund reimbursement</td>
+          <td class="num">{_fmt_cad(s.get("effective_cost_after_fund_cad", 0))}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Part C — Itemised Compute Usage</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Job ID</th>
+        <th>Start (UTC)</th>
+        <th>End (UTC)</th>
+        <th>GPU</th>
+        <th class="num">Duration (hrs)</th>
+        <th class="num">Cost (CAD)</th>
+        <th>Host Country / Province</th>
+        <th>Eligibility</th>
+      </tr>
+    </thead>
+    <tbody>
+{rows_html}
+    </tbody>
+  </table>
+
+  <h2>Part D — Supplier Attestation (Xcelsior Inc.)</h2>
+  <div class="attestation">
+    <div><strong>Attestation ID:</strong> <span class="mono">{_h(att.get("attestation_id", ""))}</span> &nbsp;·&nbsp;
+      <strong>Attested at:</strong> {_h(attested_at_label)} &nbsp;·&nbsp;
+      <strong>Valid until:</strong> {_h(valid_until_label)}
+    </div>
+    <div style="margin-top:8px">
+      <span class="chk {'on' if att.get('incorporated_in') == 'Canada' else ''}"></span>
+      Provider is incorporated in Canada (<em>{_h(att.get("provider_name", ""))}, {_h(att.get("incorporated_in", ""))}</em>; registration: {_h(reg_no)}).
+    </div>
+    <div>
+      <span class="chk {'on' if att.get('data_centers_in_canada') else ''}"></span>
+      Compute was performed on physical infrastructure located in Canada.
+    </div>
+    <div>
+      <span class="chk {'on' if att.get('physical_infrastructure_canada') else ''}"></span>
+      Hardware is owned or controlled by the provider and physically located in Canada.
+    </div>
+    <div>
+      <span class="chk {'on' if att.get('data_stays_in_canada') else ''}"></span>
+      Customer data remained within Canadian borders throughout processing (data sovereignty).
+    </div>
+    <div>
+      <span class="chk {'on' if att.get('pipeda_compliant') else ''}"></span>
+      Provider operates in compliance with PIPEDA (Personal Information Protection and Electronic Documents Act).
+    </div>
+    <div>
+      <span class="chk {'on' if att.get('security_posture') else ''}"></span>
+      Security posture: {_h(att.get("security_posture", "—"))}. Privacy officer contact: {_h(priv_officer)}.
+    </div>
+    <div class="notes">{_h(report.get("notes", ""))}</div>
+  </div>
+
+  <h2>Part E — Claimant Declaration &amp; Signatures</h2>
+  <p style="font-size:10.5px;margin:4px 0 10px;">
+    I certify that the information in this claim is true, correct, and complete to the best of my knowledge,
+    and that the eligible costs above were incurred solely for the purpose of AI research, development, or
+    deployment activities eligible under the AI Compute Access Fund program guidelines. I retain the
+    underlying invoices, attestation bundle, and usage records for audit.
+  </p>
+  <div class="signatures">
+    <div>
+      <span class="label">Claimant — Authorised Signatory</span>
+      <div class="sig">Signature · Printed name · Date (YYYY-MM-DD)</div>
+    </div>
+    <div>
+      <span class="label">Supplier — Xcelsior Inc.</span>
+      <div class="sig">Signature · Printed name · Date (YYYY-MM-DD)</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Prepared by Xcelsior Inc. · Form XCL-CAF-01 · Attestation {_h(att.get("attestation_id", ""))} ·
+    Report generated {_h(generated_label)} ·
+    This document is machine-generated from audited usage meters. Retain alongside invoices for the
+    AI Compute Access Fund claim submission.
+  </div>
+</div>
+</body>
+</html>
+"""
+
 
 # ── Singleton ─────────────────────────────────────────────────────────
 

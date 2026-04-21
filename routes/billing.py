@@ -389,12 +389,16 @@ def api_generate_invoice(
 
 @router.get("/api/billing/export/caf/{customer_id}", tags=["Billing"])
 def api_export_caf(
-    customer_id: str, period_start: float = 0, period_end: float = 0, format: str = "json"
+    customer_id: str,
+    period_start: float = 0,
+    period_end: float = 0,
+    format: str = "json",
+    customer_name: str = "",
 ):
     """Export AI Compute Access Fund rebate documentation.
 
     From REPORT_FEATURE_2.md: /billing/export?format=caf
-    Supports json and csv formats.
+    Supports json, csv, and html (print-ready claim form) formats.
     """
     if period_end == 0:
         period_end = time.time()
@@ -409,6 +413,14 @@ def api_export_caf(
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.csv"},
         )
+
+    if format in ("html", "pdf", "form", "print"):
+        from fastapi.responses import HTMLResponse
+
+        html_data = be.export_caf_html(
+            customer_id, period_start, period_end, customer_name=customer_name
+        )
+        return HTMLResponse(content=html_data, media_type="text/html; charset=utf-8")
 
     report = be.export_caf_report(customer_id, period_start, period_end)
     return {"ok": True, **report}

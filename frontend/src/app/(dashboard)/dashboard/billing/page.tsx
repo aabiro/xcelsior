@@ -361,6 +361,20 @@ export default function BillingPage() {
     }
   };
 
+  const handleCafPrintable = async () => {
+    if (!customerId) return;
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const ninetyDaysAgo = now - 90 * 86400;
+      const url = await api.exportCaf(customerId, ninetyDaysAgo, now, "html");
+      if (typeof url === "string") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      toast.error("Could not open CAF claim form");
+    }
+  };
+
   // Invoice download
   const handleInvoiceDownload = async (inv: Invoice) => {
     if (!customerId) return;
@@ -668,10 +682,16 @@ export default function BillingPage() {
                     {t("dash.billing.fund_desc")}
                   </p>
                 </div>
-                <Button variant="gold" size="sm" onClick={handleCafExport} disabled={cafLoading}>
-                  {cafLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                  {t("dash.billing.export_caf")}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="gold" size="sm" onClick={handleCafPrintable}>
+                    <FileText className="h-3.5 w-3.5" />
+                    Printable Form
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleCafExport} disabled={cafLoading}>
+                    {cafLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                    CSV
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
