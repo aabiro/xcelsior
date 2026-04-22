@@ -804,6 +804,204 @@ class VolumeEngine:
         log.info("Volume %s LUKS device reopened and mounted successfully", volume_id)
         return True
 
+    # ── P2.5 Snapshots ────────────────────────────────────────────────
+    # Instant copy-on-write snapshots via `cp --reflink=auto`. On XFS or
+    # btrfs this is O(1); on ext4 it falls back to a sparse copy (still no
+    # rsync traffic across the wire, since everything happens server-side
+    # on the NFS host). Snapshots require the volume to be detached so the
+    # on-disk state is consistent — matches the RunPod/Vast model.
+
+    def create_snapshot(
+        self, volume_id: str, owner_id: str, label: str = ""
+    ) -> dict:
+        """Create an instant CoW snapshot. Volume must be detached."""
+        label = (label or "").strip()[:128]
+        with self._conn() as conn:
+            vol = conn.execute(
+                "SELECT volume_id, owner_id, status, encrypted "
+                "FROM volumes WHERE volume_id=%s AND deleted_at=0",
+                (volume_id,),
+            ).fetchone()
+            if not vol or vol["owner_id"] != owner_id:
+                raise ValueError("Volume not found")
+            if vol["status"] != "available":
+                raise ValueError(
+                    f"Volume must be detached to snapshot (current status: {vol['status']})"
+                )
+
+        snap_id = f"snap-{uuid.uuid4().hex[:16]}"
+        created_at = time.time()
+        size_bytes = 0
+
+        if NFS_SERVER:
+            snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
+            self._ssh_exec_with_retry(
+                NFS_SERVER, f"mkdir -p {shlex.quote(snap_dir)}"
+            )
+            if vol["encrypted"]:
+                src = f"{NFS_EXPORT_BASE}/{volume_id}.img"
+                dst = f"{snap_dir}/{snap_id}.img"
+                cmd = (
+                    f"cp --reflink=auto --sparse=always "
+                    f"{shlex.quote(src)} {shlex.quote(dst)} && "
+                    f"stat -c%s {shlex.quote(dst)}"
+                )
+            else:
+                src = f"{NFS_EXPORT_BASE}/{volume_id}"
+                dst = f"{snap_dir}/{snap_id}"
+                cmd = (
+                    f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)} && "
+                    f"du -sb {shlex.quote(dst)} | cut -f1"
+                )
+            rc, out, err = self._ssh_exec_with_retry(NFS_SERVER, cmd, timeout=300)
+            if rc != 0:
+                raise RuntimeError(f"Snapshot failed: {err.strip()[:200]}")
+            try:
+                size_bytes = int(out.strip().split()[0])
+            except (ValueError, IndexError):
+                size_bytes = 0
+
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO volume_snapshots "
+                "(snapshot_id, volume_id, owner_id, label, size_bytes, status, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, 'ready', %s)",
+                (snap_id, volume_id, owner_id, label, size_bytes, created_at),
+            )
+        self._emit_event(
+            "volume.snapshot.created",
+            volume_id,
+            actor=owner_id,
+            data={"snapshot_id": snap_id, "label": label, "size_bytes": size_bytes},
+        )
+        log.info("Snapshot %s created for volume %s (%d bytes)", snap_id, volume_id, size_bytes)
+        return {
+            "snapshot_id": snap_id,
+            "volume_id": volume_id,
+            "label": label,
+            "size_bytes": size_bytes,
+            "status": "ready",
+            "created_at": created_at,
+        }
+
+    def list_snapshots(self, volume_id: str, owner_id: str) -> list[dict]:
+        with self._conn() as conn:
+            vol = conn.execute(
+                "SELECT owner_id FROM volumes WHERE volume_id=%s AND deleted_at=0",
+                (volume_id,),
+            ).fetchone()
+            if not vol or vol["owner_id"] != owner_id:
+                raise PermissionError("Volume not found")
+            rows = conn.execute(
+                "SELECT snapshot_id, volume_id, label, size_bytes, status, created_at "
+                "FROM volume_snapshots WHERE volume_id=%s AND deleted_at=0 "
+                "ORDER BY created_at DESC",
+                (volume_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def restore_snapshot(
+        self, volume_id: str, owner_id: str, snapshot_id: str
+    ) -> dict:
+        """Restore volume data from a snapshot. Volume must be detached.
+
+        Current data is preserved as a `.pre-restore-{ts}` sibling so the
+        operator can recover if the wrong snapshot was chosen.
+        """
+        with self._conn() as conn:
+            vol = conn.execute(
+                "SELECT volume_id, owner_id, status, encrypted "
+                "FROM volumes WHERE volume_id=%s AND deleted_at=0",
+                (volume_id,),
+            ).fetchone()
+            if not vol or vol["owner_id"] != owner_id:
+                raise ValueError("Volume not found")
+            if vol["status"] != "available":
+                raise ValueError(
+                    f"Volume must be detached to restore (current status: {vol['status']})"
+                )
+            snap = conn.execute(
+                "SELECT snapshot_id FROM volume_snapshots "
+                "WHERE snapshot_id=%s AND volume_id=%s AND deleted_at=0",
+                (snapshot_id, volume_id),
+            ).fetchone()
+            if not snap:
+                raise ValueError("Snapshot not found")
+
+        if NFS_SERVER:
+            snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
+            ts = int(time.time())
+            if vol["encrypted"]:
+                src = f"{snap_dir}/{snapshot_id}.img"
+                dst = f"{NFS_EXPORT_BASE}/{volume_id}.img"
+                backup = f"{dst}.pre-restore-{ts}"
+                cmd = (
+                    f"cp --reflink=auto {shlex.quote(dst)} {shlex.quote(backup)} && "
+                    f"cp --reflink=auto --sparse=always "
+                    f"{shlex.quote(src)} {shlex.quote(dst)}"
+                )
+            else:
+                src = f"{snap_dir}/{snapshot_id}"
+                dst = f"{NFS_EXPORT_BASE}/{volume_id}"
+                backup = f"{dst}.pre-restore-{ts}"
+                cmd = (
+                    f"mv {shlex.quote(dst)} {shlex.quote(backup)} && "
+                    f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)}"
+                )
+            rc, _, err = self._ssh_exec_with_retry(NFS_SERVER, cmd, timeout=600)
+            if rc != 0:
+                raise RuntimeError(f"Restore failed: {err.strip()[:200]}")
+        self._emit_event(
+            "volume.snapshot.restored",
+            volume_id,
+            actor=owner_id,
+            data={"snapshot_id": snapshot_id},
+        )
+        log.info("Volume %s restored from snapshot %s", volume_id, snapshot_id)
+        return {"volume_id": volume_id, "snapshot_id": snapshot_id, "status": "restored"}
+
+    def delete_snapshot(
+        self, volume_id: str, owner_id: str, snapshot_id: str
+    ) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT vs.snapshot_id, v.owner_id AS vol_owner, v.encrypted "
+                "FROM volume_snapshots vs JOIN volumes v ON v.volume_id = vs.volume_id "
+                "WHERE vs.snapshot_id=%s AND vs.volume_id=%s AND vs.deleted_at=0",
+                (snapshot_id, volume_id),
+            ).fetchone()
+            if not row or row["vol_owner"] != owner_id:
+                raise ValueError("Snapshot not found")
+
+        if NFS_SERVER:
+            snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
+            if row["encrypted"]:
+                path = f"{snap_dir}/{snapshot_id}.img"
+                cmd = f"rm -f {shlex.quote(path)}"
+            else:
+                # Guard: only delete paths under the snapshot dir.
+                path = f"{snap_dir}/{snapshot_id}"
+                cmd = (
+                    f"case {shlex.quote(path)} in "
+                    f"{shlex.quote(NFS_EXPORT_BASE)}/_snapshots/*) "
+                    f"rm -rf --one-file-system {shlex.quote(path)};; "
+                    f"*) echo refuse; exit 1;; esac"
+                )
+            self._ssh_exec_with_retry(NFS_SERVER, cmd)
+
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE volume_snapshots SET deleted_at=%s WHERE snapshot_id=%s",
+                (time.time(), snapshot_id),
+            )
+        self._emit_event(
+            "volume.snapshot.deleted",
+            volume_id,
+            actor=owner_id,
+            data={"snapshot_id": snapshot_id},
+        )
+        return {"snapshot_id": snapshot_id, "status": "deleted"}
+
     def attach_volume(
         self,
         volume_id: str,
