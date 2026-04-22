@@ -28,8 +28,12 @@ log = logging.getLogger("xcelsior.stripe")
 # When XCELSIOR_STRIPE_MODE=sandbox, use the *_SANDBOX_* keys instead of live keys.
 _STRIPE_MODE = os.environ.get("XCELSIOR_STRIPE_MODE", "live").lower()
 if _STRIPE_MODE == "sandbox":
-    STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "") or os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
-    STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET", "") or os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
+    STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "") or os.environ.get(
+        "XCELSIOR_STRIPE_SECRET_KEY", ""
+    )
+    STRIPE_WEBHOOK_SECRET = os.environ.get(
+        "XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET", ""
+    ) or os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
 else:
     STRIPE_SECRET_KEY = os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
     STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
@@ -47,7 +51,11 @@ if STRIPE_ENABLED:
 
         _stripe.api_key = STRIPE_SECRET_KEY
         stripe = _stripe
-        log.info("Stripe Connect ENABLED (mode=%s, key prefix: %s...)", _STRIPE_MODE, STRIPE_SECRET_KEY[:7])
+        log.info(
+            "Stripe Connect ENABLED (mode=%s, key prefix: %s...)",
+            _STRIPE_MODE,
+            STRIPE_SECRET_KEY[:7],
+        )
     except ImportError:
         log.warning("stripe package not installed — pip install stripe")
         STRIPE_ENABLED = False
@@ -137,6 +145,7 @@ class StripeConnectManager:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -191,7 +200,9 @@ class StripeConnectManager:
             try:
                 acct_check = stripe.Account.retrieve(account_id)
                 acct_check_dict = json.loads(str(acct_check))
-                if acct_check_dict.get("charges_enabled") and acct_check_dict.get("payouts_enabled"):
+                if acct_check_dict.get("charges_enabled") and acct_check_dict.get(
+                    "payouts_enabled"
+                ):
                     login_link = stripe.Account.create_login_link(account_id)
                     return login_link.url, "active"
             except Exception as check_err:
@@ -471,6 +482,7 @@ class StripeConnectManager:
                         if new_status == "active" and provider.get("email"):
                             try:
                                 from db import NotificationStore
+
                                 NotificationStore.create(
                                     user_email=provider["email"],
                                     notif_type="stripe_connected",
@@ -479,7 +491,11 @@ class StripeConnectManager:
                                     data={"provider_id": provider_id},
                                 )
                             except Exception as ne:
-                                log.warning("Failed to create stripe notification for %s: %s", provider_id, ne)
+                                log.warning(
+                                    "Failed to create stripe notification for %s: %s",
+                                    provider_id,
+                                    ne,
+                                )
                 except Exception as e:
                     log.warning(
                         "Stripe status sync failed for provider %s (acct=%s): %s",
@@ -536,6 +552,7 @@ class StripeConnectManager:
         # Send in-app notification
         try:
             from db import NotificationStore, UserStore
+
             # Look up the user email from provider_id
             with self._conn() as conn:
                 row = conn.execute(
@@ -551,7 +568,9 @@ class StripeConnectManager:
                     data={"provider_id": provider_id},
                 )
         except Exception as e:
-            log.warning("Failed to create Stripe onboarding notification for %s: %s", provider_id, e)
+            log.warning(
+                "Failed to create Stripe onboarding notification for %s: %s", provider_id, e
+            )
 
         return {"provider_id": provider_id, "status": "active"}
 
@@ -738,6 +757,7 @@ class StripeConnectManager:
         # Convert StripeObject to plain dict for safe attribute access
         # str(event) returns JSON reliably across all stripe SDK versions
         import json as _json
+
         event_dict = _json.loads(str(event))
 
         event_id = event_dict["id"]
@@ -751,10 +771,15 @@ class StripeConnectManager:
                 (event_id,),
             ).fetchone()
             if existing:
-                log.info("Webhook event %s already in inbox (status=%s), skipping", event_id, existing["status"])
+                log.info(
+                    "Webhook event %s already in inbox (status=%s), skipping",
+                    event_id,
+                    existing["status"],
+                )
                 return {"handled": True, "type": event_type, "dedup": True}
 
             from psycopg.types.json import Jsonb
+
             conn.execute(
                 """INSERT INTO stripe_event_inbox
                    (event_id, event_type, stripe_account, livemode, api_version,
@@ -818,7 +843,13 @@ class StripeConnectManager:
                        WHERE event_id = %s""",
                     (new_status, attempts, str(e)[:500], next_retry, event_id),
                 )
-                log.error("Event %s processing failed (attempt %d/%d): %s", event_id, attempts, max_attempts, e)
+                log.error(
+                    "Event %s processing failed (attempt %d/%d): %s",
+                    event_id,
+                    attempts,
+                    max_attempts,
+                    e,
+                )
                 return False
 
     def _dispatch_event(self, event_type: str, data: dict, event_id: str):
@@ -848,11 +879,18 @@ class StripeConnectManager:
                 (acct_id,),
             ).fetchone()
             if not row:
-                log.debug("account.updated for %s — no matching provider_accounts row, skipping", acct_id)
+                log.debug(
+                    "account.updated for %s — no matching provider_accounts row, skipping", acct_id
+                )
                 return
             charges_enabled = data.get("charges_enabled", False)
             payouts_enabled = data.get("payouts_enabled", False)
-            log.info("account.updated for provider %s: charges=%s payouts=%s", row["provider_id"], charges_enabled, payouts_enabled)
+            log.info(
+                "account.updated for provider %s: charges=%s payouts=%s",
+                row["provider_id"],
+                charges_enabled,
+                payouts_enabled,
+            )
             if charges_enabled and payouts_enabled:
                 self.complete_onboarding(row["provider_id"])
             else:
@@ -863,7 +901,11 @@ class StripeConnectManager:
                         "UPDATE provider_accounts SET status='restricted' WHERE provider_id=%s",
                         (row["provider_id"],),
                     )
-                    log.warning("Provider %s restricted: %s", row["provider_id"], reqs.get("disabled_reason"))
+                    log.warning(
+                        "Provider %s restricted: %s",
+                        row["provider_id"],
+                        reqs.get("disabled_reason"),
+                    )
 
     def _handle_payment_succeeded(self, data: dict, event_id: str):
         si_id = data["id"]
@@ -878,6 +920,7 @@ class StripeConnectManager:
             ).fetchone()
         if row:
             from billing import get_billing_engine
+
             amount_cad = round(row["amount_cents"] / 100.0, 2)
             engine = get_billing_engine()
             # Idempotent deposit using event_id as idempotency_key
@@ -916,7 +959,13 @@ class StripeConnectManager:
         job_id = meta.get("job_id", "")
         provider_id = meta.get("provider_id", "")
         amount_cents = data.get("amount_reversed", 0)
-        log.warning("Transfer REVERSED: %s job=%s provider=%s amount=%d cents", transfer_id, job_id, provider_id, amount_cents)
+        log.warning(
+            "Transfer REVERSED: %s job=%s provider=%s amount=%d cents",
+            transfer_id,
+            job_id,
+            provider_id,
+            amount_cents,
+        )
         # Claw back from provider's pending balance tracking
         if provider_id:
             with self._conn() as conn:

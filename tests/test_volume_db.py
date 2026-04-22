@@ -30,6 +30,7 @@ def _test_owner():
 def engine(monkeypatch):
     """VolumeEngine with NFS provisioning stubbed out (metadata-only)."""
     from volumes import VolumeEngine
+
     e = VolumeEngine()
     monkeypatch.setattr(e, "_provision_volume_storage", lambda vid, sz, **kw: True)
     monkeypatch.setattr(e, "_destroy_volume_storage", lambda vid, **kw: True)
@@ -49,6 +50,7 @@ def cleanup_vids():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -181,6 +183,7 @@ class TestStaleCleanupRealDB:
         # Insert a provisioning volume with old timestamp directly
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         old_time = time.time() - 1200  # 20 min ago
         with pool.connection() as conn:
@@ -189,7 +192,18 @@ class TestStaleCleanupRealDB:
                 """INSERT INTO volumes (volume_id, owner_id, name, storage_type, size_gb,
                    region, province, encrypted, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (vid, owner, "stale-prov", "nfs", 1, "ca-east", "ON", False, "provisioning", old_time),
+                (
+                    vid,
+                    owner,
+                    "stale-prov",
+                    "nfs",
+                    1,
+                    "ca-east",
+                    "ON",
+                    False,
+                    "provisioning",
+                    old_time,
+                ),
             )
             conn.commit()
 
@@ -209,6 +223,7 @@ class TestStaleCleanupRealDB:
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         old_time = time.time() - 1200
         with pool.connection() as conn:
@@ -217,7 +232,19 @@ class TestStaleCleanupRealDB:
                 """INSERT INTO volumes (volume_id, owner_id, name, storage_type, size_gb,
                    region, province, encrypted, status, created_at, deleted_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (vid, owner, "stale-del", "nfs", 1, "ca-east", "ON", False, "deleting", time.time(), old_time),
+                (
+                    vid,
+                    owner,
+                    "stale-del",
+                    "nfs",
+                    1,
+                    "ca-east",
+                    "ON",
+                    False,
+                    "deleting",
+                    time.time(),
+                    old_time,
+                ),
             )
             conn.commit()
 
@@ -237,6 +264,7 @@ class TestStaleCleanupRealDB:
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -244,7 +272,18 @@ class TestStaleCleanupRealDB:
                 """INSERT INTO volumes (volume_id, owner_id, name, storage_type, size_gb,
                    region, province, encrypted, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (vid, owner, "fresh-prov", "nfs", 1, "ca-east", "ON", False, "provisioning", time.time()),
+                (
+                    vid,
+                    owner,
+                    "fresh-prov",
+                    "nfs",
+                    1,
+                    "ca-east",
+                    "ON",
+                    False,
+                    "provisioning",
+                    time.time(),
+                ),
             )
             conn.commit()
 
@@ -270,6 +309,7 @@ class TestOrphanReconciliationRealDB:
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -277,7 +317,18 @@ class TestOrphanReconciliationRealDB:
                 """INSERT INTO volumes (volume_id, owner_id, name, storage_type, size_gb,
                    region, province, encrypted, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (vid, owner, "orphan-vol", "nfs", 1, "ca-east", "ON", False, "attached", time.time()),
+                (
+                    vid,
+                    owner,
+                    "orphan-vol",
+                    "nfs",
+                    1,
+                    "ca-east",
+                    "ON",
+                    False,
+                    "attached",
+                    time.time(),
+                ),
             )
             conn.commit()
 
@@ -299,6 +350,7 @@ class TestOrphanReconciliationRealDB:
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -358,6 +410,7 @@ class TestRetryProvisionRealDB:
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -384,6 +437,7 @@ class TestRetryProvisionRealDB:
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -422,5 +476,7 @@ class TestCapacityRealDB:
 
         # Both volumes exist and count toward capacity
         vols = engine.list_volumes(owner)
-        total_size = sum(v["size_gb"] for v in vols if v["volume_id"] in [v1["volume_id"], v2["volume_id"]])
+        total_size = sum(
+            v["size_gb"] for v in vols if v["volume_id"] in [v1["volume_id"], v2["volume_id"]]
+        )
         assert total_size == 20

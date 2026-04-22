@@ -23,7 +23,14 @@ router = APIRouter()
 
 # ── Helper: _send_team_email ──
 
-def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str | None = None, cta_label: str = "Go to Dashboard"):
+
+def _send_team_email(
+    to_email: str,
+    subject: str,
+    body_text: str,
+    cta_url: str | None = None,
+    cta_label: str = "Go to Dashboard",
+):
     """Send a styled team notification email in a background thread. Best-effort.
 
     Matches the dark-theme style from frontend/src/emails/layout.tsx.
@@ -91,10 +98,12 @@ def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str |
             log.warning("TEAM EMAIL FAILED: %s -> %s | %s", subject, to_email, e)
 
     import threading
+
     threading.Thread(target=_do_send, daemon=True).start()
 
 
 # ── Model: CreateTeamRequest ──
+
 
 class CreateTeamRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
@@ -103,6 +112,7 @@ class CreateTeamRequest(BaseModel):
 
 # ── Model: AddTeamMemberRequest ──
 
+
 class AddTeamMemberRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)  # RFC 5321 max
     role: str = Field(default="member", pattern="^(admin|member|viewer)$")
@@ -110,13 +120,16 @@ class AddTeamMemberRequest(BaseModel):
 
 # ── Model: UpdateTeamMemberRoleRequest ──
 
+
 class UpdateTeamMemberRoleRequest(BaseModel):
     role: str = Field(pattern="^(admin|member|viewer)$")
+
 
 @router.post("/api/teams", tags=["Teams"])
 def api_create_team(body: CreateTeamRequest, request: Request):
     """Create a new team/organization. Creator becomes team admin."""
     from routes._deps import _require_scope
+
     user = _require_user_grant(request, allow_api_key=True)
     _require_scope(user, "teams:write")
 
@@ -138,6 +151,7 @@ def api_create_team(body: CreateTeamRequest, request: Request):
 
     return {"ok": True, "team_id": team_id, "name": body.name, "plan": body.plan}
 
+
 @router.get("/api/teams/me", tags=["Teams"])
 def api_my_teams(request: Request):
     """Get teams the current user belongs to."""
@@ -146,7 +160,9 @@ def api_my_teams(request: Request):
     teams = UserStore.get_user_teams(user["email"])
     return {"ok": True, "teams": teams}
 
+
 # ── Invite routes must be declared BEFORE /{team_id} to avoid being swallowed by the wildcard ──
+
 
 @router.get("/api/teams/invite/{token}", tags=["Teams"])
 def api_accept_team_invite(token: str, request: Request):
@@ -221,6 +237,7 @@ def api_get_team(team_id: str, request: Request):
 
     return {"ok": True, "team": team, "members": members}
 
+
 @router.post("/api/teams/{team_id}/members", tags=["Teams"])
 def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Request):
     """Add a member to a team. Only team admins can add members."""
@@ -255,16 +272,19 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
 
     # User doesn't exist yet — create a pending invite
     import secrets as _secrets
+
     token = _secrets.token_urlsafe(32)
-    UserStore.create_team_invite({
-        "token": token,
-        "team_id": team_id,
-        "email": body.email,
-        "role": body.role,
-        "invited_by": user["email"],
-        "created_at": time.time(),
-        "expires_at": time.time() + 7 * 24 * 3600,  # 7 days
-    })
+    UserStore.create_team_invite(
+        {
+            "token": token,
+            "team_id": team_id,
+            "email": body.email,
+            "role": body.role,
+            "invited_by": user["email"],
+            "created_at": time.time(),
+            "expires_at": time.time() + 7 * 24 * 3600,  # 7 days
+        }
+    )
     invite_url = f"https://xcelsior.ca/accept-invite?token={token}"
     _send_team_email(
         body.email,
@@ -309,8 +329,11 @@ def api_remove_team_member(team_id: str, email: str, request: Request):
     )
     return {"ok": True, "message": f"{email} removed from team"}
 
+
 @router.patch("/api/teams/{team_id}/members/{email}", tags=["Teams"])
-def api_update_team_member_role(team_id: str, email: str, body: UpdateTeamMemberRoleRequest, request: Request):
+def api_update_team_member_role(
+    team_id: str, email: str, body: UpdateTeamMemberRoleRequest, request: Request
+):
     """Update a team member's role. Only admins can change roles."""
     user = _require_user_grant(request, allow_api_key=True)
 
@@ -334,6 +357,7 @@ def api_update_team_member_role(team_id: str, email: str, body: UpdateTeamMember
 
     return {"ok": True, "message": f"{email} role updated to {body.role}"}
 
+
 @router.delete("/api/teams/{team_id}", tags=["Teams"])
 def api_delete_team(team_id: str, request: Request):
     """Delete a team. Only the team owner can delete it."""
@@ -349,4 +373,3 @@ def api_delete_team(team_id: str, request: Request):
     UserStore.delete_team(team_id)
     broadcast_sse("team_deleted", {"team_id": team_id})
     return {"ok": True, "message": "Team deleted"}
-

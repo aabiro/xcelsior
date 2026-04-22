@@ -16,6 +16,7 @@ from marketplace import MarketplaceEngine, RESERVED_DISCOUNTS, SPOT_SENSITIVITY,
 # Check if PostgreSQL is available with required schema
 try:
     from db import _get_pg_pool
+
     _pool = _get_pg_pool()
     with _pool.connection() as _conn:
         _conn.execute("SELECT 1 FROM gpu_offers LIMIT 0")
@@ -104,6 +105,7 @@ class TestMarketplaceStats:
     @pg
     def test_stats_structure(self):
         from marketplace import get_marketplace_engine
+
         me = get_marketplace_engine()
         stats = me.get_marketplace_stats()
         assert "total_offers" in stats

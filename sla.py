@@ -160,6 +160,7 @@ class SLAEngine:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -476,6 +477,7 @@ class SLAEngine:
             customer_id = customer["owner"]
             try:
                 from billing import get_billing_engine
+
                 engine = get_billing_engine()
                 tx = engine.deposit(
                     customer_id,
@@ -490,13 +492,20 @@ class SLAEngine:
                         (time.time(), tx.get("tx_id", ""), host_id, month),
                     )
 
-                issued.append({
-                    "host_id": host_id,
-                    "customer_id": customer_id,
-                    "credit_cad": credit_cad,
-                    "tx_id": tx.get("tx_id", ""),
-                })
-                log.info("SLA CREDIT ISSUED: host=%s customer=%s $%.2f CAD", host_id, customer_id, credit_cad)
+                issued.append(
+                    {
+                        "host_id": host_id,
+                        "customer_id": customer_id,
+                        "credit_cad": credit_cad,
+                        "tx_id": tx.get("tx_id", ""),
+                    }
+                )
+                log.info(
+                    "SLA CREDIT ISSUED: host=%s customer=%s $%.2f CAD",
+                    host_id,
+                    customer_id,
+                    credit_cad,
+                )
             except Exception as e:
                 log.error("SLA credit issue failed for host=%s: %s", host_id, e)
 

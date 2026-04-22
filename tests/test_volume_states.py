@@ -45,10 +45,10 @@ class TestTransitionMatrix:
     # Expected valid transitions from the plan
     VALID = {
         "provisioning": {"available", "error"},
-        "available":    {"attached", "deleting"},
-        "attached":     {"available"},
-        "deleting":     {"deleted", "available"},
-        "error":        {"provisioning", "deleting"},
+        "available": {"attached", "deleting"},
+        "attached": {"available"},
+        "deleting": {"deleted", "available"},
+        "error": {"provisioning", "deleting"},
         # "deleted" → nothing (terminal)
     }
 
@@ -72,6 +72,7 @@ class TestTransitionWithExplicitCurrent:
 
     def test_valid_with_current_param(self):
         from volumes import VolumeEngine
+
         engine = VolumeEngine()
         fake_conn = MagicMock()
         fake_conn.execute.return_value = MagicMock(rowcount=1)
@@ -84,6 +85,7 @@ class TestTransitionWithExplicitCurrent:
 
     def test_invalid_with_current_param(self):
         from volumes import VolumeEngine
+
         engine = VolumeEngine()
         fake_conn = MagicMock()
 
@@ -92,6 +94,7 @@ class TestTransitionWithExplicitCurrent:
 
     def test_volume_not_found(self):
         from volumes import VolumeEngine
+
         engine = VolumeEngine()
         fake_conn = MagicMock()
         result = MagicMock()
@@ -117,6 +120,7 @@ class TestTransitionsDictMatchesCode:
 
     def test_dict_has_all_non_terminal_states(self):
         from volumes import VolumeEngine
+
         transitions = VolumeEngine._VALID_TRANSITIONS
         # Every non-terminal status must have an entry
         for s in ["provisioning", "available", "attached", "deleting", "error"]:
@@ -124,22 +128,26 @@ class TestTransitionsDictMatchesCode:
 
     def test_deleted_not_in_dict(self):
         from volumes import VolumeEngine
+
         assert "deleted" not in VolumeEngine._VALID_TRANSITIONS
 
     def test_no_self_transitions(self):
         """No status should be able to transition to itself."""
         from volumes import VolumeEngine
+
         for status, targets in VolumeEngine._VALID_TRANSITIONS.items():
             assert status not in targets, f"Self-transition found: {status} → {status}"
 
     def test_error_allows_retry_and_delete(self):
         from volumes import VolumeEngine
+
         error_targets = VolumeEngine._VALID_TRANSITIONS["error"]
         assert "provisioning" in error_targets, "error must allow retry (→provisioning)"
         assert "deleting" in error_targets, "error must allow delete (→deleting)"
 
     def test_deleting_allows_rollback(self):
         from volumes import VolumeEngine
+
         del_targets = VolumeEngine._VALID_TRANSITIONS["deleting"]
         assert "available" in del_targets, "deleting must allow rollback (→available)"
         assert "deleted" in del_targets, "deleting must allow completion (→deleted)"

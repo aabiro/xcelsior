@@ -417,7 +417,9 @@ class ArtifactManager:
         # Cache backend (R2) — optional
         if cache is _CACHE_AUTO:
             cache_endpoint = os.environ.get("XCELSIOR_CACHE_ENDPOINT_URL", "")
-            self.cache = StorageClient(StorageConfig.from_env("XCELSIOR_CACHE")) if cache_endpoint else None
+            self.cache = (
+                StorageClient(StorageConfig.from_env("XCELSIOR_CACHE")) if cache_endpoint else None
+            )
         else:
             self.cache = cache
 

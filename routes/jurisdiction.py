@@ -24,8 +24,10 @@ router = APIRouter()
 
 # ── Model: CanadaToggle ──
 
+
 class CanadaToggle(BaseModel):
     enabled: bool
+
 
 @router.get("/canada", tags=["Jurisdiction"])
 def api_canada_status(request: Request):
@@ -35,6 +37,7 @@ def api_canada_status(request: Request):
 
     return {"canada_only": scheduler.CANADA_ONLY}
 
+
 @router.put("/canada", tags=["Jurisdiction"])
 def api_set_canada(toggle: CanadaToggle, request: Request):
     """Toggle Canada-only mode."""
@@ -42,10 +45,12 @@ def api_set_canada(toggle: CanadaToggle, request: Request):
     set_canada_only(toggle.enabled)
     return {"ok": True, "canada_only": toggle.enabled}
 
+
 @router.get("/hosts/ca", tags=["Jurisdiction"])
 def api_list_canadian_hosts():
     """List only Canadian hosts."""
     return {"hosts": list_hosts_filtered(canada_only=True)}
+
 
 @router.post("/queue/process/ca", tags=["Jurisdiction"])
 def api_process_queue_ca():
@@ -67,10 +72,12 @@ def api_process_queue_ca():
 
 # ── Model: JurisdictionFilterRequest ──
 
+
 class JurisdictionFilterRequest(BaseModel):
     canada_only: bool = True
     province: str = None
     trust_tier: str = None
+
 
 @router.post("/api/jurisdiction/hosts", tags=["Jurisdiction"])
 def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
@@ -85,6 +92,7 @@ def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
 
     filtered = filter_hosts_by_jurisdiction(hosts, constraint)
     return {"ok": True, "count": len(filtered), "hosts": filtered}
+
 
 @router.get("/api/jurisdiction/residency-trace/{job_id}", tags=["Jurisdiction"])
 def api_residency_trace(job_id: str):
@@ -118,6 +126,7 @@ def api_residency_trace(job_id: str):
     )
     return {"ok": True, "job_id": job_id, "trace": trace}
 
+
 @router.get("/api/trust-tiers", tags=["Jurisdiction"])
 def api_trust_tiers():
     """List available trust tiers and their requirements."""
@@ -139,10 +148,12 @@ def api_trust_tiers():
 
 # ── Model: SovereignQueueRequest ──
 
+
 class SovereignQueueRequest(BaseModel):
     canada_only: bool = True
     province: str = None
     trust_tier: str = None
+
 
 @router.post("/api/queue/process-sovereign", tags=["Jurisdiction"])
 def api_process_queue_sovereign(req: SovereignQueueRequest):
@@ -171,4 +182,3 @@ def api_process_queue_sovereign(req: SovereignQueueRequest):
             },
         )
     return {"ok": True, "assigned": len(results), "jobs": results}
-

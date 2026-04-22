@@ -34,13 +34,14 @@ def _get_fernet():
             if env in ("production", "prod"):
                 raise RuntimeError(
                     "XCELSIOR_SECRETS_KEY must be set in production. "
-                    "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                    'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
                 )
             # Deterministic fallback for dev — NOT for production use
-            key = base64.urlsafe_b64encode(b"xcelsior-dev-key-32bytes!padding!" [:32]).decode()
+            key = base64.urlsafe_b64encode(b"xcelsior-dev-key-32bytes!padding!"[:32]).decode()
             log.warning("XCELSIOR_SECRETS_KEY not set — using insecure dev key")
         _fernet = Fernet(key.encode() if isinstance(key, str) else key)
     return _fernet
+
 
 # ── Layer 1: Version Gating / Node Admission Control ─────────────────
 # Refuse to run workloads on nodes with known-vulnerable components.
@@ -350,9 +351,7 @@ def validate_docker_image(image: str, *, allow_custom: bool = True) -> str:
     # Docker Hub short-form images (e.g. "pytorch/pytorch:2.1") are matched
     # against ALLOWED_IMAGE_REGISTRIES which includes their namespace prefix.
     # Images without a namespace or from unapproved registries are REJECTED.
-    registry_ok = any(
-        image.startswith(prefix.lower()) for prefix in ALLOWED_IMAGE_REGISTRIES
-    )
+    registry_ok = any(image.startswith(prefix.lower()) for prefix in ALLOWED_IMAGE_REGISTRIES)
     if not registry_ok:
         raise ValueError(
             f"Docker image {image!r} is not from an approved registry. "
@@ -410,7 +409,7 @@ def probe_image_exists(image: str, *, timeout: float = 5.0) -> str | None:
     # via the v2 token-auth flow. For other registries we fail-open.
     if repo_part.startswith("ghcr.io/"):
         registry = "ghcr.io"
-        repo = repo_part[len("ghcr.io/"):]
+        repo = repo_part[len("ghcr.io/") :]
         token_url = (
             f"https://ghcr.io/token?service=ghcr.io&scope="
             f"repository:{urllib.parse.quote(repo, safe='/')}:pull"
@@ -613,9 +612,7 @@ def build_secure_docker_args(
             # Resolve symlinks before prefix check
             resolved = os.path.realpath(host_path)
             if not resolved.startswith(_ALLOWED_VOLUME_PREFIXES):
-                raise ValueError(
-                    f"Volume host path {host_path!r} is outside allowed prefixes"
-                )
+                raise ValueError(f"Volume host path {host_path!r} is outside allowed prefixes")
             if ":" in vol and not vol.endswith(":ro") and not vol.endswith(":rw"):
                 vol += ":ro"
             args.extend(["-v", vol])
@@ -1021,7 +1018,9 @@ def detect_mig_capability():
     try:
         r = subprocess.run(
             ["nvidia-smi", "mig", "-lgi"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode == 0 and "GPU instance ID" in r.stdout:
             result["mig_capable"] = True
@@ -1051,7 +1050,10 @@ def select_runtime_for_host(gpu_model, mig_info=None):
     for mig_model in MIG_CAPABLE_MODELS:
         if mig_model in model_upper:
             if mig_info and mig_info.get("mig_capable") and not mig_info.get("mig_enabled"):
-                return "runc", f"{mig_model} detected but MIG not enabled — using runc for MIG readiness"
+                return (
+                    "runc",
+                    f"{mig_model} detected but MIG not enabled — using runc for MIG readiness",
+                )
             return "runsc", f"{mig_model} without MIG — gVisor compatible"
 
     return "runsc", "Consumer GPU — gVisor (runsc) recommended"
@@ -1082,6 +1084,7 @@ def build_mig_docker_args(mig_partition_id, base_args=None):
 
 # ── Layer 6: Secrets Injection ────────────────────────────────────────
 # Encrypt user secrets at rest; inject via tmpfs at container start.
+
 
 def encrypt_secret(plaintext):
     """Encrypt a secret value for storage in the database.
@@ -1127,7 +1130,8 @@ def build_secrets_mount_args(user_secrets, container_name):
         - post_start_commands: list of shell commands to run after start
     """
     extra_args = [
-        "--mount", "type=tmpfs,destination=/run/secrets,tmpfs-size=10m,tmpfs-mode=0500",
+        "--mount",
+        "type=tmpfs,destination=/run/secrets,tmpfs-size=10m,tmpfs-mode=0500",
     ]
     # Environment variables for simple secrets (HF_TOKEN, WANDB_API_KEY)
     env_args = []
@@ -1189,6 +1193,7 @@ def build_bandwidth_limit_commands(container_id, mbps=None):
 
 # ── Security Audit Helpers ────────────────────────────────────────────
 
+
 def audit_container_security(container_id):
     """Run a quick security audit on a running container.
 
@@ -1199,7 +1204,9 @@ def audit_container_security(container_id):
     try:
         r = subprocess.run(
             ["docker", "inspect", container_id],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode != 0:
             return {"error": f"Cannot inspect container: {r.stderr.strip()}"}

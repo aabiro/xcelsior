@@ -11,6 +11,7 @@ from scheduler import get_marketplace, list_rig, marketplace_bill, marketplace_s
 
 router = APIRouter()
 
+
 @router.get("/marketplace/search", tags=["Marketplace"])
 def api_marketplace_search(
     gpu_model: str | None = None,
@@ -66,6 +67,7 @@ def api_marketplace_search(
 
 # ── Model: RigListing ──
 
+
 class RigListing(BaseModel):
     host_id: str
     gpu_model: str
@@ -74,6 +76,7 @@ class RigListing(BaseModel):
     description: str = ""
     owner: str = "anonymous"
 
+
 @router.post("/marketplace/list", tags=["Marketplace"])
 def api_list_rig(rig: RigListing, request: Request):
     """List a rig on the marketplace."""
@@ -81,11 +84,13 @@ def api_list_rig(rig: RigListing, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     listing = list_rig(
         rig.host_id, rig.gpu_model, rig.vram_gb, rig.price_per_hour, rig.description, rig.owner
     )
     return {"ok": True, "listing": listing}
+
 
 @router.delete("/marketplace/{host_id}", tags=["Marketplace"])
 def api_unlist_rig(host_id: str, request: Request):
@@ -94,10 +99,12 @@ def api_unlist_rig(host_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     if not unlist_rig(host_id):
         raise HTTPException(status_code=404, detail=f"Listing {host_id} not found")
     return {"ok": True, "unlisted": host_id}
+
 
 @router.get("/marketplace", tags=["Marketplace"])
 def api_get_marketplace(request: Request, active_only: bool = True):
@@ -105,8 +112,10 @@ def api_get_marketplace(request: Request, active_only: bool = True):
     user = _get_current_user(request) if request else None
     if user:
         from routes._deps import _require_scope
+
         _require_scope(user, "marketplace:read")
     return {"listings": get_marketplace(active_only=active_only)}
+
 
 @router.post("/marketplace/bill/{job_id}", tags=["Marketplace"])
 def api_marketplace_bill(job_id: str, request: Request):
@@ -115,11 +124,13 @@ def api_marketplace_bill(job_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     result = marketplace_bill(job_id)
     if not result:
         raise HTTPException(status_code=400, detail=f"Could not bill marketplace job {job_id}")
     return {"ok": True, "bill": result}
+
 
 @router.get("/marketplace/stats", tags=["Marketplace"])
 def api_marketplace_stats(request: Request):
@@ -127,11 +138,13 @@ def api_marketplace_stats(request: Request):
     user = _get_current_user(request) if request else None
     if user:
         from routes._deps import _require_scope
+
         _require_scope(user, "marketplace:read")
     return {"stats": marketplace_stats()}
 
 
 # ── Model: GPUOfferCreate ──
+
 
 class GPUOfferCreate(BaseModel):
     host_id: str = Field(min_length=1, max_length=64)
@@ -143,6 +156,7 @@ class GPUOfferCreate(BaseModel):
     spot_enabled: bool = True
     spot_min_cents: int = Field(default=10, ge=0, le=1_000_000)
 
+
 @router.post("/api/v2/marketplace/offers", tags=["Marketplace v2"])
 def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
     """Create or update a GPU offer on the marketplace."""
@@ -150,6 +164,7 @@ def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     offer = me.upsert_offer(
@@ -168,6 +183,7 @@ def api_marketplace_create_offer(body: GPUOfferCreate, request: Request):
 
 # ── Model: MarketplaceSearchParams ──
 
+
 class MarketplaceSearchParams(BaseModel):
     gpu_model: str = Field(default="", max_length=64)
     min_vram_gb: float = Field(default=0, ge=0, le=1024)
@@ -176,6 +192,7 @@ class MarketplaceSearchParams(BaseModel):
     canada_only: bool = False
     sort_by: str = Field(default="price", pattern="^(price|reputation|region|vram)$")
     limit: int = Field(default=50, ge=1, le=500)
+
 
 @router.post("/api/v2/marketplace/search", tags=["Marketplace v2"])
 def api_marketplace_search(body: MarketplaceSearchParams):
@@ -192,6 +209,7 @@ def api_marketplace_search(body: MarketplaceSearchParams):
     )
     return {"ok": True, "offers": offers, "count": len(offers)}
 
+
 @router.get("/api/v2/marketplace/spot-prices", tags=["Marketplace v2"])
 def api_marketplace_spot_prices():
     """Get current spot prices for all GPU models."""
@@ -199,12 +217,14 @@ def api_marketplace_spot_prices():
     prices = me.get_current_spot_prices_list()
     return {"ok": True, "spot_prices": prices}
 
+
 @router.get("/api/v2/marketplace/spot-prices/{gpu_model}/history", tags=["Marketplace v2"])
 def api_marketplace_spot_history(gpu_model: str, hours: int = 24):
     """Get spot price history for a GPU model."""
     me = get_marketplace_engine()
     history = me.get_spot_price_history(gpu_model, hours=hours)
     return {"ok": True, "gpu_model": gpu_model, "history": history}
+
 
 @router.get("/api/v2/marketplace/stats", tags=["Marketplace v2"])
 def api_marketplace_stats_v2():
@@ -216,10 +236,12 @@ def api_marketplace_stats_v2():
 
 # ── Model: ReservationCreate ──
 
+
 class ReservationCreate(BaseModel):
     gpu_model: str
     gpu_count: int = 1
     period_months: int = 1
+
 
 @router.post("/api/v2/marketplace/reservations", tags=["Marketplace v2"])
 def api_marketplace_create_reservation(body: ReservationCreate, request: Request):
@@ -228,6 +250,7 @@ def api_marketplace_create_reservation(body: ReservationCreate, request: Request
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     try:
@@ -241,6 +264,7 @@ def api_marketplace_create_reservation(body: ReservationCreate, request: Request
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+
 @router.delete("/api/v2/marketplace/reservations/{reservation_id}", tags=["Marketplace v2"])
 def api_marketplace_cancel_reservation(reservation_id: str, request: Request):
     """Cancel a reserved instance commitment early.
@@ -251,6 +275,7 @@ def api_marketplace_cancel_reservation(reservation_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     result = me.cancel_reservation(
@@ -264,11 +289,13 @@ def api_marketplace_cancel_reservation(reservation_id: str, request: Request):
 
 # ── Model: AllocateGPURequest ──
 
+
 class AllocateGPURequest(BaseModel):
     offer_id: str
     job_id: str
     gpu_count: int = 1
     spot: bool = False
+
 
 @router.post("/api/v2/marketplace/allocate", tags=["Marketplace v2"])
 def api_marketplace_allocate(body: AllocateGPURequest, request: Request):
@@ -277,12 +304,14 @@ def api_marketplace_allocate(body: AllocateGPURequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     alloc = me.allocate_gpu(body.offer_id, body.job_id, body.gpu_count, spot=body.spot)
     if not alloc:
         raise HTTPException(409, "Offer not available or insufficient GPUs")
     return {"ok": True, "allocation": alloc}
+
 
 @router.post("/api/v2/marketplace/release/{allocation_id}", tags=["Marketplace v2"])
 def api_marketplace_release(allocation_id: str, request: Request):
@@ -291,6 +320,7 @@ def api_marketplace_release(allocation_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
     me.release_allocation(allocation_id)

@@ -36,31 +36,49 @@ class TestVolumeLifecycle:
                 sql_lower = sql.strip().lower()
 
                 if "coalesce(sum(size_gb)" in sql_lower:
-                    total = sum(v["size_gb"] for v in outer._volumes.values() if v["status"] != "deleted")
+                    total = sum(
+                        v["size_gb"] for v in outer._volumes.values() if v["status"] != "deleted"
+                    )
                     result.fetchone.return_value = {"total": total}
 
-                elif "select volume_id from volumes where owner_id" in sql_lower and "name" in sql_lower:
+                elif (
+                    "select volume_id from volumes where owner_id" in sql_lower
+                    and "name" in sql_lower
+                ):
                     owner_id, name = params[0], params[1]
                     found = next(
-                        (v for v in outer._volumes.values()
-                         if v["owner_id"] == owner_id and v["name"] == name and v["status"] != "deleted"),
+                        (
+                            v
+                            for v in outer._volumes.values()
+                            if v["owner_id"] == owner_id
+                            and v["name"] == name
+                            and v["status"] != "deleted"
+                        ),
                         None,
                     )
-                    result.fetchone.return_value = {"volume_id": found["volume_id"]} if found else None
+                    result.fetchone.return_value = (
+                        {"volume_id": found["volume_id"]} if found else None
+                    )
 
                 elif "insert into volumes" in sql_lower:
                     vid = params[0]
                     outer._volumes[vid] = {
-                        "volume_id": vid, "owner_id": params[1], "name": params[2],
-                        "storage_type": params[3], "size_gb": params[4],
-                        "region": params[5], "province": params[6],
-                        "encrypted": params[7], "status": "provisioning",
+                        "volume_id": vid,
+                        "owner_id": params[1],
+                        "name": params[2],
+                        "storage_type": params[3],
+                        "size_gb": params[4],
+                        "region": params[5],
+                        "province": params[6],
+                        "encrypted": params[7],
+                        "status": "provisioning",
                         "created_at": params[8],
                     }
 
                 elif "update volumes set status" in sql_lower and "where volume_id" in sql_lower:
                     # Status may be hardcoded in SQL or passed as param
                     import re as _re
+
                     m = _re.search(r"status\s*=\s*'(\w+)'", sql)
                     if m:
                         status = m.group(1)
@@ -71,7 +89,10 @@ class TestVolumeLifecycle:
                     if vid in outer._volumes:
                         outer._volumes[vid]["status"] = status
 
-                elif "select * from volumes where volume_id" in sql_lower and "for update" in sql_lower:
+                elif (
+                    "select * from volumes where volume_id" in sql_lower
+                    and "for update" in sql_lower
+                ):
                     vid = params[0]
                     if len(params) > 1:
                         # delete_volume: volume_id AND owner_id
@@ -83,7 +104,10 @@ class TestVolumeLifecycle:
                     else:
                         result.fetchone.return_value = outer._volumes.get(vid)
 
-                elif "from volumes where volume_id" in sql_lower and "status != 'deleted'" in sql_lower:
+                elif (
+                    "from volumes where volume_id" in sql_lower
+                    and "status != 'deleted'" in sql_lower
+                ):
                     # get_volume (explicit columns or SELECT *)
                     vid = params[0]
                     v = outer._volumes.get(vid)
@@ -92,28 +116,44 @@ class TestVolumeLifecycle:
                     else:
                         result.fetchone.return_value = None
 
-                elif "select attachment_id from volume_attachments where volume_id" in sql_lower and "detached_at = 0" in sql_lower:
+                elif (
+                    "select attachment_id from volume_attachments where volume_id" in sql_lower
+                    and "detached_at = 0" in sql_lower
+                ):
                     vid = params[0]
                     found = next(
-                        (a for a in outer._attachments.values()
-                         if a["volume_id"] == vid and a["detached_at"] == 0),
+                        (
+                            a
+                            for a in outer._attachments.values()
+                            if a["volume_id"] == vid and a["detached_at"] == 0
+                        ),
                         None,
                     )
-                    result.fetchone.return_value = {"attachment_id": found["attachment_id"]} if found else None
+                    result.fetchone.return_value = (
+                        {"attachment_id": found["attachment_id"]} if found else None
+                    )
 
                 elif "select * from volume_attachments" in sql_lower and "for update" in sql_lower:
                     vid = params[0]
                     if len(params) > 1:
                         inst = params[1]
                         found = next(
-                            (a for a in outer._attachments.values()
-                             if a["volume_id"] == vid and a["instance_id"] == inst and a["detached_at"] == 0),
+                            (
+                                a
+                                for a in outer._attachments.values()
+                                if a["volume_id"] == vid
+                                and a["instance_id"] == inst
+                                and a["detached_at"] == 0
+                            ),
                             None,
                         )
                     else:
                         found = next(
-                            (a for a in outer._attachments.values()
-                             if a["volume_id"] == vid and a["detached_at"] == 0),
+                            (
+                                a
+                                for a in outer._attachments.values()
+                                if a["volume_id"] == vid and a["detached_at"] == 0
+                            ),
                             None,
                         )
                     result.fetchone.return_value = found
@@ -121,9 +161,13 @@ class TestVolumeLifecycle:
                 elif "insert into volume_attachments" in sql_lower:
                     aid = params[0]
                     outer._attachments[aid] = {
-                        "attachment_id": aid, "volume_id": params[1],
-                        "instance_id": params[2], "mount_path": params[3],
-                        "mode": params[4], "attached_at": params[5], "detached_at": 0,
+                        "attachment_id": aid,
+                        "volume_id": params[1],
+                        "instance_id": params[2],
+                        "mount_path": params[3],
+                        "mode": params[4],
+                        "attached_at": params[5],
+                        "detached_at": 0,
                     }
 
                 elif "update volume_attachments set detached_at" in sql_lower:
@@ -135,35 +179,58 @@ class TestVolumeLifecycle:
                 elif "select count(*) as cnt from volume_attachments" in sql_lower:
                     vid = params[0]
                     cnt = sum(
-                        1 for a in outer._attachments.values()
+                        1
+                        for a in outer._attachments.values()
                         if a["volume_id"] == vid and a["detached_at"] == 0
                     )
                     result.fetchone.return_value = {"cnt": cnt}
 
-                elif "select volume_id, attachment_id, mount_path from volume_attachments" in sql_lower:
+                elif (
+                    "select volume_id, attachment_id, mount_path from volume_attachments"
+                    in sql_lower
+                ):
                     inst = params[0]
                     found = [
-                        a for a in outer._attachments.values()
+                        a
+                        for a in outer._attachments.values()
                         if a["instance_id"] == inst and a["detached_at"] == 0
                     ]
                     result.fetchall.return_value = found
 
-                elif "from volumes where owner_id" in sql_lower and "status != 'deleted'" in sql_lower:
+                elif (
+                    "from volumes where owner_id" in sql_lower
+                    and "status != 'deleted'" in sql_lower
+                ):
                     owner = params[0]
-                    rows = [v for v in outer._volumes.values() if v["owner_id"] == owner and v["status"] != "deleted"]
+                    rows = [
+                        v
+                        for v in outer._volumes.values()
+                        if v["owner_id"] == owner and v["status"] != "deleted"
+                    ]
                     result.fetchall.return_value = rows
 
-                elif "select instance_id from volume_attachments where volume_id" in sql_lower and "detached_at = 0" in sql_lower:
+                elif (
+                    "select instance_id from volume_attachments where volume_id" in sql_lower
+                    and "detached_at = 0" in sql_lower
+                ):
                     # attached_to enrichment for get_volume
                     vid = params[0]
                     found = next(
-                        (a for a in outer._attachments.values()
-                         if a["volume_id"] == vid and a["detached_at"] == 0),
+                        (
+                            a
+                            for a in outer._attachments.values()
+                            if a["volume_id"] == vid and a["detached_at"] == 0
+                        ),
                         None,
                     )
-                    result.fetchone.return_value = {"instance_id": found["instance_id"]} if found else None
+                    result.fetchone.return_value = (
+                        {"instance_id": found["instance_id"]} if found else None
+                    )
 
-                elif "select volume_id, instance_id from volume_attachments where volume_id = any" in sql_lower:
+                elif (
+                    "select volume_id, instance_id from volume_attachments where volume_id = any"
+                    in sql_lower
+                ):
                     # attached_to batch enrichment for list_volumes
                     vol_ids = params[0]
                     found = [
@@ -343,6 +410,7 @@ class TestVolumeBillingConstants:
         """Volume price constant should match the canonical rate in volumes.py."""
         from routes.volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
         from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD as CANONICAL
+
         assert VOLUME_PRICE_PER_GB_MONTH_CAD == CANONICAL
         assert CANONICAL == 0.03
 
@@ -351,6 +419,7 @@ class TestVolumeBillingConstants:
         # Verify the billing engine's auto_billing_cycle method references 'storage'
         import inspect
         from billing import BillingEngine
+
         source = inspect.getsource(BillingEngine.auto_billing_cycle)
         assert "storage" in source
         assert "volume" in source

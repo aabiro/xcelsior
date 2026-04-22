@@ -229,6 +229,7 @@ class ReputationStore:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -282,7 +283,11 @@ class ReputationStore:
                     score.jobs_failed_user,
                     score.days_active,
                     score.last_activity_at,
-                    score.verifications if isinstance(score.verifications, str) else json.dumps(score.verifications),
+                    (
+                        score.verifications
+                        if isinstance(score.verifications, str)
+                        else json.dumps(score.verifications)
+                    ),
                     score.search_boost,
                     score.pricing_premium_pct,
                     score.uptime_pct,
@@ -375,7 +380,11 @@ class ReputationEngine:
             jobs_failed_user=existing["jobs_failed_user"],
             days_active=existing["days_active"],
             last_activity_at=existing["last_activity_at"],
-            verifications=existing["verifications"] if isinstance(existing["verifications"], str) else json.dumps(existing["verifications"]),
+            verifications=(
+                existing["verifications"]
+                if isinstance(existing["verifications"], str)
+                else json.dumps(existing["verifications"])
+            ),
             search_boost=TIER_SEARCH_BOOST.get(tier, 1.0),
             pricing_premium_pct=TIER_PRICING_PREMIUM.get(tier, 0.0),
             uptime_pct=float(existing.get("uptime_pct", 0.0)),
@@ -657,13 +666,11 @@ class ReputationEngine:
         """Compute network-wide average success rate as Bayesian prior."""
         try:
             with self.store._conn() as conn:
-                row = conn.execute(
-                    """SELECT
+                row = conn.execute("""SELECT
                         COALESCE(SUM(jobs_completed), 0) as total_completed,
                         COALESCE(SUM(jobs_failed_host), 0) as total_failed
                        FROM reputation_scores
-                       WHERE entity_type = 'host'"""
-                ).fetchone()
+                       WHERE entity_type = 'host'""").fetchone()
                 completed = int(row["total_completed"]) if row else 0
                 failed = int(row["total_failed"]) if row else 0
                 total = completed + failed
@@ -689,6 +696,7 @@ class ReputationEngine:
         try:
             from db import _get_pg_pool
             from psycopg.rows import dict_row
+
             pool = _get_pg_pool()
             with pool.connection() as conn:
                 conn.row_factory = dict_row
@@ -736,7 +744,8 @@ class ReputationEngine:
                 if suspects:
                     log.warning(
                         "SYBIL DETECTED: %s shares fingerprint/IP with %s",
-                        entity_id, suspects,
+                        entity_id,
+                        suspects,
                     )
                     return {
                         "flagged": True,
@@ -750,7 +759,9 @@ class ReputationEngine:
 
         return {"flagged": False, "entity_id": entity_id}
 
-    def detect_benchmark_spoofing(self, entity_id: str, reported_perf: float, gpu_model: str) -> dict:
+    def detect_benchmark_spoofing(
+        self, entity_id: str, reported_perf: float, gpu_model: str
+    ) -> dict:
         """Detect benchmark spoofing by comparing reported vs expected performance.
 
         Flags if deviation exceeds 20% from known GPU model baselines.
@@ -788,13 +799,17 @@ class ReputationEngine:
             log.warning(
                 "BENCHMARK SPOOFING SUSPECTED: %s reported %.1f TFLOPS for %s "
                 "(expected ~%.1f, deviation %.0f%%)",
-                entity_id, reported_perf, gpu_model, baseline, deviation * 100,
+                entity_id,
+                reported_perf,
+                gpu_model,
+                baseline,
+                deviation * 100,
             )
             return {
                 "flagged": True,
                 "severity": severity,
                 "reason": f"Reported {reported_perf:.1f} TFLOPS, expected ~{baseline:.1f} "
-                          f"for {gpu_model} (deviation: {deviation:.0%})",
+                f"for {gpu_model} (deviation: {deviation:.0%})",
                 "entity_id": entity_id,
                 "deviation_pct": round(deviation * 100, 1),
                 "reported": reported_perf,
@@ -833,7 +848,10 @@ class ReputationEngine:
         if termination_rate > 0.05:
             log.warning(
                 "EARLY TERMINATION PATTERN: %s has %.1f%% failure rate (%d/%d)",
-                entity_id, termination_rate * 100, failed_host, total,
+                entity_id,
+                termination_rate * 100,
+                failed_host,
+                total,
             )
             return {
                 "flagged": True,
@@ -850,7 +868,9 @@ class ReputationEngine:
             "termination_rate": round(termination_rate, 4),
         }
 
-    def run_fraud_scan(self, entity_id: str, reported_perf: float = 0.0, gpu_model: str = "") -> dict:
+    def run_fraud_scan(
+        self, entity_id: str, reported_perf: float = 0.0, gpu_model: str = ""
+    ) -> dict:
         """Run all fraud detection checks on a provider.
 
         Returns summary with individual check results.
@@ -866,12 +886,12 @@ class ReputationEngine:
 
         if reported_perf > 0 and gpu_model:
             results["checks"]["benchmark_spoofing"] = self.detect_benchmark_spoofing(
-                entity_id, reported_perf, gpu_model,
+                entity_id,
+                reported_perf,
+                gpu_model,
             )
 
-        results["any_flagged"] = any(
-            c.get("flagged") for c in results["checks"].values()
-        )
+        results["any_flagged"] = any(c.get("flagged") for c in results["checks"].values())
 
         if results["any_flagged"]:
             log.warning("FRAUD SCAN ALERT: %s — %s", entity_id, results)
@@ -991,7 +1011,9 @@ def get_reference_rate(
     if not ref:
         gpu_lower = gpu_model.lower()
         # Sort by key length descending so "A100 80GB" is tried before "A100"
-        for model, pricing in sorted(GPU_REFERENCE_PRICING_CAD.items(), key=lambda x: len(x[0]), reverse=True):
+        for model, pricing in sorted(
+            GPU_REFERENCE_PRICING_CAD.items(), key=lambda x: len(x[0]), reverse=True
+        ):
             if model.lower() in gpu_lower:
                 ref = pricing
                 break

@@ -11,6 +11,7 @@ and here, and explicitly document the change. The whole point of this
 file is to make an accidental whitespace / emoji / copy change impossible
 without a deliberate version bump.
 """
+
 from __future__ import annotations
 
 import re
@@ -60,11 +61,14 @@ def test_banner_init_script_is_locked_v1(source: str) -> None:
 
 FINAL_SUMMARY_V1 = (
     # (template, is_f_string)
-    ('[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s))', True),
-    ('[xcelsior] Terminal ready — add SSH keys at xcelsior.ca/dashboard/settings to enable direct SSH', False),
-    ('[xcelsior] Terminal ready — web terminal only (sshd failed to start)', False),
-    ('[xcelsior] Terminal ready — web terminal only (image has no sshd)', False),
-    ('[xcelsior] SSH setup timed out — web terminal still works', False),
+    ("[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s))", True),
+    (
+        "[xcelsior] Terminal ready — add SSH keys at xcelsior.ca/dashboard/settings to enable direct SSH",
+        False,
+    ),
+    ("[xcelsior] Terminal ready — web terminal only (sshd failed to start)", False),
+    ("[xcelsior] Terminal ready — web terminal only (image has no sshd)", False),
+    ("[xcelsior] SSH setup timed out — web terminal still works", False),
 )
 
 

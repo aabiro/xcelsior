@@ -480,9 +480,7 @@ class TestPyPIPackaging:
         except ImportError:
             import tomli as tomllib
 
-        with open(
-            os.path.join(os.path.dirname(__file__), "..", "pyproject.toml"), "rb"
-        ) as f:
+        with open(os.path.join(os.path.dirname(__file__), "..", "pyproject.toml"), "rb") as f:
             data = tomllib.load(f)
 
         assert "project" in data
@@ -496,26 +494,20 @@ class TestPyPIPackaging:
         except ImportError:
             import tomli as tomllib
 
-        with open(
-            os.path.join(os.path.dirname(__file__), "..", "pyproject.toml"), "rb"
-        ) as f:
+        with open(os.path.join(os.path.dirname(__file__), "..", "pyproject.toml"), "rb") as f:
             data = tomllib.load(f)
 
         assert data["project"]["scripts"]["xcelsior"] == "cli:main"
 
     def test_requirements_has_rich(self):
         """requirements.txt includes rich."""
-        with open(
-            os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
-        ) as f:
+        with open(os.path.join(os.path.dirname(__file__), "..", "requirements.txt")) as f:
             content = f.read()
         assert "rich" in content
 
     def test_requirements_has_cryptography(self):
         """requirements.txt includes cryptography."""
-        with open(
-            os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
-        ) as f:
+        with open(os.path.join(os.path.dirname(__file__), "..", "requirements.txt")) as f:
             content = f.read()
         assert "cryptography" in content
 
@@ -528,18 +520,14 @@ class TestCICDWorkflows:
 
     def test_publish_workflow_exists(self):
         """publish.yml exists in .github/workflows/."""
-        path = os.path.join(
-            os.path.dirname(__file__), "..", ".github", "workflows", "publish.yml"
-        )
+        path = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "publish.yml")
         assert os.path.exists(path)
 
     def test_publish_workflow_valid_yaml(self):
         """publish.yml is valid YAML."""
         import yaml
 
-        path = os.path.join(
-            os.path.dirname(__file__), "..", ".github", "workflows", "publish.yml"
-        )
+        path = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "publish.yml")
         with open(path) as f:
             data = yaml.safe_load(f)
         assert "jobs" in data
@@ -552,9 +540,7 @@ class TestCICDWorkflows:
         """publish.yml triggers on version tags."""
         import yaml
 
-        path = os.path.join(
-            os.path.dirname(__file__), "..", ".github", "workflows", "publish.yml"
-        )
+        path = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "publish.yml")
         with open(path) as f:
             data = yaml.safe_load(f)
         # YAML 'on' is a boolean key in Python; try True key or 'on' string

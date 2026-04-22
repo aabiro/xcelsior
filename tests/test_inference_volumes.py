@@ -107,9 +107,14 @@ class TestVolumeEngine:
     def test_volume_engine_api_surface(self):
         """VolumeEngine should have all required methods."""
         from volumes import VolumeEngine
+
         required_methods = [
-            "create_volume", "attach_volume", "detach_volume",
-            "delete_volume", "list_volumes", "get_instance_volumes",
+            "create_volume",
+            "attach_volume",
+            "detach_volume",
+            "delete_volume",
+            "list_volumes",
+            "get_instance_volumes",
             "detach_all_for_instance",
         ]
         for method in required_methods:
@@ -121,6 +126,7 @@ class TestCloudBurst:
 
     def test_instance_type_definitions(self):
         from cloudburst import CLOUD_INSTANCE_TYPES
+
         assert "aws" in CLOUD_INSTANCE_TYPES
         assert "gcp" in CLOUD_INSTANCE_TYPES
         assert len(CLOUD_INSTANCE_TYPES["aws"]) > 0
@@ -128,15 +134,20 @@ class TestCloudBurst:
 
     def test_burst_config_defaults(self):
         from cloudburst import BURST_BUDGET_CAD, BURST_MAX_INSTANCES, BURST_QUEUE_THRESHOLD
+
         assert BURST_BUDGET_CAD > 0
         assert BURST_MAX_INSTANCES > 0
         assert BURST_QUEUE_THRESHOLD > 0
 
     def test_engine_api_surface(self):
         from cloudburst import CloudBurstEngine
+
         required_methods = [
-            "evaluate_burst_need", "provision_burst_instance",
-            "drain_idle_instances", "terminate_instance", "get_burst_status",
+            "evaluate_burst_need",
+            "provision_burst_instance",
+            "drain_idle_instances",
+            "terminate_instance",
+            "get_burst_status",
         ]
         for method in required_methods:
             assert hasattr(CloudBurstEngine, method), f"Missing method: {method}"

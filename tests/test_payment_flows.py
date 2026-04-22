@@ -23,6 +23,7 @@ from billing import (
 # Check if PostgreSQL is available with required schema
 try:
     from db import _get_pg_pool
+
     _pool = _get_pg_pool()
     with _pool.connection() as _conn:
         _conn.execute("SELECT idempotency_key FROM wallet_transactions LIMIT 0")
@@ -69,6 +70,7 @@ class TestGSTSmallSupplierThreshold:
 
     def test_small_supplier_threshold_is_30k(self):
         from billing import GST_SMALL_SUPPLIER_THRESHOLD_CAD
+
         assert GST_SMALL_SUPPLIER_THRESHOLD_CAD == 30_000.00
 
 
@@ -160,18 +162,14 @@ class TestFINTRACReporting:
     @pg
     def test_below_threshold_no_report(self):
         be = _engine()
-        result = be.fintrac_check_transaction(
-            customer_id="pay-test-fin-1", amount_cad=5000
-        )
+        result = be.fintrac_check_transaction(customer_id="pay-test-fin-1", amount_cad=5000)
         # Below $10K should not trigger report
         assert result is None
 
     @pg
     def test_at_threshold_creates_report(self):
         be = _engine()
-        result = be.fintrac_check_transaction(
-            customer_id="pay-test-fin-2", amount_cad=10000
-        )
+        result = be.fintrac_check_transaction(customer_id="pay-test-fin-2", amount_cad=10000)
         assert result is not None
         assert result["report_type"] == "LVCTR"
         assert result["trigger_amount_cad"] >= 10000

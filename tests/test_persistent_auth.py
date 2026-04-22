@@ -34,16 +34,20 @@ def isolated_auth_db(tmp_path, monkeypatch):
     """Clean auth-related tables before each test for isolation."""
     import api as api_mod
     from oauth_service import reset_auth_cache_for_tests
+
     monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
     # Patch _USE_PERSISTENT_AUTH in all modules that import it
     import routes._deps as _deps_mod
+
     monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
     import routes.auth as _auth_mod
+
     monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
     # Reset auth rate limiter and increase limit for tests
     _deps_mod._AUTH_RATE_BUCKETS.clear()
     monkeypatch.setattr(_deps_mod, "_AUTH_RATE_LIMIT_REQUESTS", 5000)
     from db import _get_pg_pool
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute("DELETE FROM oauth_refresh_tokens")
@@ -704,7 +708,9 @@ class TestPersistentAuthEndpoints:
         )
         token = lr.json()["access_token"]
         r = client.post(
-            "/api/keys/generate", json={"name": "persist-key"}, headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate",
+            json={"name": "persist-key"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 200
         key_val = r.json()["key"]

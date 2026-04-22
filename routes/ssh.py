@@ -13,14 +13,24 @@ import hashlib as _hashlib
 
 router = APIRouter()
 
-VALID_SSH_KEY_TYPES = {"ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "sk-ssh-ed25519@openssh.com", "sk-ecdsa-sha2-nistp256@openssh.com"}
+VALID_SSH_KEY_TYPES = {
+    "ssh-rsa",
+    "ssh-ed25519",
+    "ecdsa-sha2-nistp256",
+    "ecdsa-sha2-nistp384",
+    "ecdsa-sha2-nistp521",
+    "sk-ssh-ed25519@openssh.com",
+    "sk-ecdsa-sha2-nistp256@openssh.com",
+}
 
 
 # ── Helper: _validate_ssh_public_key ──
 
+
 def _validate_ssh_public_key(key_str: str) -> str:
     """Validate and normalize an SSH public key string. Returns the key type or raises."""
     import base64 as _b64, re as _re
+
     key_str = key_str.strip()
     # Remove any comment-only lines
     lines = [l.strip() for l in key_str.splitlines() if l.strip() and not l.strip().startswith("#")]
@@ -43,19 +53,23 @@ def _validate_ssh_public_key(key_str: str) -> str:
 
 # ── Helper: _ssh_key_fingerprint ──
 
+
 def _ssh_key_fingerprint(key_str: str) -> str:
     """Compute SHA-256 fingerprint of an SSH public key (like ssh-keygen -l)."""
     import base64 as _b64
+
     parts = key_str.strip().split(None, 2)
     raw = _b64.b64decode(parts[1])
     digest = _hashlib.sha256(raw).digest()
     fp = _b64.b64encode(digest).rstrip(b"=").decode()
     return f"SHA256:{fp}"
 
+
 @router.post("/api/ssh/keys", tags=["SSH Keys"])
 async def api_add_ssh_key(request: Request):
     """Upload a user SSH public key. Like GitHub/AWS key management."""
     from routes._deps import _require_scope
+
     user = _require_user_grant(request, allow_api_key=True)
     _require_scope(user, "ssh:write")
     body = await request.json()
@@ -100,10 +114,12 @@ async def api_add_ssh_key(request: Request):
         "fingerprint": fingerprint,
     }
 
+
 @router.get("/api/ssh/keys", tags=["SSH Keys"])
 def api_list_ssh_keys(request: Request):
     """List the authenticated user's SSH public keys."""
     from routes._deps import _require_scope
+
     user = _require_user_grant(request, allow_api_key=True)
     _require_scope(user, "ssh:read")
     keys = UserStore.list_ssh_keys(user["email"])
@@ -121,6 +137,7 @@ def api_list_ssh_keys(request: Request):
         ],
     }
 
+
 @router.delete("/api/ssh/keys/{key_id}", tags=["SSH Keys"])
 def api_delete_ssh_key(key_id: str, request: Request):
     """Delete a user SSH public key by ID."""
@@ -129,4 +146,3 @@ def api_delete_ssh_key(key_id: str, request: Request):
     if not deleted:
         raise HTTPException(404, "SSH key not found")
     return {"ok": True}
-

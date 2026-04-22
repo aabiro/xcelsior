@@ -14,16 +14,17 @@ os.environ.setdefault("XCELSIOR_BURST_ENABLED", "false")
 
 import pytest
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Marketplace Tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestComputeSpotPrice:
     """Test MarketplaceEngine.compute_spot_price — pure function, no DB."""
 
     def setup_method(self):
         from marketplace import MarketplaceEngine
+
         self.engine = MarketplaceEngine.__new__(MarketplaceEngine)
 
     def test_zero_supply_caps_at_150pct(self):
@@ -60,6 +61,7 @@ class TestMarketplaceConfig:
 
     def test_reserved_discounts_structure(self):
         from marketplace import RESERVED_DISCOUNTS
+
         assert 1 in RESERVED_DISCOUNTS
         assert 3 in RESERVED_DISCOUNTS
         assert 6 in RESERVED_DISCOUNTS
@@ -68,10 +70,12 @@ class TestMarketplaceConfig:
 
     def test_spot_sensitivity_is_positive(self):
         from marketplace import SPOT_SENSITIVITY
+
         assert SPOT_SENSITIVITY > 0
 
     def test_spot_threshold_is_fraction(self):
         from marketplace import SPOT_THRESHOLD
+
         assert 0 < SPOT_THRESHOLD <= 1.0
 
 
@@ -80,6 +84,7 @@ class TestMarketplaceUpsert:
 
     def setup_method(self):
         from marketplace import MarketplaceEngine
+
         self.engine = MarketplaceEngine.__new__(MarketplaceEngine)
 
     @patch.object(__import__("marketplace").MarketplaceEngine, "_conn")
@@ -108,6 +113,7 @@ class TestMarketplaceSearch:
 
     def setup_method(self):
         from marketplace import MarketplaceEngine
+
         self.engine = MarketplaceEngine.__new__(MarketplaceEngine)
 
     @patch.object(__import__("marketplace").MarketplaceEngine, "_conn")
@@ -130,11 +136,13 @@ class TestMarketplaceSearch:
 # CloudBurst Tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestCloudBurstConfig:
     """Test cloudburst module-level configuration."""
 
     def test_cloud_instance_types_structure(self):
         from cloudburst import CLOUD_INSTANCE_TYPES
+
         assert "aws" in CLOUD_INSTANCE_TYPES
         assert "gcp" in CLOUD_INSTANCE_TYPES
         for provider, types in CLOUD_INSTANCE_TYPES.items():
@@ -146,6 +154,7 @@ class TestCloudBurstConfig:
 
     def test_burst_disabled_by_default_in_test(self):
         from cloudburst import BURST_ENABLED
+
         # In test env it should be false
         assert not BURST_ENABLED
 
@@ -155,6 +164,7 @@ class TestEvaluateBurstNeed:
 
     def setup_method(self):
         from cloudburst import CloudBurstEngine
+
         self.engine = CloudBurstEngine.__new__(CloudBurstEngine)
 
     @patch("cloudburst.BURST_ENABLED", False)
@@ -168,7 +178,7 @@ class TestEvaluateBurstNeed:
         mock_cursor = MagicMock()
         mock_cursor.execute.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {"cnt": 2},   # queued jobs (below threshold of 5)
+            {"cnt": 2},  # queued jobs (below threshold of 5)
             {"cnt": 10},  # community hosts
             {"cnt": 0, "spent": 0},  # burst instances
         ]
@@ -187,8 +197,8 @@ class TestEvaluateBurstNeed:
         mock_cursor = MagicMock()
         mock_cursor.execute.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {"cnt": 20},        # queued (above threshold)
-            {"cnt": 5},          # community
+            {"cnt": 20},  # queued (above threshold)
+            {"cnt": 5},  # community
             {"cnt": 10, "spent": 100},  # burst at max
         ]
         mock_cm = MagicMock()
@@ -207,8 +217,8 @@ class TestEvaluateBurstNeed:
         mock_cursor = MagicMock()
         mock_cursor.execute.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {"cnt": 20},           # queued
-            {"cnt": 5},            # community
+            {"cnt": 20},  # queued
+            {"cnt": 5},  # community
             {"cnt": 3, "spent": 600},  # over budget
         ]
         mock_cm = MagicMock()
@@ -228,8 +238,8 @@ class TestEvaluateBurstNeed:
         mock_cursor = MagicMock()
         mock_cursor.execute.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {"cnt": 15},          # queued (above threshold)
-            {"cnt": 5},            # community
+            {"cnt": 15},  # queued (above threshold)
+            {"cnt": 5},  # community
             {"cnt": 2, "spent": 100},  # under budget, under max
         ]
         mock_cm = MagicMock()
@@ -247,16 +257,19 @@ class TestEvaluateBurstNeed:
 # Stripe Connect Tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestStripePlatformCut:
     """Test PLATFORM_CUT_FRAC normalization logic."""
 
     def test_fraction_unchanged(self):
         # If set to 0.15, should stay 0.15
         from stripe_connect import PLATFORM_CUT_FRAC
+
         assert 0 < PLATFORM_CUT_FRAC <= 1.0
 
     def test_enums_defined(self):
         from stripe_connect import AccountStatus, ProviderType
+
         assert AccountStatus.PENDING.value == "pending"
         assert AccountStatus.ACTIVE.value == "active"
         assert ProviderType.INDIVIDUAL.value == "individual"
@@ -264,6 +277,7 @@ class TestStripePlatformCut:
 
     def test_provider_account_dataclass(self):
         from stripe_connect import ProviderAccount
+
         pa = ProviderAccount(
             provider_id="p1",
             email="test@test.com",
@@ -274,6 +288,7 @@ class TestStripePlatformCut:
 
     def test_payout_split_dataclass(self):
         from stripe_connect import PayoutSplit
+
         ps = PayoutSplit(
             job_id="j1",
             provider_id="p1",
@@ -291,6 +306,7 @@ class TestStripeWebhookDedup:
 
     def setup_method(self):
         from stripe_connect import StripeConnectManager
+
         self.mgr = StripeConnectManager.__new__(StripeConnectManager)
 
     @patch("stripe_connect.STRIPE_ENABLED", False)
@@ -306,6 +322,7 @@ class TestStripeSplitPayout:
 
     def setup_method(self):
         from stripe_connect import StripeConnectManager
+
         self.mgr = StripeConnectManager.__new__(StripeConnectManager)
 
     @patch("stripe_connect.STRIPE_ENABLED", True)
@@ -342,11 +359,13 @@ class TestStripeSplitPayout:
 # Volume Tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestVolumeValidation:
     """Test VolumeEngine.create_volume validation."""
 
     def setup_method(self):
         from volumes import VolumeEngine
+
         self.engine = VolumeEngine.__new__(VolumeEngine)
 
     def test_empty_name_rejected(self):
@@ -375,11 +394,13 @@ class TestVolumeConfig:
 
     def test_max_constants_are_positive(self):
         from volumes import MAX_VOLUME_SIZE_GB, MAX_TOTAL_STORAGE_GB
+
         assert MAX_VOLUME_SIZE_GB > 0
         assert MAX_TOTAL_STORAGE_GB > 0
 
     def test_default_mount_path(self):
         from volumes import DEFAULT_MOUNT_PATH
+
         assert DEFAULT_MOUNT_PATH == "/workspace"
 
 
@@ -388,6 +409,7 @@ class TestVolumeCapacity:
 
     def setup_method(self):
         from volumes import VolumeEngine
+
         self.engine = VolumeEngine.__new__(VolumeEngine)
 
     @patch("volumes.MAX_TOTAL_STORAGE_GB", 100)
@@ -410,6 +432,7 @@ class TestVolumeDeleteGuard:
 
     def setup_method(self):
         from volumes import VolumeEngine
+
         self.engine = VolumeEngine.__new__(VolumeEngine)
 
     @patch.object(__import__("volumes").VolumeEngine, "_conn")
@@ -430,12 +453,14 @@ class TestVolumeDeleteGuard:
 # Singleton accessors
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestSingletons:
     """Test that engine singletons return consistent instances."""
 
     @patch("marketplace.MarketplaceEngine._conn")
     def test_marketplace_singleton(self, _):
         from marketplace import get_marketplace_engine
+
         e1 = get_marketplace_engine()
         e2 = get_marketplace_engine()
         assert e1 is e2
@@ -443,6 +468,7 @@ class TestSingletons:
     @patch("cloudburst.CloudBurstEngine._conn")
     def test_cloudburst_singleton(self, _):
         from cloudburst import get_burst_engine
+
         e1 = get_burst_engine()
         e2 = get_burst_engine()
         assert e1 is e2
@@ -450,6 +476,7 @@ class TestSingletons:
     @patch("volumes.VolumeEngine._conn")
     def test_volume_singleton(self, _):
         from volumes import get_volume_engine
+
         e1 = get_volume_engine()
         e2 = get_volume_engine()
         assert e1 is e2
@@ -457,6 +484,7 @@ class TestSingletons:
     @patch("stripe_connect.StripeConnectManager._conn")
     def test_stripe_singleton(self, _):
         from stripe_connect import get_stripe_manager
+
         e1 = get_stripe_manager()
         e2 = get_stripe_manager()
         assert e1 is e2

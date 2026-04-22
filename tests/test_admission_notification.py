@@ -23,10 +23,13 @@ from routes.agent import _notify_provider_admission_failure, _admission_notified
 
 def _create_test_user(email="provider@xcelsior.ca", user_id=None):
     from db import UserStore
+
     if user_id is None:
         user_id = email  # use email as user_id for simplicity
     try:
-        UserStore.create_user({"email": email, "user_id": user_id, "name": "Test Provider", "role": "provider"})
+        UserStore.create_user(
+            {"email": email, "user_id": user_id, "name": "Test Provider", "role": "provider"}
+        )
     except Exception:
         pass  # already exists
     return user_id
@@ -49,6 +52,7 @@ class TestAdmissionNotification:
         _notify_provider_admission_failure(host, details)
 
         from db import NotificationStore
+
         notifs = NotificationStore.list_for_user(email, limit=10)
         admit_notifs = [n for n in notifs if n.get("type") == "host_admission_failed"]
         assert len(admit_notifs) >= 1
@@ -63,11 +67,24 @@ class TestAdmissionNotification:
 
         _notify_provider_admission_failure(host, details)
         from db import NotificationStore
-        count1 = len([n for n in NotificationStore.list_for_user(email, limit=50) if n.get("type") == "host_admission_failed"])
+
+        count1 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user(email, limit=50)
+                if n.get("type") == "host_admission_failed"
+            ]
+        )
 
         # Second call within 1 hour — should be throttled
         _notify_provider_admission_failure(host, details)
-        count2 = len([n for n in NotificationStore.list_for_user(email, limit=50) if n.get("type") == "host_admission_failed"])
+        count2 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user(email, limit=50)
+                if n.get("type") == "host_admission_failed"
+            ]
+        )
         assert count2 == count1
 
     def test_throttle_expires_after_1_hour(self):
@@ -77,13 +94,26 @@ class TestAdmissionNotification:
 
         _notify_provider_admission_failure(host, details)
         from db import NotificationStore
-        count1 = len([n for n in NotificationStore.list_for_user(email, limit=50) if n.get("type") == "host_admission_failed"])
+
+        count1 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user(email, limit=50)
+                if n.get("type") == "host_admission_failed"
+            ]
+        )
 
         # Simulate passage of 1 hour by backdating the throttle entry
         _admission_notified["h-expire-admit"] = time.time() - 3601
 
         _notify_provider_admission_failure(host, details)
-        count2 = len([n for n in NotificationStore.list_for_user(email, limit=50) if n.get("type") == "host_admission_failed"])
+        count2 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user(email, limit=50)
+                if n.get("type") == "host_admission_failed"
+            ]
+        )
         assert count2 == count1 + 1
 
     def test_no_crash_on_missing_owner(self):
@@ -105,12 +135,20 @@ class TestAdmissionNotification:
     def test_multiple_rejection_reasons_in_body(self):
         email = _create_test_user("multi-reason@test.ca")
         host = {"host_id": "h-multi", "owner": email, "gpu_model": "A100"}
-        details = {"admitted": False, "rejection_reasons": ["CUDA too old", "runc unpatched", "toolkit outdated"]}
+        details = {
+            "admitted": False,
+            "rejection_reasons": ["CUDA too old", "runc unpatched", "toolkit outdated"],
+        }
 
         _notify_provider_admission_failure(host, details)
 
         from db import NotificationStore
-        notifs = [n for n in NotificationStore.list_for_user(email, limit=10) if n.get("type") == "host_admission_failed"]
+
+        notifs = [
+            n
+            for n in NotificationStore.list_for_user(email, limit=10)
+            if n.get("type") == "host_admission_failed"
+        ]
         assert len(notifs) >= 1
         body = notifs[0]["body"]
         assert "CUDA too old" in body
@@ -125,18 +163,32 @@ class TestAdmissionNotification:
         _notify_provider_admission_failure(host, details)
 
         from db import NotificationStore
-        notifs = [n for n in NotificationStore.list_for_user(email, limit=10) if n.get("type") == "host_admission_failed"]
+
+        notifs = [
+            n
+            for n in NotificationStore.list_for_user(email, limit=10)
+            if n.get("type") == "host_admission_failed"
+        ]
         assert notifs[0].get("action_url") == "/dashboard/hosts"
 
     def test_notification_data_has_host_id(self):
         email = _create_test_user("data-check@test.ca")
         host = {"host_id": "h-data-check", "owner": email, "gpu_model": "H100"}
-        details = {"admitted": False, "rejection_reasons": ["outdated"], "recommended_runtime": "nvidia"}
+        details = {
+            "admitted": False,
+            "rejection_reasons": ["outdated"],
+            "recommended_runtime": "nvidia",
+        }
 
         _notify_provider_admission_failure(host, details)
 
         from db import NotificationStore
-        notifs = [n for n in NotificationStore.list_for_user(email, limit=10) if n.get("type") == "host_admission_failed"]
+
+        notifs = [
+            n
+            for n in NotificationStore.list_for_user(email, limit=10)
+            if n.get("type") == "host_admission_failed"
+        ]
         data = notifs[0].get("data", {})
         assert data.get("host_id") == "h-data-check"
         assert data.get("recommended_runtime") == "nvidia"
@@ -149,5 +201,10 @@ class TestAdmissionNotification:
         _notify_provider_admission_failure(host, details)
 
         from db import NotificationStore
-        notifs = [n for n in NotificationStore.list_for_user(email, limit=10) if n.get("type") == "host_admission_failed"]
+
+        notifs = [
+            n
+            for n in NotificationStore.list_for_user(email, limit=10)
+            if n.get("type") == "host_admission_failed"
+        ]
         assert "my-server" in notifs[0]["title"]

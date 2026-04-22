@@ -171,6 +171,8 @@ _REQUIRE_PINNED_HOST_KEYS: bool = os.environ.get(
     "XCELSIOR_TERMINAL_REQUIRE_PINNED_HOST_KEYS",
     "true" if os.environ.get("XCELSIOR_ENV", "dev").lower() in {"prod", "production"} else "false",
 ).lower() not in {"0", "false", "no", "off"}
+
+
 def _resolve_known_hosts_path() -> str:
     """Find or create a writable known_hosts file. Tries in order:
     1. Explicit env override
@@ -202,12 +204,11 @@ def _resolve_known_hosts_path() -> str:
     open(fallback, "a").close()
     return fallback
 
+
 _KNOWN_HOSTS_PATH: str = _resolve_known_hosts_path()
 
 _HOST_IP_RE: _re.Pattern[str] = _re.compile(r"\A[a-zA-Z0-9.\-]+\Z")
-_CONTAINER_REF_RE: _re.Pattern[str] = _re.compile(
-    r"\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}\Z"
-)
+_CONTAINER_REF_RE: _re.Pattern[str] = _re.compile(r"\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}\Z")
 _DEFAULT_ALLOWED_SHELLS = (
     "/bin/bash,/bin/sh,/bin/zsh,/usr/bin/bash,/usr/bin/sh,/usr/bin/zsh,/bin/ash"
 )
@@ -372,9 +373,7 @@ _PARAMIKO_KEEPALIVE_INTERVAL_SEC: int = int(
 # Entries are invalidated whenever the underlying Docker client is evicted
 # (e.g. the SSH transport died), so a rebuilt daemon reference always
 # re-verifies its containers.
-_PROBE_CACHE_TTL_SEC: float = float(
-    os.environ.get("XCELSIOR_TERMINAL_PROBE_CACHE_TTL_SEC", "30")
-)
+_PROBE_CACHE_TTL_SEC: float = float(os.environ.get("XCELSIOR_TERMINAL_PROBE_CACHE_TTL_SEC", "30"))
 # Key: (cache_key-or-"local", container_ref)  →  (expires_at, result_dict)
 _probe_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 # Key: (cache_key-or-"local", container_ref)  →  (expires_at, tmux_present)
@@ -534,7 +533,8 @@ def _docker_client(
         if not _patch_paramiko_host_keys():
             log.warning(
                 "TERMINAL paramiko host-key patch not active \u2014 SSH to %s "
-                "may fail with 'not found in known_hosts'", host_ip,
+                "may fail with 'not found in known_hosts'",
+                host_ip,
             )
         # paramiko-native transport (use_ssh_client=False). The subprocess-ssh
         # path breaks with BrokenPipeError during `docker system dial-stdio`.
@@ -556,6 +556,7 @@ def _docker_client(
 
 
 # -- Preflight helpers ---------------------------------------------------------
+
 
 def _container_exists(container_ref: str, host_ip: str | None = None) -> bool:
     """Return True when *container_ref* exists on the Docker daemon."""
@@ -599,7 +600,10 @@ def _container_probe(container_ref: str, host_ip: str | None = None) -> dict:
     except Exception as e:
         log.warning(
             "TERMINAL _container_probe(%s, host=%s) unreachable: %s: %s",
-            container_ref, host_ip, type(e).__name__, e,
+            container_ref,
+            host_ip,
+            type(e).__name__,
+            e,
         )
         if cache_key is not None:
             _evict_docker_client(cache_key)
@@ -657,24 +661,26 @@ def _tmux_available(container_ref: str, host_ip: str | None = None) -> bool:
 
 # -- Legacy subprocess helpers (kept for backward compat in tests) -------------
 
+
 def _build_ssh_opts(key_path: str) -> list[str]:
     return [
-        "-o", "StrictHostKeyChecking=yes",
-        "-o", f"UserKnownHostsFile={_KNOWN_HOSTS_PATH}",
-        "-o", "BatchMode=yes",
-        "-o", "IdentitiesOnly=yes",
-        "-o", "ConnectTimeout=10",
-        "-i", key_path,
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        f"UserKnownHostsFile={_KNOWN_HOSTS_PATH}",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-i",
+        key_path,
     ]
 
 
 def _terminal_session_key(user: dict) -> str:
-    return str(
-        user.get("customer_id")
-        or user.get("user_id")
-        or user.get("email")
-        or "anonymous"
-    )
+    return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "anonymous")
 
 
 def _session_slot_is_shared(session_slot: str | None) -> bool:
@@ -762,11 +768,7 @@ def _mutate_shared_terminal_sessions_acquire(
     now: float,
 ) -> tuple[dict, str | None]:
     sessions = _purge_shared_terminal_sessions(state.get("sessions"), now)
-    active_for_user = sum(
-        1
-        for payload in sessions.values()
-        if payload.get("user_key") == user_key
-    )
+    active_for_user = sum(1 for payload in sessions.values() if payload.get("user_key") == user_key)
     if active_for_user >= _MAX_CONCURRENT_SESSIONS_PER_USER:
         return {"sessions": sessions, "updated_at": now}, None
 
@@ -846,7 +848,10 @@ def _container_identity_matches(
     if job_label:
         return job_label == instance_id
 
-    return bool(actual_name == expected_name or (expected_container_id and actual_id.startswith(expected_container_id)))
+    return bool(
+        actual_name == expected_name
+        or (expected_container_id and actual_id.startswith(expected_container_id))
+    )
 
 
 def _ensure_remote_host_key_pinned(host_ip: str) -> None:
@@ -896,9 +901,7 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
                 pinned_key_block = scan.stdout
                 log.info("TERMINAL: auto-pinned host key for %s", host_ip)
             else:
-                raise DockerException(
-                    f"ssh-keyscan failed for {host_ip}: {scan.stderr.strip()}"
-                )
+                raise DockerException(f"ssh-keyscan failed for {host_ip}: {scan.stderr.strip()}")
         except subprocess.TimeoutExpired:
             raise DockerException(f"Timed out scanning SSH host key for {host_ip}")
         except OSError as exc:
@@ -911,7 +914,9 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
                 # Skip if already present
                 check = subprocess.run(
                     ["ssh-keygen", "-F", host_ip, "-f", path],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if check.returncode == 0 and check.stdout.strip():
                     continue
@@ -938,6 +943,7 @@ class TerminalTicketIn(BaseModel):
 
 
 # -- Control-frame helpers -----------------------------------------------------
+
 
 async def _send_status(ws: WebSocket, message: str, *, retry: bool = False) -> None:
     try:
@@ -986,6 +992,7 @@ def api_terminal_ticket(body: TerminalTicketIn, request: Request) -> dict:
 
 
 # -- WebSocket endpoint --------------------------------------------------------
+
 
 @router.websocket("/ws/terminal/{instance_id}")
 async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
@@ -1176,7 +1183,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             if not _reach_ok:
                 log.warning(
                     "TERMINAL host %s unreachable via tcp/22 (reason=%s) host_id=%s",
-                    host_ip, _probe_reason, host_id,
+                    host_ip,
+                    _probe_reason,
+                    host_id,
                 )
                 _host_probe_failure_total.labels(
                     host_id=host_id or "unknown",
@@ -1269,7 +1278,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 expected_name=container_ref,
                 expected_container_id=str(instance.get("container_id", "") or ""),
             ):
-                raise DockerException("Resolved container identity does not match the instance record")
+                raise DockerException(
+                    "Resolved container identity does not match the instance record"
+                )
 
             env_vars = {"TERM": "xterm-256color", "PS1": "\\u@xcelsior:\\w\\$ "}
             if has_tmux:
@@ -1325,13 +1336,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         _paramiko_channel_cls = None
         try:
             import paramiko as _paramiko  # local import: only needed here
+
             _paramiko_channel_cls = _paramiko.Channel
         except Exception:
             _paramiko_channel_cls = None
 
-        _is_paramiko_chan = (
-            _paramiko_channel_cls is not None
-            and isinstance(exec_socket, _paramiko_channel_cls)
+        _is_paramiko_chan = _paramiko_channel_cls is not None and isinstance(
+            exec_socket, _paramiko_channel_cls
         )
         if _is_paramiko_chan:
             raw_sock = exec_socket  # keep non-None so cleanup paths still run
@@ -1366,6 +1377,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             if not data:
                 return
             if _is_paramiko_chan:
+
                 def _send_blocking() -> None:
                     remaining = memoryview(data)
                     while remaining:
@@ -1373,6 +1385,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                         if sent <= 0:
                             raise ConnectionError("paramiko channel closed")
                         remaining = remaining[sent:]
+
                 await loop.run_in_executor(None, _send_blocking)
             else:
                 await loop.sock_sendall(raw_sock, data)
@@ -1640,7 +1653,10 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                         break
 
         async def _session_slot_keepalive() -> None:
-            if not _session_slot_is_shared(session_slot) or _TERMINAL_SESSION_LEASE_REFRESH_SEC <= 0:
+            if (
+                not _session_slot_is_shared(session_slot)
+                or _TERMINAL_SESSION_LEASE_REFRESH_SEC <= 0
+            ):
                 return
             while not closed:
                 await asyncio.sleep(_TERMINAL_SESSION_LEASE_REFRESH_SEC)

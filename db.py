@@ -189,90 +189,90 @@ def _get_pg_pool():
 _GPU_PRICING_SEED = [
     # (gpu_model, vram_gb, tier, pricing_mode, base_rate_cad, priority_mult, sovereignty_prem, spot_disc, mg4_disc, mg8_disc)
     # ── RTX 3090 24GB ──
-    ("RTX 3090",  24, "standard",  "on_demand",    0.30, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "standard",  "spot",         0.12, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "standard",  "reserved_1mo", 0.24, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "standard",  "reserved_1yr", 0.17, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "premium",   "on_demand",    0.39, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "premium",   "spot",         0.156,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "premium",   "reserved_1mo", 0.312,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "premium",   "reserved_1yr", 0.221,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "sovereign", "on_demand",    0.429,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "sovereign", "spot",         0.172,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "sovereign", "reserved_1mo", 0.343,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("RTX 3090",  24, "sovereign", "reserved_1yr", 0.243,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 3090", 24, "standard", "on_demand", 0.30, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "standard", "spot", 0.12, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "standard", "reserved_1mo", 0.24, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "standard", "reserved_1yr", 0.17, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "premium", "on_demand", 0.39, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "premium", "spot", 0.156, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "premium", "reserved_1mo", 0.312, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "premium", "reserved_1yr", 0.221, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "sovereign", "on_demand", 0.429, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "sovereign", "spot", 0.172, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "sovereign", "reserved_1mo", 0.343, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("RTX 3090", 24, "sovereign", "reserved_1yr", 0.243, 1.0, 0.10, 0.0, 0.05, 0.10),
     # ── RTX 4090 24GB ──
-    ("RTX 4090",  24, "standard",  "on_demand",    0.55, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "standard",  "spot",         0.22, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "standard",  "reserved_1mo", 0.44, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "standard",  "reserved_1yr", 0.30, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "premium",   "on_demand",    0.715,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "premium",   "spot",         0.286,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "premium",   "reserved_1mo", 0.572,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "premium",   "reserved_1yr", 0.39, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "sovereign", "on_demand",    0.787,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "sovereign", "spot",         0.315,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "sovereign", "reserved_1mo", 0.629,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("RTX 4090",  24, "sovereign", "reserved_1yr", 0.429,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("RTX 4090", 24, "standard", "on_demand", 0.55, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "standard", "spot", 0.22, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "standard", "reserved_1mo", 0.44, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "standard", "reserved_1yr", 0.30, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "premium", "on_demand", 0.715, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "premium", "spot", 0.286, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "premium", "reserved_1mo", 0.572, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "premium", "reserved_1yr", 0.39, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "sovereign", "on_demand", 0.787, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "sovereign", "spot", 0.315, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "sovereign", "reserved_1mo", 0.629, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("RTX 4090", 24, "sovereign", "reserved_1yr", 0.429, 1.0, 0.10, 0.0, 0.05, 0.10),
     # ── A100 40GB ──
-    ("A100 40GB", 40, "standard",  "on_demand",    1.50, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "standard",  "spot",         0.60, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "standard",  "reserved_1mo", 1.20, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "standard",  "reserved_1yr", 0.83, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "premium",   "on_demand",    1.95, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "premium",   "spot",         0.78, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "premium",   "reserved_1mo", 1.56, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "premium",   "reserved_1yr", 1.079,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "on_demand",    2.145,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "spot",         0.858,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "reserved_1mo", 1.716,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "reserved_1yr", 1.187,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 40GB", 40, "standard", "on_demand", 1.50, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "standard", "spot", 0.60, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "standard", "reserved_1mo", 1.20, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "standard", "reserved_1yr", 0.83, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "premium", "on_demand", 1.95, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "premium", "spot", 0.78, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "premium", "reserved_1mo", 1.56, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "premium", "reserved_1yr", 1.079, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "on_demand", 2.145, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "spot", 0.858, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "reserved_1mo", 1.716, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("A100 40GB", 40, "sovereign", "reserved_1yr", 1.187, 1.0, 0.10, 0.0, 0.05, 0.10),
     # ── A100 80GB ──
-    ("A100 80GB", 80, "standard",  "on_demand",    2.20, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "standard",  "spot",         0.88, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "standard",  "reserved_1mo", 1.76, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "standard",  "reserved_1yr", 1.21, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "premium",   "on_demand",    2.86, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "premium",   "spot",         1.144,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "premium",   "reserved_1mo", 2.288,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "premium",   "reserved_1yr", 1.573,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "on_demand",    3.146,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "spot",         1.258,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "reserved_1mo", 2.517,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "reserved_1yr", 1.730,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("A100 80GB", 80, "standard", "on_demand", 2.20, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "standard", "spot", 0.88, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "standard", "reserved_1mo", 1.76, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "standard", "reserved_1yr", 1.21, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "premium", "on_demand", 2.86, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "premium", "spot", 1.144, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "premium", "reserved_1mo", 2.288, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "premium", "reserved_1yr", 1.573, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "on_demand", 3.146, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "spot", 1.258, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "reserved_1mo", 2.517, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("A100 80GB", 80, "sovereign", "reserved_1yr", 1.730, 1.0, 0.10, 0.0, 0.05, 0.10),
     # ── H100 80GB ──
-    ("H100 80GB", 80, "standard",  "on_demand",    3.50, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "standard",  "spot",         1.40, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "standard",  "reserved_1mo", 2.80, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "standard",  "reserved_1yr", 1.93, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "premium",   "on_demand",    4.55, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "premium",   "spot",         1.82, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "premium",   "reserved_1mo", 3.64, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "premium",   "reserved_1yr", 2.509,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "on_demand",    5.005,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "spot",         2.002,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "reserved_1mo", 4.004,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "reserved_1yr", 2.760,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("H100 80GB", 80, "standard", "on_demand", 3.50, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "standard", "spot", 1.40, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "standard", "reserved_1mo", 2.80, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "standard", "reserved_1yr", 1.93, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "premium", "on_demand", 4.55, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "premium", "spot", 1.82, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "premium", "reserved_1mo", 3.64, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "premium", "reserved_1yr", 2.509, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "on_demand", 5.005, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "spot", 2.002, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "reserved_1mo", 4.004, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("H100 80GB", 80, "sovereign", "reserved_1yr", 2.760, 1.0, 0.10, 0.0, 0.05, 0.10),
     # ── L40S 48GB ──
-    ("L40S 48GB", 48, "standard",  "on_demand",    1.80, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "standard",  "spot",         0.72, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "standard",  "reserved_1mo", 1.44, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "standard",  "reserved_1yr", 0.99, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "premium",   "on_demand",    2.34, 1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "premium",   "spot",         0.936,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "premium",   "reserved_1mo", 1.872,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "premium",   "reserved_1yr", 1.287,1.0, 0.0,  0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "on_demand",    2.574,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "spot",         1.030,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "reserved_1mo", 2.059,1.0, 0.10, 0.0,  0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "reserved_1yr", 1.416,1.0, 0.10, 0.0,  0.05, 0.10),
+    ("L40S 48GB", 48, "standard", "on_demand", 1.80, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "standard", "spot", 0.72, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "standard", "reserved_1mo", 1.44, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "standard", "reserved_1yr", 0.99, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "premium", "on_demand", 2.34, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "premium", "spot", 0.936, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "premium", "reserved_1mo", 1.872, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "premium", "reserved_1yr", 1.287, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "on_demand", 2.574, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "spot", 1.030, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "reserved_1mo", 2.059, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("L40S 48GB", 48, "sovereign", "reserved_1yr", 1.416, 1.0, 0.10, 0.0, 0.05, 0.10),
 ]
 
 # Priority multipliers applied at query time, not stored per-row
 GPU_PRIORITY_MULTIPLIERS = {
-    "low":      0.8,
-    "normal":   1.0,
-    "high":     1.3,
+    "low": 0.8,
+    "normal": 1.0,
+    "high": 1.3,
     "critical": 1.6,
 }
 
@@ -361,10 +361,7 @@ def _ensure_pg_tables(conn):
             created_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())
         )
     """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_job_logs_job_ts "
-        "ON job_logs (job_id, ts)"
-    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_job_ts " "ON job_logs (job_id, ts)")
 
     # ── Billing cycles (charge records for running instances) ──
     cur.execute("""
@@ -386,17 +383,12 @@ def _ensure_pg_tables(conn):
             created_at DOUBLE PRECISION NOT NULL
         )
     """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_billing_cycles_job " "ON billing_cycles (job_id)")
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_job "
-        "ON billing_cycles (job_id)"
+        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_customer " "ON billing_cycles (customer_id)"
     )
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_customer "
-        "ON billing_cycles (customer_id)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_created_at "
-        "ON billing_cycles (created_at)"
+        "CREATE INDEX IF NOT EXISTS idx_billing_cycles_created_at " "ON billing_cycles (created_at)"
     )
 
     # ── Persistent volumes ──
@@ -418,10 +410,7 @@ def _ensure_pg_tables(conn):
             deleted_at DOUBLE PRECISION DEFAULT 0
         )
     """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_volumes_owner "
-        "ON volumes (owner_id, status)"
-    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_volumes_owner " "ON volumes (owner_id, status)")
 
     # ── Volume attachments ──
     cur.execute("""
@@ -497,9 +486,7 @@ def _ensure_pg_tables(conn):
     # itself is created via alembic migrations elsewhere; this ALTER is
     # idempotent and silently noops if users doesn't exist yet (fresh bootstrap).
     try:
-        cur.execute(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS max_concurrent_instances INTEGER"
-        )
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_concurrent_instances INTEGER")
     except Exception as _e:
         # users table may not exist in very fresh deployments; harmless — the
         # concurrency lookup falls back to the env default when the column
@@ -772,7 +759,11 @@ class DatabaseOps:
                 + " ORDER BY (payload->>'free_vram_gb')::float DESC"
             )
             rows = conn.execute(query, params).fetchall()
-            return [DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0]) for row in rows if row]
+            return [
+                DatabaseOps.decode_payload(row["payload"] if isinstance(row, dict) else row[0])
+                for row in rows
+                if row
+            ]
         else:
             # SQLite fallback: load all and filter in Python
             hosts = DatabaseOps.load_hosts(conn, active_only=True, backend="sqlite")
@@ -970,8 +961,7 @@ def _ensure_oauth_auth_tables(conn) -> None:
     """Ensure incremental OAuth auth tables/columns exist."""
     cur = conn.cursor()
 
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS oauth_clients (
             client_id TEXT PRIMARY KEY,
             client_name TEXT NOT NULL,
@@ -988,13 +978,13 @@ def _ensure_oauth_auth_tables(conn) -> None:
             created_at DOUBLE PRECISION NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
     # Add columns if missing (for migrations)
-    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'")
-    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used DOUBLE PRECISION")
     cur.execute(
-        """
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"
+    )
+    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used DOUBLE PRECISION")
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             token_id TEXT PRIMARY KEY,
             token_hash TEXT NOT NULL UNIQUE,
@@ -1013,16 +1003,21 @@ def _ensure_oauth_auth_tables(conn) -> None:
             replaced_by_token_id TEXT,
             reuse_detected_at DOUBLE PRECISION
         )
-        """
-    )
+        """)
     cur.execute(
         "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_type TEXT NOT NULL DEFAULT 'legacy'"
     )
     cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_id TEXT")
 
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner ON oauth_clients (created_by_email)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_tokens (family_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_email ON oauth_refresh_tokens (email)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner ON oauth_clients (created_by_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family ON oauth_refresh_tokens (family_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_email ON oauth_refresh_tokens (email)"
+    )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_session ON oauth_refresh_tokens (session_token)"
     )
@@ -1032,8 +1027,7 @@ def _ensure_oauth_auth_tables(conn) -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_session_type ON sessions (session_type)")
 
     # Team invites
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS team_invites (
             token TEXT PRIMARY KEY,
             team_id TEXT NOT NULL,
@@ -1043,8 +1037,7 @@ def _ensure_oauth_auth_tables(conn) -> None:
             created_at DOUBLE PRECISION NOT NULL,
             expires_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_email ON team_invites (email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_team ON team_invites (team_id)")
 
@@ -1064,6 +1057,7 @@ def _ensure_auth_schema(conn) -> None:
 def auth_connection():
     """PostgreSQL connection for auth tables (users, sessions, API keys, teams, notifications, SSH keys)."""
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -1148,6 +1142,7 @@ class UserStore:
         # Wrap JSONB fields for psycopg3
         if "preferences" in fields and isinstance(fields["preferences"], dict):
             from psycopg.types.json import Jsonb
+
             fields["preferences"] = Jsonb(fields["preferences"])
         # Cast is_admin to int for PostgreSQL INTEGER column
         if "is_admin" in fields:
@@ -1328,7 +1323,9 @@ class UserStore:
             row = conn.execute("SELECT * FROM api_keys WHERE key = %s", (key,)).fetchone()
             if row:
                 d = dict(row)
-                conn.execute("UPDATE api_keys SET last_used = %s WHERE key = %s", (time.time(), key))
+                conn.execute(
+                    "UPDATE api_keys SET last_used = %s WHERE key = %s", (time.time(), key)
+                )
                 return d
             return None
 
@@ -1432,7 +1429,8 @@ class UserStore:
                 "DELETE FROM team_members WHERE team_id = %s AND email = %s", (team_id, email)
             )
             conn.execute(
-                "UPDATE users SET team_id = NULL WHERE email = %s AND team_id = %s", (email, team_id)
+                "UPDATE users SET team_id = NULL WHERE email = %s AND team_id = %s",
+                (email, team_id),
             )
 
     @staticmethod
@@ -1490,9 +1488,7 @@ class UserStore:
     @staticmethod
     def get_team_invite(token: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM team_invites WHERE token = %s", (token,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM team_invites WHERE token = %s", (token,)).fetchone()
             return dict(row) if row else None
 
     @staticmethod
@@ -1504,6 +1500,7 @@ class UserStore:
     def get_pending_invites_for_email(email: str) -> list[dict]:
         with auth_connection() as conn:
             import time as _time
+
             rows = conn.execute(
                 "SELECT * FROM team_invites WHERE email = %s AND expires_at > %s",
                 (email.lower(), _time.time()),
@@ -1631,8 +1628,7 @@ class NotificationStore:
         return nid
 
     @staticmethod
-    def list_for_user(user_email: str, unread_only: bool = False,
-                      limit: int = 50) -> list[dict]:
+    def list_for_user(user_email: str, unread_only: bool = False, limit: int = 50) -> list[dict]:
         with auth_connection() as conn:
             sql = "SELECT * FROM notifications WHERE user_email = %s"
             params: list = [user_email]
@@ -1768,25 +1764,21 @@ class WebPushSubscriptionStore:
     @staticmethod
     def count_active() -> int:
         with auth_connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT COUNT(*) AS count
                 FROM web_push_subscriptions
                 WHERE revoked_at IS NULL
-                """
-            ).fetchone()
+                """).fetchone()
             return int(row["count"]) if row else 0
 
     @staticmethod
     def count_revoked() -> int:
         with auth_connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT COUNT(*) AS count
                 FROM web_push_subscriptions
                 WHERE revoked_at IS NOT NULL
-                """
-            ).fetchone()
+                """).fetchone()
             return int(row["count"]) if row else 0
 
     @staticmethod
@@ -1927,6 +1919,7 @@ def start_pg_listen(callback, channel="xcelsior_events"):
 # MFA Store
 # ────────────────────────────────────────────────────────────────────
 
+
 class MfaStore:
     """MFA methods, backup codes, and challenges backed by PostgreSQL."""
 
@@ -1945,7 +1938,8 @@ class MfaStore:
     def get_method(method_id: int) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM mfa_methods WHERE id = %s", (method_id,),
+                "SELECT * FROM mfa_methods WHERE id = %s",
+                (method_id,),
             ).fetchone()
             return dict(row) if row else None
 
@@ -2078,7 +2072,8 @@ class MfaStore:
     def get_challenge(challenge_id: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM mfa_challenges WHERE challenge_id = %s", (challenge_id,),
+                "SELECT * FROM mfa_challenges WHERE challenge_id = %s",
+                (challenge_id,),
             ).fetchone()
             return dict(row) if row else None
 
@@ -2096,61 +2091,71 @@ class MfaStore:
 class OAuthStore:
     @staticmethod
     def update_client(client_id: str, updates: dict, created_by_email: str | None = None) -> bool:
-            allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
-            fields = {k: v for k, v in updates.items() if k in allowed}
-            if not fields:
-                return False
-            # Wrap JSONB fields for psycopg3
-            from psycopg.types.json import Jsonb
-            for k in ["redirect_uris", "grant_types", "scopes"]:
-                if k in fields:
-                    fields[k] = Jsonb(list(fields[k]))
-            set_clause = ", ".join(f"{k} = %s" for k in fields)
-            values = list(fields.values())
-            values.append(time.time())
-            set_clause += ", updated_at = %s"
-            if created_by_email:
-                values.extend([client_id, created_by_email])
-                where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
-            else:
-                values.append(client_id)
-                where = "client_id = %s"
-            with auth_connection() as conn:
-                cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
-                return cur.rowcount > 0
+        allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+        fields = {k: v for k, v in updates.items() if k in allowed}
+        if not fields:
+            return False
+        # Wrap JSONB fields for psycopg3
+        from psycopg.types.json import Jsonb
+
+        for k in ["redirect_uris", "grant_types", "scopes"]:
+            if k in fields:
+                fields[k] = Jsonb(list(fields[k]))
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        values = list(fields.values())
+        values.append(time.time())
+        set_clause += ", updated_at = %s"
+        if created_by_email:
+            values.extend([client_id, created_by_email])
+            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+        else:
+            values.append(client_id)
+            where = "client_id = %s"
+        with auth_connection() as conn:
+            cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+            return cur.rowcount > 0
 
     @staticmethod
-    def rotate_client_secret(client_id: str, new_secret_hash: str, new_secret_salt: str, created_by_email: str | None = None) -> bool:
-            set_clause = "client_secret_hash = %s, client_secret_salt = %s, updated_at = %s"
-            values = [new_secret_hash, new_secret_salt, time.time()]
-            if created_by_email:
-                values.extend([client_id, created_by_email])
-                where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
-            else:
-                values.append(client_id)
-                where = "client_id = %s"
-            with auth_connection() as conn:
-                cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
-                return cur.rowcount > 0
+    def rotate_client_secret(
+        client_id: str,
+        new_secret_hash: str,
+        new_secret_salt: str,
+        created_by_email: str | None = None,
+    ) -> bool:
+        set_clause = "client_secret_hash = %s, client_secret_salt = %s, updated_at = %s"
+        values = [new_secret_hash, new_secret_salt, time.time()]
+        if created_by_email:
+            values.extend([client_id, created_by_email])
+            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+        else:
+            values.append(client_id)
+            where = "client_id = %s"
+        with auth_connection() as conn:
+            cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+            return cur.rowcount > 0
 
     @staticmethod
     def set_client_status(client_id: str, status: str, created_by_email: str | None = None) -> bool:
-            values = [status, time.time()]
-            if created_by_email:
-                values.extend([client_id, created_by_email])
-                where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
-            else:
-                values.append(client_id)
-                where = "client_id = %s"
-            with auth_connection() as conn:
-                cur = conn.execute(f"UPDATE oauth_clients SET status = %s, updated_at = %s WHERE {where}", values)
-                return cur.rowcount > 0
-
+        values = [status, time.time()]
+        if created_by_email:
+            values.extend([client_id, created_by_email])
+            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+        else:
+            values.append(client_id)
+            where = "client_id = %s"
+        with auth_connection() as conn:
+            cur = conn.execute(
+                f"UPDATE oauth_clients SET status = %s, updated_at = %s WHERE {where}", values
+            )
+            return cur.rowcount > 0
 
     @staticmethod
     def update_last_used(client_id: str):
         with auth_connection() as conn:
-            conn.execute("UPDATE oauth_clients SET last_used = %s WHERE client_id = %s", (time.time(), client_id))
+            conn.execute(
+                "UPDATE oauth_clients SET last_used = %s WHERE client_id = %s",
+                (time.time(), client_id),
+            )
 
     @staticmethod
     def create_client(client: dict) -> None:

@@ -9,6 +9,7 @@ from cloudburst import get_burst_engine
 
 router = APIRouter()
 
+
 @router.get("/api/v2/burst/status", tags=["Cloud Burst"])
 def api_burst_status(request: Request):
     """Get cloud burst auto-scaling status."""
@@ -18,4 +19,3 @@ def api_burst_status(request: Request):
     cbe = get_burst_engine()
     status = cbe.get_burst_status()
     return {"ok": True, **status}
-

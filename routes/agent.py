@@ -74,6 +74,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
                 raise HTTPException(403, "Host is not owned by the authenticated caller")
     return user
 
+
 # Critical container log patterns to detect image pull / launch errors
 _IMAGE_PULL_PATTERNS = (
     "manifest unknown",
@@ -94,12 +95,14 @@ _host_telemetry: dict[str, dict] = {}
 
 # ── Model: VersionReport ──
 
+
 class VersionReport(BaseModel):
     host_id: str = Field(min_length=1, max_length=64)
     versions: dict
 
 
 # ── Model: MiningAlert ──
+
 
 class MiningAlert(BaseModel):
     host_id: str = Field(min_length=1, max_length=64)
@@ -111,12 +114,14 @@ class MiningAlert(BaseModel):
 
 # ── Model: BenchmarkReport ──
 
+
 class BenchmarkReport(BaseModel):
     host_id: str = Field(min_length=1, max_length=64)
     gpu_model: str = Field(max_length=64)
     score: float = Field(ge=0)
     tflops: float = Field(ge=0)
     details: dict | None = None
+
 
 @router.get("/agent/work/{host_id}", tags=["Agent"])
 def api_agent_work(host_id: str, request: Request):
@@ -136,6 +141,7 @@ def api_agent_work(host_id: str, request: Request):
     # Enrich each job with volume mount paths from the volume_attachments table
     try:
         from volumes import get_volume_engine
+
         ve = get_volume_engine()
         for j in jobs:
             vol_ids = j.get("volume_ids", [])
@@ -158,6 +164,7 @@ def api_agent_work(host_id: str, request: Request):
 
     return {"ok": True, "instances": jobs}
 
+
 @router.get("/agent/preempt/{host_id}", tags=["Agent"])
 def api_agent_preempt(host_id: str, request: Request):
     """Check if any jobs on this host should be preempted."""
@@ -165,6 +172,7 @@ def api_agent_preempt(host_id: str, request: Request):
     with _agent_lock:
         preempt_list = _agent_preempt.pop(host_id, [])
     return {"ok": True, "preempt_jobs": preempt_list}
+
 
 @router.post("/agent/preempt/{host_id}/{job_id}", tags=["Agent"])
 def api_schedule_preemption(host_id: str, job_id: str, request: Request):
@@ -200,9 +208,7 @@ def api_agent_commands_drain(host_id: str, request: Request):
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         # Drop expired rows for any host (cheap housekeeping).
-        cur.execute(
-            "DELETE FROM agent_commands WHERE expires_at < EXTRACT(EPOCH FROM NOW())"
-        )
+        cur.execute("DELETE FROM agent_commands WHERE expires_at < EXTRACT(EPOCH FROM NOW())")
         # Atomically claim pending rows for this host.
         cur.execute(
             """
@@ -247,6 +253,7 @@ def enqueue_agent_command(
     if command not in _AGENT_COMMAND_ALLOWED:
         raise HTTPException(400, f"Unknown agent command: {command}")
     import json as _json
+
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -284,6 +291,7 @@ def _notify_provider_admission_failure(host: dict, details: dict):
 
     try:
         from db import UserStore, NotificationStore
+
         user = UserStore.get_user_by_id(owner_id)
         if not user:
             return
@@ -407,6 +415,7 @@ def api_agent_versions(report: VersionReport):
         "details": details,
     }
 
+
 @router.post("/agent/mining-alert", tags=["Agent"])
 def api_mining_alert(alert: MiningAlert, request: Request):
     """Receive mining detection alert from an agent."""
@@ -428,6 +437,7 @@ def api_mining_alert(alert: MiningAlert, request: Request):
         },
     )
     return {"ok": True, "received": True}
+
 
 @router.post("/agent/benchmark", tags=["Agent"])
 def api_agent_benchmark(report: BenchmarkReport, request: Request):
@@ -453,12 +463,14 @@ def api_agent_benchmark(report: BenchmarkReport, request: Request):
 
 # ── Model: LeaseClaimRequest ──
 
+
 class LeaseClaimRequest(BaseModel):
     host_id: str
     job_id: str
 
 
 # ── Model: LeaseRenewRequest ──
+
 
 class LeaseRenewRequest(BaseModel):
     host_id: str
@@ -467,6 +479,7 @@ class LeaseRenewRequest(BaseModel):
 
 # ── Model: LeaseReleaseRequest ──
 
+
 class LeaseReleaseRequest(BaseModel):
     job_id: str
     reason: str = "completed"
@@ -474,6 +487,7 @@ class LeaseReleaseRequest(BaseModel):
     @classmethod
     def _valid_reasons(cls):
         return {"completed", "failed", "preempted"}
+
 
 @router.post("/agent/lease/claim", tags=["Agent"])
 def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
@@ -536,7 +550,9 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
         # Just refresh the lease clock so the scheduler doesn't requeue a live container.
         log.info(
             "LEASE RECLAIM job=%s host=%s (status was '%s') — refreshing lease without status change",
-            req.job_id, req.host_id, current_status,
+            req.job_id,
+            req.host_id,
+            current_status,
         )
 
     broadcast_sse(
@@ -556,6 +572,7 @@ def api_agent_lease_claim(req: LeaseClaimRequest, request: Request):
         "duration_sec": lease.duration_sec,
     }
 
+
 @router.post("/agent/lease/renew", tags=["Agent"])
 def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
     """Agent renews its lease on a job. Must be called before expiry."""
@@ -573,6 +590,7 @@ def api_agent_lease_renew(req: LeaseRenewRequest, request: Request):
         "expires_at": lease.expires_at,
     }
 
+
 @router.post("/agent/lease/release", tags=["Agent"])
 def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
     """Agent releases its lease (job completed/failed/preempted)."""
@@ -582,6 +600,7 @@ def api_agent_lease_release(req: LeaseReleaseRequest, request: Request):
     if not released:
         return {"ok": True, "released": False, "detail": "No active lease"}
     return {"ok": True, "released": True}
+
 
 @router.get("/agent/popular-images", tags=["Agent"])
 def api_agent_popular_images(request: Request):
@@ -606,10 +625,12 @@ def api_agent_popular_images(request: Request):
 
 # ── Model: TelemetryPayload ──
 
+
 class TelemetryPayload(BaseModel):
     host_id: str
     timestamp: float = 0
     metrics: dict = {}
+
 
 @router.post("/agent/telemetry", tags=["Telemetry"])
 def api_agent_telemetry(payload: TelemetryPayload, request: Request):
@@ -622,6 +643,7 @@ def api_agent_telemetry(payload: TelemetryPayload, request: Request):
     }
     return {"ok": True}
 
+
 @router.get("/agent/telemetry/{host_id}", tags=["Telemetry"])
 def api_get_telemetry(host_id: str, request: Request):
     """Get latest telemetry for a host (dashboard live gauges)."""
@@ -632,6 +654,7 @@ def api_get_telemetry(host_id: str, request: Request):
     data = _host_telemetry[host_id]
     stale = (time.time() - data.get("received_at", 0)) > 30  # >30s = stale
     return {"ok": True, "host_id": host_id, "stale": stale, **data}
+
 
 @router.get("/api/telemetry/all", tags=["Telemetry"])
 def api_all_telemetry(request: Request):
@@ -689,6 +712,7 @@ async def api_agent_logs(job_id: str, request: Request):
             raise HTTPException(400, "Invalid gzip payload")
 
     import json as _json
+
     try:
         data = _json.loads(raw)
     except (ValueError, UnicodeDecodeError):
@@ -707,6 +731,7 @@ async def api_agent_logs(job_id: str, request: Request):
     # forgotten/rogue worker agent and keeps the job_logs table bounded.
     try:
         from db import load_jobs_snapshot
+
         snap = {j["job_id"]: j for j in load_jobs_snapshot()}
         job = snap.get(job_id)
         if not job:
@@ -739,11 +764,15 @@ async def api_agent_logs(job_id: str, request: Request):
 
     if critical_error:
         from db import emit_event
-        emit_event("job_error", {
-            "job_id": job_id,
-            "error": "image_pull_failed",
-            "message": f"Container image error: {critical_error[:200]}",
-        })
+
+        emit_event(
+            "job_error",
+            {
+                "job_id": job_id,
+                "error": "image_pull_failed",
+                "message": f"Container image error: {critical_error[:200]}",
+            },
+        )
 
     # Persist to PG and broadcast to SSE in one pass
     from routes.instances import push_job_log
@@ -758,7 +787,16 @@ async def api_agent_logs(job_id: str, request: Request):
                 if isinstance(msg, str) and len(msg) > 8192:
                     msg = msg[:8192] + "…[truncated]"
                 level = entry.get("level", "info")
-                if level not in {"debug", "info", "warn", "warning", "error", "fatal", "stdout", "stderr"}:
+                if level not in {
+                    "debug",
+                    "info",
+                    "warn",
+                    "warning",
+                    "error",
+                    "fatal",
+                    "stdout",
+                    "stderr",
+                }:
                     level = "info"
                 ts = entry.get("timestamp") or now
                 if not msg:
@@ -784,7 +822,13 @@ async def api_agent_logs(job_id: str, request: Request):
             if isinstance(msg, str) and len(msg) > 8192:
                 msg = msg[:8192] + "…[truncated]"
             if msg:
-                push_job_log(job_id, msg, entry.get("level", "info"), entry.get("timestamp") or now, persist=True)
+                push_job_log(
+                    job_id,
+                    msg,
+                    entry.get("level", "info"),
+                    entry.get("timestamp") or now,
+                    persist=True,
+                )
                 accepted += 1
 
     return {"ok": True, "accepted": accepted}

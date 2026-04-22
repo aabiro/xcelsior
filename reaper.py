@@ -34,6 +34,7 @@ Invocation:
   Registered in api.py's background task list (60 s cadence). The tick function
   is a no-op if no stuck jobs exist, so 60 s is cheap.
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,7 +61,7 @@ _reaper_killed = Counter(
 #   - starting  20m  — image pull over slow links can take 5-15m for large
 #                       CUDA base images; 20m covers worst-case + container init.
 _TIMEOUTS: dict[str, int] = {
-    "queued":   int(os.environ.get("REAPER_QUEUED_TIMEOUT_SEC", "7200")),
+    "queued": int(os.environ.get("REAPER_QUEUED_TIMEOUT_SEC", "7200")),
     "assigned": int(os.environ.get("REAPER_ASSIGNED_TIMEOUT_SEC", "180")),
     "starting": int(os.environ.get("REAPER_STARTING_TIMEOUT_SEC", "1200")),
 }
@@ -73,6 +74,7 @@ def reaper_tick() -> int:
     admin debug endpoints that want to trigger a reap and see the result).
     """
     from db import _get_pg_pool
+
     now = time.time()
     total_killed = 0
 
@@ -125,7 +127,9 @@ def reaper_tick() -> int:
                     total_killed += 1
                     log.warning(
                         "Reaper killed job=%s stuck in status=%s for >%ds",
-                        job_id, status, timeout_sec,
+                        job_id,
+                        status,
+                        timeout_sec,
                     )
                     _reaper_killed.labels(status=status, reason="timeout").inc()
 
@@ -134,6 +138,7 @@ def reaper_tick() -> int:
                     # blocks the reaper itself.
                     try:
                         from routes.instances import push_job_log
+
                         push_job_log(
                             job_id,
                             f"Failed: stuck in '{status}' state for >{timeout_sec}s without progress "

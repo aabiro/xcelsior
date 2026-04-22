@@ -4,7 +4,7 @@ import re
 import time
 import uuid
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -24,14 +24,17 @@ router = APIRouter()
 
 # ── Model: VerifyHostRequest ──
 
+
 class VerifyHostRequest(BaseModel):
     gpu_info: dict = Field(default_factory=dict)
     network_info: dict = Field(default_factory=dict)
+
 
 @router.post("/api/verify/{host_id}", tags=["Verification"])
 def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
     """Run verification checks on a host."""
     from routes._deps import _get_current_user, _require_scope
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -39,6 +42,7 @@ def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
     ve = get_verification_engine()
     result = ve.run_verification(host_id, req.gpu_info, req.network_info)
     return {"ok": True, "host_id": host_id, "verification": result}
+
 
 @router.get("/api/verify/{host_id}/status", tags=["Verification"])
 def api_verification_status(host_id: str):
@@ -48,6 +52,7 @@ def api_verification_status(host_id: str):
     if not v:
         return {"ok": True, "host_id": host_id, "status": "unverified"}
     return {"ok": True, "host_id": host_id, "verification": v.__dict__}
+
 
 @router.get("/api/verified-hosts", tags=["Verification"])
 def api_verified_hosts():
@@ -84,6 +89,7 @@ def api_verified_hosts():
         )
     return {"ok": True, "count": len(result), "hosts": result}
 
+
 @router.post("/api/verify/{host_id}/approve", tags=["Verification"])
 def api_admin_approve_host(host_id: str, request: Request, notes: str = ""):
     """Admin manually approves a host, overriding automated checks.
@@ -116,6 +122,7 @@ def api_admin_approve_host(host_id: str, request: Request, notes: str = ""):
     emit_event("verification_override", {"host_id": host_id, "action": "approve", "notes": notes})
     return {"ok": True, "host_id": host_id, "status": "verified", "approved_by": "admin"}
 
+
 @router.post("/api/verify/{host_id}/reject", tags=["Verification"])
 def api_admin_reject_host(host_id: str, request: Request, reason: str = "Admin rejection"):
     """Admin manually rejects/deverifies a host.
@@ -146,9 +153,11 @@ def api_admin_reject_host(host_id: str, request: Request, reason: str = "Admin r
 
 # ── Model: VerificationReportPayload ──
 
+
 class VerificationReportPayload(BaseModel):
     host_id: str
     report: dict
+
 
 @router.post("/agent/verify", tags=["Verification"])
 def api_agent_verify(payload: VerificationReportPayload):
@@ -157,7 +166,9 @@ def api_agent_verify(payload: VerificationReportPayload):
     result = ve.run_verification(payload.host_id, payload.report)
 
     # Wire verification → reputation: grant HARDWARE_AUDIT points on pass
-    if result.state == "verified" or (hasattr(result.state, "value") and result.state.value == "verified"):
+    if result.state == "verified" or (
+        hasattr(result.state, "value") and result.state.value == "verified"
+    ):
         try:
             re = get_reputation_engine()
             re.add_verification(payload.host_id, VerificationType.HARDWARE_AUDIT)
@@ -173,4 +184,3 @@ def api_agent_verify(payload: VerificationReportPayload):
         "checks": result.checks,
         "gpu_fingerprint": result.gpu_fingerprint,
     }
-

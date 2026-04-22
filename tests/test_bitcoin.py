@@ -111,7 +111,10 @@ class TestServiceStatus:
     def test_reports_available_when_rpc_and_wallet_are_ready(self, mock_rpc):
         mock_rpc.return_value = {"chain": "main", "blocks": 123}
 
-        with patch("bitcoin.BTC_ENABLED", True), patch("bitcoin._ensure_wallet_ready") as mock_ready:
+        with (
+            patch("bitcoin.BTC_ENABLED", True),
+            patch("bitcoin._ensure_wallet_ready") as mock_ready,
+        ):
             status = bitcoin.get_service_status()
 
         assert status["enabled"] is True
@@ -141,9 +144,14 @@ class TestServiceStatus:
     def test_reports_unavailable_when_wallet_is_not_ready(self, mock_rpc):
         mock_rpc.return_value = {"chain": "main", "blocks": 123}
 
-        with patch("bitcoin.BTC_ENABLED", True), patch(
-            "bitcoin._ensure_wallet_ready",
-            side_effect=RuntimeError("Bitcoin wallet 'xcelsior' has no receiving keys available"),
+        with (
+            patch("bitcoin.BTC_ENABLED", True),
+            patch(
+                "bitcoin._ensure_wallet_ready",
+                side_effect=RuntimeError(
+                    "Bitcoin wallet 'xcelsior' has no receiving keys available"
+                ),
+            ),
         ):
             status = bitcoin.get_service_status()
 
@@ -155,11 +163,13 @@ class TestServiceStatus:
 
 class TestRpcFallback:
     def test_falls_back_to_localhost_when_primary_host_times_out(self):
-        response_data = json.dumps({
-            "jsonrpc": "2.0",
-            "result": {"chain": "main", "blocks": 123},
-            "error": None,
-        }).encode()
+        response_data = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "result": {"chain": "main", "blocks": 123},
+                "error": None,
+            }
+        ).encode()
         mock_resp = MagicMock()
         mock_resp.read.return_value = response_data
         mock_resp.__enter__ = lambda s: s
@@ -174,12 +184,17 @@ class TestRpcFallback:
         original_resolved = bitcoin._resolved_rpc_host
         try:
             bitcoin._resolved_rpc_host = None
-            with patch("bitcoin.BTC_RPC_HOST", "203.0.113.25"), patch(
-                "bitcoin.BTC_RPC_FALLBACK_HOSTS",
-                (),
-            ), patch("bitcoin._running_in_docker", return_value=False), patch(
-                "bitcoin.urllib.request.urlopen",
-                side_effect=fake_urlopen,
+            with (
+                patch("bitcoin.BTC_RPC_HOST", "203.0.113.25"),
+                patch(
+                    "bitcoin.BTC_RPC_FALLBACK_HOSTS",
+                    (),
+                ),
+                patch("bitcoin._running_in_docker", return_value=False),
+                patch(
+                    "bitcoin.urllib.request.urlopen",
+                    side_effect=fake_urlopen,
+                ),
             ):
                 result = bitcoin._rpc_call("getblockchaininfo", timeout=0.01)
 
@@ -222,7 +237,9 @@ class TestCreateDeposit:
             bitcoin._active_wallet_name = None
             with patch("bitcoin._rpc_call") as mock_call:
                 mock_call.side_effect = [
-                    RuntimeError("Bitcoin RPC error: {'code': -19, 'message': 'Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path).'}"),
+                    RuntimeError(
+                        "Bitcoin RPC error: {'code': -19, 'message': 'Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path).'}"
+                    ),
                     [],  # listwallets
                     {"wallets": []},  # listwalletdir
                     {"name": "xcelsior"},  # createwallet
@@ -512,7 +529,9 @@ class TestRpcClient:
         )
 
     def test_rpc_error_raises(self):
-        error_resp = json.dumps({"result": None, "error": {"code": -5, "message": "Invalid address"}}).encode()
+        error_resp = json.dumps(
+            {"result": None, "error": {"code": -5, "message": "Invalid address"}}
+        ).encode()
         mock_resp = MagicMock()
         mock_resp.read.return_value = error_resp
         mock_resp.__enter__ = lambda s: s

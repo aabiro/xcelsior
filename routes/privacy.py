@@ -8,14 +8,22 @@ from routes._deps import (
     _require_user_grant,
     log,
 )
-from privacy import PrivacyConfig, RETENTION_POLICIES, execute_right_to_erasure, get_consent_manager, get_lifecycle_manager
+from privacy import (
+    PrivacyConfig,
+    RETENTION_POLICIES,
+    execute_right_to_erasure,
+    get_consent_manager,
+    get_lifecycle_manager,
+)
 
 router = APIRouter()
+
 
 @router.get("/api/privacy/retention-policies", tags=["Privacy"])
 def api_retention_policies(request: Request):
     """Data retention policies per PIPEDA fair information principles."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:read")
@@ -29,20 +37,24 @@ def api_retention_policies(request: Request):
         }
     return {"policies": policies}
 
+
 @router.get("/api/privacy/retention-summary", tags=["Privacy"])
 def api_retention_summary(request: Request):
     """Current retention status across all data categories."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:read")
     lm = get_lifecycle_manager()
     return lm.get_retention_summary()
 
+
 @router.post("/api/privacy/purge-expired", tags=["Privacy"])
 def api_purge_expired(request: Request):
     """Purge all expired retention records (daily maintenance)."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:write")
@@ -52,6 +64,7 @@ def api_purge_expired(request: Request):
 
 
 # ── Model: PrivacyConfigRequest ──
+
 
 class PrivacyConfigRequest(BaseModel):
     org_id: str
@@ -67,10 +80,12 @@ class PrivacyConfigRequest(BaseModel):
     log_retention_days: int = None
     telemetry_retention_days: int = None
 
+
 @router.post("/api/privacy/config", tags=["Privacy"])
 def api_save_privacy_config(req: PrivacyConfigRequest, request: Request):
     """Save privacy configuration for an organization."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:write")
@@ -92,10 +107,12 @@ def api_save_privacy_config(req: PrivacyConfigRequest, request: Request):
     lm.save_config(req.org_id, config)
     return {"ok": True, "org_id": req.org_id, "privacy_level": req.privacy_level}
 
+
 @router.get("/api/privacy/config/{org_id}", tags=["Privacy"])
 def api_get_privacy_config(org_id: str, request: Request):
     """Get privacy configuration for an organization (defaults to STRICT)."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:read")
@@ -106,15 +123,18 @@ def api_get_privacy_config(org_id: str, request: Request):
 
 # ── Model: ConsentRequest ──
 
+
 class ConsentRequest(BaseModel):
     entity_id: str
     consent_type: str  # "cross_border", "data_collection", "telemetry", "profiling"
     details: dict = None
 
+
 @router.post("/api/privacy/consent", tags=["Privacy"])
 def api_record_consent(req: ConsentRequest, request: Request):
     """Record explicit consent (PIPEDA principle: Consent)."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:write")
@@ -122,10 +142,12 @@ def api_record_consent(req: ConsentRequest, request: Request):
     consent_id = lm.record_consent(req.entity_id, req.consent_type, req.details)
     return {"ok": True, "consent_id": consent_id}
 
+
 @router.delete("/api/privacy/consent/{entity_id}/{consent_type}", tags=["Privacy"])
 def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
     """Revoke consent (PIPEDA: individuals can withdraw consent)."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:write")
@@ -133,10 +155,12 @@ def api_revoke_consent(entity_id: str, consent_type: str, request: Request):
     lm.revoke_consent(entity_id, consent_type)
     return {"ok": True, "revoked": consent_type}
 
+
 @router.get("/api/privacy/consent/{entity_id}", tags=["Privacy"])
 def api_get_consents(entity_id: str, request: Request):
     """Get all consent records for an entity (PIPEDA: Individual Access)."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "privacy:read")
@@ -147,9 +171,11 @@ def api_get_consents(entity_id: str, request: Request):
 
 # ── Model: ConsentRequest ──
 
+
 class ConsentRequest(BaseModel):
     purpose: str
     consent_type: str = "express"
+
 
 @router.post("/api/v2/privacy/consent", tags=["Privacy"])
 def api_privacy_record_consent(body: ConsentRequest, request: Request):
@@ -166,6 +192,7 @@ def api_privacy_record_consent(body: ConsentRequest, request: Request):
     )
     return {"ok": True}
 
+
 @router.delete("/api/v2/privacy/consent/{purpose}", tags=["Privacy"])
 def api_privacy_withdraw_consent(purpose: str, request: Request):
     """Withdraw CASL consent for a purpose (unsubscribe)."""
@@ -174,6 +201,7 @@ def api_privacy_withdraw_consent(purpose: str, request: Request):
     cm.withdraw_consent(user.get("user_id", user.get("email", "")), purpose)
     return {"ok": True}
 
+
 @router.get("/api/v2/privacy/consents", tags=["Privacy"])
 def api_privacy_list_consents(request: Request):
     """List all consent records for the current user."""
@@ -181,6 +209,7 @@ def api_privacy_list_consents(request: Request):
     cm = get_consent_manager()
     consents = cm.get_user_consents(user.get("user_id", user.get("email", "")))
     return {"ok": True, "consents": consents}
+
 
 @router.post("/api/v2/privacy/erase", tags=["Privacy"])
 def api_privacy_right_to_erasure(request: Request):

@@ -82,11 +82,19 @@ class TestStoreInferenceJob:
 
     def test_delete_job(self):
         inference_store.store_inference_job(
-            job_id="j3", customer_id="c3", model="m", inputs=["x"],
-            max_tokens=64, temperature=1.0, timeout_sec=30,
+            job_id="j3",
+            customer_id="c3",
+            model="m",
+            inputs=["x"],
+            max_tokens=64,
+            temperature=1.0,
+            timeout_sec=30,
         )
         inference_store.store_inference_result(
-            job_id="j3", outputs=["out"], model="m", latency_ms=10,
+            job_id="j3",
+            outputs=["out"],
+            model="m",
+            latency_ms=10,
         )
         inference_store.delete_inference_job("j3")
         assert inference_store.get_inference_job("j3") is None
@@ -94,8 +102,13 @@ class TestStoreInferenceJob:
 
     def test_purge_expired_jobs(self):
         inference_store.store_inference_job(
-            job_id="old", customer_id="c", model="m", inputs=["x"],
-            max_tokens=64, temperature=1.0, timeout_sec=30,
+            job_id="old",
+            customer_id="c",
+            model="m",
+            inputs=["x"],
+            max_tokens=64,
+            temperature=1.0,
+            timeout_sec=30,
         )
         # Manually backdate the submitted_at
         with inference_store._inference_db() as conn:
@@ -104,8 +117,13 @@ class TestStoreInferenceJob:
                 (time.time() - 100000,),
             )
         inference_store.store_inference_job(
-            job_id="new", customer_id="c", model="m", inputs=["y"],
-            max_tokens=64, temperature=1.0, timeout_sec=30,
+            job_id="new",
+            customer_id="c",
+            model="m",
+            inputs=["y"],
+            max_tokens=64,
+            temperature=1.0,
+            timeout_sec=30,
         )
         deleted = inference_store.purge_expired_jobs(ttl_sec=3600)
         assert deleted == 1
@@ -115,8 +133,13 @@ class TestStoreInferenceJob:
     def test_multiple_inputs_preserved(self):
         inputs = ["input one", "input two", "input three"]
         inference_store.store_inference_job(
-            job_id="j4", customer_id="c4", model="m", inputs=inputs,
-            max_tokens=512, temperature=0.5, timeout_sec=120,
+            job_id="j4",
+            customer_id="c4",
+            model="m",
+            inputs=inputs,
+            max_tokens=512,
+            temperature=0.5,
+            timeout_sec=120,
         )
         job = inference_store.get_inference_job("j4")
         assert job["inputs"] == inputs
@@ -132,6 +155,7 @@ class TestInferenceEndpoints:
             conn.execute("DELETE FROM inference_jobs")
         # Seed wallet for anonymous test user so wallet pre-flight checks pass
         from billing import get_billing_engine
+
         get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
 
     def test_submit_and_get_inference(self):
@@ -140,10 +164,13 @@ class TestInferenceEndpoints:
 
         client = TestClient(app)
         # Submit
-        resp = client.post("/api/inference", json={
-            "model": "distilbert-base-uncased-finetuned-sst-2-english",
-            "inputs": "I love this product",
-        })
+        resp = client.post(
+            "/api/inference",
+            json={
+                "model": "distilbert-base-uncased-finetuned-sst-2-english",
+                "inputs": "I love this product",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"]
@@ -160,18 +187,24 @@ class TestInferenceEndpoints:
 
         client = TestClient(app)
         # Submit
-        resp = client.post("/api/inference", json={
-            "model": "distilbert-base-uncased-finetuned-sst-2-english",
-            "inputs": "test",
-        })
+        resp = client.post(
+            "/api/inference",
+            json={
+                "model": "distilbert-base-uncased-finetuned-sst-2-english",
+                "inputs": "test",
+            },
+        )
         job_id = resp.json()["job_id"]
 
         # Post result (worker callback)
-        resp = client.post(f"/api/inference/{job_id}/result", json={
-            "outputs": [{"label": "POSITIVE", "score": 0.95}],
-            "model": "distilbert",
-            "latency_ms": 55,
-        })
+        resp = client.post(
+            f"/api/inference/{job_id}/result",
+            json={
+                "outputs": [{"label": "POSITIVE", "score": 0.95}],
+                "model": "distilbert",
+                "latency_ms": 55,
+            },
+        )
         assert resp.status_code == 200
 
         # Get completed result

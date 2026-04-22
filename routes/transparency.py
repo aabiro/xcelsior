@@ -14,11 +14,13 @@ router = APIRouter()
 
 # ── Helper: _transparency_db ──
 
+
 @contextmanager
 def _transparency_db():
     """PostgreSQL connection for transparency tables."""
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -32,6 +34,7 @@ def _transparency_db():
 
 # ── Model: LegalRequestRecord ──
 
+
 class LegalRequestRecord(BaseModel):
     request_type: str = "subpoena"  # subpoena, warrant, mlat, production_order, informal
     jurisdiction: str = "CA"
@@ -39,10 +42,12 @@ class LegalRequestRecord(BaseModel):
     scope: str = ""
     notes: str = ""
 
+
 @router.post("/api/transparency/legal-request", tags=["Transparency"])
 def api_record_legal_request(req: LegalRequestRecord, request: Request):
     """Record a legal request (subpoena, warrant, MLAT, etc.)."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "transparency:write")
@@ -79,12 +84,18 @@ def api_record_legal_request(req: LegalRequestRecord, request: Request):
 
     return {"ok": True, "request_id": request_id}
 
+
 @router.post("/api/transparency/legal-request/{request_id}/respond", tags=["Transparency"])
 def api_respond_legal_request(
-    request_id: str, request: Request, complied: bool = False, challenged: bool = False, notes: str = ""
+    request_id: str,
+    request: Request,
+    complied: bool = False,
+    challenged: bool = False,
+    notes: str = "",
 ):
     """Record response to a legal request."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "transparency:write")
@@ -97,6 +108,7 @@ def api_respond_legal_request(
         )
     return {"ok": True, "request_id": request_id}
 
+
 @router.get("/api/transparency/report", tags=["Transparency"])
 def api_transparency_report(request: Request, months: int = 12):
     """Generate transparency report — CLOUD Act diligence artifact.
@@ -105,6 +117,7 @@ def api_transparency_report(request: Request, months: int = 12):
     Monthly JSON per REPORT_FEATURE_2.md Phase B §3.
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "transparency:read")

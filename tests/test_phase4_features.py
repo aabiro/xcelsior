@@ -43,13 +43,15 @@ class TestCLIConfigTOML:
         monkeypatch.setattr(cli, "CONFIG_FILE", cfg_path)
         monkeypatch.setattr(cli, "CONFIG_DIR", _tmpdir)
 
-        cli._save_config({
-            "api_url": "https://api.xcelsior.ca",
-            "defaults": {
-                "region": "ca-central-1",
-                "gpu_model": "A100",
-            },
-        })
+        cli._save_config(
+            {
+                "api_url": "https://api.xcelsior.ca",
+                "defaults": {
+                    "region": "ca-central-1",
+                    "gpu_model": "A100",
+                },
+            }
+        )
 
         assert os.path.exists(cfg_path)
         loaded = cli._load_config()
@@ -256,19 +258,16 @@ class TestWebSocketTerminal:
         """The /ws/terminal/{instance_id} route is registered."""
         from api import app
 
-        ws_routes = [
-            r.path for r in app.routes
-            if hasattr(r, "path") and "terminal" in r.path
-        ]
+        ws_routes = [r.path for r in app.routes if hasattr(r, "path") and "terminal" in r.path]
         assert "/ws/terminal/{instance_id}" in ws_routes
 
     def test_terminal_constants(self):
         """Terminal session constants are properly defined (new module)."""
         from routes import terminal as terminal_mod
 
-        assert terminal_mod._SESSION_TIMEOUT_SEC == 14_400       # 4 hours
+        assert terminal_mod._SESSION_TIMEOUT_SEC == 14_400  # 4 hours
         assert terminal_mod._RATE_LIMIT_BYTES_PER_SEC == 524_288  # 512 KB/s
-        assert terminal_mod._IDLE_WARN_THRESHOLD_SEC == 14_100   # 5 min before
+        assert terminal_mod._IDLE_WARN_THRESHOLD_SEC == 14_100  # 5 min before
 
     def test_terminal_ws_auth_validator(self):
         """_validate_ws_auth returns None for empty tokens when auth required."""
@@ -298,9 +297,16 @@ class TestInstanceTerminalIntegration:
     def test_instance_page_imports_terminal(self):
         """Instance detail page imports WebTerminal component."""
         page_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "app", "(dashboard)", "dashboard",
-            "instances", "[id]", "page.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            "instances",
+            "[id]",
+            "page.tsx",
         )
         if not os.path.exists(page_path):
             pytest.skip("Frontend source not available")
@@ -315,8 +321,13 @@ class TestInstanceTerminalIntegration:
     def test_terminal_component_exists(self):
         """WebTerminal.tsx component file exists."""
         component_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         assert os.path.exists(component_path), "WebTerminal.tsx not found"
 
@@ -338,9 +349,15 @@ class TestSpotPricingRecharts:
     def test_spot_pricing_uses_recharts(self):
         """Spot pricing page imports and uses Recharts components."""
         page_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "app", "(dashboard)", "dashboard",
-            "spot-pricing", "page.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            "spot-pricing",
+            "page.tsx",
         )
         if not os.path.exists(page_path):
             pytest.skip("Frontend source not available")
@@ -359,9 +376,15 @@ class TestSpotPricingRecharts:
     def test_spot_pricing_no_div_bars(self):
         """Spot pricing page no longer uses CSS div bar chart."""
         page_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "app", "(dashboard)", "dashboard",
-            "spot-pricing", "page.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            "spot-pricing",
+            "page.tsx",
         )
         if not os.path.exists(page_path):
             pytest.skip("Frontend source not available")
@@ -383,8 +406,11 @@ class TestMigration005Completeness:
     def test_migration_contains_all_tables(self):
         """Migration 005 creates all planned tables from phases 1-5."""
         migration_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "migrations", "versions", "005_payment_infrastructure.py",
+            os.path.dirname(__file__),
+            "..",
+            "migrations",
+            "versions",
+            "005_payment_infrastructure.py",
         )
         if not os.path.exists(migration_path):
             pytest.skip("Migration file not available")
@@ -413,8 +439,11 @@ class TestMigration005Completeness:
     def test_migration_has_downgrade(self):
         """Migration 005 has a proper downgrade function."""
         migration_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "migrations", "versions", "005_payment_infrastructure.py",
+            os.path.dirname(__file__),
+            "..",
+            "migrations",
+            "versions",
+            "005_payment_infrastructure.py",
         )
         if not os.path.exists(migration_path):
             pytest.skip("Migration file not available")
@@ -432,16 +461,25 @@ class TestMigration005Completeness:
 class TestFrontendErrorFixes:
     """Verify the StatCard title→label and Badge variant fixes."""
 
-    @pytest.mark.parametrize("page", [
-        "inference/page.tsx",
-        "volumes/page.tsx",
-        "spot-pricing/page.tsx",
-    ])
+    @pytest.mark.parametrize(
+        "page",
+        [
+            "inference/page.tsx",
+            "volumes/page.tsx",
+            "spot-pricing/page.tsx",
+        ],
+    )
     def test_statcard_uses_label_not_title(self, page):
         """StatCard components use 'label' prop, not 'title'."""
         page_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "app", "(dashboard)", "dashboard", page,
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            page,
         )
         if not os.path.exists(page_path):
             pytest.skip("Frontend source not available")
@@ -451,22 +489,32 @@ class TestFrontendErrorFixes:
 
         # All StatCard should use label=
         import re
+
         title_matches = re.findall(r"<StatCard\s+title=", content)
         assert len(title_matches) == 0, f"Found StatCard with 'title' prop in {page}"
 
         label_matches = re.findall(r"<StatCard\s+label=", content)
         assert len(label_matches) >= 3, f"Expected ≥3 StatCard with 'label' prop in {page}"
 
-    @pytest.mark.parametrize("page", [
-        "inference/page.tsx",
-        "volumes/page.tsx",
-        "spot-pricing/page.tsx",
-    ])
+    @pytest.mark.parametrize(
+        "page",
+        [
+            "inference/page.tsx",
+            "volumes/page.tsx",
+            "spot-pricing/page.tsx",
+        ],
+    )
     def test_badge_uses_valid_variants(self, page):
         """Badge components only use valid variants."""
         page_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "app", "(dashboard)", "dashboard", page,
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            page,
         )
         if not os.path.exists(page_path):
             pytest.skip("Frontend source not available")
@@ -475,29 +523,41 @@ class TestFrontendErrorFixes:
             content = f.read()
 
         valid_variants = {
-            "default", "active", "dead", "queued", "running",
-            "completed", "failed", "cancelled", "warning", "info",
+            "default",
+            "active",
+            "dead",
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "warning",
+            "info",
         }
 
         import re
+
         # Find all Badge variant="..." patterns (not Button variant= etc.)
         variant_matches = re.findall(r'<Badge\s+variant="(\w+)"', content)
         # Also check statusColor return values that feed into Badge variant=
         status_color_matches = re.findall(r'return\s+"(\w+)"', content)
         all_variants = variant_matches + [
-            v for v in status_color_matches
+            v
+            for v in status_color_matches
             if v not in ("default", "attached", "available")  # filter non-variant strings
         ]
         for variant in variant_matches:
-            assert variant in valid_variants, (
-                f"Invalid Badge variant '{variant}' in {page}"
-            )
+            assert variant in valid_variants, f"Invalid Badge variant '{variant}' in {page}"
 
     def test_api_no_duplicate_createReservation(self):
         """api.ts should not have duplicate createReservation exports."""
         api_path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "lib", "api.ts",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "lib",
+            "api.ts",
         )
         if not os.path.exists(api_path):
             pytest.skip("Frontend source not available")
@@ -506,6 +566,7 @@ class TestFrontendErrorFixes:
             content = f.read()
 
         import re
+
         matches = re.findall(r"export async function createReservation\b", content)
         assert len(matches) == 1, f"Expected 1 createReservation, found {len(matches)}"
 

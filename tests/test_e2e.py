@@ -56,6 +56,7 @@ def _reset_state():
             os.remove(f)
     # Seed wallet for anonymous test user so wallet pre-flight checks pass
     from billing import get_billing_engine
+
     get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
 
 
@@ -63,7 +64,9 @@ def _admit_host(host_id):
     with scheduler._atomic_mutation() as conn:
         row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if row:
-            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            data = (
+                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            )
             data["admitted"] = True
             data["status"] = "active"
             conn.execute(

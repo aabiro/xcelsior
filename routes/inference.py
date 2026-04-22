@@ -19,13 +19,19 @@ from scheduler import (
     list_jobs,
     submit_job,
 )
-from inference_store import get_inference_job, get_inference_result, store_inference_job, store_inference_result
+from inference_store import (
+    get_inference_job,
+    get_inference_result,
+    store_inference_job,
+    store_inference_result,
+)
 from inference import get_inference_engine
 
 router = APIRouter()
 
 
 # ── Model: InferenceRequest ──
+
 
 class InferenceRequest(BaseModel):
     model: str = Field(
@@ -38,6 +44,7 @@ class InferenceRequest(BaseModel):
     temperature: float = Field(1.0, ge=0.0, le=2.0)
     timeout_sec: int = Field(300, ge=10, le=3600)
 
+
 @router.post("/api/inference", tags=["Inference"])
 def api_inference_submit(req: InferenceRequest, request: Request):
     """Submit a serverless inference request.
@@ -46,6 +53,7 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     provided inputs. Returns a job_id to poll for results.
     """
     from routes._deps import _require_scope
+
     user = _require_auth(request)
     _require_scope(user, "inference:write")
     customer_id = user.get("customer_id", user.get("email", "anon"))
@@ -53,6 +61,7 @@ def api_inference_submit(req: InferenceRequest, request: Request):
 
     # Wallet pre-flight
     from billing import get_billing_engine
+
     wallet = get_billing_engine().get_wallet(customer_id)
     if wallet.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended 2 please add funds to resume service")
@@ -79,10 +88,12 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     broadcast_sse("inference_submitted", {"job_id": job_id, "model": req.model})
     return {"ok": True, "job_id": job_id, "model": req.model, "status": "queued"}
 
+
 @router.get("/api/inference/{job_id}", tags=["Inference"])
 def api_inference_result(job_id: str, request: Request):
     """Get inference results for a submitted request."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "inference:read")
@@ -108,10 +119,12 @@ def api_inference_result(job_id: str, request: Request):
         return {"ok": True, "status": job.get("status", "unknown"), "job_id": job_id}
     raise HTTPException(404, f"Inference job {job_id} not found")
 
+
 @router.get("/api/inference/models/available", tags=["Inference"])
 def api_inference_models(request: Request):
     """List available inference models and their resource requirements."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "inference:read")
@@ -158,10 +171,12 @@ def api_inference_models(request: Request):
 
 # ── Model: InferenceResultCallback ──
 
+
 class InferenceResultCallback(BaseModel):
     outputs: list = Field(default_factory=list)
     model: str = ""
     latency_ms: float = 0
+
 
 @router.post("/api/inference/{job_id}/result", tags=["Inference"])
 def api_inference_post_result(job_id: str, body: InferenceResultCallback):
@@ -178,13 +193,16 @@ def api_inference_post_result(job_id: str, body: InferenceResultCallback):
 
 # ── Model: V1InferenceRequest ──
 
+
 class V1InferenceRequest(BaseModel):
     """OpenAI-compatible inference request for /v1/inference."""
+
     model: str = Field(..., description="Model name or HuggingFace repo")
     inputs: list[str] | str = Field(..., description="Text input(s) for inference")
     max_tokens: int = Field(512, ge=1, le=8192)
     temperature: float = Field(1.0, ge=0.0, le=2.0)
     stream: bool = Field(False, description="Stream response via SSE")
+
 
 @router.post("/v1/inference", tags=["Inference v2"])
 def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
@@ -199,6 +217,7 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
 
     # Wallet pre-flight
     from billing import get_billing_engine
+
     wallet = get_billing_engine().get_wallet(customer_id)
     if wallet.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
@@ -257,7 +276,8 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
                     "usage": {
                         "input_tokens": result.get("input_tokens", 0),
                         "output_tokens": result.get("output_tokens", 0),
-                        "total_tokens": result.get("input_tokens", 0) + result.get("output_tokens", 0),
+                        "total_tokens": result.get("input_tokens", 0)
+                        + result.get("output_tokens", 0),
                     },
                     "latency_ms": result.get("latency_ms", 0),
                 }
@@ -275,6 +295,7 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
             },
         )
 
+
 @router.post("/v1/inference/async", tags=["Inference v2"])
 def api_v1_inference_async(body: V1InferenceRequest, request: Request):
     """Asynchronous inference — returns job_id immediately for polling."""
@@ -284,6 +305,7 @@ def api_v1_inference_async(body: V1InferenceRequest, request: Request):
 
     # Wallet pre-flight
     from billing import get_billing_engine
+
     wallet = get_billing_engine().get_wallet(customer_id)
     if wallet.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
@@ -316,6 +338,7 @@ def api_v1_inference_async(body: V1InferenceRequest, request: Request):
         "poll_url": f"/v1/inference/{job_id}",
     }
 
+
 @router.get("/v1/inference/{job_id}", tags=["Inference v2"])
 def api_v1_inference_poll(job_id: str):
     """Poll for inference results by job_id."""
@@ -346,6 +369,7 @@ def api_v1_inference_poll(job_id: str):
 
 # ── Model: InferenceEndpointCreate ──
 
+
 class InferenceEndpointCreate(BaseModel):
     model_name: str
     gpu_type: str = ""
@@ -356,9 +380,10 @@ class InferenceEndpointCreate(BaseModel):
     max_batch_size: int = 8
     max_concurrent: int = 4
     scaledown_window_sec: int = 300
-    mode: str = "sync"            # sync or async
+    mode: str = "sync"  # sync or async
     health_endpoint: str = "/health"
-    api_format: str = "openai"    # openai or custom
+    api_format: str = "openai"  # openai or custom
+
 
 @router.post("/api/v2/inference/endpoints", tags=["Inference v2"])
 def api_inference_create_endpoint(body: InferenceEndpointCreate, request: Request):
@@ -395,6 +420,7 @@ def api_inference_create_endpoint(body: InferenceEndpointCreate, request: Reques
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+
 @router.get("/api/v2/inference/endpoints", tags=["Inference v2"])
 def api_inference_list_endpoints(request: Request):
     """List inference endpoints for the current user."""
@@ -404,6 +430,7 @@ def api_inference_list_endpoints(request: Request):
     ie = get_inference_engine()
     endpoints = ie.list_endpoints(user.get("user_id", user.get("email", "")))
     return {"ok": True, "endpoints": endpoints}
+
 
 @router.get("/api/v2/inference/endpoints/{endpoint_id}", tags=["Inference v2"])
 def api_inference_get_endpoint(endpoint_id: str, request: Request):
@@ -416,6 +443,7 @@ def api_inference_get_endpoint(endpoint_id: str, request: Request):
     if not ep:
         raise HTTPException(404, "Endpoint not found")
     return {"ok": True, "endpoint": ep}
+
 
 @router.get("/api/v2/inference/endpoints/{endpoint_id}/health", tags=["Inference v2"])
 def api_inference_endpoint_health(endpoint_id: str, request: Request):
@@ -430,6 +458,7 @@ def api_inference_endpoint_health(endpoint_id: str, request: Request):
     health = ie.get_endpoint_health(endpoint_id)
     return {"ok": True, "health": health}
 
+
 @router.get("/api/v2/inference/endpoints/{endpoint_id}/usage", tags=["Inference v2"])
 def api_inference_endpoint_usage(endpoint_id: str, request: Request):
     """Get usage stats for an inference endpoint."""
@@ -442,6 +471,7 @@ def api_inference_endpoint_usage(endpoint_id: str, request: Request):
         raise HTTPException(404, "Endpoint not found")
     usage = ie.get_endpoint_usage(endpoint_id)
     return {"ok": True, "usage": usage}
+
 
 @router.delete("/api/v2/inference/endpoints/{endpoint_id}", tags=["Inference v2"])
 def api_inference_delete_endpoint(endpoint_id: str, request: Request):
@@ -456,13 +486,16 @@ def api_inference_delete_endpoint(endpoint_id: str, request: Request):
 
 # ── Model: ChatCompletionRequest ──
 
+
 class ChatCompletionRequest(BaseModel):
     """OpenAI-compatible chat completion request."""
+
     model: str
     messages: list[dict] = Field(default_factory=list)
     max_tokens: int = Field(512, ge=1, le=32768)
     temperature: float = Field(1.0, ge=0.0, le=2.0)
     stream: bool = False
+
 
 @router.post("/v1/chat/completions", tags=["Inference v2"])
 def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
@@ -475,6 +508,7 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
 
     ie = get_inference_engine()
     from inference import InferenceRequest as InfReq
+
     inf_req = InfReq(
         request_id=str(uuid.uuid4()),
         endpoint_id="",
@@ -495,21 +529,24 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
         "object": "chat.completion",
         "created": int(time.time()),
         "model": body.model,
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": ""},
-            "finish_reason": None,
-        }],
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": ""},
+                "finish_reason": None,
+            }
+        ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "xcelsior": {"request_id": inf_req.request_id, "status": "processing"},
     }
+
 
 @router.post("/api/v2/inference/complete/{request_id}", tags=["Inference v2"])
 def api_inference_complete(request_id: str, request: Request):
     """Worker callback: mark inference request as completed with results."""
     ie = get_inference_engine()
     try:
-        body = json.loads(request._body) if hasattr(request, '_body') else {}
+        body = json.loads(request._body) if hasattr(request, "_body") else {}
     except Exception as e:
         body = {}
     ie.complete_request(

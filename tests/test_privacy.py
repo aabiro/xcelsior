@@ -283,6 +283,7 @@ class TestDataLifecycleManager:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute("DELETE FROM retention_records")
@@ -338,6 +339,7 @@ class TestConsent:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute("DELETE FROM consent_records")
@@ -383,6 +385,7 @@ class TestConfigPersistence:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute("DELETE FROM privacy_configs")
@@ -423,6 +426,7 @@ class TestRetentionSummary:
     @pytest.fixture(autouse=True)
     def lifecycle_mgr(self, tmp_path):
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute("DELETE FROM retention_records")

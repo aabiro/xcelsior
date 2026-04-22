@@ -294,6 +294,7 @@ class VerificationStore:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -325,12 +326,15 @@ class VerificationStore:
                 failure_count=row["failure_count"],
                 gpu_fingerprint=row["gpu_fingerprint"],
                 overall_score=row["overall_score"],
-                checks=row["checks"] if isinstance(row["checks"], list) else json.loads(row["checks"]),
+                checks=(
+                    row["checks"] if isinstance(row["checks"], list) else json.loads(row["checks"])
+                ),
             )
 
     def save_verification(self, v: HostVerification):
         """Upsert verification state."""
         from psycopg.types.json import Jsonb
+
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO host_verifications

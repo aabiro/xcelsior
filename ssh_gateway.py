@@ -43,9 +43,9 @@ SYNC_INTERVAL_SEC = int(os.environ.get("SSH_GW_SYNC_INTERVAL", "10"))
 BIND_ADDR = os.environ.get("SSH_GW_BIND", "0.0.0.0")
 
 # TCP keepalive — without these, NAT/firewalls drop idle SSH sessions in ~60s
-TCP_KEEPIDLE_SEC = int(os.environ.get("SSH_GW_KEEPIDLE", "30"))   # send first probe after 30s idle
+TCP_KEEPIDLE_SEC = int(os.environ.get("SSH_GW_KEEPIDLE", "30"))  # send first probe after 30s idle
 TCP_KEEPINTVL_SEC = int(os.environ.get("SSH_GW_KEEPINTVL", "10"))  # then every 10s
-TCP_KEEPCNT = int(os.environ.get("SSH_GW_KEEPCNT", "6"))           # drop after 6 missed probes (~90s total)
+TCP_KEEPCNT = int(os.environ.get("SSH_GW_KEEPCNT", "6"))  # drop after 6 missed probes (~90s total)
 
 
 def _enable_keepalive(writer: "asyncio.StreamWriter", label: str = "") -> None:
@@ -72,15 +72,17 @@ def _enable_keepalive(writer: "asyncio.StreamWriter", label: str = "") -> None:
     except OSError as e:
         log.debug("Could not set keepalive on %s: %s", label, e)
 
+
 # ── Data Structures ─────────────────────────────────────────────────────────
 
 
 @dataclass
 class InstanceRoute:
     """Represents a routable SSH instance."""
+
     job_id: str
-    ssh_port: int           # Port on the VPS we listen on (same as host-side mapped port)
-    host_ip: str            # Headscale IP of the GPU host (e.g. 100.64.0.2)
+    ssh_port: int  # Port on the VPS we listen on (same as host-side mapped port)
+    host_ip: str  # Headscale IP of the GPU host (e.g. 100.64.0.2)
     host_id: str
     status: str
     instance_name: str = ""
@@ -89,6 +91,7 @@ class InstanceRoute:
 @dataclass
 class ListenerState:
     """Tracks state for an active TCP listener."""
+
     route: InstanceRoute
     server: Optional[asyncio.AbstractServer] = None
     active_connections: int = 0
@@ -102,6 +105,7 @@ class ListenerState:
 async def _get_pg_conn():
     """Create an async psycopg connection."""
     import psycopg
+
     return await psycopg.AsyncConnection.connect(POSTGRES_DSN, autocommit=True)
 
 
@@ -133,14 +137,16 @@ async def query_running_instances() -> list[InstanceRoute]:
                     ssh_port = int(ssh_port_str)
                 except (ValueError, TypeError):
                     continue
-                routes.append(InstanceRoute(
-                    job_id=job_id,
-                    ssh_port=ssh_port,
-                    host_ip=host_ip,
-                    host_id=host_id,
-                    status=status,
-                    instance_name=name or "",
-                ))
+                routes.append(
+                    InstanceRoute(
+                        job_id=job_id,
+                        ssh_port=ssh_port,
+                        host_ip=host_ip,
+                        host_id=host_id,
+                        status=status,
+                        instance_name=name or "",
+                    )
+                )
             return routes
     finally:
         await conn.close()
@@ -205,7 +211,10 @@ class SSHGateway:
         if state.active_connections >= MAX_CONNS_PER_INSTANCE:
             log.warning(
                 "Connection limit reached for %s (port %d, %d active) — rejecting %s",
-                route.job_id[:8], route.ssh_port, state.active_connections, peer_str,
+                route.job_id[:8],
+                route.ssh_port,
+                state.active_connections,
+                peer_str,
             )
             client_writer.close()
             await client_writer.wait_closed()
@@ -217,8 +226,12 @@ class SSHGateway:
 
         log.info(
             "New connection: %s → %s:%d (instance %s %s) [%d active]",
-            peer_str, route.host_ip, route.ssh_port,
-            route.job_id[:8], route.instance_name, state.active_connections,
+            peer_str,
+            route.host_ip,
+            route.ssh_port,
+            route.job_id[:8],
+            route.instance_name,
+            state.active_connections,
         )
 
         backend_reader = None
@@ -247,17 +260,24 @@ class SSHGateway:
         except asyncio.TimeoutError:
             log.warning(
                 "Backend connect timeout: %s:%d (instance %s)",
-                route.host_ip, route.ssh_port, route.job_id[:8],
+                route.host_ip,
+                route.ssh_port,
+                route.job_id[:8],
             )
         except ConnectionRefusedError:
             log.warning(
                 "Backend refused: %s:%d (instance %s) — container may not be ready",
-                route.host_ip, route.ssh_port, route.job_id[:8],
+                route.host_ip,
+                route.ssh_port,
+                route.job_id[:8],
             )
         except OSError as e:
             log.warning(
                 "Backend connect error: %s:%d (instance %s) — %s",
-                route.host_ip, route.ssh_port, route.job_id[:8], e,
+                route.host_ip,
+                route.ssh_port,
+                route.job_id[:8],
+                e,
             )
         finally:
             self._stats["total_bytes_relayed"] += relay_stats["bytes"]
@@ -274,8 +294,10 @@ class SSHGateway:
 
             log.info(
                 "Connection closed: %s → instance %s (%s bytes relayed) [%d active]",
-                peer_str, route.job_id[:8],
-                f"{relay_stats['bytes']:,}", state.active_connections,
+                peer_str,
+                route.job_id[:8],
+                f"{relay_stats['bytes']:,}",
+                state.active_connections,
             )
 
     # ── Listener management ──────────────────────────────────────────────
@@ -295,7 +317,9 @@ class SSHGateway:
 
         try:
             server = await asyncio.start_server(
-                on_connect, BIND_ADDR, port,
+                on_connect,
+                BIND_ADDR,
+                port,
                 reuse_address=True,
                 reuse_port=True,
             )
@@ -303,7 +327,11 @@ class SSHGateway:
             self.listeners[port] = state
             log.info(
                 "Listening on :%d → %s:%d (instance %s %s)",
-                port, route.host_ip, port, route.job_id[:8], route.instance_name,
+                port,
+                route.host_ip,
+                port,
+                route.job_id[:8],
+                route.instance_name,
             )
         except OSError as e:
             log.error("Failed to bind port %d for instance %s: %s", port, route.job_id[:8], e)
@@ -320,7 +348,9 @@ class SSHGateway:
         if drain and state.active_connections > 0:
             log.info(
                 "Draining %d active connections on port %d (instance %s)...",
-                state.active_connections, port, state.route.job_id[:8],
+                state.active_connections,
+                port,
+                state.route.job_id[:8],
             )
             # Give active connections 10s to finish gracefully
             for _ in range(100):
@@ -330,7 +360,9 @@ class SSHGateway:
 
         log.info(
             "Closed listener :%d (instance %s, %d total connections served)",
-            port, state.route.job_id[:8], state.total_connections,
+            port,
+            state.route.job_id[:8],
+            state.total_connections,
         )
 
     # ── Sync loop — reconcile listeners with DB state ────────────────────
@@ -363,7 +395,9 @@ class SSHGateway:
         if desired_ports:
             log.debug(
                 "Synced: %d listeners active, %d opened, %d closed",
-                len(self.listeners), len(desired_ports) - len(self.listeners) + len(stale), len(stale),
+                len(self.listeners),
+                len(desired_ports) - len(self.listeners) + len(stale),
+                len(stale),
             )
 
     async def _sync_loop(self):
@@ -385,7 +419,8 @@ class SSHGateway:
             conn = None
             try:
                 conn = await psycopg.AsyncConnection.connect(
-                    POSTGRES_DSN, autocommit=True,
+                    POSTGRES_DSN,
+                    autocommit=True,
                 )
                 await conn.execute("LISTEN xcelsior_events")
                 log.info("Postgres LISTEN active on 'xcelsior_events'")
@@ -398,8 +433,12 @@ class SSHGateway:
                         event_type = payload.get("type", "")
                         # React to job lifecycle events
                         if event_type in (
-                            "job_status", "job_running", "job_stopped",
-                            "job_terminated", "job_failed", "job_cancelled",
+                            "job_status",
+                            "job_running",
+                            "job_stopped",
+                            "job_terminated",
+                            "job_failed",
+                            "job_cancelled",
                         ):
                             log.info("Event: %s — triggering sync", event_type)
                             await self.sync_routes()
@@ -426,15 +465,17 @@ class SSHGateway:
 
         uptime = int(time.time() - self._stats["started_at"])
         active = sum(s.active_connections for s in self.listeners.values())
-        body = json.dumps({
-            "status": "ok",
-            "listeners": len(self.listeners),
-            "active_connections": active,
-            "total_connections": self._stats["total_connections"],
-            "total_bytes_relayed": self._stats["total_bytes_relayed"],
-            "uptime_sec": uptime,
-            "ports": sorted(self.listeners.keys()),
-        })
+        body = json.dumps(
+            {
+                "status": "ok",
+                "listeners": len(self.listeners),
+                "active_connections": active,
+                "total_connections": self._stats["total_connections"],
+                "total_bytes_relayed": self._stats["total_bytes_relayed"],
+                "uptime_sec": uptime,
+                "ports": sorted(self.listeners.keys()),
+            }
+        )
 
         response = (
             f"HTTP/1.1 200 OK\r\n"
@@ -451,7 +492,9 @@ class SSHGateway:
 
     async def _start_health_server(self):
         server = await asyncio.start_server(
-            self._health_handler, "127.0.0.1", HEALTH_PORT,
+            self._health_handler,
+            "127.0.0.1",
+            HEALTH_PORT,
         )
         log.info("Health endpoint on http://127.0.0.1:%d/", HEALTH_PORT)
         async with server:
@@ -462,8 +505,13 @@ class SSHGateway:
     async def run(self):
         """Main entry point — start all loops."""
         log.info("Xcelsior SSH Gateway starting...")
-        log.info("Config: bind=%s, max_conns=%d, idle_timeout=%ds, sync=%ds",
-                 BIND_ADDR, MAX_CONNS_PER_INSTANCE, IDLE_TIMEOUT_SEC, SYNC_INTERVAL_SEC)
+        log.info(
+            "Config: bind=%s, max_conns=%d, idle_timeout=%ds, sync=%ds",
+            BIND_ADDR,
+            MAX_CONNS_PER_INSTANCE,
+            IDLE_TIMEOUT_SEC,
+            SYNC_INTERVAL_SEC,
+        )
 
         # Initial sync
         await self.sync_routes()
@@ -487,6 +535,7 @@ class SSHGateway:
 
 
 # ── Entry Point ──────────────────────────────────────────────────────────────
+
 
 def main():
     gateway = SSHGateway()

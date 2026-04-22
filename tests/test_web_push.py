@@ -25,7 +25,9 @@ def _load_web_push_module(monkeypatch: pytest.MonkeyPatch):
     return module
 
 
-def test_deliver_web_push_records_success_and_revokes_gone_endpoint(monkeypatch: pytest.MonkeyPatch):
+def test_deliver_web_push_records_success_and_revokes_gone_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+):
     module = _load_web_push_module(monkeypatch)
     import db
 
@@ -100,7 +102,9 @@ def test_deliver_web_push_records_success_and_revokes_gone_endpoint(monkeypatch:
     assert revoked == ["https://push.example.test/gone"]
 
 
-def test_web_push_observability_snapshot_merges_runtime_and_store_counts(monkeypatch: pytest.MonkeyPatch):
+def test_web_push_observability_snapshot_merges_runtime_and_store_counts(
+    monkeypatch: pytest.MonkeyPatch,
+):
     module = _load_web_push_module(monkeypatch)
     import db
 

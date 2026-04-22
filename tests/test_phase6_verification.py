@@ -17,7 +17,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Feature Tests: time_to_zero
 # ═══════════════════════════════════════════════════════════════════════
@@ -28,11 +27,13 @@ class TestTimeToZero:
 
     def test_time_to_zero_method_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "time_to_zero")
 
     def test_time_to_zero_returns_structure(self):
         """time_to_zero returns expected dict keys."""
         from billing import BillingEngine
+
         be = BillingEngine.__new__(BillingEngine)
         # Mock dependencies
         with patch.object(be, "get_wallet", return_value={"balance_cad": 100.0}):
@@ -70,6 +71,7 @@ class TestEarlyTerminationFee:
 
     def test_cancel_reservation_method_exists(self):
         from marketplace import MarketplaceEngine
+
         assert hasattr(MarketplaceEngine, "cancel_reservation")
 
     def test_cancel_reservation_api_endpoint_exists(self):
@@ -77,9 +79,10 @@ class TestEarlyTerminationFee:
         source = Path(__file__).resolve().parent.parent / "routes" / "marketplace.py"
         text = source.read_text()
         assert "api/v2/marketplace/reservations/{reservation_id}" in text
-        assert "early_termination_fee" in (
-            Path(__file__).resolve().parent.parent / "marketplace.py"
-        ).read_text()
+        assert (
+            "early_termination_fee"
+            in (Path(__file__).resolve().parent.parent / "marketplace.py").read_text()
+        )
 
     def test_termination_fee_formula(self):
         """Fee = remaining_months * monthly_rate * 0.5."""
@@ -128,6 +131,7 @@ class TestV1InferenceEndpoints:
     def test_v1_inference_request_model(self):
         """V1InferenceRequest model exists with expected fields."""
         from routes.inference import V1InferenceRequest
+
         fields = V1InferenceRequest.model_fields
         assert "model" in fields
         assert "inputs" in fields
@@ -144,18 +148,27 @@ class TestUsageHeatmap:
     """Verify billing page has usage heatmap."""
 
     def test_heatmap_exists_in_billing_page(self):
-        page = Path(__file__).resolve().parent.parent / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+        page = (
+            Path(__file__).resolve().parent.parent
+            / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+        )
         text = page.read_text()
         assert "Usage Heatmap" in text
 
     def test_heatmap_has_day_labels(self):
-        page = Path(__file__).resolve().parent.parent / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+        page = (
+            Path(__file__).resolve().parent.parent
+            / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+        )
         text = page.read_text()
         for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
             assert day in text
 
     def test_heatmap_has_legend(self):
-        page = Path(__file__).resolve().parent.parent / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+        page = (
+            Path(__file__).resolve().parent.parent
+            / "frontend/src/app/(dashboard)/dashboard/billing/page.tsx"
+        )
         text = page.read_text()
         assert "Less" in text
         assert "More" in text
@@ -203,6 +216,7 @@ class TestAutoBillingCycle:
 
     def test_auto_billing_method_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "auto_billing_cycle")
 
     def test_billing_cycles_table_in_migration(self):
@@ -230,6 +244,7 @@ class TestLowBalancePause:
 
     def test_stop_jobs_for_suspended(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "stop_jobs_for_suspended_wallets")
 
     def test_suspended_wallet_detection(self):

@@ -47,7 +47,6 @@ from routes._deps import (
     PUBLIC_PATH_PREFIXES,
 )
 
-
 # ── Rate limit constants (read from env, used by middleware) ──────────
 
 RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_RATE_LIMIT_REQUESTS", "300"))
@@ -159,6 +158,7 @@ def _start_background_tasks():
     def _billing_cycle():
         try:
             from billing import get_billing_engine
+
             be = get_billing_engine()
             with otel_span("billing.cycle"):
                 be.auto_billing_cycle()
@@ -166,50 +166,59 @@ def _start_background_tasks():
                 be.stop_jobs_for_suspended_wallets()
         except Exception as e:
             log.error("Billing cycle error: %s", e)
+
     tasks.append(("billing_cycle", _billing_cycle, 300))
 
     # 2. Stripe webhook event processor (every 30 seconds)
     def _webhook_processor():
         try:
             from stripe_connect import get_stripe_manager
+
             sm = get_stripe_manager()
             with otel_span("webhook.process_pending"):
                 sm.process_pending_events()
         except Exception as e:
             log.error("Webhook processor error: %s", e)
+
     tasks.append(("webhook_processor", _webhook_processor, 30))
 
     # 3. Spot price updater (every 10 minutes)
     def _spot_updater():
         try:
             from marketplace import get_marketplace_engine
+
             me = get_marketplace_engine()
             me.update_spot_prices()
             me.expire_reservations()
         except Exception as e:
             log.error("Spot updater error: %s", e)
+
     tasks.append(("spot_updater", _spot_updater, 600))
 
     # 4. Inference scaledown (every 5 minutes)
     def _inference_scaledown():
         try:
             from inference import get_inference_engine
+
             ie = get_inference_engine()
             ie.scaledown_idle_workers()
         except Exception as e:
             log.error("Inference scaledown error: %s", e)
+
     tasks.append(("inference_scaledown", _inference_scaledown, 300))
 
     # 5. Cloud burst evaluator (every 2 minutes)
     def _burst_evaluator():
         try:
             from cloudburst import get_burst_engine
+
             cbe = get_burst_engine()
             cbe.evaluate_burst_need()
             cbe.drain_idle_instances()
             cbe.update_burst_spending()
         except Exception as e:
             log.error("Burst evaluator error: %s", e)
+
     tasks.append(("burst_evaluator", _burst_evaluator, 120))
 
     # 6. SLA credit issuance (every hour)
@@ -217,32 +226,38 @@ def _start_background_tasks():
         try:
             from sla import get_sla_engine
             import datetime
+
             se = get_sla_engine()
             se.auto_issue_credits(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m"))
         except Exception as e:
             log.error("SLA credits error: %s", e)
+
     tasks.append(("sla_credits", _sla_credits, 3600))
 
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         try:
             from events import get_snapshot_manager, get_event_store
+
             sm = get_snapshot_manager()
             sm.snapshot_all_jobs(get_event_store())
         except Exception as e:
             log.error("Event snapshots error: %s", e)
+
     tasks.append(("event_snapshots", _event_snapshots, 900))
 
     # 8. Data retention / privacy purge (every 6 hours)
     def _privacy_purge():
         try:
             from privacy import get_lifecycle_manager, get_consent_manager
+
             lm = get_lifecycle_manager()
             lm.purge_expired()
             cm = get_consent_manager()
             cm.expire_implied_consents()
         except Exception as e:
             log.error("Privacy purge error: %s", e)
+
     tasks.append(("privacy_purge", _privacy_purge, 21600))
 
     # 9. Session cleanup (every hour)
@@ -253,22 +268,26 @@ def _start_background_tasks():
                 log.info("Session cleanup: purged %d expired sessions", count)
         except Exception as e:
             log.error("Session cleanup error: %s", e)
+
     tasks.append(("session_cleanup", _session_cleanup, 3600))
 
     # 10. FINTRAC compliance check (every hour)
     def _fintrac_check():
         try:
             from billing import get_billing_engine
+
             be = get_billing_engine()
             be.fintrac_check_transaction(customer_id="__periodic_scan__", amount_cad=0)
         except Exception as e:
             log.debug("fintrac periodic check error (expected for zero amount): %s", e)
+
     tasks.append(("fintrac_check", _fintrac_check, 3600))
 
     # 11. Job log cleanup — prune old entries from job_logs (daily)
     def _job_log_cleanup():
         try:
             from db import _get_pg_pool
+
             cutoff = time.time() - (7 * 86400)  # 7 days
             pool = _get_pg_pool()
             with pool.connection() as conn:
@@ -279,6 +298,7 @@ def _start_background_tasks():
                 log.info("Job log cleanup: purged %d old log rows", deleted)
         except Exception as e:
             log.error("Job log cleanup error: %s", e)
+
     tasks.append(("job_log_cleanup", _job_log_cleanup, 86400))
 
     # 12. Notification + push retention cleanup (every 6 hours)
@@ -307,6 +327,7 @@ def _start_background_tasks():
                 )
         except Exception as e:
             log.error("Notification cleanup error: %s", e)
+
     tasks.append(("notification_cleanup", _notification_cleanup, 21600))
 
     # 15. Stuck-job reaper — fails jobs wedged in queued/assigned/starting past
@@ -314,6 +335,7 @@ def _start_background_tasks():
     # compare-and-swap so it's safe to run alongside the scheduler + workers.
     try:
         from reaper import reaper_tick
+
         tasks.append(("reaper_tick", reaper_tick, 60))
     except Exception as _reaper_err:
         log.warning("reaper not registered: %s", _reaper_err)
@@ -324,15 +346,19 @@ def _start_background_tasks():
     # 13. Lightning Network deposit watcher — runs its own thread (every 5s)
     try:
         import lightning as _ln
+
         if _ln.LN_ENABLED:
+
             def _ln_credit_callback(customer_id, amount_cad, deposit_id):
                 from billing import get_billing_engine
+
                 be = get_billing_engine()
                 be.deposit(
                     customer_id,
                     amount_cad,
                     f"Lightning deposit {deposit_id}",
                 )
+
             _ln.start_ln_watcher(interval=5, credit_callback=_ln_credit_callback)
             log.info("Lightning deposit watcher started")
         else:
@@ -362,10 +388,10 @@ async def lifespan(app):
     # ── One-time backfill: ensure owner field exists on active jobs ────
     try:
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            cur = conn.execute(
-                """
+            cur = conn.execute("""
                 UPDATE jobs
                 SET payload = jsonb_set(
                     payload,
@@ -375,8 +401,7 @@ async def lifespan(app):
                 WHERE status IN ('running', 'queued', 'assigned')
                   AND (payload->>'owner' IS NULL OR payload->>'owner' = '')
                   AND payload->>'submitted_by' IS NOT NULL
-                """
-            )
+                """)
             if cur.rowcount:
                 log.info("BACKFILL: set owner on %d active jobs", cur.rowcount)
             conn.commit()
@@ -479,6 +504,7 @@ try:
     _otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if _otel_endpoint:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
         _otel_exporter = OTLPSpanExporter(endpoint=_otel_endpoint)
         _otel_provider.add_span_processor(BatchSpanProcessor(_otel_exporter))
 
@@ -487,12 +513,16 @@ try:
     from opentelemetry.propagators.textmap import DefaultGetter
     from opentelemetry.trace.propagation import TraceContextTextMapPropagator
     from opentelemetry.baggage.propagation import W3CBaggagePropagator
-    _w3c_propagator = CompositePropagator([
-        TraceContextTextMapPropagator(),
-        W3CBaggagePropagator(),
-    ])
+
+    _w3c_propagator = CompositePropagator(
+        [
+            TraceContextTextMapPropagator(),
+            W3CBaggagePropagator(),
+        ]
+    )
     from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
     from opentelemetry import context as _otel_ctx
+
     set_global_textmap(_w3c_propagator)
 
     FastAPIInstrumentor.instrument_app(app)
@@ -501,6 +531,7 @@ try:
     _otel_tracer = trace.get_tracer("xcelsior.api", "2.3.0")
     # Inject tracer into _deps so route modules can use otel_span()
     from routes import _deps as _route_deps
+
     _route_deps._otel_tracer = _otel_tracer
     log.info("OTEL: OpenTelemetry instrumentation active (endpoint=%s)", _otel_endpoint or "none")
 except ImportError:
@@ -510,7 +541,6 @@ except Exception as _otel_err:
 
 
 from routes._deps import otel_span  # re-export for tests / bg tasks
-
 
 # ── Bridge PgEventBus LISTEN/NOTIFY → SSE ────────────────────────────
 # NOTE: start_pg_listen() is called inside lifespan() so it runs
@@ -682,6 +712,7 @@ class ComplianceGateMiddleware:
             if customer_id:
                 try:
                     from privacy import get_consent_manager
+
                     cm = get_consent_manager()
                     if not cm.has_consent(customer_id, "billing"):
                         response = JSONResponse(
@@ -708,8 +739,7 @@ class ComplianceGateMiddleware:
         async def send_with_compliance(message):
             if message["type"] == "http.response.start":
                 hdrs = [
-                    (k, v) for k, v in message.get("headers", [])
-                    if k.lower() != b"content-length"
+                    (k, v) for k, v in message.get("headers", []) if k.lower() != b"content-length"
                 ]
                 hdrs.append((b"x-data-residency", b"CA"))
                 hdrs.append((b"x-compliance-version", b"PIPEDA-2024"))
@@ -778,7 +808,13 @@ async def auth_cache_unavailable_handler(_: Request, exc: AuthCacheUnavailableEr
     log.error("Auth cache unavailable: %s", exc)
     return JSONResponse(
         status_code=503,
-        content={"ok": False, "error": {"code": "auth_cache_unavailable", "message": "Authentication service temporarily unavailable"}},
+        content={
+            "ok": False,
+            "error": {
+                "code": "auth_cache_unavailable",
+                "message": "Authentication service temporarily unavailable",
+            },
+        },
     )
 
 

@@ -22,7 +22,14 @@ def find_calls_missing_timeout(pyfile):
             if node.func.value and isinstance(node.func.value, ast.Name):
                 lib = node.func.value.id
                 meth = node.func.attr
-                if lib in ("requests", "httpx") and meth in ("get", "post", "put", "delete", "patch", "head"):
+                if lib in ("requests", "httpx") and meth in (
+                    "get",
+                    "post",
+                    "put",
+                    "delete",
+                    "patch",
+                    "head",
+                ):
                     # Check for timeout kwarg
                     if not any(
                         (isinstance(kw, ast.keyword) and kw.arg == "timeout")

@@ -16,11 +16,13 @@ router = APIRouter()
 
 # ── Model: SLAEnforceRequest ──
 
+
 class SLAEnforceRequest(BaseModel):
     host_id: str
     month: str  # YYYY-MM
     tier: str = "community"
     monthly_spend_cad: float = 0.0
+
 
 @router.post("/api/sla/enforce", tags=["SLA"])
 def api_sla_enforce(req: SLAEnforceRequest, request: Request):
@@ -33,6 +35,7 @@ def api_sla_enforce(req: SLAEnforceRequest, request: Request):
     - <90% uptime   2 100% credit
     """
     from routes._deps import _require_scope
+
     _require_scope(_require_admin(request), "sla:write")
     engine = get_sla_engine()
     record = engine.enforce_monthly(
@@ -53,6 +56,7 @@ def api_sla_enforce(req: SLAEnforceRequest, request: Request):
         "credit_cad": record.credit_cad,
     }
 
+
 @router.get("/api/sla/hosts-summary", tags=["SLA"])
 def api_sla_hosts_summary(request: Request):
     """Get SLA status summary for all known hosts.
@@ -61,6 +65,7 @@ def api_sla_hosts_summary(request: Request):
     Used by dashboard UI-8.1 SLA Dashboard.
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "sla:read")
@@ -98,6 +103,7 @@ def api_sla_hosts_summary(request: Request):
         )
     return {"ok": True, "hosts": summaries, "count": len(summaries)}
 
+
 @router.get("/api/sla/{host_id}", tags=["SLA"])
 def api_sla_status(host_id: str, month: str = ""):
     """Get SLA record and rolling uptime for a host."""
@@ -126,6 +132,7 @@ def api_sla_status(host_id: str, month: str = ""):
         "monthly_record": record,
     }
 
+
 @router.get("/api/sla/violations/{host_id}", tags=["SLA"])
 def api_sla_violations(host_id: str, since: float = 0):
     """Get SLA violation history for a host."""
@@ -133,12 +140,14 @@ def api_sla_violations(host_id: str, since: float = 0):
     violations = engine.get_violations(host_id, since)
     return {"ok": True, "host_id": host_id, "violations": violations, "count": len(violations)}
 
+
 @router.get("/api/sla/downtimes", tags=["SLA"])
 def api_sla_active_downtimes():
     """Get all currently-open downtime periods across all hosts."""
     engine = get_sla_engine()
     downtimes = engine.get_active_downtimes()
     return {"ok": True, "downtimes": downtimes, "count": len(downtimes)}
+
 
 @router.get("/api/sla/targets", tags=["SLA"])
 def api_sla_targets():

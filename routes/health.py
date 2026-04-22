@@ -9,7 +9,13 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from pydantic import BaseModel, Field
 
 from routes._deps import (
@@ -48,16 +54,19 @@ DEVICE_CODE_INTERVAL = 5  # poll interval seconds
 _device_codes: dict[str, dict] = {}
 _device_lock = threading.Lock()
 
+
 @router.get("/healthz", tags=["Infrastructure"])
 def healthz():
     """Lightweight liveness probe for frontend polling."""
     return {"ok": True}
+
 
 @router.get("/dashboard", response_class=HTMLResponse, tags=["Infrastructure"])
 def dashboard():
     """The dashboard. HTML + JS. No React. No npm. No build step."""
     html = (TEMPLATES_DIR / "dashboard.html").read_text()
     return HTMLResponse(content=html)
+
 
 @router.get("/legacy", response_class=HTMLResponse, tags=["Infrastructure"])
 @router.get("/legacy/{path:path}", response_class=HTMLResponse, tags=["Infrastructure"])
@@ -68,6 +77,7 @@ def legacy_dashboard(path: str = ""):
 
 
 # ── Model: AlertConfig ──
+
 
 class AlertConfig(BaseModel):
     email_enabled: bool | None = None
@@ -81,12 +91,14 @@ class AlertConfig(BaseModel):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
 
+
 @router.get("/alerts/config", tags=["Infrastructure"])
 def api_get_alert_config(request: Request):
     """Get current alert config (passwords redacted)."""
     _require_admin(request)
     safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
     return {"config": safe}
+
 
 @router.put("/alerts/config", tags=["Infrastructure"])
 def api_set_alert_config(cfg: AlertConfig, request: Request):
@@ -96,6 +108,7 @@ def api_set_alert_config(cfg: AlertConfig, request: Request):
     configure_alerts(**updates)
     return {"ok": True, "updated": list(updates.keys())}
 
+
 @router.post("/ssh/keygen", tags=["Infrastructure"])
 def api_generate_ssh_key(request: Request):
     """Generate an Ed25519 SSH keypair for host access."""
@@ -104,12 +117,14 @@ def api_generate_ssh_key(request: Request):
     pub = get_public_key(path)
     return {"ok": True, "key_path": path, "public_key": pub}
 
+
 @router.get("/ssh/pubkey", tags=["Infrastructure"])
 @router.get("/api/ssh/pubkey", tags=["Infrastructure"])
 def api_get_pubkey():
     """Get the public key to add to hosts' authorized_keys."""
     pub = get_public_key()
     return {"public_key": pub or ""}
+
 
 @router.post("/token/generate", tags=["Infrastructure"])
 def api_generate_token():
@@ -119,6 +134,7 @@ def api_generate_token():
 
 
 # ── Model: DeviceCodeResponse ──
+
 
 class DeviceCodeResponse(BaseModel):
     device_code: str
@@ -130,9 +146,11 @@ class DeviceCodeResponse(BaseModel):
 
 # ── Model: DeviceTokenRequest ──
 
+
 class DeviceTokenRequest(BaseModel):
     device_code: str
     grant_type: str = "urn:ietf:params:oauth:grant-type:device_code"
+
 
 @router.post("/_internal/legacy-auth/device", tags=["Infrastructure"])
 def api_auth_device_code(request: Request):
@@ -176,6 +194,7 @@ def api_auth_device_code(request: Request):
         verification_uri=verification_uri,
     )
 
+
 @router.post("/_internal/legacy-auth/token", tags=["Infrastructure"])
 def api_auth_device_token(body: DeviceTokenRequest):
     """Poll for device authorization result (RFC 8628 §3.4).
@@ -215,8 +234,10 @@ def api_auth_device_token(body: DeviceTokenRequest):
 
 # ── Model: DeviceVerifyRequest ──
 
+
 class DeviceVerifyRequest(BaseModel):
     user_code: str
+
 
 @router.post("/_internal/legacy-auth/verify", tags=["Infrastructure"])
 def api_auth_verify_device(body: DeviceVerifyRequest, request: Request):
@@ -257,6 +278,7 @@ def api_auth_verify_device(body: DeviceVerifyRequest, request: Request):
                 return {"message": "Device authorized", "user_code": body.user_code}
 
     raise HTTPException(status_code=404, detail="Invalid or expired user code")
+
 
 @router.get("/_internal/legacy-auth/verify", response_class=HTMLResponse, tags=["Infrastructure"])
 def api_auth_verify_page():
@@ -354,6 +376,7 @@ document.getElementById('f').onsubmit=async e=>{
 
 # ── Helper: _require_provider_or_admin ──
 
+
 def _require_provider_or_admin(request: Request) -> dict:
     """Return the current user or raise 403 if they lack provider/admin access."""
     user = _require_auth(request)
@@ -364,6 +387,7 @@ def _require_provider_or_admin(request: Request) -> dict:
 
 # ── Model: SlurmSubmitIn ──
 
+
 class SlurmSubmitIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     vram_needed_gb: float = Field(gt=0)
@@ -373,6 +397,7 @@ class SlurmSubmitIn(BaseModel):
     image: str = ""
     profile: str | None = None
     dry_run: bool = False
+
 
 @router.post("/api/slurm/submit", tags=["Infrastructure"])
 def api_slurm_submit(body: SlurmSubmitIn, request: Request):
@@ -404,6 +429,7 @@ def api_slurm_submit(body: SlurmSubmitIn, request: Request):
 
     return result
 
+
 @router.get("/api/slurm/status/{slurm_job_id}", tags=["Infrastructure"])
 def api_slurm_status(slurm_job_id: str, request: Request):
     """Check the status of a Slurm job."""
@@ -414,6 +440,7 @@ def api_slurm_status(slurm_job_id: str, request: Request):
     if "error" in status:
         raise HTTPException(status_code=400, detail=status["error"])
     return status
+
 
 @router.delete("/api/slurm/{slurm_job_id}", tags=["Infrastructure"])
 def api_slurm_cancel(slurm_job_id: str, request: Request):
@@ -426,6 +453,7 @@ def api_slurm_cancel(slurm_job_id: str, request: Request):
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
+
 @router.get("/api/slurm/profiles", tags=["Infrastructure"])
 def api_slurm_profiles(request: Request):
     """List available Slurm cluster profiles (Nibi, Graham, Narval, generic)."""
@@ -433,6 +461,7 @@ def api_slurm_profiles(request: Request):
     from slurm_adapter import CLUSTER_PROFILES
 
     return {"profiles": {k: v["name"] for k, v in CLUSTER_PROFILES.items()}}
+
 
 @router.get("/api/nfs/config", tags=["Infrastructure"])
 def api_nfs_config():
@@ -447,11 +476,13 @@ def api_nfs_config():
 
 # ── Model: BuildIn ──
 
+
 class BuildIn(BaseModel):
     model: str
     base_image: str = "python:3.11-slim"
     quantize: str | None = None
     push: bool = False
+
 
 @router.post("/build", tags=["Infrastructure"])
 def api_build_image(b: BuildIn):
@@ -461,10 +492,12 @@ def api_build_image(b: BuildIn):
         raise HTTPException(status_code=500, detail=f"Build failed for {b.model}")
     return {"ok": True, "build": result}
 
+
 @router.get("/builds", tags=["Infrastructure"])
 def api_list_builds():
     """List all local build directories."""
     return {"builds": list_builds()}
+
 
 @router.post("/build/{model}/dockerfile", tags=["Infrastructure"])
 def api_generate_dockerfile(
@@ -476,6 +509,7 @@ def api_generate_dockerfile(
 
 
 # ── Helper: _sse_generator ──
+
 
 async def _sse_generator(request: Request):
     """Async generator that yields SSE events until the client disconnects."""
@@ -501,6 +535,7 @@ async def _sse_generator(request: Request):
             if queue in _sse_subscribers:
                 _sse_subscribers.remove(queue)
 
+
 @router.get("/api/stream", tags=["Infrastructure"])
 async def sse_stream(request: Request):
     """Server-Sent Events stream for real-time dashboard updates."""
@@ -517,9 +552,11 @@ async def sse_stream(request: Request):
 
 # ── Model: VersionReport ──
 
+
 class VersionReport(BaseModel):
     host_id: str
     versions: dict
+
 
 @router.get("/healthz", tags=["Infrastructure"])
 def healthz():
@@ -528,6 +565,7 @@ def healthz():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -535,9 +573,15 @@ def healthz():
             checks["database"] = "connected" if r else "error"
 
             # Counts for observability
-            hosts = conn.execute("SELECT COUNT(*) as cnt FROM hosts WHERE status = 'active'").fetchone()
-            jobs = conn.execute("SELECT COUNT(*) as cnt FROM jobs WHERE status = 'running'").fetchone()
-            queued = conn.execute("SELECT COUNT(*) as cnt FROM jobs WHERE status = 'queued'").fetchone()
+            hosts = conn.execute(
+                "SELECT COUNT(*) as cnt FROM hosts WHERE status = 'active'"
+            ).fetchone()
+            jobs = conn.execute(
+                "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'running'"
+            ).fetchone()
+            queued = conn.execute(
+                "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'queued'"
+            ).fetchone()
             checks["active_hosts"] = hosts["cnt"] if hosts else 0
             checks["running_jobs"] = jobs["cnt"] if jobs else 0
             checks["queued_jobs"] = queued["cnt"] if queued else 0
@@ -549,6 +593,7 @@ def healthz():
         )
     checks["status"] = "healthy"
     return {"ok": True, **checks}
+
 
 @router.get("/readyz", tags=["Infrastructure"])
 def readyz():
@@ -566,9 +611,11 @@ def readyz():
 
     return {"ok": True, "status": "ready", "storage": storage}
 
+
 @router.get("/metrics", tags=["Infrastructure"])
 def metrics():
     return {"ok": True, "metrics": get_metrics_snapshot()}
+
 
 @router.get("/metrics/prometheus", tags=["Infrastructure"])
 def metrics_prometheus():
@@ -606,59 +653,66 @@ def metrics_prometheus():
     ]
 
     notifications = snap.get("notifications", {})
-    lines.extend([
-        "",
-        "# HELP xcelsior_notifications_retained_total Total retained in-app notifications",
-        "# TYPE xcelsior_notifications_retained_total gauge",
-        f'xcelsior_notifications_retained_total {notifications.get("retained_total", 0)}',
-    ])
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_notifications_retained_total Total retained in-app notifications",
+            "# TYPE xcelsior_notifications_retained_total gauge",
+            f'xcelsior_notifications_retained_total {notifications.get("retained_total", 0)}',
+        ]
+    )
 
     web_push = snap.get("web_push", {})
-    lines.extend([
-        "",
-        "# HELP xcelsior_web_push_configured Whether web push is configured for this API instance",
-        "# TYPE xcelsior_web_push_configured gauge",
-        f'xcelsior_web_push_configured {web_push.get("configured", 0)}',
-        "",
-        "# HELP xcelsior_web_push_active_subscriptions Active web push subscriptions",
-        "# TYPE xcelsior_web_push_active_subscriptions gauge",
-        f'xcelsior_web_push_active_subscriptions {web_push.get("active_subscriptions", 0)}',
-        "",
-        "# HELP xcelsior_web_push_revoked_subscriptions Revoked web push subscriptions awaiting cleanup",
-        "# TYPE xcelsior_web_push_revoked_subscriptions gauge",
-        f'xcelsior_web_push_revoked_subscriptions {web_push.get("revoked_subscriptions", 0)}',
-        "",
-        "# HELP xcelsior_web_push_stale_subscriptions Active subscriptions not touched within the stale window",
-        "# TYPE xcelsior_web_push_stale_subscriptions gauge",
-        f'xcelsior_web_push_stale_subscriptions {web_push.get("stale_subscriptions", 0)}',
-        "",
-        "# HELP xcelsior_web_push_delivery_attempts_total Web push delivery attempts",
-        "# TYPE xcelsior_web_push_delivery_attempts_total counter",
-        f'xcelsior_web_push_delivery_attempts_total {web_push.get("delivery_attempts_total", 0)}',
-        "",
-        "# HELP xcelsior_web_push_delivery_success_total Successful web push deliveries",
-        "# TYPE xcelsior_web_push_delivery_success_total counter",
-        f'xcelsior_web_push_delivery_success_total {web_push.get("delivery_success_total", 0)}',
-        "",
-        "# HELP xcelsior_web_push_delivery_failure_total Failed web push deliveries",
-        "# TYPE xcelsior_web_push_delivery_failure_total counter",
-        f'xcelsior_web_push_delivery_failure_total {web_push.get("delivery_failure_total", 0)}',
-        "",
-        "# HELP xcelsior_web_push_delivery_revoked_total Deliveries that revoked stale endpoints",
-        "# TYPE xcelsior_web_push_delivery_revoked_total counter",
-        f'xcelsior_web_push_delivery_revoked_total {web_push.get("delivery_revoked_total", 0)}',
-    ])
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_web_push_configured Whether web push is configured for this API instance",
+            "# TYPE xcelsior_web_push_configured gauge",
+            f'xcelsior_web_push_configured {web_push.get("configured", 0)}',
+            "",
+            "# HELP xcelsior_web_push_active_subscriptions Active web push subscriptions",
+            "# TYPE xcelsior_web_push_active_subscriptions gauge",
+            f'xcelsior_web_push_active_subscriptions {web_push.get("active_subscriptions", 0)}',
+            "",
+            "# HELP xcelsior_web_push_revoked_subscriptions Revoked web push subscriptions awaiting cleanup",
+            "# TYPE xcelsior_web_push_revoked_subscriptions gauge",
+            f'xcelsior_web_push_revoked_subscriptions {web_push.get("revoked_subscriptions", 0)}',
+            "",
+            "# HELP xcelsior_web_push_stale_subscriptions Active subscriptions not touched within the stale window",
+            "# TYPE xcelsior_web_push_stale_subscriptions gauge",
+            f'xcelsior_web_push_stale_subscriptions {web_push.get("stale_subscriptions", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_attempts_total Web push delivery attempts",
+            "# TYPE xcelsior_web_push_delivery_attempts_total counter",
+            f'xcelsior_web_push_delivery_attempts_total {web_push.get("delivery_attempts_total", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_success_total Successful web push deliveries",
+            "# TYPE xcelsior_web_push_delivery_success_total counter",
+            f'xcelsior_web_push_delivery_success_total {web_push.get("delivery_success_total", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_failure_total Failed web push deliveries",
+            "# TYPE xcelsior_web_push_delivery_failure_total counter",
+            f'xcelsior_web_push_delivery_failure_total {web_push.get("delivery_failure_total", 0)}',
+            "",
+            "# HELP xcelsior_web_push_delivery_revoked_total Deliveries that revoked stale endpoints",
+            "# TYPE xcelsior_web_push_delivery_revoked_total counter",
+            f'xcelsior_web_push_delivery_revoked_total {web_push.get("delivery_revoked_total", 0)}',
+        ]
+    )
 
     # GPU telemetry if available
     try:
         from nvml_telemetry import get_all_gpu_stats
+
         gpu_stats = get_all_gpu_stats()
         if gpu_stats:
-            lines.extend([
-                "",
-                "# HELP xcelsior_gpu_utilization_percent GPU utilization percentage",
-                "# TYPE xcelsior_gpu_utilization_percent gauge",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_utilization_percent GPU utilization percentage",
+                    "# TYPE xcelsior_gpu_utilization_percent gauge",
+                ]
+            )
             for gs in gpu_stats:
                 idx = gs.get("index", 0)
                 model = gs.get("name", "unknown").replace(" ", "_")
@@ -666,21 +720,25 @@ def metrics_prometheus():
                     f'xcelsior_gpu_utilization_percent{{gpu="{idx}",model="{model}"}} '
                     f'{gs.get("utilization", 0)}'
                 )
-            lines.extend([
-                "",
-                "# HELP xcelsior_gpu_temperature_celsius GPU temperature",
-                "# TYPE xcelsior_gpu_temperature_celsius gauge",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_temperature_celsius GPU temperature",
+                    "# TYPE xcelsior_gpu_temperature_celsius gauge",
+                ]
+            )
             for gs in gpu_stats:
                 idx = gs.get("index", 0)
                 lines.append(
                     f'xcelsior_gpu_temperature_celsius{{gpu="{idx}"}} {gs.get("temperature", 0)}'
                 )
-            lines.extend([
-                "",
-                "# HELP xcelsior_gpu_memory_used_bytes GPU memory used",
-                "# TYPE xcelsior_gpu_memory_used_bytes gauge",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_memory_used_bytes GPU memory used",
+                    "# TYPE xcelsior_gpu_memory_used_bytes gauge",
+                ]
+            )
             for gs in gpu_stats:
                 idx = gs.get("index", 0)
                 lines.append(
@@ -694,6 +752,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -701,12 +760,14 @@ def metrics_prometheus():
                 "SELECT COUNT(*) as pending FROM stripe_event_inbox WHERE status = 'pending'"
             ).fetchone()
             backlog = row["pending"] if row else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_webhook_backlog Pending webhook events",
-            "# TYPE xcelsior_webhook_backlog gauge",
-            f"xcelsior_webhook_backlog {backlog}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_webhook_backlog Pending webhook events",
+                "# TYPE xcelsior_webhook_backlog gauge",
+                f"xcelsior_webhook_backlog {backlog}",
+            ]
+        )
     except Exception as e:
         log.debug("webhook backlog metric failed: %s", e)
 
@@ -714,17 +775,19 @@ def metrics_prometheus():
     try:
         _snap_running = snap.get("running_jobs", 0)
         _snap_queued = snap.get("queue_depth", 0)
-        lines.extend([
-            "",
-            "# HELP xcelsior_scheduling_latency_seconds Scheduling cycle latency",
-            "# TYPE xcelsior_scheduling_latency_seconds histogram",
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="0.1"}} {_snap_running}',
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="1.0"}} {_snap_running}',
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="10.0"}} {_snap_running + _snap_queued}',
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="+Inf"}} {_snap_running + _snap_queued}',
-            f"xcelsior_scheduling_latency_seconds_sum 0",
-            f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_scheduling_latency_seconds Scheduling cycle latency",
+                "# TYPE xcelsior_scheduling_latency_seconds histogram",
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="0.1"}} {_snap_running}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="1.0"}} {_snap_running}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="10.0"}} {_snap_running + _snap_queued}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="+Inf"}} {_snap_running + _snap_queued}',
+                f"xcelsior_scheduling_latency_seconds_sum 0",
+                f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
+            ]
+        )
     except Exception as e:
         log.debug("scheduling latency metric failed: %s", e)
 
@@ -732,6 +795,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool as _pgp2
         from psycopg.rows import dict_row as _dr2
+
         pool2 = _pgp2()
         with pool2.connection() as conn2:
             conn2.row_factory = _dr2
@@ -739,12 +803,14 @@ def metrics_prometheus():
                 "SELECT COUNT(*) as cnt FROM wallet_transactions WHERE description LIKE '%grace%' OR description LIKE '%suspend%'"
             ).fetchone()
             dep_cnt = dep_row["cnt"] if dep_row else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_wallet_depletion_events_total Total wallet depletion events",
-            "# TYPE xcelsior_wallet_depletion_events_total counter",
-            f"xcelsior_wallet_depletion_events_total {dep_cnt}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_wallet_depletion_events_total Total wallet depletion events",
+                "# TYPE xcelsior_wallet_depletion_events_total counter",
+                f"xcelsior_wallet_depletion_events_total {dep_cnt}",
+            ]
+        )
     except Exception as e:
         log.debug("wallet depletion metric failed: %s", e)
 
@@ -752,6 +818,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool as _pgp3
         from psycopg.rows import dict_row as _dr3
+
         pool3 = _pgp3()
         with pool3.connection() as conn3:
             conn3.row_factory = _dr3
@@ -762,12 +829,14 @@ def metrics_prometheus():
             warm = cache_row["warm"] if cache_row else 0
             total_infer = cold + warm
             cold_rate = round(cold / total_infer, 4) if total_infer > 0 else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_inference_cold_start_rate Fraction of inference requests requiring cold start",
-            "# TYPE xcelsior_inference_cold_start_rate gauge",
-            f"xcelsior_inference_cold_start_rate {cold_rate}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_inference_cold_start_rate Fraction of inference requests requiring cold start",
+                "# TYPE xcelsior_inference_cold_start_rate gauge",
+                f"xcelsior_inference_cold_start_rate {cold_rate}",
+            ]
+        )
     except Exception as e:
         log.debug("inference cold start metric failed: %s", e)
 
@@ -775,6 +844,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool as _pgp4
         from psycopg.rows import dict_row as _dr4
+
         pool4 = _pgp4()
         with pool4.connection() as conn4:
             conn4.row_factory = _dr4
@@ -786,12 +856,14 @@ def metrics_prometheus():
                      AND result->>'tokens_generated' IS NOT NULL"""
             ).fetchone()
             tps = round(tps_row["tps"], 2) if tps_row else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_inference_tokens_per_second Aggregate inference throughput",
-            "# TYPE xcelsior_inference_tokens_per_second gauge",
-            f"xcelsior_inference_tokens_per_second {tps}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_inference_tokens_per_second Aggregate inference throughput",
+                "# TYPE xcelsior_inference_tokens_per_second gauge",
+                f"xcelsior_inference_tokens_per_second {tps}",
+            ]
+        )
     except Exception as e:
         log.debug("inference tokens/sec metric failed: %s", e)
 
@@ -801,6 +873,7 @@ def metrics_prometheus():
     # metric that uses the prometheus_client API directly.
     try:
         from prometheus_client import generate_latest, REGISTRY
+
         prom_bytes = generate_latest(REGISTRY)
         if prom_bytes:
             lines.append("")
@@ -809,16 +882,19 @@ def metrics_prometheus():
         log.debug("prometheus_client registry export failed: %s", e)
 
     from starlette.responses import Response
+
     return Response(
         content="\n".join(lines) + "\n",
         media_type="text/plain; version=0.0.4; charset=utf-8",
     )
+
 
 @router.get("/", tags=["Infrastructure"], include_in_schema=False)
 def root():
     from fastapi.responses import RedirectResponse
 
     return RedirectResponse(url="/dashboard")
+
 
 @router.get("/llms.txt", tags=["Infrastructure"])
 def api_llms_txt():
@@ -834,12 +910,14 @@ def api_llms_txt():
         return PlainTextResponse(content=llms_path.read_text(), media_type="text/plain")
     raise HTTPException(404, "llms.txt not found")
 
+
 @router.get("/api/alerts/config", tags=["Infrastructure"])
 def api_get_alert_config_alias(request: Request):
     """Alias for /alerts/config with /api/ prefix."""
     _require_admin(request)
     safe = {k: ("***" if "pass" in k or "token" in k else v) for k, v in ALERT_CONFIG.items()}
     return {"config": safe}
+
 
 @router.put("/api/alerts/config", tags=["Infrastructure"])
 def api_set_alert_config_alias(cfg: AlertConfig, request: Request):
@@ -849,11 +927,13 @@ def api_set_alert_config_alias(cfg: AlertConfig, request: Request):
     configure_alerts(**updates)
     return {"ok": True, "updated": list(updates.keys())}
 
+
 @router.get("/api/slurm/instances", tags=["Infrastructure"])
 def api_slurm_list_instances(request: Request):
     """List all tracked Slurm jobs."""
     _require_admin(request)
     from slurm_adapter import _load_slurm_map, get_slurm_job_status
+
     job_map = _load_slurm_map()
     jobs = []
     for xcelsior_id, slurm_id in job_map.items():

@@ -52,15 +52,21 @@ def clean_data():
 
 def _admit_host(host_id):
     import json as _json
+
     with scheduler._atomic_mutation() as conn:
         row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if row:
-            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            data = (
+                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            )
             data["admitted"] = True
-            conn.execute("UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id))
+            conn.execute(
+                "UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id)
+            )
 
 
 # ── ALLOCATE BLOCKED throttle ────────────────────────────────────────
+
 
 class TestAllocateBlockedThrottle:
     """Test that ALLOCATE BLOCKED warnings are throttled to once per 5 min per job."""
@@ -124,6 +130,7 @@ class TestAllocateBlockedThrottle:
 
 # ── Throttle dict eviction ───────────────────────────────────────────
 
+
 class TestThrottleEviction:
     """Test that _evict_stale_throttles removes entries older than 1 hour."""
 
@@ -173,42 +180,51 @@ class TestThrottleEviction:
 
 # ── State transitions ────────────────────────────────────────────────
 
+
 class TestStateTransitions:
     """Test the ASSIGNED → STARTING transition fix."""
 
     def test_assigned_to_starting_is_valid(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.STARTING in VALID_TRANSITIONS[JobState.ASSIGNED]
 
     def test_assigned_to_leased_still_valid(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.LEASED in VALID_TRANSITIONS[JobState.ASSIGNED]
 
     def test_assigned_to_running_still_valid(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.RUNNING in VALID_TRANSITIONS[JobState.ASSIGNED]
 
     def test_leased_to_starting_still_valid(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.STARTING in VALID_TRANSITIONS[JobState.LEASED]
 
     def test_queued_to_starting_still_invalid(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.STARTING not in VALID_TRANSITIONS[JobState.QUEUED]
 
     def test_all_terminal_states_have_empty_transitions(self):
         from events import VALID_TRANSITIONS, JobState
+
         for state in (JobState.COMPLETED, JobState.CANCELLED, JobState.TERMINATED):
             assert VALID_TRANSITIONS[state] == set(), f"{state} should have no transitions"
 
 
 # ── Lease deletion fix ───────────────────────────────────────────────
 
+
 class TestLeaseGrantDeletion:
     """Test that grant_lease deletes existing leases instead of just releasing them."""
 
     def test_grant_lease_succeeds_on_re_grant(self):
         from events import get_event_store
+
         es = get_event_store()
 
         # Grant first lease
@@ -223,6 +239,7 @@ class TestLeaseGrantDeletion:
 
     def test_grant_lease_after_release(self):
         from events import get_event_store
+
         es = get_event_store()
 
         lease1 = es.grant_lease("j-dup2", "h1", duration_sec=600)
@@ -236,6 +253,7 @@ class TestLeaseGrantDeletion:
         from events import get_event_store
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         es = get_event_store()
 
         es.grant_lease("j-dup3", "h1", duration_sec=600)
@@ -252,11 +270,13 @@ class TestLeaseGrantDeletion:
 
 # ── ConsentManager dict-row fix ──────────────────────────────────────
 
+
 class TestConsentManagerDictRows:
     """Test that ConsentManager methods work with dict_row connections."""
 
     def test_record_and_check_consent(self):
         from privacy import get_consent_manager
+
         cm = get_consent_manager()
 
         cm.record_consent("user-dict-test", "express", "marketing_email")
@@ -267,6 +287,7 @@ class TestConsentManagerDictRows:
 
     def test_no_consent_returns_false(self):
         from privacy import get_consent_manager
+
         cm = get_consent_manager()
 
         has, ctype = cm.has_consent("nonexistent-user", "marketing_email")
@@ -275,11 +296,13 @@ class TestConsentManagerDictRows:
 
     def test_get_user_consents_returns_dicts(self):
         from privacy import get_consent_manager
+
         cm = get_consent_manager()
 
         cm.record_consent("user-consents-test", "express", "product_updates")
-        cm.record_consent("user-consents-test", "implied", "third_party_offers",
-                          expires_in_days=730)
+        cm.record_consent(
+            "user-consents-test", "implied", "third_party_offers", expires_in_days=730
+        )
 
         consents = cm.get_user_consents("user-consents-test")
         assert len(consents) >= 2
@@ -292,18 +315,18 @@ class TestConsentManagerDictRows:
 
     def test_consent_expiry_check(self):
         from privacy import get_consent_manager
+
         cm = get_consent_manager()
 
         # Record implied consent that expires immediately
-        cm.record_consent("user-expire-test", "implied", "expiring_purpose",
-                          expires_in_days=0)
+        cm.record_consent("user-expire-test", "implied", "expiring_purpose", expires_in_days=0)
         # Manually set expires_at to the past
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute(
-                "UPDATE casl_consent SET expires_at = %s "
-                "WHERE user_id = %s AND purpose = %s",
+                "UPDATE casl_consent SET expires_at = %s " "WHERE user_id = %s AND purpose = %s",
                 (time.time() - 100, "user-expire-test", "expiring_purpose"),
             )
             conn.commit()
@@ -313,16 +336,17 @@ class TestConsentManagerDictRows:
 
     def test_expire_implied_consents(self):
         from privacy import get_consent_manager
+
         cm = get_consent_manager()
 
         cm.record_consent("user-batch-expire", "implied", "batch_test")
         # Force expiry
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute(
-                "UPDATE casl_consent SET expires_at = %s "
-                "WHERE user_id = %s AND purpose = %s",
+                "UPDATE casl_consent SET expires_at = %s " "WHERE user_id = %s AND purpose = %s",
                 (time.time() - 100, "user-batch-expire", "batch_test"),
             )
             conn.commit()
@@ -333,11 +357,13 @@ class TestConsentManagerDictRows:
 
 # ── GPU pricing unknown model warning ────────────────────────────────
 
+
 class TestGPUPricingWarning:
     """Test that unknown GPU models produce a warning log."""
 
     def test_unknown_gpu_logs_warning(self, caplog):
         from reputation import get_reference_rate
+
         with caplog.at_level(logging.WARNING, logger="reputation"):
             rate = get_reference_rate("Tesla V100")
         assert rate > 0
@@ -346,6 +372,7 @@ class TestGPUPricingWarning:
 
     def test_known_gpu_no_warning(self, caplog):
         from reputation import get_reference_rate
+
         with caplog.at_level(logging.WARNING, logger="reputation"):
             rate = get_reference_rate("RTX 4090")
         assert rate > 0
@@ -353,6 +380,7 @@ class TestGPUPricingWarning:
 
     def test_substring_match_no_warning(self, caplog):
         from reputation import get_reference_rate
+
         with caplog.at_level(logging.WARNING, logger="reputation"):
             rate = get_reference_rate("NVIDIA GeForce RTX 4090")
         assert rate > 0

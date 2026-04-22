@@ -114,12 +114,14 @@ _OAUTH_STATE_TTL = 600
 
 # ── Helper: _set_auth_cookie ──
 
+
 def _set_auth_cookie(response, token: str):
     """Add httpOnly session cookie to response."""
     return _deps_set_auth_cookie(response, token)
 
 
 # ── Helper: _clear_auth_cookie ──
+
 
 def _clear_auth_cookie(response):
     """Remove session cookie."""
@@ -128,12 +130,14 @@ def _clear_auth_cookie(response):
 
 # ── Helper: _hash_password ──
 
+
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     """Hash a password with PBKDF2-HMAC-SHA256."""
     return _deps_hash_password(password, salt)
 
 
 # ── Helper: _is_platform_admin ──
+
 
 def _is_platform_admin(user: dict | None) -> bool:
     """Platform admin privilege is independent from the account role."""
@@ -142,12 +146,14 @@ def _is_platform_admin(user: dict | None) -> bool:
 
 # ── Helper: _merge_auth_user ──
 
+
 def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     """Overlay live user/account data onto a session or API-key auth payload."""
     return _deps_merge_auth_user(base, full_user)
 
 
 # ── Helper: _create_session ──
+
 
 def _create_session(email: str, user: dict, request: Request | None = None) -> dict:
     """Create a session token for a user."""
@@ -156,12 +162,14 @@ def _create_session(email: str, user: dict, request: Request | None = None) -> d
 
 # ── Helper: _get_current_user ──
 
+
 def _get_current_user(request: Request) -> dict | None:
     """Extract user from Authorization header or session cookie."""
     return _deps_get_current_user(request)
 
 
 # ── Helper: _require_auth ──
+
 
 def _require_auth(request: Request) -> dict:
     """Return the current user or raise 401."""
@@ -170,12 +178,14 @@ def _require_auth(request: Request) -> dict:
 
 # ── Helper: _require_admin ──
 
+
 def _require_admin(request: Request) -> dict:
     """Return the current user or raise 403 if they lack platform admin access."""
     return _deps_require_admin(request)
 
 
 # ── Helper: _require_write_access ──
+
 
 def _require_write_access(request: Request):
     """Raise 403 if the current user is using a read-only API key on a mutating request."""
@@ -224,7 +234,9 @@ def _build_auth_response(
     return resp
 
 
-def _oauth_error_response(exc: OAuthGrantError, *, deprecated_surface: str | None = None) -> JSONResponse:
+def _oauth_error_response(
+    exc: OAuthGrantError, *, deprecated_surface: str | None = None
+) -> JSONResponse:
     resp = JSONResponse(status_code=exc.status_code, content=exc.payload())
     for key, value in exc.headers.items():
         resp.headers[key] = value
@@ -238,10 +250,7 @@ async def _parse_request_body(request: Request) -> dict:
     content_type = request.headers.get("content-type", "").lower()
     if "application/x-www-form-urlencoded" in content_type:
         raw = (await request.body()).decode()
-        return {
-            key: value
-            for key, value in _urllib_parse.parse_qsl(raw, keep_blank_values=True)
-        }
+        return {key: value for key, value in _urllib_parse.parse_qsl(raw, keep_blank_values=True)}
     try:
         body = await request.json()
     except Exception:
@@ -294,12 +303,16 @@ async def _oauth_token_grant_response(
 
         if grant_type == "authorization_code":
             if "authorization_code" not in list(client.get("grant_types") or []):
-                raise OAuthGrantError("unauthorized_client", "Client is not allowed to use authorization_code")
+                raise OAuthGrantError(
+                    "unauthorized_client", "Client is not allowed to use authorization_code"
+                )
             redirect_uri = str(body.get("redirect_uri", "")).strip()
             code = str(body.get("code", "")).strip()
             code_verifier = str(body.get("code_verifier", "")).strip()
             if not redirect_uri or not code or not code_verifier:
-                raise OAuthGrantError("invalid_request", "code, redirect_uri, and code_verifier are required")
+                raise OAuthGrantError(
+                    "invalid_request", "code, redirect_uri, and code_verifier are required"
+                )
             token_bundle = exchange_authorization_code(
                 client=client,
                 code=code,
@@ -314,16 +327,24 @@ async def _oauth_token_grant_response(
             token_bundle = rotate_refresh_token(refresh_token, request)
         elif grant_type == "urn:ietf:params:oauth:grant-type:device_code":
             if grant_type not in list(client.get("grant_types") or []):
-                raise OAuthGrantError("unauthorized_client", "Client is not allowed to use device_code")
+                raise OAuthGrantError(
+                    "unauthorized_client", "Client is not allowed to use device_code"
+                )
             device_code = str(body.get("device_code", "")).strip()
             if not device_code:
                 raise OAuthGrantError("invalid_request", "device_code is required")
-            token_bundle = exchange_device_code(client=client, device_code=device_code, request=request)
+            token_bundle = exchange_device_code(
+                client=client, device_code=device_code, request=request
+            )
         elif grant_type == "client_credentials":
             if client.get("client_type") != "confidential":
-                raise OAuthGrantError("unauthorized_client", "Public clients cannot use client_credentials")
+                raise OAuthGrantError(
+                    "unauthorized_client", "Public clients cannot use client_credentials"
+                )
             if grant_type not in list(client.get("grant_types") or []):
-                raise OAuthGrantError("unauthorized_client", "Client is not allowed to use client_credentials")
+                raise OAuthGrantError(
+                    "unauthorized_client", "Client is not allowed to use client_credentials"
+                )
             scopes = str(body.get("scope", "")).strip()
             token_bundle = issue_client_credentials_jwt(
                 client,
@@ -335,7 +356,10 @@ async def _oauth_token_grant_response(
         return _oauth_error_response(exc, deprecated_surface=deprecated_surface)
 
     resp = JSONResponse(content=token_bundle)
-    if grant_type in {"authorization_code", "refresh_token"} and client.get("client_id") == "xcelsior-web":
+    if (
+        grant_type in {"authorization_code", "refresh_token"}
+        and client.get("client_id") == "xcelsior-web"
+    ):
         _set_session_cookies(resp, token_bundle)
     if deprecated_surface:
         for key, value in build_deprecation_headers(deprecated_surface).items():
@@ -344,6 +368,7 @@ async def _oauth_token_grant_response(
 
 
 # ── Model: RegisterRequest ──
+
 
 class RegisterRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=128)
@@ -354,12 +379,14 @@ class RegisterRequest(BaseModel):
 
 # ── Model: LoginRequest ──
 
+
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=128)
     password: str = Field(..., min_length=8, max_length=128)
 
 
 # ── Model: ProfileUpdateRequest ──
+
 
 class ProfileUpdateRequest(BaseModel):
     name: str | None = Field(None, max_length=64)
@@ -397,7 +424,11 @@ def oauth_authorization_server_metadata(request: Request):
         ],
         "response_types_supported": ["code"],
         "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic", "none"],
+        "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "none",
+        ],
         "scopes_supported": [
             "profile",
             "email",
@@ -420,7 +451,9 @@ def oauth_authorize(request: Request):
     if not user:
         wants_html = "text/html" in request.headers.get("accept", "").lower()
         if wants_html or not request.headers.get("authorization"):
-            redirect_target = _urllib_parse.quote(str(request.url.path) + (f"?{request.url.query}" if request.url.query else ""))
+            redirect_target = _urllib_parse.quote(
+                str(request.url.path) + (f"?{request.url.query}" if request.url.query else "")
+            )
             return RedirectResponse(f"/login?redirect={redirect_target}", status_code=302)
         raise HTTPException(401, "Not authenticated")
     auth_type = str(user.get("auth_type", ""))
@@ -592,10 +625,13 @@ def api_delete_oauth_client(client_id: str, request: Request):
     user = _require_user_grant(request)
     from db import OAuthStore
 
-    deleted = OAuthStore.delete_client(client_id, None if _is_platform_admin(user) else user["email"])
+    deleted = OAuthStore.delete_client(
+        client_id, None if _is_platform_admin(user) else user["email"]
+    )
     if not deleted:
         raise HTTPException(404, "OAuth client not found")
     return {"ok": True}
+
 
 @router.post("/api/auth/register", tags=["Auth"])
 def api_auth_register(body: RegisterRequest, request: Request):
@@ -633,11 +669,14 @@ def api_auth_register(body: RegisterRequest, request: Request):
     if existing_user and not existing_user.get("password_hash"):
         # OAuth-only account — link password to existing account
         if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(email, {
-                "password_hash": password_hash,
-                "salt": salt,
-                "email_verified": 1,  # Already verified via OAuth
-            })
+            UserStore.update_user(
+                email,
+                {
+                    "password_hash": password_hash,
+                    "salt": salt,
+                    "email_verified": 1,  # Already verified via OAuth
+                },
+            )
         else:
             existing_user["password_hash"] = password_hash
             existing_user["salt"] = salt
@@ -648,7 +687,9 @@ def api_auth_register(body: RegisterRequest, request: Request):
         user["password_hash"] = password_hash
         user["salt"] = salt
 
-        token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+        token_bundle = issue_user_tokens(
+            user, request, client_id="xcelsior-web", session_type="browser"
+        )
         return _build_auth_response(token_bundle, user=user)
 
     user_id = f"user-{uuid.uuid4().hex[:12]}"
@@ -676,11 +717,14 @@ def api_auth_register(body: RegisterRequest, request: Request):
     if _USE_PERSISTENT_AUTH:
         UserStore.create_user(user)
         # Set verification fields
-        UserStore.update_user(email, {
-            "email_verified": 0,
-            "email_verification_token": verification_token,
-            "email_verification_expires": verification_expires,
-        })
+        UserStore.update_user(
+            email,
+            {
+                "email_verified": 0,
+                "email_verification_token": verification_token,
+                "email_verification_expires": verification_expires,
+            },
+        )
     else:
         user["email_verified"] = 0
         user["email_verification_token"] = verification_token
@@ -706,7 +750,8 @@ def api_auth_register(body: RegisterRequest, request: Request):
     # Welcome notification for the new user
     try:
         NotificationStore.create(
-            email, "system",
+            email,
+            "system",
             "Welcome to Xcelsior!",
             "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
             {"user_id": user_id},
@@ -736,19 +781,31 @@ def api_auth_register(body: RegisterRequest, request: Request):
     # In test mode, auto-verify and return session (no email service)
     if XCELSIOR_ENV == "test":
         if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(email, {"email_verified": 1, "email_verification_token": None, "email_verification_expires": None})
+            UserStore.update_user(
+                email,
+                {
+                    "email_verified": 1,
+                    "email_verification_token": None,
+                    "email_verification_expires": None,
+                },
+            )
         else:
             with _user_lock:
                 if email in _users_db:
                     _users_db[email]["email_verified"] = 1
-        token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+        token_bundle = issue_user_tokens(
+            user, request, client_id="xcelsior-web", session_type="browser"
+        )
         return _build_auth_response(token_bundle, user=user)
 
-    return JSONResponse(content={
-        "ok": True,
-        "email_verification_required": True,
-        "message": "Account created. Please check your email to verify your address.",
-    })
+    return JSONResponse(
+        content={
+            "ok": True,
+            "email_verification_required": True,
+            "message": "Account created. Please check your email to verify your address.",
+        }
+    )
+
 
 @router.post("/api/auth/login", tags=["Auth"])
 def api_auth_login(body: LoginRequest, request: Request):
@@ -772,15 +829,18 @@ def api_auth_login(body: LoginRequest, request: Request):
     # OAuth-only account — no password has been set yet
     if not user.get("password_hash") or not user.get("salt"):
         provider = user.get("oauth_provider", "OAuth")
-        return JSONResponse(status_code=403, content={
-            "ok": False,
-            "oauth_account": True,
-            "oauth_provider": provider,
-            "error": {
-                "code": "oauth_only",
-                "message": f"This account was created with {provider.title()}. Please sign in with {provider.title()}, or use 'Forgot password' to set a password.",
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "oauth_account": True,
+                "oauth_provider": provider,
+                "error": {
+                    "code": "oauth_only",
+                    "message": f"This account was created with {provider.title()}. Please sign in with {provider.title()}, or use 'Forgot password' to set a password.",
+                },
             },
-        })
+        )
 
     password_hash, _ = _hash_password(body.password, user["salt"])
     if not hmac.compare_digest(password_hash, user["password_hash"]):
@@ -788,21 +848,31 @@ def api_auth_login(body: LoginRequest, request: Request):
 
     # Check email verification
     if not user.get("email_verified"):
-        return JSONResponse(status_code=403, content={
-            "ok": False,
-            "email_verification_required": True,
-            "email": email,
-            "error": {"code": "email_not_verified", "message": "Please verify your email address before logging in."},
-        })
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "email_verification_required": True,
+                "email": email,
+                "error": {
+                    "code": "email_not_verified",
+                    "message": "Please verify your email address before logging in.",
+                },
+            },
+        )
 
     # ── MFA check ──
     enabled_methods: list[dict] = []
     if _USE_PERSISTENT_AUTH:
         all_methods = MfaStore.list_methods(email)
         enabled_methods = [m for m in all_methods if m.get("enabled")]
-        log.info(f"MFA check for {email}: {len(all_methods)} total methods, {len(enabled_methods)} enabled methods")
+        log.info(
+            f"MFA check for {email}: {len(all_methods)} total methods, {len(enabled_methods)} enabled methods"
+        )
         if enabled_methods:
-            log.info(f"Enabled MFA methods for {email}: {[m['method_type'] for m in enabled_methods]}")
+            log.info(
+                f"Enabled MFA methods for {email}: {[m['method_type'] for m in enabled_methods]}"
+            )
         live_mfa_enabled = bool(enabled_methods)
         if live_mfa_enabled != bool(user.get("mfa_enabled")):
             log.info(f"Syncing mfa_enabled flag for {email}: {live_mfa_enabled}")
@@ -813,28 +883,35 @@ def api_auth_login(body: LoginRequest, request: Request):
         challenge_id = secrets.token_urlsafe(32)
         # Store a temporary partial session token
         partial_token = secrets.token_urlsafe(48)
-        MfaStore.create_challenge({
-            "challenge_id": challenge_id,
-            "email": email,
-            "session_token": partial_token,
-            "created_at": time.time(),
-            "expires_at": time.time() + 300,  # 5-minute window
-        })
-        return JSONResponse(content={
-            "ok": True,
-            "mfa_required": True,
-            "challenge_id": challenge_id,
-            "methods": [m["method_type"] for m in enabled_methods],
-        })
+        MfaStore.create_challenge(
+            {
+                "challenge_id": challenge_id,
+                "email": email,
+                "session_token": partial_token,
+                "created_at": time.time(),
+                "expires_at": time.time() + 300,  # 5-minute window
+            }
+        )
+        return JSONResponse(
+            content={
+                "ok": True,
+                "mfa_required": True,
+                "challenge_id": challenge_id,
+                "methods": [m["method_type"] for m in enabled_methods],
+            }
+        )
 
-    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+    token_bundle = issue_user_tokens(
+        user, request, client_id="xcelsior-web", session_type="browser"
+    )
 
     # Ensure a welcome notification exists (checks ALL notifications, not just unread,
     # so marking-all-read won't re-trigger on next login)
     try:
         if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
             NotificationStore.create(
-                email, "system",
+                email,
+                "system",
                 "Welcome to Xcelsior!",
                 "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
@@ -843,6 +920,7 @@ def api_auth_login(body: LoginRequest, request: Request):
         log.debug("welcome notification (OAuth) failed: %s", e)
 
     return _build_auth_response(token_bundle, user=user)
+
 
 @router.post("/api/auth/oauth/{provider}", tags=["Auth"])
 def api_auth_oauth_initiate(provider: str):
@@ -883,6 +961,7 @@ def api_auth_oauth_initiate(provider: str):
 
     auth_url = f"{cfg['authorize_url']}?{_urllib_parse.urlencode(params)}"
     return {"ok": True, "auth_url": auth_url}
+
 
 @router.get("/api/auth/oauth/{provider}/callback", tags=["Auth"])
 def api_auth_oauth_callback(provider: str, request: Request):
@@ -940,7 +1019,9 @@ def api_auth_oauth_callback(provider: str, request: Request):
         err_field = token_data.get("error") if isinstance(token_data, dict) else None
         log.error(
             "No access_token in OAuth response for %s (keys=%s, error=%s)",
-            provider, returned_keys, err_field,
+            provider,
+            returned_keys,
+            err_field,
         )
         return RedirectResponse("/dashboard?error=oauth_no_token")
 
@@ -1035,7 +1116,9 @@ def api_auth_oauth_callback(provider: str, request: Request):
                 _users_db[email] = user
 
     try:
-        token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+        token_bundle = issue_user_tokens(
+            user, request, client_id="xcelsior-web", session_type="browser"
+        )
     except Exception as e:
         log.error("OAuth token issuance failed for %s (%s): %s", email, provider, e)
         return RedirectResponse("/dashboard?error=oauth_token_failed")
@@ -1044,7 +1127,8 @@ def api_auth_oauth_callback(provider: str, request: Request):
     try:
         if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
             NotificationStore.create(
-                email, "system",
+                email,
+                "system",
                 "Welcome to Xcelsior!",
                 "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
@@ -1058,14 +1142,19 @@ def api_auth_oauth_callback(provider: str, request: Request):
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     _oauth_kw: dict = dict(
-        key="xcelsior_last_oauth", value=provider,
-        max_age=86400 * 365, httponly=False,
-        secure=_base.startswith("https"), samesite="lax", path="/",
+        key="xcelsior_last_oauth",
+        value=provider,
+        max_age=86400 * 365,
+        httponly=False,
+        secure=_base.startswith("https"),
+        samesite="lax",
+        path="/",
     )
     if _base.startswith("https"):
         _oauth_kw["domain"] = ".xcelsior.ca"
     resp.set_cookie(**_oauth_kw)
     return resp
+
 
 @router.get("/api/auth/me", tags=["Auth"])
 def api_auth_me(request: Request):
@@ -1101,6 +1190,7 @@ def api_auth_me(request: Request):
             "session_type": user.get("session_type", "browser"),
         },
     }
+
 
 @router.patch("/api/auth/me", tags=["Auth"])
 def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
@@ -1143,6 +1233,7 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
 
     return {"ok": True, "message": "Profile updated"}
 
+
 @router.post("/api/auth/refresh", tags=["Auth"], deprecated=True)
 def api_auth_refresh(request: Request):
     """Refresh an existing session token.
@@ -1165,7 +1256,9 @@ def api_auth_refresh(request: Request):
         refreshed_user = None
         email = str((user or {}).get("email", "")).strip()
         if email:
-            refreshed_user = UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
+            refreshed_user = (
+                UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
+            )
         refreshed_user = refreshed_user or user or {}
         return _build_auth_response(
             token_bundle,
@@ -1206,6 +1299,7 @@ def api_auth_refresh(request: Request):
         resp.headers[key] = value
     return resp
 
+
 @router.post("/api/auth/logout", tags=["Auth"])
 def api_auth_logout(request: Request):
     """Logout — invalidate session and clear cookie."""
@@ -1232,6 +1326,7 @@ def api_auth_logout(request: Request):
     _clear_auth_cookie(resp)
     return resp
 
+
 @router.delete("/api/auth/me", tags=["Auth"])
 def api_auth_delete_account(request: Request):
     """Delete the current user's account."""
@@ -1250,6 +1345,7 @@ def api_auth_delete_account(request: Request):
                 del _api_keys[k]
 
     return {"ok": True, "message": "Account deleted"}
+
 
 @router.post("/api/keys/generate", tags=["Auth"], deprecated=True)
 async def api_generate_api_key(request: Request):
@@ -1284,17 +1380,20 @@ async def api_generate_api_key(request: Request):
     if _USE_PERSISTENT_AUTH:
         UserStore.create_api_key(key_data)
 
-    resp = JSONResponse(content={
-        "ok": True,
-        "key": key,
-        "name": name,
-        "scope": scope,
-        "preview": key[:12] + "..." + key[-4:],
-        "note": "Save this key — it will not be shown again.",
-    })
+    resp = JSONResponse(
+        content={
+            "ok": True,
+            "key": key,
+            "name": name,
+            "scope": scope,
+            "preview": key[:12] + "..." + key[-4:],
+            "note": "Save this key — it will not be shown again.",
+        }
+    )
     for hdr, value in build_deprecation_headers("/api/keys").items():
         resp.headers[hdr] = value
     return resp
+
 
 @router.get("/api/keys", tags=["Auth"], deprecated=True)
 def api_list_keys(request: Request):
@@ -1332,6 +1431,7 @@ def api_list_keys(request: Request):
         resp.headers[hdr] = value
     return resp
 
+
 @router.delete("/api/keys/{key_preview}", tags=["Auth"], deprecated=True)
 def api_revoke_key(key_preview: str, request: Request):
     """Revoke an API key by its preview string."""
@@ -1361,8 +1461,10 @@ def api_revoke_key(key_preview: str, request: Request):
 
 # ── Model: PasswordResetRequest ──
 
+
 class PasswordResetRequest(BaseModel):
     email: str
+
 
 @router.post("/api/auth/password-reset", tags=["Auth"])
 def api_auth_password_reset(req: PasswordResetRequest, request: Request):
@@ -1372,7 +1474,11 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
     if _USE_PERSISTENT_AUTH:
         user = UserStore.get_user(req.email)
         if not user:
-            return {"ok": False, "account_exists": False, "message": "No account found for this email address."}
+            return {
+                "ok": False,
+                "account_exists": False,
+                "message": "No account found for this email address.",
+            }
         reset_token = secrets.token_urlsafe(32)
         UserStore.update_user(
             req.email,
@@ -1385,7 +1491,11 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
         with _user_lock:
             user = _users_db.get(req.email)
             if not user:
-                return {"ok": False, "account_exists": False, "message": "No account found for this email address."}
+                return {
+                    "ok": False,
+                    "account_exists": False,
+                    "message": "No account found for this email address.",
+                }
             reset_token = secrets.token_urlsafe(32)
             user["reset_token"] = reset_token
             user["reset_token_expires"] = time.time() + 3600
@@ -1417,9 +1527,11 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
 
 # ── Model: PasswordResetConfirm ──
 
+
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
+
 
 @router.post("/api/auth/password-reset/confirm", tags=["Auth"])
 def api_auth_password_reset_confirm(req: PasswordResetConfirm, request: Request):
@@ -1467,9 +1579,11 @@ def api_auth_password_reset_confirm(req: PasswordResetConfirm, request: Request)
 
 # ── Model: ChangePasswordRequest ──
 
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
 
 @router.post("/api/auth/change-password", tags=["Auth"])
 def api_auth_change_password(request: Request, req: ChangePasswordRequest):
@@ -1505,14 +1619,17 @@ def api_auth_change_password(request: Request, req: ChangePasswordRequest):
 
 # ── Model: VerifyEmailRequest ──
 
+
 class VerifyEmailRequest(BaseModel):
     token: str
 
 
 # ── Model: ResendVerificationRequest ──
 
+
 class ResendVerificationRequest(BaseModel):
     email: str
+
 
 @router.post("/api/auth/verify-email", tags=["Auth"])
 def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
@@ -1520,6 +1637,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     _check_auth_rate_limit(request)
     if _USE_PERSISTENT_AUTH:
         from db import auth_connection
+
         with auth_connection() as conn:
             row = conn.execute(
                 "SELECT email, email_verification_expires FROM users WHERE email_verification_token = %s",
@@ -1539,7 +1657,9 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
             for em, u in _users_db.items():
                 if u.get("email_verification_token") == req.token:
                     if time.time() > u.get("email_verification_expires", 0):
-                        raise HTTPException(400, "Verification link has expired. Please request a new one.")
+                        raise HTTPException(
+                            400, "Verification link has expired. Please request a new one."
+                        )
                     u["email_verified"] = 1
                     u.pop("email_verification_token", None)
                     u.pop("email_verification_expires", None)
@@ -1558,7 +1678,9 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     if not user:
         raise HTTPException(400, "User not found")
 
-    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+    token_bundle = issue_user_tokens(
+        user, request, client_id="xcelsior-web", session_type="browser"
+    )
 
     # Send welcome email now that they're verified
     try:
@@ -1580,6 +1702,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
 
     return _build_auth_response(token_bundle, user=user)
 
+
 @router.post("/api/auth/resend-verification", tags=["Auth"])
 def api_auth_resend_verification(req: ResendVerificationRequest, request: Request):
     """Resend the email verification link."""
@@ -1594,7 +1717,10 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
 
     if not user:
         # Don't reveal whether the email exists
-        return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
+        return {
+            "ok": True,
+            "message": "If that email is registered, a verification link has been sent.",
+        }
 
     if user.get("email_verified"):
         return {"ok": True, "message": "Email is already verified."}
@@ -1603,10 +1729,13 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     verification_expires = time.time() + 86400
 
     if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, {
-            "email_verification_token": verification_token,
-            "email_verification_expires": verification_expires,
-        })
+        UserStore.update_user(
+            email,
+            {
+                "email_verification_token": verification_token,
+                "email_verification_expires": verification_expires,
+            },
+        )
     else:
         with _user_lock:
             u = _users_db.get(email)
@@ -1631,7 +1760,11 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     except Exception as e:
         log.debug("verification email send failed: %s", e)
 
-    return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
+    return {
+        "ok": True,
+        "message": "If that email is registered, a verification link has been sent.",
+    }
+
 
 @router.get("/api/auth/sessions", tags=["Auth"])
 def api_auth_list_sessions(request: Request):
@@ -1644,24 +1777,28 @@ def api_auth_list_sessions(request: Request):
     else:
         with _user_lock:
             sessions = [
-                s for s in _sessions.values()
+                s
+                for s in _sessions.values()
                 if s.get("email") == user["email"] and s["expires_at"] > time.time()
             ]
 
     result = []
     for s in sessions:
         token = s["token"]
-        result.append({
-            "token_prefix": token[:8],
-            "is_current": token == current_token,
-            "ip_address": s.get("ip_address", ""),
-            "user_agent": s.get("user_agent", ""),
-            "created_at": s.get("created_at"),
-            "last_active": s.get("last_active"),
-            "expires_at": s.get("expires_at"),
-        })
+        result.append(
+            {
+                "token_prefix": token[:8],
+                "is_current": token == current_token,
+                "ip_address": s.get("ip_address", ""),
+                "user_agent": s.get("user_agent", ""),
+                "created_at": s.get("created_at"),
+                "last_active": s.get("last_active"),
+                "expires_at": s.get("expires_at"),
+            }
+        )
 
     return {"ok": True, "sessions": result}
+
 
 @router.delete("/api/auth/sessions/{token_prefix}", tags=["Auth"])
 def api_auth_revoke_session(token_prefix: str, request: Request):
@@ -1682,6 +1819,7 @@ def api_auth_revoke_session(token_prefix: str, request: Request):
                     return {"ok": True, "message": "Session revoked"}
 
     raise HTTPException(404, "Session not found")
+
 
 @router.get("/api/auth/me/data-export", tags=["Auth"])
 def api_data_export(request: Request):
@@ -1737,6 +1875,7 @@ def api_data_export(request: Request):
     }
     return {"ok": True, "data_export": export}
 
+
 @router.get("/api/users/me/preferences", tags=["Auth"])
 def api_get_user_preferences(request: Request):
     """Get user preferences."""
@@ -1750,6 +1889,7 @@ def api_get_user_preferences(request: Request):
     if isinstance(raw_prefs, str):
         try:
             import json as _json
+
             raw_prefs = _json.loads(raw_prefs)
         except Exception as e:
             raw_prefs = {}
@@ -1759,6 +1899,7 @@ def api_get_user_preferences(request: Request):
         "notifications": bool(full_user.get("notifications_enabled", 1)),
         "preferences": raw_prefs if isinstance(raw_prefs, dict) else {},
     }
+
 
 @router.put("/api/users/me/preferences", tags=["Auth"])
 def api_set_user_preferences(request: Request, body: dict):
@@ -1782,6 +1923,7 @@ def api_set_user_preferences(request: Request, body: dict):
             if isinstance(existing_prefs, str):
                 try:
                     import json as _json
+
                     existing_prefs = _json.loads(existing_prefs)
                 except Exception as e:
                     existing_prefs = {}
@@ -1813,7 +1955,10 @@ def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, requ
     if not updates:
         raise HTTPException(400, "No fields to update")
     from db import OAuthStore
-    ok = OAuthStore.update_client(client_id, updates, None if _is_platform_admin(user) else user["email"])
+
+    ok = OAuthStore.update_client(
+        client_id, updates, None if _is_platform_admin(user) else user["email"]
+    )
     if not ok:
         raise HTTPException(404, "OAuth client not found or not permitted")
     return {"ok": True}
@@ -1826,7 +1971,10 @@ def api_rotate_oauth_client_secret(client_id: str, request: Request):
     new_secret = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
     hash_, salt = hash_secret(new_secret)
     from db import OAuthStore
-    ok = OAuthStore.rotate_client_secret(client_id, hash_, salt, None if _is_platform_admin(user) else user["email"])
+
+    ok = OAuthStore.rotate_client_secret(
+        client_id, hash_, salt, None if _is_platform_admin(user) else user["email"]
+    )
     if not ok:
         raise HTTPException(404, "OAuth client not found or not permitted")
     return {"ok": True, "client_id": client_id, "client_secret": new_secret}

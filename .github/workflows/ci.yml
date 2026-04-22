@@ -26,7 +26,6 @@ jobs:
         run: ruff check .
       - name: Format check (black)
         run: black --check *.py routes/*.py tests/
-        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest

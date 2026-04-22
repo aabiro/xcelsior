@@ -47,15 +47,15 @@ KNOWN_SAFE = {
 SCAN_PATTERNS = [
     # f-string with UPPERCASE SQL keyword + brace-interpolated Python variable.
     re.compile(
-        r'''f["'][^"']*\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|ORDER\s+BY|GROUP\s+BY|JOIN|SET)\b[^"']*\{[a-zA-Z_][\w]*\}''',
+        r"""f["'][^"']*\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|ORDER\s+BY|GROUP\s+BY|JOIN|SET)\b[^"']*\{[a-zA-Z_][\w]*\}""",
     ),
     # .format() called directly on an UPPERCASE-SQL string literal.
     re.compile(
-        r'''["'][^"']*\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^"']*["']\s*\.\s*format\(''',
+        r"""["'][^"']*\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^"']*["']\s*\.\s*format\(""",
     ),
     # execute("..." + variable) style concatenation.
     re.compile(
-        r'''\bexecute\w*\s*\(\s*["'][^"']*["']\s*\+\s*[a-zA-Z_]''',
+        r"""\bexecute\w*\s*\(\s*["'][^"']*["']\s*\+\s*[a-zA-Z_]""",
     ),
 ]
 
@@ -64,7 +64,18 @@ def _source_files():
     for path in REPO.rglob("*.py"):
         parts = set(path.parts)
         # Exclude venv, caches, third-party, tests themselves.
-        if any(p in parts for p in ("venv", ".venv", "env", "__pycache__", "site-packages", "tests", ".hypothesis")):
+        if any(
+            p in parts
+            for p in (
+                "venv",
+                ".venv",
+                "env",
+                "__pycache__",
+                "site-packages",
+                "tests",
+                ".hypothesis",
+            )
+        ):
             continue
         yield path
 
@@ -101,8 +112,12 @@ def test_no_new_dynamic_sql_identifier_interpolation():
                 msg.append(f"    L{lineno}: {line}")
         msg.append("")
         msg.append("Fix options:")
-        msg.append("  1. Rewrite the query to use psycopg %s placeholders or psycopg.sql.Identifier().")
-        msg.append("  2. If the interpolated variable is rigorously allowlisted, audit this test and")
+        msg.append(
+            "  1. Rewrite the query to use psycopg %s placeholders or psycopg.sql.Identifier()."
+        )
+        msg.append(
+            "  2. If the interpolated variable is rigorously allowlisted, audit this test and"
+        )
         msg.append("     add the file to KNOWN_SAFE with a comment naming the allowlist source.")
         raise AssertionError("\n".join(msg))
 

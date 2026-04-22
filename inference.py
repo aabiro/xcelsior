@@ -34,6 +34,7 @@ SCALEDOWN_WINDOW_SEC = int(os.environ.get("XCELSIOR_INFERENCE_SCALEDOWN", "300")
 @dataclass
 class InferenceRequest:
     """OpenAI-compatible inference request."""
+
     request_id: str = field(default_factory=lambda: f"req-{uuid.uuid4().hex[:12]}")
     endpoint_id: str = ""
     model: str = ""
@@ -50,6 +51,7 @@ class InferenceRequest:
 @dataclass
 class InferenceResponse:
     """OpenAI-compatible inference response."""
+
     id: str = ""
     object: str = "chat.completion"
     created: int = 0
@@ -69,6 +71,7 @@ class InferenceEngine:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -112,9 +115,7 @@ class InferenceEngine:
         if gpu_type:
             available = self._check_gpu_available(gpu_type, region)
             if not available:
-                raise ValueError(
-                    f"No GPUs of type '{gpu_type}' available in region '{region}'"
-                )
+                raise ValueError(f"No GPUs of type '{gpu_type}' available in region '{region}'")
 
         with self._conn() as conn:
             conn.execute(
@@ -129,22 +130,48 @@ class InferenceEngine:
                            %s, %s, %s, %s, %s,
                            0.0,
                            %s, %s)""",
-                (endpoint_id, owner_id, model_id, gpu_type, vram_required,
-                 max_batch_size, max_concurrent, min_workers, max_workers,
-                 scaledown_window_sec,
-                 docker_image, mode, health_endpoint, api_format, region,
-                 now, now),
+                (
+                    endpoint_id,
+                    owner_id,
+                    model_id,
+                    gpu_type,
+                    vram_required,
+                    max_batch_size,
+                    max_concurrent,
+                    min_workers,
+                    max_workers,
+                    scaledown_window_sec,
+                    docker_image,
+                    mode,
+                    health_endpoint,
+                    api_format,
+                    region,
+                    now,
+                    now,
+                ),
             )
 
-        log.info("Inference endpoint created: %s model=%s gpu=%s region=%s owner=%s",
-                 endpoint_id, model_id, gpu_type, region, owner_id)
+        log.info(
+            "Inference endpoint created: %s model=%s gpu=%s region=%s owner=%s",
+            endpoint_id,
+            model_id,
+            gpu_type,
+            region,
+            owner_id,
+        )
 
         # Provision initial workers if min_workers > 0
         worker_job_id = None
         if min_workers >= 1:
-            worker_job_id = self.provision_worker(endpoint_id, model_id, gpu_type,
-                                                   vram_required, region, docker_image,
-                                                   owner_id=owner_id)
+            worker_job_id = self.provision_worker(
+                endpoint_id,
+                model_id,
+                gpu_type,
+                vram_required,
+                region,
+                docker_image,
+                owner_id=owner_id,
+            )
 
         # Look up cost_per_hour for the GPU type
         cost_per_hour = self._get_gpu_cost_per_hour(gpu_type, region)
@@ -163,16 +190,30 @@ class InferenceEngine:
             "cost_per_hour_cad": cost_per_hour,
         }
 
-    def provision_worker(self, endpoint_id: str, model_id: str, gpu_type: str,
-                         vram_gb: float, region: str, docker_image: str,
-                         owner_id: str = "") -> Optional[str]:
+    def provision_worker(
+        self,
+        endpoint_id: str,
+        model_id: str,
+        gpu_type: str,
+        vram_gb: float,
+        region: str,
+        docker_image: str,
+        owner_id: str = "",
+    ) -> Optional[str]:
         """Provision a GPU worker for an inference endpoint via the scheduler.
 
         Submits the job, processes the queue to assign a host, and polls
         for container readiness before returning.
         """
         try:
-            from scheduler import submit_job, process_queue, list_jobs, check_job_running, list_hosts
+            from scheduler import (
+                submit_job,
+                process_queue,
+                list_jobs,
+                check_job_running,
+                list_hosts,
+            )
+
             job = submit_job(
                 name=f"inference-{endpoint_id}",
                 vram_needed_gb=vram_gb,
@@ -217,11 +258,18 @@ class InferenceEngine:
                 )
 
             if not started:
-                log.error("Worker container did not start within 60s for endpoint %s (job %s)",
-                          endpoint_id, worker_job_id)
+                log.error(
+                    "Worker container did not start within 60s for endpoint %s (job %s)",
+                    endpoint_id,
+                    worker_job_id,
+                )
                 return worker_job_id  # Return job_id so caller can inspect
 
-            log.info("Worker provisioned and running for endpoint %s: job_id=%s", endpoint_id, worker_job_id)
+            log.info(
+                "Worker provisioned and running for endpoint %s: job_id=%s",
+                endpoint_id,
+                worker_job_id,
+            )
             return worker_job_id
         except Exception as e:
             log.error("Failed to provision worker for %s: %s", endpoint_id, e)
@@ -248,6 +296,7 @@ class InferenceEngine:
                 # Actually kill the container via scheduler
                 try:
                     from scheduler import kill_job as scheduler_kill
+
                     # Look up the job + host to pass to kill_job
                     job_row = conn.execute(
                         "SELECT j.*, h.payload->>'ip' AS ip FROM jobs j JOIN hosts h ON j.host_id = h.host_id WHERE j.job_id = %s",
@@ -255,10 +304,16 @@ class InferenceEngine:
                     ).fetchone()
                     if job_row:
                         scheduler_kill(dict(job_row), dict(job_row))
-                        log.info("Killed worker container for endpoint %s (job %s)", endpoint_id, worker_job_id)
+                        log.info(
+                            "Killed worker container for endpoint %s (job %s)",
+                            endpoint_id,
+                            worker_job_id,
+                        )
                     else:
                         # Job not found in DB — mark cancelled anyway
-                        log.warning("Worker job %s not found in jobs table, skipping kill", worker_job_id)
+                        log.warning(
+                            "Worker job %s not found in jobs table, skipping kill", worker_job_id
+                        )
                 except Exception as e:
                     log.error("Failed to kill worker job %s: %s", worker_job_id, e)
 
@@ -356,6 +411,7 @@ class InferenceEngine:
             if worker_job_id:
                 try:
                     from scheduler import list_jobs, check_job_running, list_hosts
+
                     # Look up the job and its host to check container state
                     job_data = None
                     for j in list_jobs():
@@ -438,7 +494,9 @@ class InferenceEngine:
                 "cost_per_hour_cad": cost_per_hour,
                 "last_24h": {
                     "requests": int(recent_jobs["total"] or 0) if recent_jobs else 0,
-                    "avg_latency_ms": round(float(recent_jobs["avg_latency"] or 0), 1) if recent_jobs else 0,
+                    "avg_latency_ms": (
+                        round(float(recent_jobs["avg_latency"] or 0), 1) if recent_jobs else 0
+                    ),
                     "input_tokens": int(recent_jobs["total_input"] or 0) if recent_jobs else 0,
                     "output_tokens": int(recent_jobs["total_output"] or 0) if recent_jobs else 0,
                 },
@@ -593,6 +651,7 @@ class InferenceEngine:
             cost = self.compute_token_cost(input_tokens, output_tokens)
             if cost > 0:
                 from billing import get_billing_engine
+
                 engine = get_billing_engine()
                 engine.charge(
                     job["customer_id"],
@@ -703,9 +762,15 @@ class InferenceEngine:
         for row in evicting:
             if row.get("job_id") and row.get("ip"):
                 try:
-                    scheduler_kill({"job_id": row["job_id"], "name": f"inference-evict-{row['worker_id']}"},
-                                   {"ip": row["ip"]})
-                    log.info("Killed evicted worker container: worker=%s job=%s", row["worker_id"], row["job_id"])
+                    scheduler_kill(
+                        {"job_id": row["job_id"], "name": f"inference-evict-{row['worker_id']}"},
+                        {"ip": row["ip"]},
+                    )
+                    log.info(
+                        "Killed evicted worker container: worker=%s job=%s",
+                        row["worker_id"],
+                        row["job_id"],
+                    )
                 except Exception as e:
                     log.error("Failed to kill evicted worker %s: %s", row["worker_id"], e)
 

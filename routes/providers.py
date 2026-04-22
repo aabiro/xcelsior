@@ -20,6 +20,7 @@ router = APIRouter()
 
 # ── Model: ProviderRegisterRequest ──
 
+
 class ProviderRegisterRequest(BaseModel):
     provider_id: str
     email: str
@@ -33,8 +34,10 @@ class ProviderRegisterRequest(BaseModel):
 
 # ── Model: IncorporationUploadRequest ──
 
+
 class IncorporationUploadRequest(BaseModel):
     file_id: str  # Reference to file uploaded via /api/artifacts/upload
+
 
 @router.post("/api/providers/register", tags=["Providers"])
 def api_register_provider(req: ProviderRegisterRequest, request: Request):
@@ -50,6 +53,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     4. Tax Compliance (GST/HST auto-collected per province)
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "providers:write")
@@ -75,6 +79,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
         raise HTTPException(502, f"Provider registration failed: {e}") from e
     # Link provider_id to user account and promote role
     from db import UserStore
+
     UserStore.update_user(req.email, {"provider_id": req.provider_id, "role": "provider"})
 
     # Create initial reputation record so the provider starts with a score
@@ -96,6 +101,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     )
     return {"ok": True, **result}
 
+
 @router.post("/api/providers/{provider_id}/abandon-onboarding", tags=["Providers"])
 def api_abandon_onboarding(provider_id: str, request: Request):
     """Mark a provider's onboarding as abandoned.
@@ -105,6 +111,7 @@ def api_abandon_onboarding(provider_id: str, request: Request):
     Idempotent — safe to call multiple times.
     """
     from routes._deps import _require_scope
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Unauthorized")
@@ -122,6 +129,7 @@ def api_resume_onboarding(provider_id: str, request: Request):
     they left off without re-registering.
     """
     from routes._deps import _require_scope
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Unauthorized")
@@ -148,10 +156,12 @@ def api_resume_onboarding(provider_id: str, request: Request):
         raise HTTPException(502, str(e)) from e
     return {"ok": True, **result}
 
+
 @router.get("/api/providers/{provider_id}", tags=["Providers"])
 def api_get_provider(provider_id: str, request: Request):
     """Get provider account details including company info and payout status."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "providers:read")
@@ -163,10 +173,12 @@ def api_get_provider(provider_id: str, request: Request):
     provider.pop("stripe_account_id", None)
     return {"ok": True, "provider": provider}
 
+
 @router.get("/api/providers", tags=["Providers"])
 def api_list_providers(request: Request, status: str = ""):
     """List all provider accounts, optionally filtered by status."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "providers:read")
@@ -177,6 +189,7 @@ def api_list_providers(request: Request, status: str = ""):
         p.pop("stripe_account_id", None)
     return {"ok": True, "providers": providers, "count": len(providers)}
 
+
 @router.post("/api/providers/{provider_id}/incorporation", tags=["Providers"])
 def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, request: Request):
     """Link an uploaded incorporation document to a provider account.
@@ -185,6 +198,7 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, 
     with artifact_type='incorporation_doc'. Then pass the resulting file_id here.
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "providers:write")
@@ -203,10 +217,12 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, 
 
     return {"ok": True, **result}
 
+
 @router.get("/api/providers/{provider_id}/earnings", tags=["Providers"])
 def api_provider_earnings(provider_id: str, request: Request):
     """Get aggregate earnings and payout history for a provider."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "providers:read")
@@ -214,6 +230,7 @@ def api_provider_earnings(provider_id: str, request: Request):
     earnings = mgr.get_provider_earnings(provider_id)
     payouts = mgr.get_provider_payouts(provider_id, limit=20)
     return {"ok": True, "earnings": earnings, "recent_payouts": payouts}
+
 
 @router.post("/api/providers/{provider_id}/payout", tags=["Providers"])
 def api_provider_payout(provider_id: str, request: Request, job_id: str = "", total_cad: float = 0):
@@ -223,6 +240,7 @@ def api_provider_payout(provider_id: str, request: Request, job_id: str = "", to
     creates a real Transfer to the provider's connected account.
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "providers:write")
@@ -234,6 +252,7 @@ def api_provider_payout(provider_id: str, request: Request, job_id: str = "", to
         raise HTTPException(404, f"Provider {provider_id} not found")
     result = mgr.split_payout(job_id, provider_id, total_cad, provider.get("province", "ON"))
     return {"ok": True, **result}
+
 
 @router.post("/api/providers/webhook", tags=["Providers"])
 async def api_stripe_webhook(request: Request):

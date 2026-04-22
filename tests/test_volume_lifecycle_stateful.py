@@ -21,7 +21,6 @@ from hypothesis.stateful import RuleBasedStateMachine, invariant, precondition, 
 
 from volumes import VolumeEngine
 
-
 STATUSES = {"provisioning", "available", "attached", "deleting", "deleted", "error"}
 
 
@@ -52,8 +51,7 @@ class VolumeLifecycle(RuleBasedStateMachine):
 
     @rule()
     @precondition(
-        lambda self: self.status == "attached"
-        and "available" in self.T.get("attached", set())
+        lambda self: self.status == "attached" and "available" in self.T.get("attached", set())
     )
     def detach(self):
         self.status = "available"
@@ -79,8 +77,7 @@ class VolumeLifecycle(RuleBasedStateMachine):
 
     @rule()
     @precondition(
-        lambda self: self.status == "error"
-        and "provisioning" in self.T.get("error", set())
+        lambda self: self.status == "error" and "provisioning" in self.T.get("error", set())
     )
     def recover(self):
         self.status = "provisioning"
@@ -116,9 +113,9 @@ class VolumeLifecycle(RuleBasedStateMachine):
     @invariant()
     def deleting_or_deleted_has_no_attachments(self):
         if self.status in {"deleting", "deleted"}:
-            assert self.attachments == 0, (
-                f"{self.status} must have 0 attachments, got {self.attachments}"
-            )
+            assert (
+                self.attachments == 0
+            ), f"{self.status} must have 0 attachments, got {self.attachments}"
 
     @invariant()
     def deleted_is_a_sink(self):

@@ -8,7 +8,9 @@ import pytest
 from routes.ssh import _validate_ssh_public_key, _ssh_key_fingerprint, VALID_SSH_KEY_TYPES
 
 # A real ed25519 test key (safe — generated just for tests, no private key)
-VALID_ED25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@xcelsior"
+VALID_ED25519 = (
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@xcelsior"
+)
 VALID_RSA = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7 user@host"
 
 
@@ -70,6 +72,7 @@ class TestSshKeyFingerprint:
     def test_different_keys_different_fingerprints(self):
         # Use a different but valid ed25519 key (different base64 data, properly padded)
         import base64
+
         fake_data = base64.b64encode(b"\x00" * 32 + b"different-key-data").decode()
         key2 = f"ssh-ed25519 {fake_data} other@host"
         fp1 = _ssh_key_fingerprint(VALID_ED25519)
@@ -98,6 +101,7 @@ class TestContainerNameFormat:
     def test_slurm_adapter_uses_xcl_prefix(self):
         """SLURM adapter should use xcl- prefix for job names."""
         from slurm_adapter import xcelsior_job_to_sbatch
+
         job = {
             "job_id": "verify-123",
             "vram_needed_gb": 8,

@@ -24,6 +24,7 @@ router = APIRouter()
 
 # ── Model: SpotJobIn ──
 
+
 class SpotJobIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     vram_needed_gb: float = Field(gt=0)
@@ -38,12 +39,15 @@ class SpotJobIn(BaseModel):
         if v is None or v == "":
             return v
         from security import validate_docker_image
+
         return validate_docker_image(v)
+
 
 @router.get("/spot-prices", tags=["Spot Pricing"])
 def api_spot_prices():
     """Get current spot prices for all GPU models."""
     return {"ok": True, "prices": get_current_spot_prices()}
+
 
 @router.post("/spot-prices/update", tags=["Spot Pricing"])
 def api_update_spot_prices(request: Request):
@@ -53,10 +57,12 @@ def api_update_spot_prices(request: Request):
     broadcast_sse("spot_prices_updated", {"prices": prices})
     return {"ok": True, "prices": prices}
 
+
 @router.post("/spot/instance", tags=["Spot Pricing"])
 def api_submit_spot_instance(j: SpotJobIn, request: Request):
     """Submit a spot job — delegates to unified POST /instance."""
     from routes.instances import JobIn, api_submit_instance
+
     unified = JobIn(
         name=j.name,
         vram_needed_gb=j.vram_needed_gb,
@@ -67,10 +73,10 @@ def api_submit_spot_instance(j: SpotJobIn, request: Request):
     )
     return api_submit_instance(unified, request)
 
+
 @router.post("/spot/preemption-cycle", tags=["Spot Pricing"])
 def api_preemption_cycle(request: Request):
     """Run a preemption cycle — reclaim resources from underbidding spot jobs."""
     _require_admin(request)
     preempted = preemption_cycle()
     return {"ok": True, "preempted": preempted}
-

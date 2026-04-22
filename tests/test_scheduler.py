@@ -47,7 +47,9 @@ def _admit_host(host_id):
         if row:
             import json as _json
 
-            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            data = (
+                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            )
             data["admitted"] = True
             conn.execute(
                 "UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id)
@@ -485,22 +487,24 @@ class TestMarketplace:
 
         monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
 
-        scheduler.save_marketplace([
-            {
-                "host_id": "h1",
-                "gpu_model": "RTX 4090",
-                "vram_gb": 24,
-                "price_per_hour": 0.30,
-                "description": "",
-                "owner": "alice",
-                "platform_cut": 0.30,
-                "listed_at": time.time(),
-                "updated_at": time.time(),
-                "active": True,
-                "total_jobs": 0,
-                "total_earned": 0.0,
-            }
-        ])
+        scheduler.save_marketplace(
+            [
+                {
+                    "host_id": "h1",
+                    "gpu_model": "RTX 4090",
+                    "vram_gb": 24,
+                    "price_per_hour": 0.30,
+                    "description": "",
+                    "owner": "alice",
+                    "platform_cut": 0.30,
+                    "listed_at": time.time(),
+                    "updated_at": time.time(),
+                    "active": True,
+                    "total_jobs": 0,
+                    "total_earned": 0.0,
+                }
+            ]
+        )
 
         listing = scheduler.get_marketplace(active_only=False)[0]
         assert listing["platform_cut"] == 0.30
@@ -529,22 +533,24 @@ class TestMarketplace:
 
         monkeypatch.setattr(scheduler, "get_reputation_engine", lambda: _FakeReputationEngine())
 
-        scheduler.save_marketplace([
-            {
-                "host_id": "h1",
-                "gpu_model": "RTX 4090",
-                "vram_gb": 24,
-                "price_per_hour": 1.0,
-                "description": "",
-                "owner": "alice",
-                "platform_cut": scheduler.PLATFORM_CUT,
-                "listed_at": time.time(),
-                "updated_at": time.time(),
-                "active": True,
-                "total_jobs": 0,
-                "total_earned": 0.0,
-            }
-        ])
+        scheduler.save_marketplace(
+            [
+                {
+                    "host_id": "h1",
+                    "gpu_model": "RTX 4090",
+                    "vram_gb": 24,
+                    "price_per_hour": 1.0,
+                    "description": "",
+                    "owner": "alice",
+                    "platform_cut": scheduler.PLATFORM_CUT,
+                    "listed_at": time.time(),
+                    "updated_at": time.time(),
+                    "active": True,
+                    "total_jobs": 0,
+                    "total_earned": 0.0,
+                }
+            ]
+        )
 
         job = scheduler.submit_job("mk-job", 8)
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")

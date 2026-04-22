@@ -43,14 +43,17 @@ router = APIRouter()
 
 # ── Model: ChatRequest ──
 
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = None
+
 
 @router.post("/api/chat", tags=["Chat"])
 async def api_chat(body: ChatRequest, request: Request):
     """Stream an AI chat response about Xcelsior via SSE."""
     from routes._deps import _require_scope
+
     client_ip = request.client.host if request.client else "unknown"
 
     if not check_chat_rate_limit(client_ip):
@@ -106,6 +109,7 @@ async def api_chat(body: ChatRequest, request: Request):
         },
     )
 
+
 @router.get("/api/chat/suggestions", tags=["Chat"])
 def api_chat_suggestions():
     """Return suggested starter questions for the chat widget."""
@@ -119,10 +123,12 @@ def api_chat_suggestions():
         ],
     }
 
+
 @router.get("/api/chat/history/{conversation_id}", tags=["Chat"])
 def api_chat_history(conversation_id: str, request: Request):
     """Return message history for an existing conversation."""
     from routes._deps import _require_scope, _get_current_user
+
     client_ip = request.client.host if request.client else "unknown"
     if not check_chat_rate_limit(client_ip):
         raise HTTPException(429, "Rate limit exceeded.")
@@ -139,10 +145,12 @@ def api_chat_history(conversation_id: str, request: Request):
         "messages": messages,
     }
 
+
 @router.get("/api/chat/conversations", tags=["Chat"])
 def api_chat_conversations(request: Request):
     """List recent conversations for the authenticated user."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated.")
@@ -156,14 +164,17 @@ def api_chat_conversations(request: Request):
 
 # ── Model: ChatFeedbackRequest ──
 
+
 class ChatFeedbackRequest(BaseModel):
     message_id: str
     vote: str  # "up" or "down"
+
 
 @router.post("/api/chat/feedback", tags=["Chat"])
 def api_chat_feedback(body: ChatFeedbackRequest, request: Request):
     """Record thumbs-up / thumbs-down feedback on a chat message."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -176,12 +187,14 @@ def api_chat_feedback(body: ChatFeedbackRequest, request: Request):
 
 # ── Helper: _require_ai_enabled ──
 
+
 def _require_ai_enabled():
     if not FEATURE_AI_ASSISTANT:
         raise HTTPException(404, "AI assistant is not enabled.")
 
 
 # ── Model: AiChatRequest ──
+
 
 class AiChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
@@ -191,9 +204,11 @@ class AiChatRequest(BaseModel):
 
 # ── Model: AiConfirmRequest ──
 
+
 class AiConfirmRequest(BaseModel):
     confirmation_id: str
     approved: bool
+
 
 @router.post("/api/ai/chat", tags=["AI Assistant"])
 async def api_ai_chat(body: AiChatRequest, request: Request):
@@ -230,6 +245,7 @@ async def api_ai_chat(body: AiChatRequest, request: Request):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+
 @router.get("/api/ai/conversations", tags=["AI Assistant"])
 def api_ai_list_conversations(request: Request, limit: int = 30):
     """List the current user's AI assistant conversations."""
@@ -240,6 +256,7 @@ def api_ai_list_conversations(request: Request, limit: int = 30):
     user_id = user.get("user_id", user.get("email", ""))
     convs = ai_list_conversations(user_id, limit=limit)
     return {"ok": True, "conversations": convs}
+
 
 @router.get("/api/ai/conversations/{conversation_id}", tags=["AI Assistant"])
 def api_ai_get_conversation(conversation_id: str, request: Request):
@@ -255,6 +272,7 @@ def api_ai_get_conversation(conversation_id: str, request: Request):
         raise HTTPException(404, "Conversation not found")
     return {"ok": True, "conversation": conv, "messages": messages}
 
+
 @router.delete("/api/ai/conversations/{conversation_id}", tags=["AI Assistant"])
 def api_ai_delete_conversation(conversation_id: str, request: Request):
     """Delete an AI assistant conversation."""
@@ -267,6 +285,7 @@ def api_ai_delete_conversation(conversation_id: str, request: Request):
     if not deleted:
         raise HTTPException(404, "Conversation not found")
     return {"ok": True}
+
 
 @router.post("/api/ai/confirm", tags=["AI Assistant"])
 async def api_ai_confirm(body: AiConfirmRequest, request: Request):
@@ -286,6 +305,7 @@ async def api_ai_confirm(body: AiConfirmRequest, request: Request):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
+
 @router.get("/api/ai/suggestions", tags=["AI Assistant"])
 def api_ai_suggestions(request: Request):
     """Get context-aware suggestion chips for the AI assistant."""
@@ -297,6 +317,7 @@ def api_ai_suggestions(request: Request):
 
 
 # ── Model: AnalyticsAiRequest ──
+
 
 class AnalyticsAiRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
@@ -334,7 +355,9 @@ async def api_ai_analytics_chat(body: AnalyticsAiRequest, request: Request):
         if not conv:
             raise HTTPException(404, "Conversation not found")
     else:
-        conversation_id = ai_create_conversation_fn(user_id, title="Analytics chat", source="analytics")
+        conversation_id = ai_create_conversation_fn(
+            user_id, title="Analytics chat", source="analytics"
+        )
 
     # Build a page_context that the system prompt builder can parse
     page_context = f"analytics-dashboard:{body.chart_context}"
@@ -350,4 +373,3 @@ async def api_ai_analytics_chat(body: AnalyticsAiRequest, request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-

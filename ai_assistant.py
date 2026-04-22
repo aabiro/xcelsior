@@ -27,10 +27,18 @@ _SSH_HOST = os.environ.get("XCELSIOR_SSH_HOST", "connect.xcelsior.ca")
 _BASE_DOMAIN = _BASE_URL.replace("https://", "").replace("http://", "").rstrip("/")
 _API_DOMAIN = f"api.{_BASE_DOMAIN}"
 
-FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in ("true", "1", "yes")
+FEATURE_AI_ASSISTANT = os.environ.get("FEATURE_AI_ASSISTANT", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 AI_PROVIDER = os.environ.get("AI_ASSISTANT_PROVIDER", "xai").strip().lower() or "xai"
 AI_FALLBACK_PROVIDERS = os.environ.get("AI_ASSISTANT_FALLBACK_PROVIDERS", "anthropic,openai")
-AI_ENABLE_LIVE_CALLS = os.environ.get("AI_ASSISTANT_ENABLE_LIVE_CALLS", "false").lower() in ("true", "1", "yes")
+AI_ENABLE_LIVE_CALLS = os.environ.get("AI_ASSISTANT_ENABLE_LIVE_CALLS", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-20250414")
 AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS") or "4096")
@@ -84,6 +92,7 @@ def _verify_confirmation_token(token: str) -> str | None:
     if not hmac.compare_digest(sig, expected):
         return None
     return cid
+
 
 TEXT_PROVIDERS = {
     "xai": {
@@ -176,7 +185,7 @@ def _build_mock_response(user_message: str) -> str:
     primary = provider_order[0] if provider_order else AI_PROVIDER
     preview = user_message.strip().replace("\n", " ")
     if len(preview) > MOCK_PREVIEW_MAX_LEN:
-        preview = preview[:MOCK_PREVIEW_MAX_LEN - 3] + "..."
+        preview = preview[: MOCK_PREVIEW_MAX_LEN - 3] + "..."
     return (
         f"[mock:{primary}] Live provider calls are disabled for Xcel AI, so no external API call was made. "
         f"You can test the assistant safely in development. Provider order: {provider_chain}. "
@@ -220,7 +229,9 @@ async def _stream_text_completion(
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code != 200:
                 body = await resp.aread()
-                raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:ERROR_BODY_PREVIEW_LEN]}")
+                raise RuntimeError(
+                    f"{provider} returned {resp.status_code}: {body.decode()[:ERROR_BODY_PREVIEW_LEN]}"
+                )
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -240,10 +251,12 @@ async def _stream_text_completion(
 
 # ── Database Helpers ──────────────────────────────────────────────────
 
+
 @contextmanager
 def _ai_db():
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -299,7 +312,9 @@ def delete_conversation(conversation_id: str, user_id: str) -> bool:
         return result.rowcount > 0
 
 
-def get_conversation_messages(conversation_id: str, user_id: str, limit: int = DEFAULT_MESSAGE_LIMIT) -> list[dict]:
+def get_conversation_messages(
+    conversation_id: str, user_id: str, limit: int = DEFAULT_MESSAGE_LIMIT
+) -> list[dict]:
     """Get messages for a conversation (with ownership check)."""
     conv = get_conversation(conversation_id, user_id)
     if not conv:
@@ -331,9 +346,18 @@ def _append_message(
         "INSERT INTO ai_messages "
         "(message_id, conversation_id, role, content, tool_name, tool_input, tool_output, tokens_in, tokens_out, created_at) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (mid, conversation_id, role, content, tool_name,
-         json.dumps(tool_input or {}), json.dumps(tool_output or {}),
-         tokens_in, tokens_out, now),
+        (
+            mid,
+            conversation_id,
+            role,
+            content,
+            tool_name,
+            json.dumps(tool_input or {}),
+            json.dumps(tool_output or {}),
+            tokens_in,
+            tokens_out,
+            now,
+        ),
     )
     conn.execute(
         "UPDATE ai_conversations SET updated_at = %s, message_count = message_count + 1, "
@@ -391,6 +415,7 @@ def resolve_confirmation(confirmation_id: str, user_id: str, approved: bool) -> 
 
 # ── RAG: BM25 Document Search ────────────────────────────────────────
 
+
 def ingest_docs():
     """Chunk and ingest llms.txt + docs/*.md into ai_docs for BM25 search."""
     sources: list[tuple[str, str]] = []
@@ -413,7 +438,7 @@ def ingest_docs():
         overlap = RAG_CHUNK_OVERLAP
         i = 0
         while i < len(words):
-            chunk_words = words[i:i + chunk_size]
+            chunk_words = words[i : i + chunk_size]
             chunks.append((source, " ".join(chunk_words)))
             i += chunk_size - overlap
 
@@ -443,10 +468,13 @@ def search_docs(query: str, limit: int = DEFAULT_DOC_SEARCH_LIMIT) -> list[dict]
             "ORDER BY rank DESC LIMIT %s",
             (tsquery, tsquery, limit),
         ).fetchall()
-        return [{"source": r["source"], "chunk": r["chunk"], "rank": float(r["rank"])} for r in rows]
+        return [
+            {"source": r["source"], "chunk": r["chunk"], "rank": float(r["rank"])} for r in rows
+        ]
 
 
 # ── Tool Definitions ──────────────────────────────────────────────────
+
 
 def _build_tools() -> list[dict]:
     """Return Anthropic-format tool definitions."""
@@ -470,9 +498,20 @@ def _build_tools() -> list[dict]:
                     "status": {
                         "type": "string",
                         "description": "Filter by job status: queued, assigned, running, completed, failed, cancelled",
-                        "enum": ["queued", "assigned", "running", "completed", "failed", "cancelled"],
+                        "enum": [
+                            "queued",
+                            "assigned",
+                            "running",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                        ],
                     },
-                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": DEFAULT_JOB_LIST_LIMIT},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)",
+                        "default": DEFAULT_JOB_LIST_LIMIT,
+                    },
                 },
                 "required": [],
             },
@@ -492,10 +531,19 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "gpu_model": {"type": "string", "description": "GPU model name (e.g., 'RTX 4090', 'A100')"},
+                    "gpu_model": {
+                        "type": "string",
+                        "description": "GPU model name (e.g., 'RTX 4090', 'A100')",
+                    },
                     "min_vram_gb": {"type": "number", "description": "Minimum VRAM in GB"},
-                    "max_price_per_hour": {"type": "number", "description": "Max price in CAD per hour"},
-                    "province": {"type": "string", "description": "Canadian province code (e.g., 'ON', 'BC')"},
+                    "max_price_per_hour": {
+                        "type": "number",
+                        "description": "Max price in CAD per hour",
+                    },
+                    "province": {
+                        "type": "string",
+                        "description": "Canadian province code (e.g., 'ON', 'BC')",
+                    },
                 },
                 "required": [],
             },
@@ -530,8 +578,14 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "workload": {"type": "string", "description": "Description of the workload (e.g., 'fine-tune Llama 3 8B', 'inference serving', 'training SDXL')"},
-                    "budget_per_hour_cad": {"type": "number", "description": "Budget in CAD per hour (optional)"},
+                    "workload": {
+                        "type": "string",
+                        "description": "Description of the workload (e.g., 'fine-tune Llama 3 8B', 'inference serving', 'training SDXL')",
+                    },
+                    "budget_per_hour_cad": {
+                        "type": "number",
+                        "description": "Budget in CAD per hour (optional)",
+                    },
                 },
                 "required": ["workload"],
             },
@@ -542,7 +596,10 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "gpu_model": {"type": "string", "description": "GPU model (e.g., 'RTX 4090', 'A100 80GB')"},
+                    "gpu_model": {
+                        "type": "string",
+                        "description": "GPU model (e.g., 'RTX 4090', 'A100 80GB')",
+                    },
                     "gpu_count": {"type": "integer", "description": "Number of GPUs"},
                     "hours": {"type": "number", "description": "Duration in hours"},
                 },
@@ -575,7 +632,11 @@ def _build_tools() -> list[dict]:
                     "gpu_count": {"type": "integer", "description": "Number of GPUs", "default": 1},
                     "vram_needed_gb": {"type": "number", "description": "VRAM needed in GB"},
                     "docker_image": {"type": "string", "description": "Docker image to run"},
-                    "tier": {"type": "string", "description": "Pricing tier", "default": "on-demand"},
+                    "tier": {
+                        "type": "string",
+                        "description": "Pricing tier",
+                        "default": "on-demand",
+                    },
                 },
                 "required": ["name", "gpu_model", "vram_needed_gb", "docker_image"],
             },
@@ -612,8 +673,14 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "gpu_model": {"type": "string", "description": "Filter by GPU model (optional)"},
-                    "province": {"type": "string", "description": "Filter by Canadian province code (optional)"},
+                    "gpu_model": {
+                        "type": "string",
+                        "description": "Filter by GPU model (optional)",
+                    },
+                    "province": {
+                        "type": "string",
+                        "description": "Filter by Canadian province code (optional)",
+                    },
                 },
                 "required": [],
             },
@@ -628,7 +695,12 @@ def _build_tools() -> list[dict]:
             "description": "List available checkpoints for a job. Useful for resuming interrupted training.",
             "input_schema": {
                 "type": "object",
-                "properties": {"job_id": {"type": "string", "description": "The job ID to list checkpoints for"}},
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The job ID to list checkpoints for",
+                    }
+                },
                 "required": ["job_id"],
             },
         },
@@ -643,7 +715,10 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "key_preview": {"type": "string", "description": "The key preview (e.g., 'xcel_abc123...wxyz')"},
+                    "key_preview": {
+                        "type": "string",
+                        "description": "The key preview (e.g., 'xcel_abc123...wxyz')",
+                    },
                 },
                 "required": ["key_preview"],
             },
@@ -655,8 +730,15 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max results (default 20)", "default": 20},
-                    "tx_type": {"type": "string", "description": "Filter by type: charge, deposit, refund, topup, credit"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 20)",
+                        "default": 20,
+                    },
+                    "tx_type": {
+                        "type": "string",
+                        "description": "Filter by type: charge, deposit, refund, topup, credit",
+                    },
                 },
                 "required": [],
             },
@@ -667,7 +749,11 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)",
+                        "default": 10,
+                    },
                 },
                 "required": [],
             },
@@ -678,7 +764,11 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max results (default 20)", "default": 20},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 20)",
+                        "default": 20,
+                    },
                 },
                 "required": [],
             },
@@ -689,8 +779,16 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "unread_only": {"type": "boolean", "description": "Only return unread notifications", "default": False},
-                    "limit": {"type": "integer", "description": "Max results (default 20)", "default": 20},
+                    "unread_only": {
+                        "type": "boolean",
+                        "description": "Only return unread notifications",
+                        "default": False,
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 20)",
+                        "default": 20,
+                    },
                 },
                 "required": [],
             },
@@ -706,8 +804,14 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Friendly name for this key (e.g. 'Laptop', 'Work Desktop')"},
-                    "public_key": {"type": "string", "description": "SSH public key string (ssh-rsa ... or ssh-ed25519 ...)"},
+                    "name": {
+                        "type": "string",
+                        "description": "Friendly name for this key (e.g. 'Laptop', 'Work Desktop')",
+                    },
+                    "public_key": {
+                        "type": "string",
+                        "description": "SSH public key string (ssh-rsa ... or ssh-ed25519 ...)",
+                    },
                 },
                 "required": ["name", "public_key"],
             },
@@ -718,7 +822,10 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "host_id": {"type": "string", "description": "Specific host ID to check (optional — defaults to all user's hosts)"},
+                    "host_id": {
+                        "type": "string",
+                        "description": "Specific host ID to check (optional — defaults to all user's hosts)",
+                    },
                 },
                 "required": [],
             },
@@ -734,8 +841,15 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "gpu_model": {"type": "string", "description": "GPU model to get history for (e.g. 'RTX 4090', 'A100')"},
-                    "days": {"type": "integer", "description": "Number of days of history (default 7, max 90)", "default": 7},
+                    "gpu_model": {
+                        "type": "string",
+                        "description": "GPU model to get history for (e.g. 'RTX 4090', 'A100')",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days of history (default 7, max 90)",
+                        "default": 7,
+                    },
                 },
                 "required": ["gpu_model"],
             },
@@ -751,8 +865,14 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "host_id": {"type": "string", "description": "Filter by specific host ID (optional)"},
-                    "gpu_model": {"type": "string", "description": "Filter by GPU model (optional)"},
+                    "host_id": {
+                        "type": "string",
+                        "description": "Filter by specific host ID (optional)",
+                    },
+                    "gpu_model": {
+                        "type": "string",
+                        "description": "Filter by GPU model (optional)",
+                    },
                 },
                 "required": [],
             },
@@ -768,7 +888,11 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)",
+                        "default": 10,
+                    },
                 },
                 "required": [],
             },
@@ -779,8 +903,15 @@ def _build_tools() -> list[dict]:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "job_id": {"type": "string", "description": "Filter by specific job ID (optional)"},
-                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "job_id": {
+                        "type": "string",
+                        "description": "Filter by specific job ID (optional)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)",
+                        "default": 10,
+                    },
                 },
                 "required": [],
             },
@@ -789,6 +920,7 @@ def _build_tools() -> list[dict]:
 
 
 # ── Tool Handlers ─────────────────────────────────────────────────────
+
 
 async def _exec_tool(name: str, args: dict, user: dict) -> dict:
     """Execute a tool and return the result dict. Runs in thread for sync DB calls."""
@@ -805,10 +937,15 @@ async def _exec_tool(name: str, args: dict, user: dict) -> dict:
 def _tool_get_account_info(_args: dict, user: dict) -> dict:
     from db import UserStore
     from reputation import get_reputation_engine
+
     profile = UserStore.get_user(user["email"]) or {}
     rep = get_reputation_engine()
     score_obj = rep.compute_score(user.get("user_id", user["email"]))
-    score_data = score_obj.to_dict() if hasattr(score_obj, "to_dict") else (score_obj if isinstance(score_obj, dict) else {})
+    score_data = (
+        score_obj.to_dict()
+        if hasattr(score_obj, "to_dict")
+        else (score_obj if isinstance(score_obj, dict) else {})
+    )
     return {
         "user_id": user.get("user_id", ""),
         "email": user.get("email", ""),
@@ -823,6 +960,7 @@ def _tool_get_account_info(_args: dict, user: dict) -> dict:
 
 def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
     from billing import get_billing_engine
+
     user_id = user.get("user_id", user.get("email", ""))
     engine = get_billing_engine()
     wallet = engine.get_wallet(user_id)
@@ -846,10 +984,13 @@ def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
 
 def _tool_list_jobs(args: dict, user: dict) -> dict:
     from scheduler import list_jobs
+
     all_jobs = list_jobs()
     user_id = user.get("user_id", user.get("email", ""))
     # Filter to user's jobs
-    user_jobs = [j for j in all_jobs if j.get("submitted_by") == user_id or j.get("user_id") == user_id]
+    user_jobs = [
+        j for j in all_jobs if j.get("submitted_by") == user_id or j.get("user_id") == user_id
+    ]
     status_filter = args.get("status")
     if status_filter:
         user_jobs = [j for j in user_jobs if j.get("status") == status_filter]
@@ -873,6 +1014,7 @@ def _tool_list_jobs(args: dict, user: dict) -> dict:
 
 def _tool_get_job_details(args: dict, user: dict) -> dict:
     from scheduler import list_jobs
+
     job_id = args.get("job_id", "")
     all_jobs = list_jobs()
     job = next((j for j in all_jobs if j.get("job_id") == job_id or j.get("id") == job_id), None)
@@ -897,10 +1039,15 @@ def _tool_get_job_details(args: dict, user: dict) -> dict:
 
 def _tool_search_marketplace(args: dict, _user: dict) -> dict:
     from scheduler import get_marketplace
+
     try:
         listings = get_marketplace(active_only=True)
     except Exception:
-        return {"error": "Marketplace unavailable. Please try again later.", "offers": [], "total": 0}
+        return {
+            "error": "Marketplace unavailable. Please try again later.",
+            "offers": [],
+            "total": 0,
+        }
 
     gpu_model = (args.get("gpu_model") or "").strip()
     min_vram_gb = args.get("min_vram_gb")
@@ -939,6 +1086,7 @@ def _tool_search_marketplace(args: dict, _user: dict) -> dict:
 def _tool_get_pricing(_args: dict, _user: dict) -> dict:
     from scheduler import get_current_spot_prices, PRIORITY_TIERS
     from reputation import GPU_REFERENCE_PRICING_CAD
+
     spots = get_current_spot_prices()
     # Flatten reference pricing to base rates
     ref_rates = {}
@@ -956,6 +1104,7 @@ def _tool_get_pricing(_args: dict, _user: dict) -> dict:
 
 def _tool_get_host_status(_args: dict, user: dict) -> dict:
     from scheduler import list_hosts
+
     user_id = user.get("user_id", user.get("email", ""))
     all_hosts = list_hosts(active_only=False)
     user_hosts = [h for h in all_hosts if h.get("owner") == user_id or h.get("user_id") == user_id]
@@ -977,6 +1126,7 @@ def _tool_get_host_status(_args: dict, user: dict) -> dict:
 
 def _tool_get_reputation(_args: dict, user: dict) -> dict:
     from reputation import get_reputation_engine
+
     rep = get_reputation_engine()
     score = rep.compute_score(user.get("user_id", user["email"]))
     return score.to_dict() if hasattr(score, "to_dict") else score
@@ -989,13 +1139,33 @@ def _tool_search_docs(args: dict, _user: dict) -> dict:
 
 
 _VRAM_REQUIREMENTS = {
-    "large_train": {"min_vram": 80, "gpus": 2, "reason": "70B+ models need ~140GB VRAM for full fine-tuning"},
-    "large_infer": {"min_vram": 40, "gpus": 1, "reason": "70B models fit in ~40GB with 4-bit quantisation"},
-    "medium_train": {"min_vram": 24, "gpus": 1, "reason": "7-13B models fit in 24GB VRAM with QLoRA"},
+    "large_train": {
+        "min_vram": 80,
+        "gpus": 2,
+        "reason": "70B+ models need ~140GB VRAM for full fine-tuning",
+    },
+    "large_infer": {
+        "min_vram": 40,
+        "gpus": 1,
+        "reason": "70B models fit in ~40GB with 4-bit quantisation",
+    },
+    "medium_train": {
+        "min_vram": 24,
+        "gpus": 1,
+        "reason": "7-13B models fit in 24GB VRAM with QLoRA",
+    },
     "medium_infer": {"min_vram": 16, "gpus": 1, "reason": "7-13B models run quantised in 16GB+"},
     "diffusion": {"min_vram": 24, "gpus": 1, "reason": "SDXL/Flux training needs 24GB VRAM"},
-    "inference": {"min_vram": 16, "gpus": 1, "reason": "Inference serving with good price-performance"},
-    "default": {"min_vram": 24, "gpus": 1, "reason": "Versatile configuration for most AI/ML workloads"},
+    "inference": {
+        "min_vram": 16,
+        "gpus": 1,
+        "reason": "Inference serving with good price-performance",
+    },
+    "default": {
+        "min_vram": 24,
+        "gpus": 1,
+        "reason": "Versatile configuration for most AI/ML workloads",
+    },
 }
 
 _GPU_VRAM_MAP = {"RTX 3090": 24, "RTX 4090": 24, "RTX 4080": 16, "A100": 80, "H100": 80, "L40": 48}
@@ -1006,7 +1176,9 @@ def _classify_workload(workload: str) -> dict:
     is_training = any(w in workload for w in ["train", "fine-tune", "finetune", "lora", "qlora"])
     is_inference = any(w in workload for w in ["inference", "serving", "deploy", "endpoint"])
 
-    if any(w in workload for w in ["70b", "65b", "llama 3 70", "llama-3-70", "mixtral", "falcon 180"]):
+    if any(
+        w in workload for w in ["70b", "65b", "llama 3 70", "llama-3-70", "mixtral", "falcon 180"]
+    ):
         return _VRAM_REQUIREMENTS["large_train" if is_training else "large_infer"]
     if any(w in workload for w in ["8b", "7b", "13b", "llama 3 8", "llama-3-8", "mistral 7"]):
         return _VRAM_REQUIREMENTS["medium_train" if is_training else "medium_infer"]
@@ -1023,7 +1195,12 @@ def _aggregate_offers(live_offers: list) -> dict:
     for o in live_offers:
         model = o.get("gpu_model", "Unknown")
         if model not in agg:
-            agg[model] = {"min_price": o.get("price_per_hour", 0), "max_vram": o.get("vram_gb", 0), "count": 0, "provinces": set()}
+            agg[model] = {
+                "min_price": o.get("price_per_hour", 0),
+                "max_vram": o.get("vram_gb", 0),
+                "count": 0,
+                "provinces": set(),
+            }
         agg[model]["count"] += 1
         agg[model]["min_price"] = min(agg[model]["min_price"], o.get("price_per_hour", 0))
         agg[model]["max_vram"] = max(agg[model]["max_vram"], o.get("vram_gb", 0))
@@ -1033,7 +1210,9 @@ def _aggregate_offers(live_offers: list) -> dict:
     return agg
 
 
-def _build_gpu_recommendations(profile: dict, available_models: dict, budget: float | None) -> list[dict]:
+def _build_gpu_recommendations(
+    profile: dict, available_models: dict, budget: float | None
+) -> list[dict]:
     """Score and rank GPU recommendations from reference pricing + live availability."""
     from reputation import GPU_REFERENCE_PRICING_CAD
 
@@ -1086,14 +1265,22 @@ def _tool_recommend_gpu(args: dict, _user: dict) -> dict:  # noqa: C901
             return {"error": "Budget per hour must be a positive number."}
 
     profile = _classify_workload(workload)
-    _mkt = [l for l in get_marketplace(active_only=True) if (l.get("vram_gb") or 0) >= profile["min_vram"]]
+    _mkt = [
+        l
+        for l in get_marketplace(active_only=True)
+        if (l.get("vram_gb") or 0) >= profile["min_vram"]
+    ]
     available = _aggregate_offers(_mkt)
-    return {"workload": args.get("workload", ""), "recommendations": _build_gpu_recommendations(profile, available, budget)}
+    return {
+        "workload": args.get("workload", ""),
+        "recommendations": _build_gpu_recommendations(profile, available, budget),
+    }
 
 
 def _tool_estimate_cost(args: dict, _user: dict) -> dict:
     from reputation import GPU_REFERENCE_PRICING_CAD
     from scheduler import PRIORITY_TIERS, get_current_spot_prices
+
     gpu_model = args.get("gpu_model", "RTX 4090")
     gpu_count = args.get("gpu_count", 1)
     hours = args.get("hours", 1)
@@ -1137,7 +1324,11 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
         "on_demand_cad": round(on_demand, 2),
         "spot_cad": round(spot, 2),
         "reserved_cad": round(reserved, 2),
-        "tier_multipliers": {"on_demand": on_demand_mult, "spot": spot_mult, "reserved": reserved_mult},
+        "tier_multipliers": {
+            "on_demand": on_demand_mult,
+            "spot": spot_mult,
+            "reserved": reserved_mult,
+        },
     }
     if live_spot_price is not None:
         result["live_spot_cad"] = round(live_spot_price, 2)
@@ -1146,6 +1337,7 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
 
 def _tool_get_sla_terms(args: dict, _user: dict) -> dict:
     from sla import SLA_TARGETS
+
     tier = args.get("tier", "community")
     targets = SLA_TARGETS.get(tier, SLA_TARGETS.get("community", {}))
     return {"tier": tier, "targets": targets}
@@ -1155,21 +1347,30 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
     """Actually execute the job launch after confirmation."""
     import re as _re
     from scheduler import submit_job
+
     image = args.get("docker_image", "")
     if not image:
         return {"error": "docker_image is required to launch a job."}
     # Validate docker image format: [registry/]name[:tag]
-    if not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?$', image) or len(image) > MAX_DOCKER_IMAGE_LEN:
-        return {"error": f"Invalid docker image format: {image!r}. Expected format: 'registry/image:tag'."}
+    if (
+        not _re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]+(:[a-zA-Z0-9._-]+)?$", image)
+        or len(image) > MAX_DOCKER_IMAGE_LEN
+    ):
+        return {
+            "error": f"Invalid docker image format: {image!r}. Expected format: 'registry/image:tag'."
+        }
     customer_id = user.get("customer_id", user.get("user_id", ""))
     # Wallet pre-flight
     from billing import get_billing_engine
     import time as _time
+
     _w = get_billing_engine().get_wallet(customer_id)
     if _w.get("status") == "suspended":
         return {"error": "Wallet suspended — please add funds before launching jobs."}
     if _w["balance_cad"] <= 0 and (_w.get("grace_until") or 0) < _time.time():
-        return {"error": "Insufficient wallet balance — please deposit credits before launching jobs."}
+        return {
+            "error": "Insufficient wallet balance — please deposit credits before launching jobs."
+        }
     job = submit_job(
         name=args.get("name", "ai-assisted-job"),
         vram_needed_gb=args.get("vram_needed_gb", DEFAULT_GPU_VRAM_GB),
@@ -1181,11 +1382,16 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
     )
     if not job or not job.get("job_id", job.get("id")):
         return {"error": "Failed to submit job. Please try again."}
-    return {"job_id": job.get("job_id", job.get("id", "")), "status": "queued", "message": "Job submitted successfully."}
+    return {
+        "job_id": job.get("job_id", job.get("id", "")),
+        "status": "queued",
+        "message": "Job submitted successfully.",
+    }
 
 
 def _tool_stop_job(args: dict, user: dict) -> dict:
     from scheduler import update_job_status, list_jobs
+
     job_id = args.get("job_id", "")
     if not job_id:
         return {"error": "Job ID is required."}
@@ -1193,8 +1399,12 @@ def _tool_stop_job(args: dict, user: dict) -> dict:
     all_jobs = list_jobs()
     user_id = user.get("user_id", user.get("email", ""))
     job = next(
-        (j for j in all_jobs if (j.get("job_id") == job_id or j.get("id") == job_id)
-         and (j.get("submitted_by") == user_id or j.get("user_id") == user_id)),
+        (
+            j
+            for j in all_jobs
+            if (j.get("job_id") == job_id or j.get("id") == job_id)
+            and (j.get("submitted_by") == user_id or j.get("user_id") == user_id)
+        ),
         None,
     )
     if not job:
@@ -1208,6 +1418,7 @@ def _tool_stop_job(args: dict, user: dict) -> dict:
 def _tool_create_api_key(args: dict, user: dict) -> dict:
     from db import UserStore
     import secrets
+
     key_value = f"xcel_{secrets.token_urlsafe(32)}"
     key_data = {
         "key": key_value,
@@ -1220,12 +1431,18 @@ def _tool_create_api_key(args: dict, user: dict) -> dict:
     UserStore.create_api_key(key_data)
     # Return masked preview only — the full key is shown once in the UI's key-creation dialog
     preview = key_value[:KEY_PREVIEW_PREFIX_LEN] + "..." + key_value[-KEY_PREVIEW_SUFFIX_LEN:]
-    return {"key_preview": preview, "name": key_data["name"], "scope": key_data["scope"], "message": "API key created. The full key is shown in your dashboard — copy it now, it won't be shown again."}
+    return {
+        "key_preview": preview,
+        "name": key_data["name"],
+        "scope": key_data["scope"],
+        "message": "API key created. The full key is shown in your dashboard — copy it now, it won't be shown again.",
+    }
 
 
 def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
     """Real-time GPU availability across all regions."""
     from scheduler import get_marketplace
+
     try:
         listings = get_marketplace(active_only=True)
     except Exception:
@@ -1283,6 +1500,7 @@ def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
 def _tool_list_volumes(_args: dict, user: dict) -> dict:
     """List user's persistent storage volumes."""
     from volumes import get_volume_engine
+
     engine = get_volume_engine()
     if engine is None:
         return {"error": "Volume engine not available. Please try again later."}
@@ -1313,6 +1531,7 @@ def _tool_list_volumes(_args: dict, user: dict) -> dict:
 def _tool_list_checkpoints(args: dict, user: dict) -> dict:
     """List checkpoints for a job from the checkpoints directory."""
     import os as _os
+
     job_id = args.get("job_id", "")
     if not job_id:
         return {"error": "Job ID is required."}
@@ -1338,13 +1557,15 @@ def _tool_list_checkpoints(args: dict, user: dict) -> dict:
                     ts = float(ts_str)
                 except ValueError:
                     ts = 0
-                checkpoints.append({
-                    "checkpoint_name": entry,
-                    "created_at": meta.get("created_at", ts),
-                    "host_id": meta.get("host_id", ""),
-                    "container": meta.get("container", ""),
-                    "path": _os.path.join(ckpt_dir, entry),
-                })
+                checkpoints.append(
+                    {
+                        "checkpoint_name": entry,
+                        "created_at": meta.get("created_at", ts),
+                        "host_id": meta.get("host_id", ""),
+                        "container": meta.get("container", ""),
+                        "path": _os.path.join(ckpt_dir, entry),
+                    }
+                )
 
     return {"job_id": job_id, "checkpoints": checkpoints, "total": len(checkpoints)}
 
@@ -1352,12 +1573,19 @@ def _tool_list_checkpoints(args: dict, user: dict) -> dict:
 def _tool_list_api_keys(_args: dict, user: dict) -> dict:
     """List user's API keys (values redacted to preview format)."""
     from db import UserStore
+
     keys = UserStore.list_api_keys(user["email"])
     return {
         "api_keys": [
             {
                 "name": k.get("name", ""),
-                "preview": k.get("key", "")[:KEY_PREVIEW_PREFIX_LEN] + "..." + k.get("key", "")[-KEY_PREVIEW_SUFFIX_LEN:] if k.get("key") else "",
+                "preview": (
+                    k.get("key", "")[:KEY_PREVIEW_PREFIX_LEN]
+                    + "..."
+                    + k.get("key", "")[-KEY_PREVIEW_SUFFIX_LEN:]
+                    if k.get("key")
+                    else ""
+                ),
                 "scope": k.get("scope", "full-access"),
                 "created_at": k.get("created_at", 0),
                 "last_used": k.get("last_used", 0),
@@ -1371,16 +1599,22 @@ def _tool_list_api_keys(_args: dict, user: dict) -> dict:
 def _tool_revoke_api_key(args: dict, user: dict) -> dict:
     """Revoke an API key by its preview string."""
     from db import UserStore
+
     preview = args.get("key_preview", "")
     if not preview:
         return {"error": "Key preview is required."}
     deleted = UserStore.delete_api_key_by_preview(user["email"], preview)
     if deleted:
-        return {"key_preview": preview, "status": "revoked", "message": "API key revoked successfully."}
+        return {
+            "key_preview": preview,
+            "status": "revoked",
+            "message": "API key revoked successfully.",
+        }
     return {"error": f"No matching API key found for preview: {preview}."}
 
 
 # ── New comprehensive tool handlers ───────────────────────────────────
+
 
 def _tool_get_wallet_transactions(args: dict, user: dict) -> dict:
     """Get user's wallet transaction history."""
@@ -1445,7 +1679,11 @@ def _tool_get_payout_history(args: dict, user: dict) -> dict:
                 (user_id,),
             ).fetchone()
         total_earned = float(total_row["total_earned"]) if total_row else 0.0
-        return {"payouts": [dict(r) for r in rows], "count": len(rows), "total_earned_cad": round(total_earned, 2)}
+        return {
+            "payouts": [dict(r) for r in rows],
+            "count": len(rows),
+            "total_earned_cad": round(total_earned, 2),
+        }
     except Exception as e:
         log.error("get_payout_history failed: %s", e)
         return {"payouts": [], "count": 0, "total_earned_cad": 0.0, "error": str(e)}
@@ -1505,6 +1743,7 @@ def _tool_get_ssh_keys(_args: dict, user: dict) -> dict:
 def _tool_add_ssh_key(args: dict, user: dict) -> dict:
     """Add a new SSH key to the user's account."""
     import hashlib
+
     email = user.get("email", "")
     user_id = user.get("user_id", email)
     name = (args.get("name") or "").strip()
@@ -1514,16 +1753,27 @@ def _tool_add_ssh_key(args: dict, user: dict) -> dict:
     if not pub_key:
         return {"error": "Public key is required."}
     # Basic validation — must start with recognized key type
-    valid_prefixes = ("ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "sk-ssh-ed25519", "sk-ecdsa-sha2-nistp256")
+    valid_prefixes = (
+        "ssh-rsa",
+        "ssh-ed25519",
+        "ecdsa-sha2-nistp256",
+        "ecdsa-sha2-nistp384",
+        "ecdsa-sha2-nistp521",
+        "sk-ssh-ed25519",
+        "sk-ecdsa-sha2-nistp256",
+    )
     if not any(pub_key.startswith(p) for p in valid_prefixes):
-        return {"error": "Invalid SSH public key format. Must start with 'ssh-rsa', 'ssh-ed25519', etc."}
+        return {
+            "error": "Invalid SSH public key format. Must start with 'ssh-rsa', 'ssh-ed25519', etc."
+        }
     # Compute fingerprint (MD5 of raw key bytes, colon-hex format)
     try:
         import base64
+
         key_parts = pub_key.split()
         raw = base64.b64decode(key_parts[1]) if len(key_parts) >= 2 else pub_key.encode()
         digest = hashlib.md5(raw).hexdigest()
-        fingerprint = ":".join(digest[i:i+2] for i in range(0, len(digest), 2))
+        fingerprint = ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
     except Exception:
         fingerprint = hashlib.md5(pub_key.encode()).hexdigest()
     try:
@@ -1533,7 +1783,12 @@ def _tool_add_ssh_key(args: dict, user: dict) -> dict:
                 "VALUES (%s, %s, %s, %s, %s, %s)",
                 (email, user_id, name, pub_key, fingerprint, time.time()),
             )
-        return {"status": "added", "name": name, "fingerprint": fingerprint, "message": "SSH key added successfully."}
+        return {
+            "status": "added",
+            "name": name,
+            "fingerprint": fingerprint,
+            "message": "SSH key added successfully.",
+        }
     except Exception as e:
         log.error("add_ssh_key failed: %s", e)
         return {"error": f"Failed to add SSH key: {str(e)}"}
@@ -1547,9 +1802,13 @@ def _tool_get_sla_status(args: dict, user: dict) -> dict:
         with _ai_db() as conn:
             # Get user's hosts
             from scheduler import list_hosts
+
             all_hosts = list_hosts(active_only=False)
-            user_host_ids = [h.get("host_id", h.get("id", "")) for h in all_hosts
-                             if h.get("owner") == user_id or h.get("user_id") == user_id]
+            user_host_ids = [
+                h.get("host_id", h.get("id", ""))
+                for h in all_hosts
+                if h.get("owner") == user_id or h.get("user_id") == user_id
+            ]
             if host_id_filter:
                 user_host_ids = [h for h in user_host_ids if h == host_id_filter]
 
@@ -1711,7 +1970,10 @@ def _tool_get_provider_info(_args: dict, user: dict) -> dict:
                 (user_id, email),
             ).fetchone()
             if not row:
-                return {"message": "No provider account found. Register as a GPU provider to earn income.", "provider": None}
+                return {
+                    "message": "No provider account found. Register as a GPU provider to earn income.",
+                    "provider": None,
+                }
             # Total earned from payout_ledger
             total_row = conn.execute(
                 "SELECT COALESCE(SUM(provider_payout_cad), 0) AS total_earned, COUNT(*) AS jobs_count "
@@ -1869,17 +2131,17 @@ async def _exec_tool_cached(name: str, args: dict, user: dict) -> dict:
 # ── Pre-fetch Data for Text-Only Providers ────────────────────────────
 
 _WIZARD_PREFETCH: dict[str, list[tuple[str, dict]]] = {
-    "workload":       [("get_gpu_availability", {}), ("recommend_gpu", {"workload": "training"})],
+    "workload": [("get_gpu_availability", {}), ("recommend_gpu", {"workload": "training"})],
     "gpu-preference": [("get_gpu_availability", {}), ("search_marketplace", {})],
-    "browse-gpus":    [("search_marketplace", {})],
-    "gpu-pick":       [("get_gpu_availability", {}), ("get_pricing", {}), ("search_marketplace", {})],
-    "image-pick":     [("get_gpu_availability", {})],
-    "wallet-check":   [("get_billing_summary", {})],
-    "payment-gate":   [("get_billing_summary", {})],
-    "pricing":        [("get_pricing", {}), ("search_marketplace", {})],
-    "custom-rate":    [("get_pricing", {}), ("search_marketplace", {})],
-    "benchmark":      [("get_pricing", {})],
-    "host-register":  [("get_pricing", {}), ("search_marketplace", {})],
+    "browse-gpus": [("search_marketplace", {})],
+    "gpu-pick": [("get_gpu_availability", {}), ("get_pricing", {}), ("search_marketplace", {})],
+    "image-pick": [("get_gpu_availability", {})],
+    "wallet-check": [("get_billing_summary", {})],
+    "payment-gate": [("get_billing_summary", {})],
+    "pricing": [("get_pricing", {}), ("search_marketplace", {})],
+    "custom-rate": [("get_pricing", {}), ("search_marketplace", {})],
+    "benchmark": [("get_pricing", {})],
+    "host-register": [("get_pricing", {}), ("search_marketplace", {})],
     "confirm-launch": [("get_billing_summary", {})],
     "provider-summary": [("get_pricing", {})],
 }
@@ -1918,6 +2180,7 @@ async def _prefetch_wizard_data(step_id: str, user: dict, kv: dict[str, str] | N
 
 # ── OpenAI-Compatible Tool Format ─────────────────────────────────────
 
+
 def _build_openai_tools() -> list[dict]:
     """Convert Anthropic tool definitions to OpenAI function-calling format."""
     return [
@@ -1935,10 +2198,12 @@ def _build_openai_tools() -> list[dict]:
 
 # ── Wizard Step-Specific AI Steering ─────────────────────────────────
 
+
 def _parse_wizard_context(page_context: str) -> tuple[str, dict[str, str]]:
     """Parse 'cli-wizard:STEP_ID | key=value | ...' into (step_id, kv_dict)."""
     from urllib.parse import unquote
     import re
+
     step_id = ""
     kv: dict[str, str] = {}
     parts = [p.strip() for p in page_context.split("|")]
@@ -2818,11 +3083,11 @@ YOUR ROLE:
 
 
 def _prompt_confirm_launch(kv: dict) -> str:
-        gpu = kv.get("picked_gpu", "unknown")
-        image = kv.get("image", "unknown")
-        workload = kv.get("workload", "unknown")
-        rate = kv.get("rate", "unknown")
-        return f"""## WIZARD STEP: Launch Confirmation — PRE-FLIGHT CHECK
+    gpu = kv.get("picked_gpu", "unknown")
+    image = kv.get("image", "unknown")
+    workload = kv.get("workload", "unknown")
+    rate = kv.get("rate", "unknown")
+    return f"""## WIZARD STEP: Launch Confirmation — PRE-FLIGHT CHECK
 You are Hexara. The renter is about to confirm launch. This is the last chance to catch mistakes before billing starts.
 Configuration: {gpu} / {image} / {workload} / Rate: {rate}/hr CAD
 
@@ -2865,10 +3130,10 @@ IF EVERYTHING LOOKS RIGHT:
 
 
 def _prompt_wallet_check(kv: dict) -> str:
-        gpu = kv.get("picked_gpu", "unknown")
-        balance = kv.get("balance", "")
-        rate = kv.get("rate", "")
-        return f"""## WIZARD STEP: Wallet Balance Check
+    gpu = kv.get("picked_gpu", "unknown")
+    balance = kv.get("balance", "")
+    rate = kv.get("rate", "")
+    return f"""## WIZARD STEP: Wallet Balance Check
 You are Hexara. The wizard is checking the renter's wallet balance before launching {gpu}.
 {("Current balance: CAD $" + balance) if balance else ""}
 {("Instance rate: CAD $" + rate + "/hr") if rate else ""}
@@ -2961,13 +3226,13 @@ AFTER FUNDING:
 
 
 def _prompt_launch_instance(kv: dict) -> str:
-        gpu = kv.get("picked_gpu", "unknown")
-        image = kv.get("image", "unknown")
-        instance_id = kv.get("instance_id", "")
-        host_ip = kv.get("host_ip", "")
-        host_port = kv.get("host_port", "")
-        failed = kv.get("failed_checks", "")
-        return f"""## WIZARD STEP: Instance Launch — COMPUTE IS SPINNING UP
+    gpu = kv.get("picked_gpu", "unknown")
+    image = kv.get("image", "unknown")
+    instance_id = kv.get("instance_id", "")
+    host_ip = kv.get("host_ip", "")
+    host_port = kv.get("host_port", "")
+    failed = kv.get("failed_checks", "")
+    return f"""## WIZARD STEP: Instance Launch — COMPUTE IS SPINNING UP
 You are Hexara. The user just launched a {gpu} instance with {image}.
 {("Instance ID: " + instance_id) if instance_id else "Launch in progress..."}
 {("SSH: ssh root@{_SSH_HOST} -p " + host_port) if host_port else ""}
@@ -3090,11 +3355,11 @@ SECURITY (say this once, not every message):
 
 
 def _prompt_confirm_setup(kv: dict) -> str:
-        gpu = kv.get("gpu", "unknown")
-        tier = kv.get("tier", "unknown")
-        rate = kv.get("rate", "unknown")
-        host_id = kv.get("host_id", "")
-        return f"""## WIZARD STEP: Dual-Mode Setup Complete
+    gpu = kv.get("gpu", "unknown")
+    tier = kv.get("tier", "unknown")
+    rate = kv.get("rate", "unknown")
+    host_id = kv.get("host_id", "")
+    return f"""## WIZARD STEP: Dual-Mode Setup Complete
 You are Hexara. This user configured BOTH provider (GPU host) AND renter (compute buyer) modes in one setup session.
 Provider: {gpu} / {tier} tier / {rate}/hr CAD
 {("Host ID: " + host_id) if host_id else ""}
@@ -3213,31 +3478,31 @@ But if the user asks via freeform chat after a retry succeeds:
 
 
 _WIZARD_STEP_BUILDERS: dict[str, "Callable[[dict], str]"] = {
-    "mode":            _prompt_mode,
-    "docker-check":    _prompt_docker_check,
-    "device-auth":     _prompt_device_auth,
-    "api-check":       _prompt_api_check,
-    "gpu-detect":      _prompt_gpu_detect,
-    "version-check":   _prompt_version_check,
-    "benchmark":       _prompt_benchmark,
-    "network-bench":   _prompt_network_bench,
-    "verification":    _prompt_verification,
-    "pricing":         _prompt_pricing,
-    "custom-rate":     _prompt_custom_rate,
-    "host-register":   _prompt_host_register,
-    "admission-gate":  _prompt_admission_gate,
-    "confirm-setup":   _prompt_confirm_setup,
+    "mode": _prompt_mode,
+    "docker-check": _prompt_docker_check,
+    "device-auth": _prompt_device_auth,
+    "api-check": _prompt_api_check,
+    "gpu-detect": _prompt_gpu_detect,
+    "version-check": _prompt_version_check,
+    "benchmark": _prompt_benchmark,
+    "network-bench": _prompt_network_bench,
+    "verification": _prompt_verification,
+    "pricing": _prompt_pricing,
+    "custom-rate": _prompt_custom_rate,
+    "host-register": _prompt_host_register,
+    "admission-gate": _prompt_admission_gate,
+    "confirm-setup": _prompt_confirm_setup,
     "provider-summary": _prompt_provider_summary,
-    "workload":        _prompt_workload,
-    "gpu-preference":  _prompt_gpu_preference,
-    "browse-gpus":     _prompt_browse_gpus,
-    "gpu-pick":        _prompt_gpu_pick,
-    "image-pick":      _prompt_image_pick,
-    "confirm-launch":  _prompt_confirm_launch,
-    "wallet-check":    _prompt_wallet_check,
-    "payment-gate":    _prompt_payment_gate,
+    "workload": _prompt_workload,
+    "gpu-preference": _prompt_gpu_preference,
+    "browse-gpus": _prompt_browse_gpus,
+    "gpu-pick": _prompt_gpu_pick,
+    "image-pick": _prompt_image_pick,
+    "confirm-launch": _prompt_confirm_launch,
+    "wallet-check": _prompt_wallet_check,
+    "payment-gate": _prompt_payment_gate,
     "launch-instance": _prompt_launch_instance,
-    "done":            _prompt_done,
+    "done": _prompt_done,
 }
 
 
@@ -3256,11 +3521,14 @@ def _detect_onboarding(user: dict) -> tuple[bool, bool, bool]:
     has_jobs = False
     try:
         from scheduler import list_jobs, list_hosts
+
         user_id = user.get("user_id", user.get("email", ""))
         all_hosts = list_hosts(active_only=False)
         has_hosts = any(h.get("owner") == user_id or h.get("user_id") == user_id for h in all_hosts)
         all_jobs = list_jobs()
-        has_jobs = any(j.get("submitted_by") == user_id or j.get("user_id") == user_id for j in all_jobs)
+        has_jobs = any(
+            j.get("submitted_by") == user_id or j.get("user_id") == user_id for j in all_jobs
+        )
     except Exception:
         log.debug("Onboarding detection failed — defaulting to new user", exc_info=True)
     return (not has_hosts and not has_jobs, has_hosts, has_jobs)
@@ -3269,6 +3537,7 @@ def _detect_onboarding(user: dict) -> tuple[bool, bool, bool]:
 def build_ai_system_prompt(user: dict, page_context: str = "") -> str:
     """Build a context-rich system prompt including user details, platform docs, and onboarding detection."""
     from chat import _load_llms_txt
+
     context = _load_llms_txt()
 
     role = user.get("role", "user")
@@ -3447,7 +3716,10 @@ WIZARD CONTEXT: {page_context}
                 "financial": "the Financial tab — showing cumulative spend, cost per hour trend, wallet activity, top GPU spend bar chart, province donut chart, sovereignty chart, and top entities table",
                 "provider": "the Provider tab — showing provider revenue trend, host utilisation, jobs served, total revenue, GPU hours, and average utilisation stats",
             }
-            tab_desc = tab_awareness.get(chart_context, f"tab: {chart_context}" if chart_context else "the dashboard overview")
+            tab_desc = tab_awareness.get(
+                chart_context,
+                f"tab: {chart_context}" if chart_context else "the dashboard overview",
+            )
             page_context_section = f"""
 ANALYTICS DASHBOARD CONTEXT:
 The user is viewing their analytics dashboard — specifically {tab_desc}.
@@ -3571,6 +3843,7 @@ PLATFORM DOCUMENTATION:
 
 # ── Context-Aware Suggestions ─────────────────────────────────────────
 
+
 def get_suggestions(user: dict) -> list[dict]:
     """Return context-aware suggestion chips for the AI chat, including onboarding prompts for new users."""
     role = user.get("role", "user")
@@ -3582,38 +3855,79 @@ def get_suggestions(user: dict) -> list[dict]:
 
     if is_new_user:
         # Onboarding-first suggestions for new users
-        suggestions.extend([
-            {"label": "🖥️ I want to rent GPUs", "prompt": "I'd like to rent GPU compute for my AI/ML workloads. Help me get started."},
-            {"label": "🏗️ I want to provide GPUs", "prompt": "I have GPUs and want to earn money by providing them on the marketplace. Help me get started."},
-        ])
+        suggestions.extend(
+            [
+                {
+                    "label": "🖥️ I want to rent GPUs",
+                    "prompt": "I'd like to rent GPU compute for my AI/ML workloads. Help me get started.",
+                },
+                {
+                    "label": "🏗️ I want to provide GPUs",
+                    "prompt": "I have GPUs and want to earn money by providing them on the marketplace. Help me get started.",
+                },
+            ]
+        )
 
     # Universal suggestions
-    suggestions.extend([
-        {"label": "⚙️ How to install worker", "prompt": "Walk me through installing the Xcelsior worker agent using the AI Onboarding Wizard or manual setup."},
-        {"label": "Search the marketplace", "prompt": "Show me available GPUs on the marketplace"},
-        {"label": "Explain SLA tiers", "prompt": "What are the different SLA tiers and their guarantees?"},
-    ])
+    suggestions.extend(
+        [
+            {
+                "label": "⚙️ How to install worker",
+                "prompt": "Walk me through installing the Xcelsior worker agent using the AI Onboarding Wizard or manual setup.",
+            },
+            {
+                "label": "Search the marketplace",
+                "prompt": "Show me available GPUs on the marketplace",
+            },
+            {
+                "label": "Explain SLA tiers",
+                "prompt": "What are the different SLA tiers and their guarantees?",
+            },
+        ]
+    )
 
     if role == "provider" or is_admin or has_hosts:
-        suggestions.extend([
-            {"label": "Check my host status", "prompt": "What's the status of my registered hosts?"},
-            {"label": "How much can I earn?", "prompt": "How much can I earn with my current GPUs on the marketplace?"},
-            {"label": "Optimise my pricing", "prompt": "Help me set competitive pricing for my GPUs"},
-        ])
+        suggestions.extend(
+            [
+                {
+                    "label": "Check my host status",
+                    "prompt": "What's the status of my registered hosts?",
+                },
+                {
+                    "label": "How much can I earn?",
+                    "prompt": "How much can I earn with my current GPUs on the marketplace?",
+                },
+                {
+                    "label": "Optimise my pricing",
+                    "prompt": "Help me set competitive pricing for my GPUs",
+                },
+            ]
+        )
 
     if role == "user" or has_jobs or (not has_hosts):
-        suggestions.extend([
-            {"label": "What GPU for fine-tuning?", "prompt": "What GPU should I use for fine-tuning a language model?"},
-            {"label": "Launch a training job", "prompt": "Help me launch a GPU training job"},
-            {"label": "Check my balance", "prompt": "What's my current account balance and recent usage?"},
-        ])
+        suggestions.extend(
+            [
+                {
+                    "label": "What GPU for fine-tuning?",
+                    "prompt": "What GPU should I use for fine-tuning a language model?",
+                },
+                {"label": "Launch a training job", "prompt": "Help me launch a GPU training job"},
+                {
+                    "label": "Check my balance",
+                    "prompt": "What's my current account balance and recent usage?",
+                },
+            ]
+        )
 
-    suggestions.append({"label": "Check my reputation", "prompt": "Show me my reputation score and tier"})
+    suggestions.append(
+        {"label": "Check my reputation", "prompt": "Show me my reputation score and tier"}
+    )
 
     return suggestions
 
 
 # ── Analytics AI System Prompt ────────────────────────────────────────
+
 
 def build_analytics_system_prompt(user: dict, chart_context: str = "") -> str:
     """Build a specialised system prompt for the analytics AI assistant.
@@ -3625,6 +3939,7 @@ def build_analytics_system_prompt(user: dict, chart_context: str = "") -> str:
 
 
 # ── History Reconstruction ────────────────────────────────────────────
+
 
 def _parse_json_field(value) -> dict:
     """Parse a JSON field that might be a dict, string, or None."""
@@ -3667,12 +3982,14 @@ def _reconstruct_history(rows: list[dict]) -> list[dict]:
                 while i < n and rows[i]["role"] == "tool_call":
                     tool_input = _parse_json_field(rows[i].get("tool_input"))
                     tool_id = f"hist_{rows[i].get('message_id', str(i))}"
-                    content_blocks.append({
-                        "type": "tool_use",
-                        "id": tool_id,
-                        "name": rows[i].get("tool_name", ""),
-                        "input": tool_input,
-                    })
+                    content_blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tool_id,
+                            "name": rows[i].get("tool_name", ""),
+                            "input": tool_input,
+                        }
+                    )
                     i += 1
                 messages.append({"role": "assistant", "content": content_blocks})
 
@@ -3682,15 +3999,20 @@ def _reconstruct_history(rows: list[dict]) -> list[dict]:
                     tool_output = _parse_json_field(rows[i].get("tool_output"))
                     tool_name = rows[i].get("tool_name", "")
                     matched_id = next(
-                        (b["id"] for b in content_blocks
-                         if b.get("type") == "tool_use" and b.get("name") == tool_name),
+                        (
+                            b["id"]
+                            for b in content_blocks
+                            if b.get("type") == "tool_use" and b.get("name") == tool_name
+                        ),
                         f"hist_{rows[i].get('message_id', str(i))}",
                     )
-                    result_blocks.append({
-                        "type": "tool_result",
-                        "tool_use_id": matched_id,
-                        "content": json.dumps(tool_output),
-                    })
+                    result_blocks.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": matched_id,
+                            "content": json.dumps(tool_output),
+                        }
+                    )
                     i += 1
                 if result_blocks:
                     messages.append({"role": "user", "content": result_blocks})
@@ -3702,27 +4024,35 @@ def _reconstruct_history(rows: list[dict]) -> list[dict]:
             # Orphan tool_call without preceding assistant text
             tool_input = _parse_json_field(rows[i].get("tool_input"))
             tool_id = f"hist_{rows[i].get('message_id', str(i))}"
-            messages.append({
-                "role": "assistant",
-                "content": [{
-                    "type": "tool_use",
-                    "id": tool_id,
-                    "name": rows[i].get("tool_name", ""),
-                    "input": tool_input,
-                }],
-            })
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": tool_id,
+                            "name": rows[i].get("tool_name", ""),
+                            "input": tool_input,
+                        }
+                    ],
+                }
+            )
             i += 1
             # Check for following tool_result
             if i < n and rows[i]["role"] == "tool_result":
                 tool_output = _parse_json_field(rows[i].get("tool_output"))
-                messages.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": tool_id,
-                        "content": json.dumps(tool_output),
-                    }],
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": json.dumps(tool_output),
+                            }
+                        ],
+                    }
+                )
                 i += 1
 
         elif role == "tool_result":
@@ -3734,7 +4064,9 @@ def _reconstruct_history(rows: list[dict]) -> list[dict]:
     return messages
 
 
-def _flush_messages(conversation_id: str, ops: list[tuple], tokens_in: int = 0, tokens_out: int = 0):
+def _flush_messages(
+    conversation_id: str, ops: list[tuple], tokens_in: int = 0, tokens_out: int = 0
+):
     """Batch-write accumulated message operations to the database.
 
     Each op is (role, content, tool_name, tool_input, tool_output).
@@ -3745,7 +4077,10 @@ def _flush_messages(conversation_id: str, ops: list[tuple], tokens_in: int = 0, 
     with _ai_db() as conn:
         for i, (role, content, tname, tinput, toutput) in enumerate(ops):
             _append_message(
-                conn, conversation_id, role, content,
+                conn,
+                conversation_id,
+                role,
+                content,
                 tool_name=tname or "",
                 tool_input=tinput,
                 tool_output=toutput,
@@ -3755,6 +4090,7 @@ def _flush_messages(conversation_id: str, ops: list[tuple], tokens_in: int = 0, 
 
 
 # ── Streaming Orchestrator ────────────────────────────────────────────
+
 
 async def _stream_mock_assistant_response(
     conversation_id: str,
@@ -3840,7 +4176,9 @@ async def _stream_with_openai_tool_provider(
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
-                    raise RuntimeError(f"{provider} returned {resp.status_code}: {body.decode()[:ERROR_BODY_PREVIEW_LEN]}")
+                    raise RuntimeError(
+                        f"{provider} returned {resp.status_code}: {body.decode()[:ERROR_BODY_PREVIEW_LEN]}"
+                    )
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -3864,7 +4202,11 @@ async def _stream_with_openai_tool_provider(
                     for tc in delta.get("tool_calls") or []:
                         idx = tc.get("index", 0)
                         if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {"id": tc.get("id", ""), "name": "", "arguments": ""}
+                            tool_calls_acc[idx] = {
+                                "id": tc.get("id", ""),
+                                "name": "",
+                                "arguments": "",
+                            }
                         if tc.get("id"):
                             tool_calls_acc[idx]["id"] = tc["id"]
                         fn = tc.get("function") or {}
@@ -3887,11 +4229,13 @@ async def _stream_with_openai_tool_provider(
         assistant_tool_calls = []
         for idx in sorted(tool_calls_acc.keys()):
             tc = tool_calls_acc[idx]
-            assistant_tool_calls.append({
-                "id": tc["id"],
-                "type": "function",
-                "function": {"name": tc["name"], "arguments": tc["arguments"]},
-            })
+            assistant_tool_calls.append(
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
+                }
+            )
 
         assistant_msg: dict = {"role": "assistant"}
         if round_text_str.strip():
@@ -3904,7 +4248,11 @@ async def _stream_with_openai_tool_provider(
         for tc_data in assistant_tool_calls:
             tool_name = tc_data["function"]["name"]
             try:
-                tool_args = json.loads(tc_data["function"]["arguments"]) if tc_data["function"]["arguments"] else {}
+                tool_args = (
+                    json.loads(tc_data["function"]["arguments"])
+                    if tc_data["function"]["arguments"]
+                    else {}
+                )
             except json.JSONDecodeError:
                 tool_args = {}
 
@@ -3914,12 +4262,14 @@ async def _stream_with_openai_tool_provider(
             if tool_name in WRITE_TOOLS:
                 write_tool_hit = True
                 conf_id = create_confirmation(conversation_id, user_id, tool_name, tool_args)
-                yield _sse({
-                    "type": "confirmation_required",
-                    "confirmation_id": conf_id,
-                    "tool_name": tool_name,
-                    "tool_args": tool_args,
-                })
+                yield _sse(
+                    {
+                        "type": "confirmation_required",
+                        "confirmation_id": conf_id,
+                        "tool_name": tool_name,
+                        "tool_args": tool_args,
+                    }
+                )
                 break
 
             result = await _exec_tool_cached(tool_name, tool_args, user)
@@ -3927,11 +4277,13 @@ async def _stream_with_openai_tool_provider(
             db_ops.append(("tool_result", "", tool_name, None, result))
 
             # Add tool result to messages for next round (OpenAI format)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc_data["id"],
-                "content": json.dumps(result),
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc_data["id"],
+                    "content": json.dumps(result),
+                }
+            )
 
         if write_tool_hit:
             _flush_messages(conversation_id, db_ops)
@@ -4022,12 +4374,14 @@ async def _stream_with_anthropic_provider(
         write_tool_hit = False
 
         for tool in tool_uses:
-            assistant_content.append({
-                "type": "tool_use",
-                "id": tool["id"],
-                "name": tool["name"],
-                "input": tool["input"],
-            })
+            assistant_content.append(
+                {
+                    "type": "tool_use",
+                    "id": tool["id"],
+                    "name": tool["name"],
+                    "input": tool["input"],
+                }
+            )
 
             yield _sse({"type": "tool_call", "name": tool["name"], "input": tool["input"]})
             db_ops.append(("tool_call", "", tool["name"], tool["input"], None))
@@ -4035,22 +4389,26 @@ async def _stream_with_anthropic_provider(
             if tool["name"] in WRITE_TOOLS:
                 write_tool_hit = True
                 conf_id = create_confirmation(conversation_id, user_id, tool["name"], tool["input"])
-                yield _sse({
-                    "type": "confirmation_required",
-                    "confirmation_id": conf_id,
-                    "tool_name": tool["name"],
-                    "tool_args": tool["input"],
-                })
+                yield _sse(
+                    {
+                        "type": "confirmation_required",
+                        "confirmation_id": conf_id,
+                        "tool_name": tool["name"],
+                        "tool_args": tool["input"],
+                    }
+                )
                 break
 
             result = await _exec_tool_cached(tool["name"], tool["input"], user)
             yield _sse({"type": "tool_result", "name": tool["name"], "output": result})
             db_ops.append(("tool_result", "", tool["name"], None, result))
-            tool_result_blocks.append({
-                "type": "tool_result",
-                "tool_use_id": tool["id"],
-                "content": json.dumps(result),
-            })
+            tool_result_blocks.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool["id"],
+                    "content": json.dumps(result),
+                }
+            )
 
         if write_tool_hit:
             _flush_messages(conversation_id, db_ops, total_in, total_out)
@@ -4074,7 +4432,12 @@ async def stream_ai_response(
     """Stream AI assistant response with provider fallbacks and safe dev mode."""
     user_id = user.get("user_id", user.get("email", ""))
     if not check_ai_rate_limit(user_id):
-        yield _sse({"type": "error", "message": "Rate limit exceeded. Please wait a moment before sending another message."})
+        yield _sse(
+            {
+                "type": "error",
+                "message": "Rate limit exceeded. Please wait a moment before sending another message.",
+            }
+        )
         return
 
     conv = get_conversation(conversation_id, user_id)
@@ -4147,10 +4510,12 @@ END OF ANALYTICS DATA
 
     if not _has_any_live_provider():
         providers = ", ".join(_get_provider_order())
-        yield _sse({
-            "type": "error",
-            "message": f"AI assistant is not configured. Live calls are enabled, but no API key is set for: {providers}.",
-        })
+        yield _sse(
+            {
+                "type": "error",
+                "message": f"AI assistant is not configured. Live calls are enabled, but no API key is set for: {providers}.",
+            }
+        )
         return
 
     last_error: Exception | None = None
@@ -4195,7 +4560,12 @@ END OF ANALYTICS DATA
 
     if last_error:
         log.error("All AI assistant providers failed. Last error: %s", last_error)
-    yield _sse({"type": "error", "message": "I'm having trouble connecting. Please try again or contact support@xcelsior.ca."})
+    yield _sse(
+        {
+            "type": "error",
+            "message": "I'm having trouble connecting. Please try again or contact support@xcelsior.ca.",
+        }
+    )
 
 
 async def _stream_summary_with_anthropic(prompt: str) -> AsyncGenerator[str, None]:
@@ -4212,7 +4582,9 @@ async def _stream_summary_with_anthropic(prompt: str) -> AsyncGenerator[str, Non
             yield event.delta.text
 
 
-async def _stream_summary_with_text_provider(provider: str, prompt: str) -> AsyncGenerator[str, None]:
+async def _stream_summary_with_text_provider(
+    provider: str, prompt: str
+) -> AsyncGenerator[str, None]:
     messages = [
         {
             "role": "system",
@@ -4230,7 +4602,9 @@ async def _stream_summary_with_text_provider(provider: str, prompt: str) -> Asyn
         yield token
 
 
-async def _stream_action_summary(tool_name: str, tool_args: dict, result: dict) -> AsyncGenerator[str, None]:
+async def _stream_action_summary(
+    tool_name: str, tool_args: dict, result: dict
+) -> AsyncGenerator[str, None]:
     prompt = (
         f"The user confirmed the action '{tool_name}' with args {json.dumps(tool_args)}. "
         f"The result was: {json.dumps(result)}. Write a brief, friendly confirmation message to the user about what happened."
@@ -4267,7 +4641,9 @@ async def execute_confirmed_action(
     conf = resolve_confirmation(confirmation_id, user_id, approved)
 
     if not conf:
-        yield _sse({"type": "error", "message": "Confirmation not found, already resolved, or expired."})
+        yield _sse(
+            {"type": "error", "message": "Confirmation not found, already resolved, or expired."}
+        )
         return
 
     conversation_id = conf["conversation_id"]
@@ -4281,7 +4657,9 @@ async def execute_confirmed_action(
 
     # Execute the tool
     tool_name = conf["tool_name"]
-    tool_args = conf["tool_args"] if isinstance(conf["tool_args"], dict) else json.loads(conf["tool_args"])
+    tool_args = (
+        conf["tool_args"] if isinstance(conf["tool_args"], dict) else json.loads(conf["tool_args"])
+    )
 
     yield _sse({"type": "tool_call", "name": tool_name, "input": tool_args})
     result = await _exec_tool(tool_name, tool_args, user)
@@ -4289,8 +4667,9 @@ async def execute_confirmed_action(
 
     # Store result
     with _ai_db() as conn:
-        _append_message(conn, conversation_id, "tool_result",
-                        tool_name=tool_name, tool_output=result)
+        _append_message(
+            conn, conversation_id, "tool_result", tool_name=tool_name, tool_output=result
+        )
 
     # If the tool returned an error, report it directly instead of asking Claude to summarise
     if "error" in result:
@@ -4306,7 +4685,10 @@ async def execute_confirmed_action(
         summary_text.append(token)
         yield _sse({"type": "token", "content": token})
 
-    final_summary = "".join(summary_text).strip() or f"{tool_name.replace('_', ' ').title()} completed successfully."
+    final_summary = (
+        "".join(summary_text).strip()
+        or f"{tool_name.replace('_', ' ').title()} completed successfully."
+    )
     with _ai_db() as conn:
         _append_message(conn, conversation_id, "assistant", final_summary)
 

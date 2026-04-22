@@ -308,6 +308,7 @@ class DataLifecycleManager:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -410,7 +411,10 @@ class DataLifecycleManager:
             except Exception as e:
                 log.error(
                     "PURGE CASCADE FAILED record=%s category=%s entity=%s: %s",
-                    record["record_id"], category, entity_id, e,
+                    record["record_id"],
+                    category,
+                    entity_id,
+                    e,
                 )
                 # Still mark purged — the retention record is consumed even
                 # if the underlying store is unavailable.  A re-run won't
@@ -440,15 +444,24 @@ class DataLifecycleManager:
         Does NOT delete the job record — just scrubs sensitive payload data.
         """
         from scheduler import _db_connection
+
         with _db_connection() as conn:
             row = conn.execute(
                 "SELECT payload FROM jobs WHERE job_id = %s", (entity_id,)
             ).fetchone()
             if not row:
                 return
-            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
-            for field_name in ("container_command", "container_args", "env_vars",
-                               "docker_image", "nfs_path", "command"):
+            payload = (
+                json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            )
+            for field_name in (
+                "container_command",
+                "container_args",
+                "env_vars",
+                "docker_image",
+                "nfs_path",
+                "command",
+            ):
                 if field_name in payload:
                     payload[field_name] = "[PURGED]"
             conn.execute(
@@ -460,6 +473,7 @@ class DataLifecycleManager:
     def _purge_job_metadata(self, entity_id: str, entity_type: str):
         """Delete completed job records entirely."""
         from scheduler import _db_connection
+
         with _db_connection() as conn:
             conn.execute("DELETE FROM jobs WHERE job_id = %s", (entity_id,))
         log.info("PURGE job_metadata entity=%s", entity_id)
@@ -467,6 +481,7 @@ class DataLifecycleManager:
     def _purge_telemetry(self, entity_id: str, entity_type: str):
         """Delete telemetry event records for a host."""
         from events import EventStore
+
         store = EventStore()
         with store._conn() as conn:
             conn.execute(
@@ -478,6 +493,7 @@ class DataLifecycleManager:
     def _purge_logs(self, entity_id: str, entity_type: str):
         """Delete log/event records for a job or entity."""
         from events import EventStore
+
         store = EventStore()
         with store._conn() as conn:
             conn.execute(
@@ -489,13 +505,16 @@ class DataLifecycleManager:
     def _purge_network(self, entity_id: str, entity_type: str):
         """Scrub network/IP data from host records."""
         from scheduler import _db_connection
+
         with _db_connection() as conn:
             row = conn.execute(
                 "SELECT payload FROM hosts WHERE host_id = %s", (entity_id,)
             ).fetchone()
             if not row:
                 return
-            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            payload = (
+                json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            )
             for field_name in ("ip", "public_ip", "private_ip", "headscale_ip"):
                 if field_name in payload:
                     payload[field_name] = "[PURGED]"
@@ -508,15 +527,24 @@ class DataLifecycleManager:
     def _purge_location(self, entity_id: str, entity_type: str):
         """Scrub geolocation data from host records."""
         from scheduler import _db_connection
+
         with _db_connection() as conn:
             row = conn.execute(
                 "SELECT payload FROM hosts WHERE host_id = %s", (entity_id,)
             ).fetchone()
             if not row:
                 return
-            payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
-            for field_name in ("city", "province", "latitude", "longitude",
-                               "data_center_name", "country"):
+            payload = (
+                json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+            )
+            for field_name in (
+                "city",
+                "province",
+                "latitude",
+                "longitude",
+                "data_center_name",
+                "country",
+            ):
                 if field_name in payload:
                     payload[field_name] = "[PURGED]"
             conn.execute(
@@ -528,6 +556,7 @@ class DataLifecycleManager:
     def _purge_chat_messages(self, entity_id: str, entity_type: str):
         """Delete chat messages for a conversation."""
         from chat import _chat_db
+
         with _chat_db() as conn:
             conn.execute(
                 "DELETE FROM chat_messages WHERE conversation_id = %s",
@@ -542,19 +571,17 @@ class DataLifecycleManager:
     def _purge_billing_info(self, entity_id: str, entity_type: str):
         """Delete billing records (invoices, usage meters) for a customer."""
         from billing import get_billing_engine
+
         be = get_billing_engine()
         with be._conn() as conn:
-            conn.execute(
-                "DELETE FROM usage_meters WHERE customer_id = %s", (entity_id,)
-            )
-            conn.execute(
-                "DELETE FROM invoices WHERE customer_id = %s", (entity_id,)
-            )
+            conn.execute("DELETE FROM usage_meters WHERE customer_id = %s", (entity_id,))
+            conn.execute("DELETE FROM invoices WHERE customer_id = %s", (entity_id,))
         log.info("PURGE billing_info entity=%s", entity_id)
 
     def _purge_provider_identity(self, entity_id: str, entity_type: str):
         """Delete provider/user identity records."""
         from db import UserStore
+
         try:
             UserStore.delete_user(entity_id)
         except Exception:
@@ -766,6 +793,7 @@ import hashlib
 
 try:
     from cryptography.fernet import Fernet
+
     _HAS_FERNET = True
 except ImportError:
     _HAS_FERNET = False
@@ -780,6 +808,7 @@ class CryptoShredder:
     @contextmanager
     def _conn(self):
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         conn = pool.getconn()
         conn.row_factory = None
@@ -906,6 +935,7 @@ class ConsentManager:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -933,8 +963,9 @@ class ConsentManager:
             )
         """)
 
-    def record_consent(self, user_id, consent_type, purpose, source="", ip_address="",
-                       expires_in_days=0):
+    def record_consent(
+        self, user_id, consent_type, purpose, source="", ip_address="", expires_in_days=0
+    ):
         """Record user consent for a specific purpose.
 
         Args:
@@ -950,7 +981,8 @@ class ConsentManager:
 
         with self._conn() as conn:
             self._ensure_table(conn)
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO casl_consent (user_id, consent_type, purpose, source, ip_address, expires_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id, purpose) DO UPDATE SET
@@ -961,7 +993,9 @@ class ConsentManager:
                     source = EXCLUDED.source,
                     ip_address = EXCLUDED.ip_address,
                     active = TRUE
-            """, (user_id, consent_type, purpose, source, ip_address, expires_at))
+            """,
+                (user_id, consent_type, purpose, source, ip_address, expires_at),
+            )
         log.info("CASL CONSENT: user=%s purpose=%s type=%s", user_id, purpose, consent_type)
 
     def withdraw_consent(self, user_id, purpose):
@@ -1010,9 +1044,12 @@ class ConsentManager:
             )
             return [
                 {
-                    "purpose": r["purpose"], "consent_type": r["consent_type"],
-                    "granted_at": r["granted_at"], "expires_at": r["expires_at"],
-                    "withdrawn_at": r["withdrawn_at"], "active": r["active"],
+                    "purpose": r["purpose"],
+                    "consent_type": r["consent_type"],
+                    "granted_at": r["granted_at"],
+                    "expires_at": r["expires_at"],
+                    "withdrawn_at": r["withdrawn_at"],
+                    "active": r["active"],
                 }
                 for r in cur.fetchall()
             ]
@@ -1045,6 +1082,7 @@ def get_consent_manager() -> ConsentManager:
 
 
 # ── Right-to-Erasure Orchestrator ─────────────────────────────────────
+
 
 def execute_right_to_erasure(user_id):
     """Complete right-to-erasure workflow per PIPEDA/Law 25.

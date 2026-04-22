@@ -41,55 +41,68 @@ class TestLifecycleStates:
 
     def test_stopping_state_exists(self):
         from events import JobState
+
         assert JobState.STOPPING == "stopping"
 
     def test_stopped_state_exists(self):
         from events import JobState
+
         assert JobState.STOPPED == "stopped"
 
     def test_restarting_state_exists(self):
         from events import JobState
+
         assert JobState.RESTARTING == "restarting"
 
     def test_terminated_state_exists(self):
         from events import JobState
+
         assert JobState.TERMINATED == "terminated"
 
     def test_terminated_is_terminal(self):
         from events import JobState, TERMINAL_STATES
+
         assert JobState.TERMINATED in TERMINAL_STATES
 
     def test_stopping_is_not_terminal(self):
         from events import JobState, TERMINAL_STATES
+
         assert JobState.STOPPING not in TERMINAL_STATES
 
     def test_stopped_is_not_terminal(self):
         from events import JobState, TERMINAL_STATES
+
         assert JobState.STOPPED not in TERMINAL_STATES
 
     def test_restarting_is_not_terminal(self):
         from events import JobState, TERMINAL_STATES
+
         assert JobState.RESTARTING not in TERMINAL_STATES
 
     def test_transitional_states_frozenset_exists(self):
         from events import TRANSITIONAL_STATES, JobState
+
         assert JobState.STOPPING in TRANSITIONAL_STATES
         assert JobState.RESTARTING in TRANSITIONAL_STATES
 
     def test_transitional_states_excludes_stopped(self):
         from events import TRANSITIONAL_STATES, JobState
+
         assert JobState.STOPPED not in TRANSITIONAL_STATES
 
     def test_storage_billed_states_includes_stopped(self):
         from events import STORAGE_BILLED_STATES, JobState
+
         assert JobState.STOPPED in STORAGE_BILLED_STATES
 
     def test_storage_billed_states_excludes_running(self):
         from events import STORAGE_BILLED_STATES, JobState
+
         assert JobState.RUNNING not in STORAGE_BILLED_STATES
 
     def test_storage_billed_states_excludes_transitional(self):
         from events import STORAGE_BILLED_STATES, JobState
+
         assert JobState.STOPPING not in STORAGE_BILLED_STATES
         assert JobState.RESTARTING not in STORAGE_BILLED_STATES
 
@@ -104,56 +117,69 @@ class TestLifecycleTransitions:
 
     def test_running_can_stop(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.STOPPING in VALID_TRANSITIONS[JobState.RUNNING]
 
     def test_running_can_restart(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.RESTARTING in VALID_TRANSITIONS[JobState.RUNNING]
 
     def test_running_can_terminate(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.TERMINATED in VALID_TRANSITIONS[JobState.RUNNING]
 
     def test_stopping_can_reach_stopped_on_success(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.STOPPED in VALID_TRANSITIONS[JobState.STOPPING]
 
     def test_stopping_can_fallback_to_running_on_failure(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.RUNNING in VALID_TRANSITIONS[JobState.STOPPING]
 
     def test_stopping_can_terminate(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.TERMINATED in VALID_TRANSITIONS[JobState.STOPPING]
 
     def test_stopped_can_restart(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.RESTARTING in VALID_TRANSITIONS[JobState.STOPPED]
 
     def test_stopped_can_terminate(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.TERMINATED in VALID_TRANSITIONS[JobState.STOPPED]
 
     def test_stopped_cannot_go_directly_to_running(self):
         """Stopped → Running must go through restarting."""
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.RUNNING not in VALID_TRANSITIONS[JobState.STOPPED]
 
     def test_restarting_can_succeed_to_running(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.RUNNING in VALID_TRANSITIONS[JobState.RESTARTING]
 
     def test_restarting_can_fail_back_to_stopped(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.STOPPED in VALID_TRANSITIONS[JobState.RESTARTING]
 
     def test_restarting_can_hard_fail(self):
         from events import VALID_TRANSITIONS, JobState
+
         assert JobState.FAILED in VALID_TRANSITIONS[JobState.RESTARTING]
 
     def test_terminated_has_no_outgoing_transitions(self):
         """Terminated is a hard terminal — no exits."""
         from events import VALID_TRANSITIONS, JobState
+
         assert VALID_TRANSITIONS[JobState.TERMINATED] == set()
 
 
@@ -167,22 +193,27 @@ class TestLifecycleEventTypes:
 
     def test_job_stopping_event_type(self):
         from events import EventType
+
         assert EventType.JOB_STOPPING == "job.stopping"
 
     def test_job_stopped_event_type(self):
         from events import EventType
+
         assert EventType.JOB_STOPPED == "job.stopped"
 
     def test_job_restarting_event_type(self):
         from events import EventType
+
         assert EventType.JOB_RESTARTING == "job.restarting"
 
     def test_job_started_event_type(self):
         from events import EventType
+
         assert EventType.JOB_STARTED == "job.started"
 
     def test_job_terminated_event_type(self):
         from events import EventType
+
         assert EventType.JOB_TERMINATED == "job.terminated"
 
 
@@ -199,6 +230,7 @@ class TestLifecycleStateMachine:
 
     def _sm(self):
         from events import EventStore, JobStateMachine
+
         store = EventStore.__new__(EventStore)
         appended = []
 
@@ -226,6 +258,7 @@ class TestLifecycleStateMachine:
         sm = self._sm()
         evt = sm.transition("j1", "stopping", "running")
         from events import EventType
+
         assert evt.event_type == EventType.JOB_RUNNING
 
     def test_stopped_to_restarting_produces_restarting_event(self):
@@ -237,6 +270,7 @@ class TestLifecycleStateMachine:
         sm = self._sm()
         evt = sm.transition("j1", "restarting", "running")
         from events import EventType
+
         assert evt.event_type == EventType.JOB_RUNNING
 
     def test_running_to_terminated_produces_terminated_event(self):
@@ -282,23 +316,28 @@ class TestSchedulerLifecycleHelpers:
 
     def test_stop_container_graceful_exists(self):
         import scheduler
+
         assert hasattr(scheduler, "stop_container_graceful")
         assert callable(scheduler.stop_container_graceful)
 
     def test_start_stopped_container_exists(self):
         import scheduler
+
         assert hasattr(scheduler, "start_stopped_container")
         assert callable(scheduler.start_stopped_container)
 
     def test_terminate_job_exists(self):
         import scheduler
+
         assert hasattr(scheduler, "terminate_job")
         assert callable(scheduler.terminate_job)
 
     def test_stop_container_graceful_uses_docker_stop(self):
         """docker stop -t 10 should appear in source."""
         assert "docker stop" in _SCHEDULER_SRC
-        assert "-t 10" in _SCHEDULER_SRC or "t=10" in _SCHEDULER_SRC or '"-t", "10"' in _SCHEDULER_SRC
+        assert (
+            "-t 10" in _SCHEDULER_SRC or "t=10" in _SCHEDULER_SRC or '"-t", "10"' in _SCHEDULER_SRC
+        )
 
     def test_start_stopped_container_uses_docker_start(self):
         assert "docker start" in _SCHEDULER_SRC
@@ -310,11 +349,13 @@ class TestSchedulerLifecycleHelpers:
     def test_stop_container_graceful_returns_bool(self):
         """Source declares a bool return — just verifies no import error."""
         import scheduler
+
         # Function should be callable without error (won't actually run docker)
         assert callable(scheduler.stop_container_graceful)
 
     def test_start_stopped_container_returns_bool(self):
         import scheduler
+
         assert callable(scheduler.start_stopped_container)
 
 
@@ -328,26 +369,31 @@ class TestBillingLifecycleStructure:
 
     def test_stop_instance_method_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "stop_instance")
         assert callable(BillingEngine.stop_instance)
 
     def test_start_instance_method_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "start_instance")
         assert callable(BillingEngine.start_instance)
 
     def test_restart_instance_method_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "restart_instance")
         assert callable(BillingEngine.restart_instance)
 
     def test_terminate_instance_method_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "terminate_instance")
         assert callable(BillingEngine.terminate_instance)
 
     def test_valid_stop_reasons_class_attribute_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "_VALID_STOP_REASONS")
         reasons = BillingEngine._VALID_STOP_REASONS
         assert isinstance(reasons, frozenset)
@@ -355,6 +401,7 @@ class TestBillingLifecycleStructure:
 
     def test_valid_stop_reasons_contains_expected_values(self):
         from billing import BillingEngine
+
         r = BillingEngine._VALID_STOP_REASONS
         assert "user_stopped" in r
         assert "paused_low_balance" in r
@@ -404,6 +451,7 @@ class TestBillingStopInstance:
 
     def test_stop_invalid_reason_returns_error(self):
         from billing import BillingEngine
+
         be = BillingEngine.__new__(BillingEngine)
         result = be.stop_instance("job-1", reason="unknown_reason")
         assert result["stopped"] is False
@@ -412,13 +460,19 @@ class TestBillingStopInstance:
     def test_stop_instance_returns_stopped_false_when_no_job(self):
         """stop_instance must return {stopped: False} when job is not found/not running."""
         # Verified via source: fetchone returns None → early return with stopped=False
-        assert "\"stopped\": False" in _BILLING_SRC or "'stopped': False" in _BILLING_SRC or (
-            "not_found_or_not_running" in _BILLING_SRC or "already_terminal_or_not_found" in _BILLING_SRC
+        assert (
+            '"stopped": False' in _BILLING_SRC
+            or "'stopped': False" in _BILLING_SRC
+            or (
+                "not_found_or_not_running" in _BILLING_SRC
+                or "already_terminal_or_not_found" in _BILLING_SRC
+            )
         )
 
     def test_stop_calls_stop_container_graceful(self):
         """stop_instance calls scheduler.stop_container_graceful on a running job."""
         from billing import BillingEngine
+
         be = BillingEngine.__new__(BillingEngine)
 
         job_row = {
@@ -433,8 +487,8 @@ class TestBillingStopInstance:
         pool = _mock_pool(job_row=job_row)
         with patch("db._get_pg_pool", return_value=pool):
             with patch("scheduler.stop_container_graceful", return_value=True) as mock_stop:
-                    # We just check the function is referenced; full mock is complex
-                    pass
+                # We just check the function is referenced; full mock is complex
+                pass
 
         # Structural check: stop_container_graceful is referenced in billing source
         assert "stop_container_graceful" in _BILLING_SRC
@@ -518,6 +572,7 @@ class TestBillingStorageCycle:
 
     def test_auto_billing_cycle_exists(self):
         from billing import BillingEngine
+
         assert hasattr(BillingEngine, "auto_billing_cycle")
         assert callable(BillingEngine.auto_billing_cycle)
 
@@ -603,8 +658,10 @@ class TestLifecycleRoutes:
         )
 
     def test_terminate_guards_already_terminal(self):
-        assert "terminal_statuses" in _ROUTES_SRC or "already_terminal" in _ROUTES_SRC or (
-            "already" in _ROUTES_SRC and "terminated" in _ROUTES_SRC
+        assert (
+            "terminal_statuses" in _ROUTES_SRC
+            or "already_terminal" in _ROUTES_SRC
+            or ("already" in _ROUTES_SRC and "terminated" in _ROUTES_SRC)
         )
 
     def test_start_checks_wallet_balance(self):
@@ -678,7 +735,9 @@ class TestMigration019:
 
     def test_migration_chains_from_018(self):
         # Alembic annotated form: down_revision: Union[str, None] = "018"
-        assert '"018"' in _MIGRATION_SRC and ("down_revision" in _MIGRATION_SRC or "Revises: 018" in _MIGRATION_SRC)
+        assert '"018"' in _MIGRATION_SRC and (
+            "down_revision" in _MIGRATION_SRC or "Revises: 018" in _MIGRATION_SRC
+        )
 
     def test_migration_has_upgrade_and_downgrade(self):
         assert "def upgrade" in _MIGRATION_SRC

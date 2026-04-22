@@ -55,13 +55,15 @@ class TestMfaFlow:
         )
         assert reg.status_code == 200, reg.text
 
-        MfaStore.create_method({
-            "email": email,
-            "method_type": "totp",
-            "secret": "JBSWY3DPEHPK3PXP",
-            "enabled": 1,
-            "created_at": time.time(),
-        })
+        MfaStore.create_method(
+            {
+                "email": email,
+                "method_type": "totp",
+                "secret": "JBSWY3DPEHPK3PXP",
+                "enabled": 1,
+                "created_at": time.time(),
+            }
+        )
         UserStore.update_user(email, {"mfa_enabled": 0})
         client.cookies.clear()
 
@@ -83,15 +85,17 @@ class TestMfaFlow:
         )
         assert reg.status_code == 200, reg.text
 
-        MfaStore.create_method({
-            "email": email,
-            "method_type": "passkey",
-            "credential_id": "test-credential-id",
-            "public_key": "test-public-key",
-            "device_name": "Test Passkey",
-            "enabled": 1,
-            "created_at": time.time(),
-        })
+        MfaStore.create_method(
+            {
+                "email": email,
+                "method_type": "passkey",
+                "credential_id": "test-credential-id",
+                "public_key": "test-public-key",
+                "device_name": "Test Passkey",
+                "enabled": 1,
+                "created_at": time.time(),
+            }
+        )
         UserStore.update_user(email, {"mfa_enabled": 0})
 
         res = client.get("/api/auth/mfa/methods")

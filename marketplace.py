@@ -27,9 +27,9 @@ PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 
 # Reserved instance discount schedule (Phase 2.3)
 RESERVED_DISCOUNTS = {
-    1: 0.20,   # 1-month: 20% off
-    3: 0.30,   # 3-month: 30% off
-    6: 0.40,   # 6-month: 40% off
+    1: 0.20,  # 1-month: 20% off
+    3: 0.30,  # 3-month: 30% off
+    6: 0.40,  # 6-month: 40% off
 }
 
 
@@ -40,6 +40,7 @@ class MarketplaceEngine:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -81,8 +82,17 @@ class MarketplaceEngine:
                         spot_multiplier = %s, region = %s, province = %s,
                         available = true, updated_at = %s
                        WHERE offer_id = %s""",
-                    (ask_cents_per_hour, gpu_count_total, gpu_count_total,
-                     vram_gb, spot_multiplier, region, province, now, offer_id),
+                    (
+                        ask_cents_per_hour,
+                        gpu_count_total,
+                        gpu_count_total,
+                        vram_gb,
+                        spot_multiplier,
+                        region,
+                        province,
+                        now,
+                        offer_id,
+                    ),
                 )
             else:
                 offer_id = f"offer-{uuid.uuid4().hex[:12]}"
@@ -92,13 +102,36 @@ class MarketplaceEngine:
                         gpu_count_available, vram_gb, ask_cents_per_hour, spot_multiplier,
                         currency, region, province, available, created_at, updated_at)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'CAD', %s, %s, true, %s, %s)""",
-                    (offer_id, provider_id, host_id, gpu_model, gpu_count_total,
-                     gpu_count_total, vram_gb, ask_cents_per_hour, spot_multiplier,
-                     region, province, now, now),
+                    (
+                        offer_id,
+                        provider_id,
+                        host_id,
+                        gpu_model,
+                        gpu_count_total,
+                        gpu_count_total,
+                        vram_gb,
+                        ask_cents_per_hour,
+                        spot_multiplier,
+                        region,
+                        province,
+                        now,
+                        now,
+                    ),
                 )
 
-        log.info("GPU offer %s: %s x%d @ %d¢/hr from %s", offer_id, gpu_model, gpu_count_total, ask_cents_per_hour, provider_id)
-        return {"offer_id": offer_id, "gpu_model": gpu_model, "ask_cents_per_hour": ask_cents_per_hour}
+        log.info(
+            "GPU offer %s: %s x%d @ %d¢/hr from %s",
+            offer_id,
+            gpu_model,
+            gpu_count_total,
+            ask_cents_per_hour,
+            provider_id,
+        )
+        return {
+            "offer_id": offer_id,
+            "gpu_model": gpu_model,
+            "ask_cents_per_hour": ask_cents_per_hour,
+        }
 
     def search_offers(
         self,
@@ -150,7 +183,8 @@ class MarketplaceEngine:
     def get_offer(self, offer_id: str) -> Optional[dict]:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM gpu_offers WHERE offer_id = %s", (offer_id,),
+                "SELECT * FROM gpu_offers WHERE offer_id = %s",
+                (offer_id,),
             ).fetchone()
             return dict(row) if row else None
 
@@ -220,8 +254,7 @@ class MarketplaceEngine:
                    (allocation_id, offer_id, job_id, gpu_count,
                     price_cents_per_hour, allocation_type, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (allocation_id, offer_id, job_id, gpu_count,
-                 price_cents, allocation_type, now),
+                (allocation_id, offer_id, job_id, gpu_count, price_cents, allocation_type, now),
             )
 
             new_available = offer["gpu_count_available"] - gpu_count
@@ -232,8 +265,15 @@ class MarketplaceEngine:
                 (new_available, new_available > 0, now, offer_id),
             )
 
-        log.info("GPU allocated: %s job=%s offer=%s %dx @ %d¢/hr (%s)",
-                 allocation_id, job_id, offer_id, gpu_count, price_cents, allocation_type)
+        log.info(
+            "GPU allocated: %s job=%s offer=%s %dx @ %d¢/hr (%s)",
+            allocation_id,
+            job_id,
+            offer_id,
+            gpu_count,
+            price_cents,
+            allocation_type,
+        )
         return {
             "allocation_id": allocation_id,
             "offer_id": offer_id,
@@ -315,7 +355,9 @@ class MarketplaceEngine:
                    GROUP BY j.payload->>'gpu_model'""",
             ).fetchall()
 
-        supply_map = {r["gpu_model"]: (int(r["supply"] or 0), int(r["min_ask"] or 20)) for r in supply_rows}
+        supply_map = {
+            r["gpu_model"]: (int(r["supply"] or 0), int(r["min_ask"] or 20)) for r in supply_rows
+        }
         demand_map = {r["gpu_model"]: int(r["demand"] or 0) for r in demand_rows}
 
         spot_prices = {}
@@ -341,7 +383,10 @@ class MarketplaceEngine:
         return spot_prices
 
     def get_spot_price_history(
-        self, gpu_model: str, hours: int = 24, limit: int = 200,
+        self,
+        gpu_model: str,
+        hours: int = 24,
+        limit: int = 200,
     ) -> list[dict]:
         """Get spot price history for a GPU model."""
         cutoff = time.time() - (hours * 3600)
@@ -354,7 +399,11 @@ class MarketplaceEngine:
                 (gpu_model, cutoff, limit),
             ).fetchall()
             return [
-                {"gpu_model": r["gpu_model"], "spot_cents": r["clearing_price_cents"], "recorded_at": r["recorded_at"]}
+                {
+                    "gpu_model": r["gpu_model"],
+                    "spot_cents": r["clearing_price_cents"],
+                    "recorded_at": r["recorded_at"],
+                }
                 for r in rows
             ]
 
@@ -377,7 +426,11 @@ class MarketplaceEngine:
                    ORDER BY gpu_model, recorded_at DESC""",
             ).fetchall()
             return [
-                {"gpu_model": r["gpu_model"], "spot_cents": r["clearing_price_cents"], "recorded_at": r["recorded_at"]}
+                {
+                    "gpu_model": r["gpu_model"],
+                    "spot_cents": r["clearing_price_cents"],
+                    "recorded_at": r["recorded_at"],
+                }
                 for r in rows
             ]
 
@@ -397,7 +450,9 @@ class MarketplaceEngine:
         """
         discount_pct = RESERVED_DISCOUNTS.get(period_months)
         if discount_pct is None:
-            raise ValueError(f"Invalid period: {period_months}. Options: {list(RESERVED_DISCOUNTS.keys())}")
+            raise ValueError(
+                f"Invalid period: {period_months}. Options: {list(RESERVED_DISCOUNTS.keys())}"
+            )
 
         # Find the current on-demand rate for this GPU
         with self._conn() as conn:
@@ -410,7 +465,9 @@ class MarketplaceEngine:
 
         base_cents = int(offer["min_price"]) if offer and offer["min_price"] else 20
         discounted_cents = int(base_cents * (1 - discount_pct))
-        monthly_rate_cad = round((discounted_cents / 100) * 24 * 30.44 * gpu_count, 2)  # ~hours/month
+        monthly_rate_cad = round(
+            (discounted_cents / 100) * 24 * 30.44 * gpu_count, 2
+        )  # ~hours/month
 
         now = time.time()
         starts_at = now
@@ -424,13 +481,29 @@ class MarketplaceEngine:
                     period_months, discount_pct, monthly_rate_cad,
                     starts_at, ends_at, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s)""",
-                (reservation_id, customer_id, gpu_model, gpu_count,
-                 period_months, discount_pct, monthly_rate_cad,
-                 starts_at, ends_at, now),
+                (
+                    reservation_id,
+                    customer_id,
+                    gpu_model,
+                    gpu_count,
+                    period_months,
+                    discount_pct,
+                    monthly_rate_cad,
+                    starts_at,
+                    ends_at,
+                    now,
+                ),
             )
 
-        log.info("RESERVATION %s: %s x%d for %d months @ $%.2f/month (%d%% off)",
-                 reservation_id, gpu_model, gpu_count, period_months, monthly_rate_cad, int(discount_pct * 100))
+        log.info(
+            "RESERVATION %s: %s x%d for %d months @ $%.2f/month (%d%% off)",
+            reservation_id,
+            gpu_model,
+            gpu_count,
+            period_months,
+            monthly_rate_cad,
+            int(discount_pct * 100),
+        )
         return {
             "reservation_id": reservation_id,
             "gpu_model": gpu_model,
@@ -485,8 +558,13 @@ class MarketplaceEngine:
                 (now, reservation_id),
             )
 
-        log.info("RESERVATION %s cancelled: fee=$%.2f (%.1f months remaining @ $%.2f/mo)",
-                 reservation_id, termination_fee, remaining_months, monthly_rate)
+        log.info(
+            "RESERVATION %s cancelled: fee=$%.2f (%.1f months remaining @ $%.2f/mo)",
+            reservation_id,
+            termination_fee,
+            remaining_months,
+            monthly_rate,
+        )
 
         return {
             "reservation_id": reservation_id,

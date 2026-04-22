@@ -28,8 +28,8 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 import scheduler
 
-
 # ── Monkeypatch ``volumes.get_volume_engine`` so allocate never hits DB ─
+
 
 @pytest.fixture(autouse=True)
 def _stub_volume_engine(monkeypatch):
@@ -42,6 +42,7 @@ def _stub_volume_engine(monkeypatch):
     # allocate imports from `volumes` lazily inside the function body; patch
     # both the module symbol and the already-imported attribute to be safe.
     import volumes as _volumes_mod
+
     monkeypatch.setattr(_volumes_mod, "get_volume_engine", lambda: _Stub())
 
 
@@ -49,33 +50,49 @@ def _stub_volume_engine(monkeypatch):
 
 GPU_MODELS = ["RTX 3060", "RTX 4090", "A100", "H100", "L4", "A10"]
 
-host_strategy = st.fixed_dictionaries({
-    "host_id": st.text(
-        alphabet="abcdefghijklmnopqrstuvwxyz0123456789",
-        min_size=3,
-        max_size=8,
-    ),
-    "status": st.sampled_from(["active", "active", "active", "offline", "maintenance"]),
-    "admitted": st.booleans(),
-    "free_vram_gb": st.floats(min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False),
-    "total_vram_gb": st.floats(min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False),
-    "gpu_model": st.sampled_from(GPU_MODELS),
-    "gpu_count": st.integers(min_value=1, max_value=8),
-    "cost_per_hour": st.floats(min_value=0.01, max_value=10.0, allow_nan=False, allow_infinity=False),
-    "compute_score": st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-    "latency_ms": st.floats(min_value=1.0, max_value=500.0, allow_nan=False, allow_infinity=False),
-    "recommended_runtime": st.sampled_from(["runc", "gvisor", "kata"]),
-})
+host_strategy = st.fixed_dictionaries(
+    {
+        "host_id": st.text(
+            alphabet="abcdefghijklmnopqrstuvwxyz0123456789",
+            min_size=3,
+            max_size=8,
+        ),
+        "status": st.sampled_from(["active", "active", "active", "offline", "maintenance"]),
+        "admitted": st.booleans(),
+        "free_vram_gb": st.floats(
+            min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False
+        ),
+        "total_vram_gb": st.floats(
+            min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False
+        ),
+        "gpu_model": st.sampled_from(GPU_MODELS),
+        "gpu_count": st.integers(min_value=1, max_value=8),
+        "cost_per_hour": st.floats(
+            min_value=0.01, max_value=10.0, allow_nan=False, allow_infinity=False
+        ),
+        "compute_score": st.floats(
+            min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False
+        ),
+        "latency_ms": st.floats(
+            min_value=1.0, max_value=500.0, allow_nan=False, allow_infinity=False
+        ),
+        "recommended_runtime": st.sampled_from(["runc", "gvisor", "kata"]),
+    }
+)
 
-job_strategy = st.fixed_dictionaries({
-    "job_id": st.text(min_size=4, max_size=12, alphabet="abcdef0123456789"),
-    "name": st.text(min_size=0, max_size=32),
-    "num_gpus": st.integers(min_value=1, max_value=4),
-    "gpu_model": st.one_of(st.just(""), st.sampled_from(GPU_MODELS)),
-    "vram_needed_gb": st.floats(min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False),
-    "tier": st.sampled_from(["free", "community", "pro", "sovereign", "regulated", "secure"]),
-    "volume_ids": st.just([]),
-})
+job_strategy = st.fixed_dictionaries(
+    {
+        "job_id": st.text(min_size=4, max_size=12, alphabet="abcdef0123456789"),
+        "name": st.text(min_size=0, max_size=32),
+        "num_gpus": st.integers(min_value=1, max_value=4),
+        "gpu_model": st.one_of(st.just(""), st.sampled_from(GPU_MODELS)),
+        "vram_needed_gb": st.floats(
+            min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False
+        ),
+        "tier": st.sampled_from(["free", "community", "pro", "sovereign", "regulated", "secure"]),
+        "volume_ids": st.just([]),
+    }
+)
 
 
 # ── Trivial invariants ──────────────────────────────────────────────
@@ -83,7 +100,8 @@ job_strategy = st.fixed_dictionaries({
 
 @given(job=job_strategy)
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_empty_hosts_returns_none(job):
@@ -95,7 +113,8 @@ def test_empty_hosts_returns_none(job):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_is_one_of_the_input_hosts(job, hosts):
@@ -106,7 +125,8 @@ def test_result_is_one_of_the_input_hosts(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_status_is_active(job, hosts):
@@ -117,7 +137,8 @@ def test_result_status_is_active(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_satisfies_vram_fits(job, hosts):
@@ -128,7 +149,8 @@ def test_result_satisfies_vram_fits(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_gpu_model_matches_when_specified(job, hosts):
@@ -141,7 +163,8 @@ def test_result_gpu_model_matches_when_specified(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_is_admitted(job, hosts):
@@ -152,7 +175,8 @@ def test_result_is_admitted(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_determinism(job, hosts):
@@ -171,7 +195,8 @@ def test_determinism(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_returns_none_when_no_admitted_host_fits(job, hosts):

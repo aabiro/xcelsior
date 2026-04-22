@@ -36,6 +36,7 @@ try:
         ["outcome"],
     )
 except Exception:
+
     class _NoopCounter:
         def labels(self, *args, **kwargs):
             return self
@@ -53,9 +54,7 @@ REFRESH_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_REFRESH_TTL_SEC", str
 AUTH_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CODE_TTL_SEC", "300"))
 DEVICE_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_TTL_SEC", "900"))
 DEVICE_CODE_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_INTERVAL_SEC", "5"))
-CLIENT_CREDENTIALS_TTL_SEC = int(
-    os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", "900")
-)
+CLIENT_CREDENTIALS_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CLIENT_CREDENTIALS_TTL_SEC", "900"))
 ACCESS_TOKEN_PREFIX = os.environ.get("XCELSIOR_OAUTH_ACCESS_TOKEN_PREFIX", "xoa_")
 AUTH_CACHE_BACKEND = os.environ.get(
     "XCELSIOR_AUTH_CACHE_BACKEND",
@@ -249,7 +248,9 @@ def get_auth_cache():
     return _cache_instance
 
 
-def _cache_set_json(kind: str, identifier: str, payload: dict[str, Any], ttl: int, *, nx: bool = False) -> bool:
+def _cache_set_json(
+    kind: str, identifier: str, payload: dict[str, Any], ttl: int, *, nx: bool = False
+) -> bool:
     return bool(
         get_auth_cache().set(
             _cache_key(kind, identifier),
@@ -324,7 +325,9 @@ def _get_jwt_signing_keys() -> tuple[str, dict[str, str]]:
         active_kid = str(data["active_kid"])
         keys = {str(item["kid"]): str(item["secret"]) for item in data.get("keys", [])}
         if active_kid not in keys:
-            raise OAuthGrantError("server_error", "Active JWT signing key is missing", status_code=500)
+            raise OAuthGrantError(
+                "server_error", "Active JWT signing key is missing", status_code=500
+            )
         return active_kid, keys
 
     active_kid = os.environ.get("XCELSIOR_OAUTH_ACTIVE_KID", "default")
@@ -447,7 +450,9 @@ def validate_client_credentials_jwt(token: str) -> dict[str, Any] | None:
     }
 
 
-def _normalize_scopes(requested_scopes: str | list[str] | None, allowed_scopes: list[str]) -> list[str]:
+def _normalize_scopes(
+    requested_scopes: str | list[str] | None, allowed_scopes: list[str]
+) -> list[str]:
     if isinstance(requested_scopes, list):
         requested = [str(scope).strip() for scope in requested_scopes if str(scope).strip()]
     else:
@@ -623,7 +628,9 @@ def issue_authorization_code(
     return code
 
 
-def _build_session_record(user: dict, request, *, refresh_token: str, client_id: str, session_type: str) -> dict:
+def _build_session_record(
+    user: dict, request, *, refresh_token: str, client_id: str, session_type: str
+) -> dict:
     now = time.time()
     client_host = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent", "")[:512] if request else ""
@@ -811,8 +818,12 @@ def _lookup_user(user_code: str) -> dict[str, Any] | None:
     return _cache_get_json("device_code", str(device_ref.get("device_code", "")))
 
 
-def issue_device_authorization(*, client: dict, scopes: list[str] | None = None, base_url: str) -> dict[str, Any]:
-    scopes = _normalize_scopes(scopes, list(client.get("scopes") or ["profile", "email", "offline_access"]))
+def issue_device_authorization(
+    *, client: dict, scopes: list[str] | None = None, base_url: str
+) -> dict[str, Any]:
+    scopes = _normalize_scopes(
+        scopes, list(client.get("scopes") or ["profile", "email", "offline_access"])
+    )
     device_code = secrets.token_urlsafe(32)
     user_code = f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
     now = time.time()
@@ -847,7 +858,9 @@ def issue_device_authorization(*, client: dict, scopes: list[str] | None = None,
 def approve_device_code(*, user: dict, user_code: str) -> dict[str, Any]:
     device_ref = _cache_get_json("device_user_code", user_code)
     if not device_ref:
-        raise OAuthGrantError("invalid_grant", "Invalid or expired device user code", status_code=404)
+        raise OAuthGrantError(
+            "invalid_grant", "Invalid or expired device user code", status_code=404
+        )
     device_code = str(device_ref.get("device_code", ""))
     payload = _cache_get_json("device_code", device_code)
     if not payload:
@@ -939,19 +952,25 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
     lock_key = hash_token(refresh_token)
     if not _cache_set_json("refresh_lock", lock_key, {"locked": True}, 10, nx=True):
         _oauth_refresh_events.labels("locked").inc()
-        raise OAuthGrantError("temporarily_unavailable", "Refresh already in progress", status_code=409)
+        raise OAuthGrantError(
+            "temporarily_unavailable", "Refresh already in progress", status_code=409
+        )
 
     try:
         token_hash = hash_token(refresh_token)
         current = OAuthStore.get_refresh_token(token_hash)
         if not current:
             _oauth_refresh_events.labels("invalid").inc()
-            raise OAuthGrantError("invalid_grant", "Refresh token is invalid or expired", status_code=401)
+            raise OAuthGrantError(
+                "invalid_grant", "Refresh token is invalid or expired", status_code=401
+            )
 
         now = time.time()
         if float(current.get("expires_at", 0) or 0) <= now or current.get("revoked_at"):
             _oauth_refresh_events.labels("revoked").inc()
-            raise OAuthGrantError("invalid_grant", "Refresh token is revoked or expired", status_code=401)
+            raise OAuthGrantError(
+                "invalid_grant", "Refresh token is revoked or expired", status_code=401
+            )
 
         if current.get("consumed_at"):
             OAuthStore.revoke_refresh_family(str(current["family_id"]), reuse_detected=True)

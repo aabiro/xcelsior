@@ -68,6 +68,7 @@ def _interactive_host_jobs(host_id: str) -> list[dict]:
 
 # ── Model: HostIn ──
 
+
 class HostIn(BaseModel):
     host_id: str = Field(min_length=1, max_length=64)
     ip: str = Field(min_length=7, max_length=45)  # IPv4 min 7, IPv6 max 45
@@ -81,9 +82,11 @@ class HostIn(BaseModel):
     versions: dict | None = None  # {"runc": "1.2.4", "nvidia_ctk": "1.17.8", ...}
     # Canadian company fields (Report #1.B — Provider Onboarding)
     corporation_name: str = Field(default="", max_length=256)  # Legal corporation name
-    business_number: str = Field(default="", max_length=64)   # CRA Business Number (BN), e.g. 123456789RC0001
-    gst_hst_number: str = Field(default="", max_length=64)    # GST/HST registration number
-    legal_name: str = Field(default="", max_length=256)       # Legal name of individual or company
+    business_number: str = Field(
+        default="", max_length=64
+    )  # CRA Business Number (BN), e.g. 123456789RC0001
+    gst_hst_number: str = Field(default="", max_length=64)  # GST/HST registration number
+    legal_name: str = Field(default="", max_length=256)  # Legal name of individual or company
     # Agent self-reporting (P1.2 — worker self-update). Optional so older
     # agents that haven't been rolled out yet still pass validation.
     agent_version: str | None = Field(default=None, max_length=32)
@@ -91,6 +94,7 @@ class HostIn(BaseModel):
 
 
 # ── Model: JobIn ──
+
 
 class JobIn(BaseModel):
     name: str = Field(min_length=1, max_length=128)
@@ -111,11 +115,13 @@ class JobIn(BaseModel):
 
 # ── Model: StatusUpdate ──
 
+
 class StatusUpdate(BaseModel):
     status: str = Field(min_length=1, max_length=32)
     host_id: str | None = Field(None, max_length=64)
     container_id: str | None = Field(None, max_length=128)
     container_name: str | None = Field(None, max_length=128)
+
 
 @router.put("/host", tags=["Hosts"])
 def api_register_host(h: HostIn, request: Request):
@@ -128,6 +134,7 @@ def api_register_host(h: HostIn, request: Request):
     - If versions are provided inline, admission is checked immediately
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:write")
@@ -238,73 +245,346 @@ def api_register_host(h: HostIn, request: Request):
 # ── Model: RegisterHostRequest (web-facing registration form) ──
 
 # All known GPU model identifiers (must match frontend gpu-models.ts values)
-_VALID_GPU_MODELS = frozenset({
-    # NVIDIA Data Center
-    "H200", "H100-80GB", "H100-NVL",
-    "A100-80GB", "A100-40GB", "A40", "A30", "A10", "A16",
-    "L40S", "L40", "L4", "T4",
-    "V100-32GB", "V100-16GB",
-    # NVIDIA RTX 50 Series
-    "RTX-5090", "RTX-5080", "RTX-5070-Ti", "RTX-5070", "RTX-5060-Ti", "RTX-5060",
-    # NVIDIA RTX 40 Series
-    "RTX-4090", "RTX-4080-Super", "RTX-4080",
-    "RTX-4070-Ti-S", "RTX-4070-Ti", "RTX-4070-Super", "RTX-4070",
-    "RTX-4060-Ti-16", "RTX-4060-Ti", "RTX-4060",
-    # NVIDIA RTX 30 Series
-    "RTX-3090-Ti", "RTX-3090", "RTX-3080-Ti", "RTX-3080-12GB", "RTX-3080",
-    "RTX-3070-Ti", "RTX-3070", "RTX-3060-Ti", "RTX-3060",
-    # NVIDIA Workstation
-    "RTX-6000-Ada", "RTX-5000-Ada", "RTX-4000-Ada",
-    "RTX-A6000", "RTX-A5000", "RTX-A4000",
-    # AMD Data Center
-    "MI300X", "MI250X", "MI210",
-    # AMD Consumer
-    "RX-7900-XTX", "RX-7900-XT",
-})
+_VALID_GPU_MODELS = frozenset(
+    {
+        # NVIDIA Data Center
+        "H200",
+        "H100-80GB",
+        "H100-NVL",
+        "A100-80GB",
+        "A100-40GB",
+        "A40",
+        "A30",
+        "A10",
+        "A16",
+        "L40S",
+        "L40",
+        "L4",
+        "T4",
+        "V100-32GB",
+        "V100-16GB",
+        # NVIDIA RTX 50 Series
+        "RTX-5090",
+        "RTX-5080",
+        "RTX-5070-Ti",
+        "RTX-5070",
+        "RTX-5060-Ti",
+        "RTX-5060",
+        # NVIDIA RTX 40 Series
+        "RTX-4090",
+        "RTX-4080-Super",
+        "RTX-4080",
+        "RTX-4070-Ti-S",
+        "RTX-4070-Ti",
+        "RTX-4070-Super",
+        "RTX-4070",
+        "RTX-4060-Ti-16",
+        "RTX-4060-Ti",
+        "RTX-4060",
+        # NVIDIA RTX 30 Series
+        "RTX-3090-Ti",
+        "RTX-3090",
+        "RTX-3080-Ti",
+        "RTX-3080-12GB",
+        "RTX-3080",
+        "RTX-3070-Ti",
+        "RTX-3070",
+        "RTX-3060-Ti",
+        "RTX-3060",
+        # NVIDIA Workstation
+        "RTX-6000-Ada",
+        "RTX-5000-Ada",
+        "RTX-4000-Ada",
+        "RTX-A6000",
+        "RTX-A5000",
+        "RTX-A4000",
+        # AMD Data Center
+        "MI300X",
+        "MI250X",
+        "MI210",
+        # AMD Consumer
+        "RX-7900-XTX",
+        "RX-7900-XT",
+    }
+)
 
 # ISO 3166-1 alpha-2 — every assigned country code
-_VALID_COUNTRY_CODES = frozenset({
-    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU",
-    "AW", "AX", "AZ",
-    "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO",
-    "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ",
-    "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR",
-    "CU", "CV", "CW", "CX", "CY", "CZ",
-    "DE", "DJ", "DK", "DM", "DO", "DZ",
-    "EC", "EE", "EG", "EH", "ER", "ES", "ET",
-    "FI", "FJ", "FK", "FM", "FO", "FR",
-    "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ",
-    "GR", "GS", "GT", "GU", "GW", "GY",
-    "HK", "HM", "HN", "HR", "HT", "HU",
-    "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT",
-    "JE", "JM", "JO", "JP",
-    "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ",
-    "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY",
-    "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP",
-    "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ",
-    "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ",
-    "OM",
-    "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW",
-    "PY",
-    "QA",
-    "RE", "RO", "RS", "RU", "RW",
-    "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN",
-    "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ",
-    "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT",
-    "TV", "TW", "TZ",
-    "UA", "UG", "UM", "US", "UY", "UZ",
-    "VA", "VC", "VE", "VG", "VI", "VN", "VU",
-    "WF", "WS",
-    "XK",  # Kosovo (user-assigned, universally recognized)
-    "YE", "YT",
-    "ZA", "ZM", "ZW",
-    # Region identifiers used by frontend location selector
-    "EU", "AP",
-})
+_VALID_COUNTRY_CODES = frozenset(
+    {
+        "AD",
+        "AE",
+        "AF",
+        "AG",
+        "AI",
+        "AL",
+        "AM",
+        "AO",
+        "AQ",
+        "AR",
+        "AS",
+        "AT",
+        "AU",
+        "AW",
+        "AX",
+        "AZ",
+        "BA",
+        "BB",
+        "BD",
+        "BE",
+        "BF",
+        "BG",
+        "BH",
+        "BI",
+        "BJ",
+        "BL",
+        "BM",
+        "BN",
+        "BO",
+        "BQ",
+        "BR",
+        "BS",
+        "BT",
+        "BV",
+        "BW",
+        "BY",
+        "BZ",
+        "CA",
+        "CC",
+        "CD",
+        "CF",
+        "CG",
+        "CH",
+        "CI",
+        "CK",
+        "CL",
+        "CM",
+        "CN",
+        "CO",
+        "CR",
+        "CU",
+        "CV",
+        "CW",
+        "CX",
+        "CY",
+        "CZ",
+        "DE",
+        "DJ",
+        "DK",
+        "DM",
+        "DO",
+        "DZ",
+        "EC",
+        "EE",
+        "EG",
+        "EH",
+        "ER",
+        "ES",
+        "ET",
+        "FI",
+        "FJ",
+        "FK",
+        "FM",
+        "FO",
+        "FR",
+        "GA",
+        "GB",
+        "GD",
+        "GE",
+        "GF",
+        "GG",
+        "GH",
+        "GI",
+        "GL",
+        "GM",
+        "GN",
+        "GP",
+        "GQ",
+        "GR",
+        "GS",
+        "GT",
+        "GU",
+        "GW",
+        "GY",
+        "HK",
+        "HM",
+        "HN",
+        "HR",
+        "HT",
+        "HU",
+        "ID",
+        "IE",
+        "IL",
+        "IM",
+        "IN",
+        "IO",
+        "IQ",
+        "IR",
+        "IS",
+        "IT",
+        "JE",
+        "JM",
+        "JO",
+        "JP",
+        "KE",
+        "KG",
+        "KH",
+        "KI",
+        "KM",
+        "KN",
+        "KP",
+        "KR",
+        "KW",
+        "KY",
+        "KZ",
+        "LA",
+        "LB",
+        "LC",
+        "LI",
+        "LK",
+        "LR",
+        "LS",
+        "LT",
+        "LU",
+        "LV",
+        "LY",
+        "MA",
+        "MC",
+        "MD",
+        "ME",
+        "MF",
+        "MG",
+        "MH",
+        "MK",
+        "ML",
+        "MM",
+        "MN",
+        "MO",
+        "MP",
+        "MQ",
+        "MR",
+        "MS",
+        "MT",
+        "MU",
+        "MV",
+        "MW",
+        "MX",
+        "MY",
+        "MZ",
+        "NA",
+        "NC",
+        "NE",
+        "NF",
+        "NG",
+        "NI",
+        "NL",
+        "NO",
+        "NP",
+        "NR",
+        "NU",
+        "NZ",
+        "OM",
+        "PA",
+        "PE",
+        "PF",
+        "PG",
+        "PH",
+        "PK",
+        "PL",
+        "PM",
+        "PN",
+        "PR",
+        "PS",
+        "PT",
+        "PW",
+        "PY",
+        "QA",
+        "RE",
+        "RO",
+        "RS",
+        "RU",
+        "RW",
+        "SA",
+        "SB",
+        "SC",
+        "SD",
+        "SE",
+        "SG",
+        "SH",
+        "SI",
+        "SJ",
+        "SK",
+        "SL",
+        "SM",
+        "SN",
+        "SO",
+        "SR",
+        "SS",
+        "ST",
+        "SV",
+        "SX",
+        "SY",
+        "SZ",
+        "TC",
+        "TD",
+        "TF",
+        "TG",
+        "TH",
+        "TJ",
+        "TK",
+        "TL",
+        "TM",
+        "TN",
+        "TO",
+        "TR",
+        "TT",
+        "TV",
+        "TW",
+        "TZ",
+        "UA",
+        "UG",
+        "UM",
+        "US",
+        "UY",
+        "UZ",
+        "VA",
+        "VC",
+        "VE",
+        "VG",
+        "VI",
+        "VN",
+        "VU",
+        "WF",
+        "WS",
+        "XK",  # Kosovo (user-assigned, universally recognized)
+        "YE",
+        "YT",
+        "ZA",
+        "ZM",
+        "ZW",
+        # Region identifiers used by frontend location selector
+        "EU",
+        "AP",
+    }
+)
 
-_VALID_CA_PROVINCES = frozenset({
-    "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
-})
+_VALID_CA_PROVINCES = frozenset(
+    {
+        "AB",
+        "BC",
+        "MB",
+        "NB",
+        "NL",
+        "NS",
+        "NT",
+        "NU",
+        "ON",
+        "PE",
+        "QC",
+        "SK",
+        "YT",
+    }
+)
+
 
 class RegisterHostRequest(BaseModel):
     """Human-facing host registration from the dashboard UI.
@@ -313,6 +593,7 @@ class RegisterHostRequest(BaseModel):
     Fields that the agent reports (host_id, ip, free_vram_gb) are
     auto-generated or derived here.
     """
+
     hostname: str = Field(min_length=1, max_length=128, pattern=r"^[\w .\-]+$")
     gpu_model: str = Field(min_length=1, max_length=64)
     vram_gb: float = Field(gt=0, le=192)
@@ -352,9 +633,7 @@ class RegisterHostRequest(BaseModel):
         codes plus the EU/AP region identifiers used by the frontend."""
         upper = v.strip().upper()
         if upper not in _VALID_COUNTRY_CODES:
-            raise ValueError(
-                f"'{upper}' is not a valid ISO 3166-1 alpha-2 country code"
-            )
+            raise ValueError(f"'{upper}' is not a valid ISO 3166-1 alpha-2 country code")
         return upper
 
     @field_validator("province")
@@ -396,6 +675,7 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     PUT /host endpoint is untouched — that's for the worker agent.
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -481,10 +761,12 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     )
     return {"ok": True, "host": entry}
 
+
 @router.get("/host/{host_id}", tags=["Hosts"])
 def api_get_host(host_id: str, request: Request):
     """Get a single host by ID."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:read")
@@ -494,10 +776,12 @@ def api_get_host(host_id: str, request: Request):
     host = next(h for h in hosts if h["host_id"] == resolved)
     return {"ok": True, "host": host}
 
+
 @router.get("/hosts", tags=["Hosts"])
 def api_list_hosts(request: Request, active_only: bool = True):
     """List all hosts."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:read")
@@ -575,10 +859,12 @@ def api_undrain_host(host_id: str, request: Request):
     broadcast_sse("host_update", {"host_id": host_id, "status": updated.get("status", "pending")})
     return {"ok": True, "host": updated}
 
+
 @router.delete("/host/{host_id}", tags=["Hosts"])
 def api_remove_host(host_id: str, request: Request):
     """Remove a host."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:write")
@@ -590,15 +876,18 @@ def api_remove_host(host_id: str, request: Request):
     broadcast_sse("host_removed", {"host_id": host_id})
     return {"ok": True, "removed": host_id}
 
+
 @router.post("/hosts/check", tags=["Hosts"])
 def api_check_hosts(request: Request):
     """Ping all hosts and update status."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "hosts:write")
     results = check_hosts()
     return {"results": results}
+
 
 @router.get("/compute-score/{host_id}", tags=["Hosts"])
 def api_get_compute_score(host_id: str):
@@ -607,6 +896,7 @@ def api_get_compute_score(host_id: str):
     if score is None:
         raise HTTPException(status_code=404, detail=f"No compute score for host {host_id}")
     return {"ok": True, "host_id": host_id, "score": score}
+
 
 @router.get("/compute-scores", tags=["Hosts"])
 def api_list_compute_scores():
