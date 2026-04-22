@@ -45,26 +45,31 @@ _TIER_DESCRIPTIONS = {
 def api_trust_tiers(request: Request):
     """Return all six trust tiers with thresholds, perks, and unlock requirements."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "reputation:read")
     tiers = []
     for tier in ReputationTier:
-        tiers.append({
-            "tier": tier.value,
-            "threshold": TIER_THRESHOLDS[tier],
-            "search_boost": TIER_SEARCH_BOOST[tier],
-            "pricing_premium_pct": TIER_PRICING_PREMIUM[tier],
-            "platform_commission": TIER_PLATFORM_COMMISSION[tier],
-            "description": _TIER_DESCRIPTIONS[tier],
-            "unlock_requirements": _TIER_UNLOCK_REQUIREMENTS[tier],
-        })
+        tiers.append(
+            {
+                "tier": tier.value,
+                "threshold": TIER_THRESHOLDS[tier],
+                "search_boost": TIER_SEARCH_BOOST[tier],
+                "pricing_premium_pct": TIER_PRICING_PREMIUM[tier],
+                "platform_commission": TIER_PLATFORM_COMMISSION[tier],
+                "description": _TIER_DESCRIPTIONS[tier],
+                "unlock_requirements": _TIER_UNLOCK_REQUIREMENTS[tier],
+            }
+        )
     return {"ok": True, "tiers": tiers}
+
 
 @router.get("/api/reputation/leaderboard", tags=["Reputation"])
 def api_reputation_leaderboard(request: Request, entity_type: str = "host", limit: int = 20):
     """Top hosts/users by reputation score."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "reputation:read")
@@ -72,10 +77,12 @@ def api_reputation_leaderboard(request: Request, entity_type: str = "host", limi
     board = re_engine.get_leaderboard(entity_type, limit)
     return {"ok": True, "entity_type": entity_type, "leaderboard": board}
 
+
 @router.get("/api/reputation/me", tags=["Reputation"])
 def api_reputation_me(request: Request):
     """Get reputation for the currently authenticated user."""
     from routes._deps import _require_scope
+
     user = getattr(request.state, "user", None)
     user_id = ""
     if user:
@@ -101,10 +108,12 @@ def api_reputation_me(request: Request):
     score = re_engine.compute_score(user_id)
     return {"ok": True, **score.to_dict()}
 
+
 @router.get("/api/reputation/{entity_id}", tags=["Reputation"])
 def api_get_reputation(entity_id: str, request: Request):
     """Get reputation score and tier for a host or user."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "reputation:read")
@@ -112,10 +121,12 @@ def api_get_reputation(entity_id: str, request: Request):
     score = re_engine.compute_score(entity_id)
     return {"ok": True, "reputation": score.to_dict()}
 
+
 @router.get("/api/reputation/{entity_id}/history", tags=["Reputation"])
 def api_reputation_history(entity_id: str, request: Request, limit: int = 50):
     """Get reputation event history."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "reputation:read")
@@ -126,14 +137,17 @@ def api_reputation_history(entity_id: str, request: Request, limit: int = 50):
 
 # ── Model: VerificationGrant ──
 
+
 class VerificationGrant(BaseModel):
     entity_id: str
     verification_type: str  # email, phone, gov_id, hardware_audit, incorporation, data_center
+
 
 @router.post("/api/reputation/verify", tags=["Reputation"])
 def api_grant_verification(req: VerificationGrant, request: Request):
     """Grant a verification badge to a host/user."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "reputation:write")
@@ -147,10 +161,12 @@ def api_grant_verification(req: VerificationGrant, request: Request):
     score = re_engine.add_verification(req.entity_id, vtype)
     return {"ok": True, "reputation": score.to_dict()}
 
+
 @router.get("/api/reputation/{entity_id}/breakdown", tags=["Reputation"])
 def api_reputation_breakdown(entity_id: str, request: Request):
     """Get a detailed breakdown of how a reputation score is calculated."""
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "reputation:read")

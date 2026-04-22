@@ -19,6 +19,7 @@ router = APIRouter()
 
 GST_SMALL_SUPPLIER_THRESHOLD_CAD = 30_000.00
 
+
 @router.get("/api/billing/gst-threshold", tags=["Compliance"])
 def api_gst_threshold_status(request: Request):
     """Check platform-wide GST/HST small-supplier threshold status.
@@ -34,6 +35,7 @@ def api_gst_threshold_status(request: Request):
     - `quarters_assessed`: number of quarters with data
     """
     from routes._deps import _require_scope, _get_current_user
+
     user = _get_current_user(request) if request else None
     if user:
         _require_scope(user, "compliance:read")
@@ -79,6 +81,7 @@ def api_gst_threshold_status(request: Request):
         ),
     }
 
+
 @router.get("/api/billing/gst-threshold/{provider_id}", tags=["Compliance"])
 def api_provider_gst_threshold(provider_id: str):
     """Check whether a specific provider has exceeded the $30,000 GST/HST
@@ -119,6 +122,7 @@ def api_provider_gst_threshold(provider_id: str):
         "simplified_regime_eligible": True,
     }
 
+
 @router.get("/api/compliance/status", tags=["Compliance"])
 def api_compliance_status(request: Request):
     """Return high-level compliance check summary with live verification.
@@ -144,26 +148,72 @@ def api_compliance_status(request: Request):
     user_customer_id = (full_user.get("customer_id") or "") if full_user else ""
 
     # 1. Province Tax Matrix — platform-level, always passes if code is correct
-    expected_provinces = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
+    expected_provinces = {
+        "AB",
+        "BC",
+        "MB",
+        "NB",
+        "NL",
+        "NS",
+        "NT",
+        "NU",
+        "ON",
+        "PE",
+        "QC",
+        "SK",
+        "YT",
+    }
     configured = set(PROVINCE_TAX_RATES.keys())
     missing = expected_provinces - configured
     if not missing:
-        checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "pass",
-                        "description": f"Tax rates configured for all {len(configured)} provinces and territories."})
+        checks.append(
+            {
+                "id": "province_matrix",
+                "name": "Province Tax Matrix",
+                "status": "pass",
+                "description": f"Tax rates configured for all {len(configured)} provinces and territories.",
+            }
+        )
     else:
-        checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "fail",
-                        "description": f"Missing tax rates for: {', '.join(sorted(missing))}. Contact support to resolve.",
-                        "action": {"label": "View tax matrix", "href": "/dashboard/compliance?tab=provinces"}})
+        checks.append(
+            {
+                "id": "province_matrix",
+                "name": "Province Tax Matrix",
+                "status": "fail",
+                "description": f"Missing tax rates for: {', '.join(sorted(missing))}. Contact support to resolve.",
+                "action": {
+                    "label": "View tax matrix",
+                    "href": "/dashboard/compliance?tab=provinces",
+                },
+            }
+        )
 
     # 2. Data Residency — requires user to enable Canada-only routing in settings
     canada_only_env = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
     if canada_only_user or canada_only_env:
-        checks.append({"id": "data_residency", "name": "Data Residency", "status": "pass",
-                        "description": "Canada-only data residency enforced." + (" Your account restricts all compute and storage to Canadian infrastructure." if canada_only_user else " Platform-wide enforcement active.")})
+        checks.append(
+            {
+                "id": "data_residency",
+                "name": "Data Residency",
+                "status": "pass",
+                "description": "Canada-only data residency enforced."
+                + (
+                    " Your account restricts all compute and storage to Canadian infrastructure."
+                    if canada_only_user
+                    else " Platform-wide enforcement active."
+                ),
+            }
+        )
     else:
-        checks.append({"id": "data_residency", "name": "Data Residency", "status": "warn",
-                        "description": "Canada-only routing is not enabled. Enable it in your Jurisdiction settings to restrict all compute and data to Canadian infrastructure.",
-                        "action": {"label": "Open Jurisdiction settings", "href": "/dashboard/settings"}})
+        checks.append(
+            {
+                "id": "data_residency",
+                "name": "Data Residency",
+                "status": "warn",
+                "description": "Canada-only routing is not enabled. Enable it in your Jurisdiction settings to restrict all compute and data to Canadian infrastructure.",
+                "action": {"label": "Open Jurisdiction settings", "href": "/dashboard/settings"},
+            }
+        )
 
     # 3. Trust Tiers — requires user to have registered provider hosts
     expected_tiers = 4
@@ -171,6 +221,7 @@ def api_compliance_status(request: Request):
     has_hosts = False
     if user_id:
         from db import auth_connection
+
         with auth_connection() as conn:
             cnt = conn.execute(
                 "SELECT COUNT(*) AS c FROM hosts WHERE payload->>'user_id' = %s AND status = 'active'",
@@ -178,29 +229,65 @@ def api_compliance_status(request: Request):
             ).fetchone()
             has_hosts = cnt and cnt["c"] > 0
     if tier_count >= expected_tiers and has_hosts:
-        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "pass",
-                        "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system."})
+        checks.append(
+            {
+                "id": "trust_tiers",
+                "name": "Trust Tier Definitions",
+                "status": "pass",
+                "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system.",
+            }
+        )
     elif tier_count >= expected_tiers:
-        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
-                        "action": {"label": "Register a host", "href": "/dashboard/hosts"}})
+        checks.append(
+            {
+                "id": "trust_tiers",
+                "name": "Trust Tier Definitions",
+                "status": "warn",
+                "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
+                "action": {"label": "Register a host", "href": "/dashboard/hosts"},
+            }
+        )
     else:
-        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"Only {tier_count}/{expected_tiers} trust tiers defined.",
-                        "action": {"label": "View trust tiers", "href": "/dashboard/trust"}})
+        checks.append(
+            {
+                "id": "trust_tiers",
+                "name": "Trust Tier Definitions",
+                "status": "warn",
+                "description": f"Only {tier_count}/{expected_tiers} trust tiers defined.",
+                "action": {"label": "View trust tiers", "href": "/dashboard/trust"},
+            }
+        )
 
     # 4. Québec Law 25 (PIA) — requires user to set their province
     if user_province:
         if user_province == "QC":
-            checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                            "description": "Province set to QC — Privacy Impact Assessments are enforced automatically for all data transfers involving Quebec residents."})
+            checks.append(
+                {
+                    "id": "quebec_law25",
+                    "name": "Québec Law 25 (PIA)",
+                    "status": "pass",
+                    "description": "Province set to QC — Privacy Impact Assessments are enforced automatically for all data transfers involving Quebec residents.",
+                }
+            )
         else:
-            checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                            "description": f"Province set to {user_province}. PIA checks will apply automatically if you process data from QC residents."})
+            checks.append(
+                {
+                    "id": "quebec_law25",
+                    "name": "Québec Law 25 (PIA)",
+                    "status": "pass",
+                    "description": f"Province set to {user_province}. PIA checks will apply automatically if you process data from QC residents.",
+                }
+            )
     else:
-        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "warn",
-                        "description": "Your province is not set. Set your province in Settings so Law 25 compliance checks can be applied automatically.",
-                        "action": {"label": "Update your profile", "href": "/dashboard/settings"}})
+        checks.append(
+            {
+                "id": "quebec_law25",
+                "name": "Québec Law 25 (PIA)",
+                "status": "warn",
+                "description": "Your province is not set. Set your province in Settings so Law 25 compliance checks can be applied automatically.",
+                "action": {"label": "Update your profile", "href": "/dashboard/settings"},
+            }
+        )
 
     # 5. Audit Trail — checks for user-specific events, not just global existence
     try:
@@ -212,63 +299,130 @@ def api_compliance_status(request: Request):
         else:
             has_events = False
         if has_events:
-            checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "pass",
-                            "description": "Tamper-evident event logging active. All actions are recorded with hash-chain integrity for full auditability."})
+            checks.append(
+                {
+                    "id": "audit_trail",
+                    "name": "Audit Trail",
+                    "status": "pass",
+                    "description": "Tamper-evident event logging active. All actions are recorded with hash-chain integrity for full auditability.",
+                }
+            )
         else:
-            checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "warn",
-                            "description": "No audit events recorded yet. Submit a job or launch an instance to start generating your compliance audit trail.",
-                            "action": {"label": "Launch an instance", "href": "/dashboard/instances/new"}})
+            checks.append(
+                {
+                    "id": "audit_trail",
+                    "name": "Audit Trail",
+                    "status": "warn",
+                    "description": "No audit events recorded yet. Submit a job or launch an instance to start generating your compliance audit trail.",
+                    "action": {"label": "Launch an instance", "href": "/dashboard/instances/new"},
+                }
+            )
     except Exception as e:
         log.debug("audit trail check failed: %s", e)
-        checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "fail",
-                        "description": "Event store unavailable — audit logging is disabled. Contact support.",
-                        "action": {"label": "View events", "href": "/dashboard/events"}})
+        checks.append(
+            {
+                "id": "audit_trail",
+                "name": "Audit Trail",
+                "status": "fail",
+                "description": "Event store unavailable — audit logging is disabled. Contact support.",
+                "action": {"label": "View events", "href": "/dashboard/events"},
+            }
+        )
 
     # 6. Payment Processing — check if THIS user has completed Stripe Connect onboarding
     try:
         mgr = get_stripe_manager()
         from stripe_connect import STRIPE_ENABLED
+
         if not STRIPE_ENABLED:
-            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Payment processing is not configured on this platform. Stripe Connect is required for provider payouts and customer billing.",
-                            "action": {"label": "View billing", "href": "/dashboard/billing"}})
+            checks.append(
+                {
+                    "id": "payment_rails",
+                    "name": "Payment Processing",
+                    "status": "warn",
+                    "description": "Payment processing is not configured on this platform. Stripe Connect is required for provider payouts and customer billing.",
+                    "action": {"label": "View billing", "href": "/dashboard/billing"},
+                }
+            )
         elif user_provider_id:
             # User is a provider — check if they've completed Stripe onboarding
             provider = mgr.get_provider(user_provider_id)
             if provider and provider.get("stripe_account_id"):
                 status = provider.get("status", "pending")
                 if status == "active":
-                    checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "pass",
-                                    "description": "Stripe Connect onboarded. Your provider account is active and ready to receive payouts."})
+                    checks.append(
+                        {
+                            "id": "payment_rails",
+                            "name": "Payment Processing",
+                            "status": "pass",
+                            "description": "Stripe Connect onboarded. Your provider account is active and ready to receive payouts.",
+                        }
+                    )
                 else:
-                    checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                                    "description": f"Stripe Connect account status: {status}. Complete your onboarding to start receiving provider payouts.",
-                                    "action": {"label": "Complete onboarding", "href": "/dashboard/earnings"}})
+                    checks.append(
+                        {
+                            "id": "payment_rails",
+                            "name": "Payment Processing",
+                            "status": "warn",
+                            "description": f"Stripe Connect account status: {status}. Complete your onboarding to start receiving provider payouts.",
+                            "action": {
+                                "label": "Complete onboarding",
+                                "href": "/dashboard/earnings",
+                            },
+                        }
+                    )
             else:
-                checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                                "description": "You are registered as a provider but have not completed Stripe Connect onboarding. Complete it to receive payouts.",
-                                "action": {"label": "Set up Stripe Connect", "href": "/dashboard/earnings"}})
+                checks.append(
+                    {
+                        "id": "payment_rails",
+                        "name": "Payment Processing",
+                        "status": "warn",
+                        "description": "You are registered as a provider but have not completed Stripe Connect onboarding. Complete it to receive payouts.",
+                        "action": {"label": "Set up Stripe Connect", "href": "/dashboard/earnings"},
+                    }
+                )
         else:
             # Not a provider — check from customer perspective
-            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
-                            "action": {"label": "Become a provider", "href": "/dashboard/earnings"}})
+            checks.append(
+                {
+                    "id": "payment_rails",
+                    "name": "Payment Processing",
+                    "status": "warn",
+                    "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
+                    "action": {"label": "Become a provider", "href": "/dashboard/earnings"},
+                }
+            )
     except Exception as e:
         log.debug("payment rails check failed: %s", e)
-        checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
-                        "description": "Payment processing module unavailable. Contact support.",
-                        "action": {"label": "View billing", "href": "/dashboard/billing"}})
+        checks.append(
+            {
+                "id": "payment_rails",
+                "name": "Payment Processing",
+                "status": "fail",
+                "description": "Payment processing module unavailable. Contact support.",
+                "action": {"label": "View billing", "href": "/dashboard/billing"},
+            }
+        )
 
     return {"ok": True, "checks": checks}
+
 
 @router.get("/api/compliance/provinces", tags=["Compliance"])
 def api_compliance_provinces():
     """All 13 Canadian provinces/territories plus international, with tax rates and compliance info."""
     PROVINCE_NAMES = {
-        "AB": "Alberta", "BC": "British Columbia", "MB": "Manitoba",
-        "NB": "New Brunswick", "NL": "Newfoundland & Labrador", "NS": "Nova Scotia",
-        "NT": "Northwest Territories", "NU": "Nunavut", "ON": "Ontario",
-        "PE": "Prince Edward Island", "QC": "Québec", "SK": "Saskatchewan",
+        "AB": "Alberta",
+        "BC": "British Columbia",
+        "MB": "Manitoba",
+        "NB": "New Brunswick",
+        "NL": "Newfoundland & Labrador",
+        "NS": "Nova Scotia",
+        "NT": "Northwest Territories",
+        "NU": "Nunavut",
+        "ON": "Ontario",
+        "PE": "Prince Edward Island",
+        "QC": "Québec",
+        "SK": "Saskatchewan",
         "YT": "Yukon",
     }
     matrix = {}
@@ -293,6 +447,7 @@ def api_compliance_provinces():
     }
     return {"provinces": matrix}
 
+
 @router.get("/api/compliance/detect-province", tags=["Compliance"])
 def api_detect_province(request: Request):
     """Best-effort province detection from request headers.
@@ -306,13 +461,28 @@ def api_detect_province(request: Request):
 
     # Cloudflare region codes map to province codes for Canada
     CF_REGION_MAP = {
-        "AB": "AB", "BC": "BC", "MB": "MB", "NB": "NB", "NL": "NL",
-        "NS": "NS", "NT": "NT", "NU": "NU", "ON": "ON", "PE": "PE",
-        "QC": "QC", "SK": "SK", "YT": "YT",
+        "AB": "AB",
+        "BC": "BC",
+        "MB": "MB",
+        "NB": "NB",
+        "NL": "NL",
+        "NS": "NS",
+        "NT": "NT",
+        "NU": "NU",
+        "ON": "ON",
+        "PE": "PE",
+        "QC": "QC",
+        "SK": "SK",
+        "YT": "YT",
         # Common Cloudflare region name variants
-        "ALBERTA": "AB", "BRITISH COLUMBIA": "BC", "MANITOBA": "MB",
-        "NEW BRUNSWICK": "NB", "NEWFOUNDLAND AND LABRADOR": "NL",
-        "NOVA SCOTIA": "NS", "ONTARIO": "ON", "QUEBEC": "QC",
+        "ALBERTA": "AB",
+        "BRITISH COLUMBIA": "BC",
+        "MANITOBA": "MB",
+        "NEW BRUNSWICK": "NB",
+        "NEWFOUNDLAND AND LABRADOR": "NL",
+        "NOVA SCOTIA": "NS",
+        "ONTARIO": "ON",
+        "QUEBEC": "QC",
         "SASKATCHEWAN": "SK",
     }
 
@@ -343,14 +513,27 @@ def api_tax_rates():
     rates = {}
     for code, (total, desc) in PROVINCE_TAX_RATES.items():
         if code in HST_PROVINCES:
-            rates[code] = {"rate": total, "description": desc, "gst": 0, "pst": 0, "hst": HST_PROVINCES[code]}
+            rates[code] = {
+                "rate": total,
+                "description": desc,
+                "gst": 0,
+                "pst": 0,
+                "hst": HST_PROVINCES[code],
+            }
         elif code in PST_PROVINCES:
-            rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": PST_PROVINCES[code], "hst": 0}
+            rates[code] = {
+                "rate": total,
+                "description": desc,
+                "gst": 0.05,
+                "pst": PST_PROVINCES[code],
+                "hst": 0,
+            }
         else:
             # GST-only (AB, territories)
             rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": 0, "hst": 0}
 
     return {"rates": rates}
+
 
 @router.get("/api/compliance/trust-tier-requirements", tags=["Compliance"])
 def api_trust_tier_requirements():
@@ -362,10 +545,12 @@ def api_trust_tier_requirements():
 
 # ── Model: PIACheckRequest ──
 
+
 class PIACheckRequest(BaseModel):
     data_origin_province: str = "QC"
     processing_province: str = "ON"
     data_contains_pi: bool = False
+
 
 @router.post("/api/compliance/quebec-pia-check", tags=["Compliance"])
 def api_quebec_pia_check(req: PIACheckRequest):

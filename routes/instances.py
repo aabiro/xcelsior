@@ -72,6 +72,7 @@ def _get_user_concurrency_cap(customer_id: str) -> int:
         return MAX_CONCURRENT_INSTANCES_PER_USER
     try:
         from db import _get_pg_pool
+
         with _get_pg_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT max_concurrent_instances FROM users WHERE customer_id = %s LIMIT 1",
@@ -94,10 +95,10 @@ def _count_active_instances(customer_id: str) -> int:
     """
     try:
         from db import _get_pg_pool
+
         with _get_pg_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM jobs "
-                "WHERE payload->>'owner' = %s AND status = ANY(%s)",
+                "SELECT COUNT(*) FROM jobs " "WHERE payload->>'owner' = %s AND status = ANY(%s)",
                 (customer_id, list(_ACTIVE_STATUSES)),
             )
             row = cur.fetchone()
@@ -107,7 +108,8 @@ def _count_active_instances(customer_id: str) -> int:
         # completely lose the gate. (Worst case: O(N) on all jobs once.)
         log.warning("SQL active-instance count failed for %s: %s — falling back", customer_id, e)
         return sum(
-            1 for j in list_jobs()
+            1
+            for j in list_jobs()
             if j.get("owner") == customer_id and j.get("status") in _ACTIVE_STATUSES
         )
 
@@ -127,6 +129,7 @@ def _check_job_access(user: dict, job_id: str):
     if user.get("role") == "admin" or user.get("is_admin"):
         return
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, f"Instance {job_id} not found")
@@ -161,6 +164,7 @@ class JobIn(BaseModel):
         if v is None or v == "":
             return v
         from security import validate_docker_image
+
         return validate_docker_image(v)
 
 
@@ -177,6 +181,7 @@ class StatusUpdate(BaseModel):
 def _wallet_preflight(customer_id: str):
     """Shared wallet check — raises 402 if wallet is suspended or empty."""
     from billing import get_billing_engine
+
     be = get_billing_engine()
     wallet = be.get_wallet(customer_id)
     if wallet.get("status") == "suspended":
@@ -186,6 +191,7 @@ def _wallet_preflight(customer_id: str):
 
 
 # ── Image Templates ──
+
 
 class ImageTemplate(BaseModel):
     id: str
@@ -204,10 +210,12 @@ def api_image_templates():
     Single source of truth consumed by frontend, wizard, and API callers.
     """
     from security import get_image_templates
+
     return {"templates": [ImageTemplate(**t).model_dump() for t in get_image_templates()]}
 
 
 # ── Helper: _refresh_job ──
+
 
 def _refresh_job(job_id: str):
     """Re-read a job from the DB to get updated status/host/container fields."""
@@ -215,6 +223,7 @@ def _refresh_job(job_id: str):
         if j["job_id"] == job_id:
             return j
     return None
+
 
 @router.post("/instance", tags=["Instances"])
 def api_submit_instance(j: JobIn, request: Request):
@@ -279,11 +288,14 @@ def api_submit_instance(j: JobIn, request: Request):
     # or the auth service is having a blip.
     if j.image:
         from security import probe_image_exists
+
         problem = probe_image_exists(j.image)
         if problem:
             raise HTTPException(status_code=400, detail=problem)
 
-    with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
+    with otel_span(
+        "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
+    ):
         customer_id = user.get("customer_id", user.get("user_id", ""))
         _wallet_preflight(customer_id)
 
@@ -296,13 +308,14 @@ def api_submit_instance(j: JobIn, request: Request):
             raise HTTPException(
                 status_code=429,
                 detail=f"Concurrent instance limit reached ({user_cap}). "
-                       "Please stop an existing instance before launching a new one.",
+                "Please stop an existing instance before launching a new one.",
             )
 
         # ── Validate volume_ids ownership and status ─────────────
         validated_volume_ids = None
         if j.volume_ids:
             from volumes import get_volume_engine
+
             ve = get_volume_engine()
             validated_volume_ids = []
             seen_vids: set[str] = set()
@@ -330,9 +343,16 @@ def api_submit_instance(j: JobIn, request: Request):
         # Spot path: max_bid present → delegate to spot submission
         if j.max_bid is not None:
             from scheduler import submit_spot_job
+
             job = submit_spot_job(
-                j.name, vram_needed, j.max_bid, j.priority,
-                tier=j.tier, owner=customer_id, image=j.image, gpu_model=j.gpu_model,
+                j.name,
+                vram_needed,
+                j.max_bid,
+                j.priority,
+                tier=j.tier,
+                owner=customer_id,
+                image=j.image,
+                gpu_model=j.gpu_model,
             )
             event_name = "spot_job_submitted"
         else:
@@ -386,13 +406,24 @@ def api_submit_instance(j: JobIn, request: Request):
                         container_id = run_job(updated, host, docker_image=j.image or None)
                         if container_id:
                             job = _refresh_job(job["job_id"]) or job
-                            log.info("Direct launch: job %s running on host %s", job["job_id"], target_host_id)
+                            log.info(
+                                "Direct launch: job %s running on host %s",
+                                job["job_id"],
+                                target_host_id,
+                            )
                         else:
                             job = _refresh_job(job["job_id"]) or job
-                            log.warning("Direct launch: container start failed for job %s on host %s",
-                                        job["job_id"], target_host_id)
+                            log.warning(
+                                "Direct launch: container start failed for job %s on host %s",
+                                job["job_id"],
+                                target_host_id,
+                            )
                     else:
-                        log.warning("Direct launch: host %s not found, job %s stays queued", target_host_id, job["job_id"])
+                        log.warning(
+                            "Direct launch: host %s not found, job %s stays queued",
+                            target_host_id,
+                            job["job_id"],
+                        )
                         update_job_status(job["job_id"], "queued")
                         job = _refresh_job(job["job_id"]) or job
             except Exception as e:
@@ -408,6 +439,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 log.warning("Queue processing after submit failed: %s", e)
 
         return {"ok": True, "instance": job}
+
 
 def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     """Shared enrichment for every instance response — list and detail.
@@ -461,6 +493,7 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     # Attached volumes
     try:
         from volumes import get_volume_engine
+
         ve = get_volume_engine()
         vols = ve.get_instance_volumes(j.get("job_id", ""))
         j["attached_volumes"] = [
@@ -484,6 +517,7 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
         try:
             from db import _get_pg_pool
             from psycopg.rows import dict_row
+
             pool = _get_pg_pool()
             with pool.connection() as conn:
                 conn.row_factory = dict_row
@@ -512,6 +546,7 @@ def api_list_instances(status: str | None = None):
         _enrich_instance(j, host_map)
     return {"instances": jobs}
 
+
 @router.get("/instance/{job_id}", tags=["Instances"])
 def api_get_instance(job_id: str):
     """Get a specific instance by ID, enriched with connection info."""
@@ -522,6 +557,7 @@ def api_get_instance(job_id: str):
     host_map = {h["host_id"]: h for h in hosts}
     _enrich_instance(j, host_map)
     return {"instance": j}
+
 
 @router.patch("/instance/{job_id}", tags=["Instances"])
 def api_update_instance(job_id: str, update: StatusUpdate):
@@ -545,8 +581,7 @@ def api_update_instance(job_id: str, update: StatusUpdate):
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        f"ssh_port {update.ssh_port} outside reserved gateway "
-                        "range 10000-65000"
+                        f"ssh_port {update.ssh_port} outside reserved gateway " "range 10000-65000"
                     ),
                 )
             extras["ssh_port"] = update.ssh_port
@@ -556,6 +591,7 @@ def api_update_instance(job_id: str, update: StatusUpdate):
             extras["error_message"] = update.error_message[:500]
         if extras:
             from scheduler import _set_job_fields
+
             _set_job_fields(job_id, **extras)
         # Push error_message as a log line so it appears in the UI log viewer
         if update.error_message and update.status == "failed":
@@ -572,9 +608,11 @@ class InstanceRenamePayload(BaseModel):
 def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Request):
     """Rename an instance (owner or admin only)."""
     from routes._deps import _get_current_user, _require_auth
+
     _require_auth(request)
     user = _get_current_user(request)
     from scheduler import get_job, _set_job_fields
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, "Instance not found")
@@ -597,6 +635,7 @@ def api_process_queue():
         broadcast_sse("queue_processed", {"assigned_count": len(result)})
     return {"assigned": result}
 
+
 @router.post("/failover", tags=["Instances"])
 def api_failover():
     """Run a full failover cycle: check hosts, requeue orphaned jobs, reassign."""
@@ -610,6 +649,7 @@ def api_failover():
             {"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned
         ],
     }
+
 
 @router.post("/instances/{job_id}/cancel", tags=["Instances"])
 def api_cancel_instance(job_id: str, request: Request):
@@ -643,11 +683,13 @@ def api_cancel_instance(job_id: str, request: Request):
     # Detach any volumes still attached to this instance
     try:
         from volumes import get_volume_engine
+
         get_volume_engine().detach_all_for_instance(job_id)
     except Exception as e:
         log.warning("Volume detach on cancel failed for %s: %s", job_id, e)
 
     return {"ok": True, "job_id": job_id, "status": "cancelled"}
+
 
 @router.post("/instance/{job_id}/requeue", tags=["Instances"])
 def api_requeue_instance(job_id: str, request: Request):
@@ -664,6 +706,7 @@ def api_requeue_instance(job_id: str, request: Request):
     _job_log_buffers.pop(job_id, None)
     try:
         from db import _get_pg_pool
+
         with _get_pg_pool().connection() as conn:
             conn.execute("DELETE FROM job_logs WHERE job_id = %s", (job_id,))
     except Exception:
@@ -673,6 +716,7 @@ def api_requeue_instance(job_id: str, request: Request):
 
 
 # ── Pause / Resume ───────────────────────────────────────────────────
+
 
 @router.post("/instances/{job_id}/pause", tags=["Instances"])
 def api_pause_instance(job_id: str, request: Request):
@@ -686,6 +730,7 @@ def api_pause_instance(job_id: str, request: Request):
     role = user.get("role", "")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -699,6 +744,7 @@ def api_pause_instance(job_id: str, request: Request):
         raise HTTPException(status_code=400, detail=f"Instance is {job.get('status')}, not running")
 
     from billing import get_billing_engine
+
     be = get_billing_engine()
     result = be.pause_instance(job_id, reason="user_paused")
     if not result.get("paused"):
@@ -721,6 +767,7 @@ def api_resume_instance(job_id: str, request: Request):
     role = user.get("role", "")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -736,6 +783,7 @@ def api_resume_instance(job_id: str, request: Request):
 
     # Wallet pre-flight — must have funds to resume
     from billing import get_billing_engine
+
     be = get_billing_engine()
     wallet = be.get_wallet(job_owner or customer_id)
     if wallet.get("status") == "suspended":
@@ -755,6 +803,7 @@ def api_resume_instance(job_id: str, request: Request):
 
 # ── Stop / Start / Restart / Terminate ──────────────────────────────
 
+
 @router.post("/instances/{job_id}/stop", tags=["Instances"])
 def api_stop_instance(job_id: str, request: Request):
     """Gracefully stop a running instance.
@@ -769,6 +818,7 @@ def api_stop_instance(job_id: str, request: Request):
     role = user.get("role", "")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -778,9 +828,12 @@ def api_stop_instance(job_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Not authorized to stop this instance")
 
     if job.get("status") != "running":
-        raise HTTPException(status_code=400, detail=f"Instance is '{job.get('status')}', must be running to stop")
+        raise HTTPException(
+            status_code=400, detail=f"Instance is '{job.get('status')}', must be running to stop"
+        )
 
     from billing import get_billing_engine
+
     be = get_billing_engine()
     result = be.stop_instance(job_id, reason="user_stopped")
     if not result.get("stopped"):
@@ -804,6 +857,7 @@ def api_start_instance(job_id: str, request: Request):
     role = user.get("role", "")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -814,9 +868,12 @@ def api_start_instance(job_id: str, request: Request):
 
     allowed_statuses = {"stopped", "user_paused", "paused_low_balance"}
     if job.get("status") not in allowed_statuses:
-        raise HTTPException(status_code=400, detail=f"Instance is '{job.get('status')}', must be stopped to start")
+        raise HTTPException(
+            status_code=400, detail=f"Instance is '{job.get('status')}', must be stopped to start"
+        )
 
     from billing import get_billing_engine
+
     be = get_billing_engine()
     wallet = be.get_wallet(job_owner or customer_id)
     if wallet.get("status") == "suspended":
@@ -850,6 +907,7 @@ def api_restart_instance(job_id: str, request: Request):
     role = user.get("role", "")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -859,15 +917,21 @@ def api_restart_instance(job_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Not authorized to restart this instance")
 
     if job.get("status") not in ("running", "stopped"):
-        raise HTTPException(status_code=400, detail=f"Instance is '{job.get('status')}', must be running or stopped to restart")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Instance is '{job.get('status')}', must be running or stopped to restart",
+        )
 
     from billing import get_billing_engine
+
     be = get_billing_engine()
     wallet = be.get_wallet(job_owner or customer_id)
     if wallet.get("status") == "suspended":
         raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
     if wallet["balance_cad"] <= 0:
-        raise HTTPException(status_code=402, detail="Insufficient wallet balance to restart instance")
+        raise HTTPException(
+            status_code=402, detail="Insufficient wallet balance to restart instance"
+        )
 
     result = be.restart_instance(job_id)
     if not result.get("restarted"):
@@ -897,6 +961,7 @@ def api_admin_reinject_shell(job_id: str, request: Request):
         raise HTTPException(403, "Admin only")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, f"Instance {job_id} not found")
@@ -907,6 +972,7 @@ def api_admin_reinject_shell(job_id: str, request: Request):
 
     container_name = job.get("container_name") or f"xcl-{job_id}"
     from routes.agent import enqueue_agent_command
+
     cmd_id = enqueue_agent_command(
         host_id=host_id,
         command="reinject_shell",
@@ -915,7 +981,10 @@ def api_admin_reinject_shell(job_id: str, request: Request):
     )
     log.info(
         "Admin %s enqueued reinject_shell cmd=%d host=%s job=%s",
-        user.get("email", "?"), cmd_id, host_id, job_id,
+        user.get("email", "?"),
+        cmd_id,
+        host_id,
+        job_id,
     )
     return {"ok": True, "command_id": cmd_id, "host_id": host_id, "job_id": job_id}
 
@@ -934,6 +1003,7 @@ def api_terminate_instance(job_id: str, request: Request):
     role = user.get("role", "")
 
     from scheduler import get_job
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -947,6 +1017,7 @@ def api_terminate_instance(job_id: str, request: Request):
         raise HTTPException(status_code=400, detail=f"Instance already {job.get('status')}")
 
     from billing import get_billing_engine
+
     be = get_billing_engine()
     result = be.terminate_instance(job_id)
     if not result.get("terminated"):
@@ -958,8 +1029,15 @@ def api_terminate_instance(job_id: str, request: Request):
 
 # ── Helper: push_job_log ──
 
-def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float | None = None,
-                 *, persist: bool = True):
+
+def push_job_log(
+    job_id: str,
+    line: str,
+    level: str = "info",
+    timestamp: float | None = None,
+    *,
+    persist: bool = True,
+):
     """Push a log line into the per-job log buffer + optionally persist to PG + SSE broadcast.
 
     Three sinks, in this priority:
@@ -990,6 +1068,7 @@ def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float |
     if persist:
         try:
             from db import _get_pg_pool
+
             with _get_pg_pool().connection() as conn:
                 conn.execute(
                     "INSERT INTO job_logs (job_id, ts, level, line) VALUES (%s, %s, %s, %s)",
@@ -1005,11 +1084,13 @@ def push_job_log(job_id: str, line: str, level: str = "info", timestamp: float |
 
 # ── Helper: _load_pg_logs ──
 
+
 def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
     """Load recent log lines from PG job_logs table (fallback when in-memory buffer is empty)."""
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
@@ -1026,6 +1107,7 @@ def _load_pg_logs(job_id: str, limit: int = 200) -> list[dict]:
 
 
 # ── Helper: _job_log_generator ──
+
 
 async def _job_log_generator(request: Request, job_id: str):
     """Async generator that yields SSE events for a specific job.
@@ -1079,6 +1161,7 @@ async def _job_log_generator(request: Request, job_id: str):
                 try:
                     from db import _get_pg_pool
                     from psycopg.rows import dict_row
+
                     with _get_pg_pool().connection() as conn:
                         with conn.cursor(row_factory=dict_row) as cur:
                             new_rows = cur.execute(
@@ -1137,6 +1220,7 @@ async def _job_log_generator(request: Request, job_id: str):
             if queue in _sse_subscribers:
                 _sse_subscribers.remove(queue)
 
+
 @router.get("/instances/{job_id}/logs/stream", tags=["Instances"])
 async def api_instance_log_stream(request: Request, job_id: str):
     """Stream real-time logs for a specific job via Server-Sent Events.
@@ -1166,6 +1250,7 @@ async def api_instance_log_stream(request: Request, job_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
 
 @router.get("/instances/{job_id}/logs", tags=["Instances"])
 def api_instance_logs(job_id: str, request: Request, limit: int = 100):
@@ -1208,7 +1293,8 @@ def api_instance_logs_download(job_id: str, request: Request):
     text = "\n".join(lines)
 
     import re
-    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', job_id)[:128]
+
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", job_id)[:128]
     return Response(
         content=text,
         media_type="text/plain",
@@ -1220,6 +1306,7 @@ def api_instance_logs_download(job_id: str, request: Request):
 def api_list_tiers():
     """List all priority tiers with their multipliers."""
     return {"tiers": list_tiers()}
+
 
 @router.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
 def api_process_queue_binpack(canada_only: bool = False, province: str = ""):
@@ -1249,8 +1336,8 @@ def api_instance_stream_ticket(job_id: str, request: Request) -> dict:
     }
 
 
-
 # ── WebSocket Instance Streaming ──────────────────────────────────
+
 
 @router.websocket("/ws/instances/{job_id}")
 async def ws_instance_stream(websocket: WebSocket, job_id: str):
@@ -1305,6 +1392,7 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
     def _load_snapshot() -> dict | None:
         nonlocal _host_map_cache, _host_map_ts
         from scheduler import get_job
+
         j = get_job(job_id)
         if not j:
             return None

@@ -46,9 +46,15 @@ from billing import get_billing_engine
 from reputation import get_reputation_engine, score_to_tier
 from reputation import TIER_PLATFORM_COMMISSION
 
-HOSTS_FILE = os.environ.get("XCELSIOR_HOSTS_FILE", os.path.join(os.path.dirname(__file__), "hosts.json"))
-JOBS_FILE = os.environ.get("XCELSIOR_JOBS_FILE", os.path.join(os.path.dirname(__file__), "jobs.json"))
-LOG_FILE = os.environ.get("XCELSIOR_LOG_FILE", os.path.join(os.path.dirname(__file__), "xcelsior.log"))
+HOSTS_FILE = os.environ.get(
+    "XCELSIOR_HOSTS_FILE", os.path.join(os.path.dirname(__file__), "hosts.json")
+)
+JOBS_FILE = os.environ.get(
+    "XCELSIOR_JOBS_FILE", os.path.join(os.path.dirname(__file__), "jobs.json")
+)
+LOG_FILE = os.environ.get(
+    "XCELSIOR_LOG_FILE", os.path.join(os.path.dirname(__file__), "xcelsior.log")
+)
 DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
 
 
@@ -156,6 +162,7 @@ def _db_connection():
     """Shared DB connection wrapper using PostgreSQL pool."""
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -203,6 +210,7 @@ def _decode_payload(payload):
 
 def _upsert_job_row(conn, job):
     from psycopg.types.json import Jsonb
+
     job_id = str(job.get("job_id", "")).strip()
     if not job_id:
         return
@@ -233,6 +241,7 @@ def _upsert_job_row(conn, job):
 
 def _upsert_host_row(conn, host):
     from psycopg.types.json import Jsonb
+
     host_id = str(host.get("host_id", "")).strip()
     if not host_id:
         return
@@ -400,7 +409,9 @@ def _load_json(path):
     """Load persisted list data from SQLite, with one-time migration from JSON files."""
     namespace = _namespace_key(path)
     with _db_connection() as conn:
-        row = conn.execute("SELECT payload FROM state WHERE namespace = %s", (namespace,)).fetchone()
+        row = conn.execute(
+            "SELECT payload FROM state WHERE namespace = %s", (namespace,)
+        ).fetchone()
         if row:
             try:
                 data = row["payload"]
@@ -419,6 +430,7 @@ def _load_json(path):
 def _save_json(path, data):
     """Persist list data to PostgreSQL while preserving JSON-compatible interfaces."""
     from psycopg.types.json import Jsonb
+
     namespace = _namespace_key(path)
     with _atomic_mutation() as conn:
         conn.execute(
@@ -485,16 +497,15 @@ def allocate(job, hosts):
     # Step 1: VRAM filter (with driver-overhead tolerance — see _vram_fits)
     vram_needed = job.get("vram_needed_gb", 0) or 0
     candidates = [
-        h for h in hosts
-        if h.get("status", "active") == "active"
-        and _vram_fits(h, vram_needed)
+        h for h in hosts if h.get("status", "active") == "active" and _vram_fits(h, vram_needed)
     ]
     if not candidates:
         return None
 
     if requested_gpu_model:
         candidates = [
-            h for h in candidates
+            h
+            for h in candidates
             if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
         ]
         if not candidates:
@@ -558,6 +569,7 @@ def allocate(job, hosts):
     if volume_ids:
         try:
             from volumes import get_volume_engine
+
             ve = get_volume_engine()
             volume_host_ids = ve.get_volume_host_ids(volume_ids)
         except Exception:
@@ -597,6 +609,7 @@ def allocate(job, hosts):
 # Processes queue in decreasing VRAM order (largest jobs first) to
 # minimize fragmentation. Scoring: waste ratio, locality, reputation.
 
+
 def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
     """Best-fit-decreasing bin packer with locality + reputation scoring.
 
@@ -621,7 +634,8 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
 
     # Filter: VRAM (with driver-overhead tolerance) + admission
     candidates = [
-        h for h in hosts
+        h
+        for h in hosts
         if h.get("status", "active") == "active"
         and h.get("admitted", False)
         and _vram_fits(h, vram_needed)
@@ -631,7 +645,8 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
 
     if requested_gpu_model:
         candidates = [
-            h for h in candidates
+            h
+            for h in candidates
             if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
         ]
         if not candidates:
@@ -735,6 +750,7 @@ def process_queue_binpack(canada_only=None, province=None):
         if vol_ids:
             try:
                 from volumes import get_volume_engine
+
                 ve = get_volume_engine()
                 vol_host_ids = ve.get_volume_host_ids(vol_ids)
             except Exception:
@@ -744,12 +760,15 @@ def process_queue_binpack(canada_only=None, province=None):
             update_job_status(job["job_id"], "assigned", host["host_id"])
             assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
             # Reduce host's available VRAM for subsequent allocations (clamped)
-            host["free_vram_gb"] = max(0, host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0))
+            host["free_vram_gb"] = max(
+                0, host.get("free_vram_gb", 0) - job.get("vram_needed_gb", 0)
+            )
             # Lifecycle log — surface the match decision so users see "Assigned
             # to host X" instead of a silent jump from queued → starting. Also
             # gives admins a forensic trail for capacity planning.
             try:
                 from routes.instances import push_job_log
+
                 push_job_log(
                     job["job_id"],
                     f"Assigned to host {host['host_id']} "
@@ -774,11 +793,14 @@ def process_queue_binpack(canada_only=None, province=None):
         job = next((j for j in jobs if j.get("job_id") == jid), None)
         reason, detail = _diagnose_queue_block(job, hosts)
 
-        emit_event("job_error", {
-            "job_id": jid,
-            "error": reason,
-            "message": detail,
-        })
+        emit_event(
+            "job_error",
+            {
+                "job_id": jid,
+                "error": reason,
+                "message": detail,
+            },
+        )
 
         # Persist queue_reason on the job so frontend can display it
         if job:
@@ -802,19 +824,30 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
 
     active = [h for h in hosts if h.get("status") == "active"]
     if not active:
-        return "no_hosts_online", "No GPU hosts are currently online. Your job remains queued and will be assigned when a host becomes available."
+        return (
+            "no_hosts_online",
+            "No GPU hosts are currently online. Your job remains queued and will be assigned when a host becomes available.",
+        )
 
     vram = job.get("vram_needed_gb", 0)
     with_vram = [h for h in active if h.get("free_vram_gb", 0) >= vram]
     if not with_vram:
-        return "insufficient_vram", f"No hosts have enough free VRAM ({vram} GB needed). Your job remains queued."
+        return (
+            "insufficient_vram",
+            f"No hosts have enough free VRAM ({vram} GB needed). Your job remains queued.",
+        )
 
     gpu_model = (job.get("gpu_model") or "").strip().lower()
     candidates = with_vram
     if gpu_model:
-        with_gpu = [h for h in candidates if (h.get("gpu_model") or "").strip().lower() == gpu_model]
+        with_gpu = [
+            h for h in candidates if (h.get("gpu_model") or "").strip().lower() == gpu_model
+        ]
         if not with_gpu:
-            return "no_matching_gpu", f"No hosts with a {job.get('gpu_model', gpu_model)} GPU are available. Your job remains queued."
+            return (
+                "no_matching_gpu",
+                f"No hosts with a {job.get('gpu_model', gpu_model)} GPU are available. Your job remains queued.",
+            )
         candidates = with_gpu
 
     # Check if matching hosts are unadmitted (scoped to VRAM+GPU-filtered set)
@@ -825,7 +858,10 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
             "The provider has been notified. Your job will be assigned automatically once a host is cleared."
         )
 
-    return "no_hosts_available", "No GPU hosts currently match your requirements. Your job remains queued."
+    return (
+        "no_hosts_available",
+        "No GPU hosts currently match your requirements. Your job remains queued.",
+    )
 
 
 def _persist_queue_reason(job: dict, reason: str, detail: str):
@@ -867,7 +903,7 @@ def _notify_renter_queue_block(job_id: str, job: dict | None, reason: str, detai
         NotificationStore.create(
             user_email=email,
             notif_type="job_queue_blocked",
-            title=f"Instance \"{job_name}\" waiting for GPU",
+            title=f'Instance "{job_name}" waiting for GPU',
             body=detail,
             data={"job_id": job_id, "reason": reason},
             action_url=f"/dashboard/instances/{job_id}",
@@ -1037,7 +1073,8 @@ def check_hosts():
                         # Keep prior status (active/etc); just note the miss.
                         log.info(
                             "Host %s unreachable — in grace period (%.0fs remaining)",
-                            host_id, grace_remaining,
+                            host_id,
+                            grace_remaining,
                         )
                 else:
                     # Grace exhausted → mark dead and alert (once per death).
@@ -1082,8 +1119,13 @@ def _requeue_dead_host_jobs(host_id: str, ip: str):
                 log.error("Failed to requeue job %s from dead host %s: %s", j["job_id"], host_id, e)
 
         if requeued_ids:
-            log.warning("REQUEUED %d jobs from dead host %s (%s): %s",
-                         len(requeued_ids), host_id, ip, requeued_ids)
+            log.warning(
+                "REQUEUED %d jobs from dead host %s (%s): %s",
+                len(requeued_ids),
+                host_id,
+                ip,
+                requeued_ids,
+            )
     except Exception as e:
         log.error("Failed to requeue jobs from dead host %s: %s", host_id, e)
 
@@ -1211,6 +1253,7 @@ def submit_job(
     # Validate Docker image if provided
     if image:
         from security import validate_docker_image
+
         image = validate_docker_image(image)
 
     # Tier overrides raw priority
@@ -1380,7 +1423,11 @@ def reconcile_host_vram():
             if drift > 0.01:  # Correct if drift exceeds 10MB
                 log.warning(
                     "VRAM RECONCILE host=%s total=%.2f current_free=%.2f expected_free=%.2f drift=%.2f",
-                    hid, total, current_free, expected_free, drift,
+                    hid,
+                    total,
+                    current_free,
+                    expected_free,
+                    drift,
                 )
                 host["free_vram_gb"] = expected_free
                 _upsert_host_row(conn, host)
@@ -1417,13 +1464,16 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
 
         # Validate state transition against the state machine
         from events import VALID_TRANSITIONS, JobState
+
         try:
             old_state = JobState(old_status) if old_status else None
             new_state = JobState(status)
             if old_state and new_state not in VALID_TRANSITIONS.get(old_state, set()):
                 log.warning(
                     "INVALID TRANSITION job=%s %s -> %s (allowed: %s)",
-                    job_id, old_status, status,
+                    job_id,
+                    old_status,
+                    status,
                     [s.value for s in VALID_TRANSITIONS.get(old_state, set())],
                 )
         except ValueError:
@@ -1443,7 +1493,9 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
                 if reserve_result is False:
                     log.warning(
                         "VRAM RESERVE FAILED job=%s host=%s needed=%.1fGB — proceeding anyway",
-                        job_id, target_host, reserved,
+                        job_id,
+                        target_host,
+                        reserved,
                     )
                 else:
                     j["vram_reserved_gb"] = reserved
@@ -1506,6 +1558,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
     if status in ("completed", "failed", "cancelled", "terminated"):
         try:
             from volumes import get_volume_engine
+
             get_volume_engine().detach_all_for_instance(job_id)
         except Exception as e:
             log.warning("Volume detach on %s failed for %s: %s", status, job_id, e)
@@ -1596,9 +1649,7 @@ def process_queue():
         if job.get("spot") and job.get("max_bid") is not None:
             # Spot jobs need at least one GPU type within their bid
             if spot_prices:
-                affordable = any(
-                    job["max_bid"] >= price for price in spot_prices.values()
-                )
+                affordable = any(job["max_bid"] >= price for price in spot_prices.values())
                 if not affordable:
                     log.debug(
                         "QUEUE SKIP spot job %s: max_bid $%s below all spot prices",
@@ -1615,14 +1666,17 @@ def process_queue():
         if not host:
             log.info(
                 "QUEUE: no host for job=%s gpu=%s vram=%sGB",
-                job.get("job_id"), job.get("gpu_model", "any"),
+                job.get("job_id"),
+                job.get("gpu_model", "any"),
                 job.get("vram_needed_gb", 0),
             )
             continue  # no host for THIS job, but maybe smaller jobs fit
 
         # Write host's actual GPU info into job payload before persisting
         updated = update_job_status(
-            job["job_id"], "assigned", host_id=host["host_id"],
+            job["job_id"],
+            "assigned",
+            host_id=host["host_id"],
             host_gpu_model=host.get("gpu_model", ""),
             host_vram_gb=host.get("total_vram_gb", host.get("free_vram_gb", 0)),
         )
@@ -1657,7 +1711,9 @@ def process_assigned():
 
         host = host_map.get(host_id)
         if not host:
-            log.warning("RUNNER: host %s not found for job %s, requeueing", host_id, job.get("job_id"))
+            log.warning(
+                "RUNNER: host %s not found for job %s, requeueing", host_id, job.get("job_id")
+            )
             update_job_status(job["job_id"], "queued")
             continue
 
@@ -1665,16 +1721,20 @@ def process_assigned():
             docker_image = job.get("image") or None
             container_id = run_job(job, host, docker_image=docker_image)
             if container_id:
-                log.info("RUNNER: job %s started on host %s (container=%s)",
-                         job["job_id"], host_id, container_id)
+                log.info(
+                    "RUNNER: job %s started on host %s (container=%s)",
+                    job["job_id"],
+                    host_id,
+                    container_id,
+                )
                 started.append((job, host))
             else:
-                log.warning("RUNNER: container start failed for job %s on host %s",
-                            job["job_id"], host_id)
+                log.warning(
+                    "RUNNER: container start failed for job %s on host %s", job["job_id"], host_id
+                )
                 # run_job already sets status to "failed"
         except Exception as e:
-            log.error("RUNNER: exception starting job %s on host %s: %s",
-                      job["job_id"], host_id, e)
+            log.error("RUNNER: exception starting job %s on host %s: %s", job["job_id"], host_id, e)
             update_job_status(job["job_id"], "failed")
 
     return started
@@ -1845,15 +1905,20 @@ def run_job(job, host, docker_image=None):
     # ── Checkpoint Resume Path ────────────────────────────────────────
     checkpoint_meta = job.get("resume_from")
     if checkpoint_meta and checkpoint_meta.get("success"):
-        log.info("RUN_JOB attempting checkpoint resume for job=%s on host=%s",
-                 job["job_id"], host["host_id"])
+        log.info(
+            "RUN_JOB attempting checkpoint resume for job=%s on host=%s",
+            job["job_id"],
+            host["host_id"],
+        )
         resumed = resume_from_checkpoint(job["job_id"], host["host_id"], checkpoint_meta)
         if resumed:
             # Clear resume_from metadata now that we've successfully resumed
             _set_job_fields(job["job_id"], resume_from=None)
             return checkpoint_meta.get("container", f"xcelsior-job-{job['job_id']}")
-        log.warning("RUN_JOB checkpoint resume failed for job=%s — falling through to fresh start",
-                     job["job_id"])
+        log.warning(
+            "RUN_JOB checkpoint resume failed for job=%s — falling through to fresh start",
+            job["job_id"],
+        )
         # Clear stale checkpoint metadata so we don't retry forever
         _set_job_fields(job["job_id"], resume_from=None)
 
@@ -1867,6 +1932,7 @@ def run_job(job, host, docker_image=None):
 
     # Validate image against allowlist
     from security import validate_docker_image
+
     image = validate_docker_image(image)
 
     # Build docker run command parts
@@ -1932,6 +1998,7 @@ def run_job(job, host, docker_image=None):
     nfs_path = job.get("nfs_path", "")
     nfs_mount = job.get("nfs_mount_point", "/mnt/xcelsior-nfs")
     from volumes import NFS_MOUNT_OPTS
+
     nfs_opts = NFS_MOUNT_OPTS
     if nfs_server and nfs_path:
         nfs_mount = nfs_mount or "/mnt/xcelsior-nfs"
@@ -1947,7 +2014,9 @@ def run_job(job, host, docker_image=None):
             parts.append(f"-v {shlex.quote(nfs_mount)}:/data/nfs:rw")
             log.info("NFS mounted on host: %s:%s → %s", nfs_server, nfs_path, nfs_mount)
         else:
-            log.warning("NFS mount failed on host %s: %s — continuing without", host["host_id"], merr)
+            log.warning(
+                "NFS mount failed on host %s: %s — continuing without", host["host_id"], merr
+            )
 
     # Managed volumes — mount NFS for each volume_id, bind-mount into container
     vol_nfs_server = os.environ.get("XCELSIOR_NFS_SERVER", "") or nfs_server
@@ -1957,6 +2026,7 @@ def run_job(job, host, docker_image=None):
     vol_mount_paths: dict[str, str] = {}
     try:
         from volumes import get_volume_engine
+
         ve = get_volume_engine()
         for att in ve.get_instance_volumes(job["job_id"]):
             vol_mount_paths[att["volume_id"]] = att.get("mount_path", "/workspace")
@@ -1982,9 +2052,17 @@ def run_job(job, host, docker_image=None):
             if vrc == 0:
                 parts.append(f"-v {shlex.quote(vol_host_mount)}:{shlex.quote(container_path)}:rw")
                 managed_vol_host_mounts.append(vol_host_mount)
-                log.info("Managed volume %s mounted on host %s: %s → %s", vid, host["host_id"], vol_host_mount, container_path)
+                log.info(
+                    "Managed volume %s mounted on host %s: %s → %s",
+                    vid,
+                    host["host_id"],
+                    vol_host_mount,
+                    container_path,
+                )
             else:
-                log.warning("Managed volume %s mount failed on host %s: %s", vid, host["host_id"], verr)
+                log.warning(
+                    "Managed volume %s mount failed on host %s: %s", vid, host["host_id"], verr
+                )
         else:
             log.warning("Managed volume %s: NFS server not configured — skipping", vid)
         _vol_idx += 1
@@ -2024,7 +2102,9 @@ def run_job(job, host, docker_image=None):
     log.info("PULLING IMAGE job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
     pull_rc, _, pull_err = ssh_exec(host["ip"], f"docker pull {shlex.quote(image)}", timeout=600)
     if pull_rc != 0:
-        log.error("IMAGE PULL FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], pull_err)
+        log.error(
+            "IMAGE PULL FAILED job=%s host=%s err=%s", job["job_id"], host["host_id"], pull_err
+        )
         update_job_status(job["job_id"], "failed")
         return None
     log.info("IMAGE READY job=%s host=%s image=%s", job["job_id"], host["host_id"], image)
@@ -2047,9 +2127,11 @@ def run_job(job, host, docker_image=None):
     # Apply egress filtering (mining port blocks + default-deny for batch jobs)
     try:
         from security import build_egress_iptables_rules
+
         is_interactive = job.get("interactive", False)
         egress_rules = build_egress_iptables_rules(
-            container_name, strict=not is_interactive,
+            container_name,
+            strict=not is_interactive,
         )
         for rule in egress_rules:
             ssh_exec(host["ip"], rule)
@@ -2103,7 +2185,10 @@ def stop_container_graceful(job, host):
     ok = rc == 0
     log.info(
         "STOP_GRACEFUL job=%s host=%s container=%s ok=%s",
-        job["job_id"], host["host_id"], container_name, ok,
+        job["job_id"],
+        host["host_id"],
+        container_name,
+        ok,
     )
     return ok
 
@@ -2120,7 +2205,10 @@ def start_stopped_container(job, host):
     ok = rc == 0
     log.info(
         "START_STOPPED job=%s host=%s container=%s ok=%s",
-        job["job_id"], host["host_id"], container_name, ok,
+        job["job_id"],
+        host["host_id"],
+        container_name,
+        ok,
     )
     return ok
 
@@ -2194,11 +2282,17 @@ def run_job_local(job, docker_image=None):
     try:
         result = subprocess.run(
             [
-                "docker", "run", "-d",
-                "--name", container_name,
-                "--label", "xcelsior.managed=true",
-                "--label", f"xcelsior.job_id={job['job_id']}",
-                "--label", f"xcelsior.container_name={container_name}",
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                container_name,
+                "--label",
+                "xcelsior.managed=true",
+                "--label",
+                f"xcelsior.job_id={job['job_id']}",
+                "--label",
+                f"xcelsior.container_name={container_name}",
                 image,
             ],
             capture_output=True,
@@ -2228,7 +2322,9 @@ def kill_job_local(container_name):
 
 # ── Phase 8: Billing ─────────────────────────────────────────────────
 
-BILLING_FILE = os.environ.get("XCELSIOR_BILLING_FILE", os.path.join(os.path.dirname(__file__), "billing.json"))
+BILLING_FILE = os.environ.get(
+    "XCELSIOR_BILLING_FILE", os.path.join(os.path.dirname(__file__), "billing.json")
+)
 DEFAULT_RATE = 0.20  # $/hr
 
 
@@ -2352,14 +2448,18 @@ def get_total_revenue():
 # ── Phase 12: Alerts ─────────────────────────────────────────────────
 
 ALERT_CONFIG = {
-    "email_enabled": bool(os.environ.get("XCELSIOR_SMTP_HOST") and os.environ.get("XCELSIOR_SMTP_USER")),
+    "email_enabled": bool(
+        os.environ.get("XCELSIOR_SMTP_HOST") and os.environ.get("XCELSIOR_SMTP_USER")
+    ),
     "smtp_host": os.environ.get("XCELSIOR_SMTP_HOST", ""),
     "smtp_port": int(os.environ.get("XCELSIOR_SMTP_PORT", "587")),
     "smtp_user": os.environ.get("XCELSIOR_SMTP_USER", ""),
     "smtp_pass": os.environ.get("XCELSIOR_SMTP_PASS", ""),
     "email_from": os.environ.get("XCELSIOR_EMAIL_FROM", ""),
     "email_to": os.environ.get("XCELSIOR_EMAIL_TO", ""),
-    "telegram_enabled": bool(os.environ.get("XCELSIOR_TG_TOKEN") and os.environ.get("XCELSIOR_TG_CHAT_ID")),
+    "telegram_enabled": bool(
+        os.environ.get("XCELSIOR_TG_TOKEN") and os.environ.get("XCELSIOR_TG_CHAT_ID")
+    ),
     "telegram_bot_token": os.environ.get("XCELSIOR_TG_TOKEN", ""),
     "telegram_chat_id": os.environ.get("XCELSIOR_TG_CHAT_ID", ""),
 }
@@ -2372,7 +2472,7 @@ def configure_alerts(**kwargs):
 
 def send_email(subject, body, to_email=None):
     """Send an email alert. SMTP. No dependencies.
-    
+
     If to_email is provided, sends to that address instead of the admin email.
     """
     cfg = ALERT_CONFIG
@@ -2505,7 +2605,9 @@ def requeue_job(job_id):
         reserved = float(j.get("vram_reserved_gb", j.get("vram_needed_gb", 0)) or 0)
         if old_host_id and reserved > 0 and old_status in ("running", "starting"):
             _release_host_vram(conn, old_host_id, reserved)
-            log.info("REQUEUE VRAM RELEASED job=%s host=%s vram=%.2fGB", job_id, old_host_id, reserved)
+            log.info(
+                "REQUEUE VRAM RELEASED job=%s host=%s vram=%.2fGB", job_id, old_host_id, reserved
+            )
 
         retries = j.get("retries", 0) + 1
         max_retries = j.get("max_retries", 3)
@@ -2538,6 +2640,7 @@ def requeue_job(job_id):
         # Detach any volumes still attached to this instance
         try:
             from volumes import get_volume_engine
+
             ve = get_volume_engine()
             detached = ve.detach_all_for_instance(job_id)
             if detached:
@@ -2663,7 +2766,10 @@ def checkpoint_container(host_id: str, job_id: str, container_name: str = "") ->
 
         log.info(
             "CHECKPOINT job=%s host=%s container=%s checkpoint=%s",
-            job_id, host_id, container_name, checkpoint_name,
+            job_id,
+            host_id,
+            container_name,
+            checkpoint_name,
         )
 
         # Execute checkpoint on remote host via SSH
@@ -2689,8 +2795,12 @@ def checkpoint_container(host_id: str, job_id: str, container_name: str = "") ->
             json.dump(checkpoint_meta, f, indent=2)
 
         if not checkpoint_meta["success"]:
-            log.error("CHECKPOINT DOCKER FAILED job=%s host=%s: %s",
-                       job_id, host_id, checkpoint_meta["stderr"])
+            log.error(
+                "CHECKPOINT DOCKER FAILED job=%s host=%s: %s",
+                job_id,
+                host_id,
+                checkpoint_meta["stderr"],
+            )
             return None
 
         return checkpoint_meta
@@ -2731,7 +2841,9 @@ def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: di
 
     log.info(
         "RESUME job=%s target_host=%s checkpoint=%s",
-        job_id, target_host_id, checkpoint_name,
+        job_id,
+        target_host_id,
+        checkpoint_name,
     )
 
     try:
@@ -2746,33 +2858,54 @@ def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: di
 
             # Pull from source host to scheduler
             pull_cmd = [
-                "scp", "-r",
-                "-i", SSH_KEY_PATH,
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "PasswordAuthentication=no",
+                "scp",
+                "-r",
+                "-i",
+                SSH_KEY_PATH,
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "PasswordAuthentication=no",
                 f"{SSH_USER}@{source_ip}:{remote_ckpt_dir}",
                 local_staging,
             ]
             pull_result = subprocess.run(pull_cmd, capture_output=True, text=True, timeout=300)
             if pull_result.returncode != 0:
-                log.error("RESUME TRANSFER PULL FAILED job=%s: %s", job_id, (pull_result.stderr or "")[:300])
+                log.error(
+                    "RESUME TRANSFER PULL FAILED job=%s: %s",
+                    job_id,
+                    (pull_result.stderr or "")[:300],
+                )
                 return False
 
             # Push from scheduler to target host
             push_cmd = [
-                "scp", "-r",
-                "-i", SSH_KEY_PATH,
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "PasswordAuthentication=no",
+                "scp",
+                "-r",
+                "-i",
+                SSH_KEY_PATH,
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "PasswordAuthentication=no",
                 local_staging,
                 f"{SSH_USER}@{target_ip}:/tmp/xcelsior-checkpoints/",
             ]
             push_result = subprocess.run(push_cmd, capture_output=True, text=True, timeout=300)
             if push_result.returncode != 0:
-                log.error("RESUME TRANSFER PUSH FAILED job=%s: %s", job_id, (push_result.stderr or "")[:300])
+                log.error(
+                    "RESUME TRANSFER PUSH FAILED job=%s: %s",
+                    job_id,
+                    (push_result.stderr or "")[:300],
+                )
                 return False
 
-            log.info("RESUME CHECKPOINT TRANSFERRED job=%s via scheduler: %s -> %s", job_id, source_ip, target_ip)
+            log.info(
+                "RESUME CHECKPOINT TRANSFERRED job=%s via scheduler: %s -> %s",
+                job_id,
+                source_ip,
+                target_ip,
+            )
 
         # Step 2: Start container from checkpoint on target host
         docker_cmd = (
@@ -2788,15 +2921,20 @@ def resume_from_checkpoint(job_id: str, target_host_id: str, checkpoint_meta: di
             result = update_job_status(job_id, "running", target_host_id)
             if not result:
                 # VRAM reservation failed — kill the orphaned container
-                log.error("RESUME VRAM RESERVATION FAILED job=%s on host=%s — killing container",
-                          job_id, target_host_id)
+                log.error(
+                    "RESUME VRAM RESERVATION FAILED job=%s on host=%s — killing container",
+                    job_id,
+                    target_host_id,
+                )
                 ssh_exec(target_ip, f"docker kill {shlex.quote(container)}")
                 return False
             log.info("RESUME SUCCESS job=%s on host=%s", job_id, target_host_id)
             return True
         else:
             log.error(
-                "RESUME FAILED job=%s: %s", job_id, (stderr or "")[:300],
+                "RESUME FAILED job=%s: %s",
+                job_id,
+                (stderr or "")[:300],
             )
     except subprocess.TimeoutExpired:
         log.error("RESUME TRANSFER TIMEOUT job=%s", job_id)
@@ -2823,9 +2961,7 @@ def remediate_unhealthy_host(host_id: str) -> list[dict]:
     Returns list of requeued job dicts with checkpoint info.
     """
     jobs = load_jobs()
-    running_on_host = [
-        j for j in jobs if j["status"] == "running" and j.get("host_id") == host_id
-    ]
+    running_on_host = [j for j in jobs if j["status"] == "running" and j.get("host_id") == host_id]
 
     if not running_on_host:
         log.info("REMEDIATE host=%s has no running jobs", host_id)
@@ -2854,7 +2990,8 @@ def remediate_unhealthy_host(host_id: str) -> list[dict]:
     # Step 3: Record remediation
     log.warning(
         "REMEDIATE COMPLETE host=%s: %d jobs checkpointed and requeued",
-        host_id, len(requeued),
+        host_id,
+        len(requeued),
     )
 
     return requeued
@@ -2875,7 +3012,8 @@ def record_health_check(host_id: str, healthy: bool) -> dict | None:
     if count >= HEALTH_FAILURE_THRESHOLD:
         log.warning(
             "HEALTH THRESHOLD EXCEEDED host=%s failures=%d — triggering remediation",
-            host_id, count,
+            host_id,
+            count,
         )
         _health_failure_counts.pop(host_id, None)
         requeued = remediate_unhealthy_host(host_id)
@@ -3095,7 +3233,9 @@ def list_builds():
 
 # ── Phase 17: Marketplace ────────────────────────────────────────────
 
-MARKETPLACE_FILE = os.environ.get("XCELSIOR_MARKETPLACE_FILE", os.path.join(os.path.dirname(__file__), "marketplace.json"))
+MARKETPLACE_FILE = os.environ.get(
+    "XCELSIOR_MARKETPLACE_FILE", os.path.join(os.path.dirname(__file__), "marketplace.json")
+)
 PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))  # 15%
 
 
@@ -3150,12 +3290,20 @@ def _sync_marketplace_listing(listing: dict) -> bool:
     if source == "manual":
         return changed
 
-    if source is None and "platform_cut" in listing and not math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9):
+    if (
+        source is None
+        and "platform_cut" in listing
+        and not math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9)
+    ):
         listing["platform_cut_source"] = "manual"
         return True
 
     desired_cut = _platform_cut_for_host(str(listing.get("host_id", "")).strip())
-    if source == "reputation" or "platform_cut" not in listing or math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9):
+    if (
+        source == "reputation"
+        or "platform_cut" not in listing
+        or math.isclose(current_cut, PLATFORM_CUT, rel_tol=0, abs_tol=1e-9)
+    ):
         if not math.isclose(current_cut, desired_cut, rel_tol=0, abs_tol=1e-9):
             listing["platform_cut"] = desired_cut
             changed = True
@@ -3450,7 +3598,9 @@ def process_queue_filtered(canada_only=None):
 AUTOSCALE_ENABLED = os.environ.get("XCELSIOR_AUTOSCALE", "").lower() in ("1", "true", "yes")
 AUTOSCALE_MAX_HOSTS = int(os.environ.get("XCELSIOR_AUTOSCALE_MAX", "20"))
 AUTOSCALE_PROVIDER = os.environ.get("XCELSIOR_AUTOSCALE_PROVIDER", "")  # e.g. "ssh", "api"
-AUTOSCALE_POOL_FILE = os.environ.get("XCELSIOR_AUTOSCALE_FILE", os.path.join(os.path.dirname(__file__), "autoscale_pool.json"))
+AUTOSCALE_POOL_FILE = os.environ.get(
+    "XCELSIOR_AUTOSCALE_FILE", os.path.join(os.path.dirname(__file__), "autoscale_pool.json")
+)
 
 
 def load_autoscale_pool():
@@ -3556,7 +3706,10 @@ def provision_host(pool_entry):
         if rc != 0:
             log.error(
                 "AUTOSCALE SSH PROVISION FAILED host=%s ip=%s rc=%d stderr=%s",
-                host_id, ip, rc, stderr,
+                host_id,
+                ip,
+                rc,
+                stderr,
             )
         else:
             log.info("AUTOSCALE SSH PROVISION OK host=%s container=%s", host_id, stdout[:12])
@@ -3773,7 +3926,9 @@ SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
 PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
 
-SPOT_PRICES_FILE = os.environ.get("XCELSIOR_SPOT_PRICES_FILE", os.path.join(os.path.dirname(__file__), "spot_prices.json"))
+SPOT_PRICES_FILE = os.environ.get(
+    "XCELSIOR_SPOT_PRICES_FILE", os.path.join(os.path.dirname(__file__), "spot_prices.json")
+)
 
 
 def load_spot_prices():
@@ -3956,6 +4111,7 @@ def preempt_job(job_id):
     # Detach volumes — job is leaving this host
     try:
         from volumes import get_volume_engine
+
         get_volume_engine().detach_all_for_instance(job_id)
     except Exception as e:
         log.warning("Volume detach on preempt failed for %s: %s", job_id, e)
@@ -4007,7 +4163,9 @@ def start_spot_price_monitor(interval=None, callback=None):
 # Xcelsior Compute Unit: normalize GPU performance across consumer cards.
 # RTX 3090 and 4090 both have 24GB VRAM but 4090 has ~2x TFLOPS.
 
-COMPUTE_SCORES_FILE = os.environ.get("XCELSIOR_COMPUTE_SCORES_FILE", os.path.join(os.path.dirname(__file__), "compute_scores.json"))
+COMPUTE_SCORES_FILE = os.environ.get(
+    "XCELSIOR_COMPUTE_SCORES_FILE", os.path.join(os.path.dirname(__file__), "compute_scores.json")
+)
 
 # Reference TFLOPS for common GPUs (FP16 tensor core)
 GPU_REFERENCE_TFLOPS = {
@@ -4233,7 +4391,9 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
 # ── Spot Job Submission ───────────────────────────────────────────────
 
 
-def submit_spot_job(name, vram_needed_gb, max_bid, priority=0, tier=None, owner="", image=None, gpu_model=None):
+def submit_spot_job(
+    name, vram_needed_gb, max_bid, priority=0, tier=None, owner="", image=None, gpu_model=None
+):
     """Submit a spot/interruptible job with a maximum bid price.
 
     Spot jobs are:
@@ -4407,6 +4567,7 @@ def _process_crypto_confirmations():
 
 def start_crypto_watcher(interval: int = 60, callback=None):
     """Run BTC confirmation checks in a background thread."""
+
     def loop():
         while True:
             try:
@@ -4437,6 +4598,7 @@ def process_webhook_inbox():
     """
     try:
         from stripe_connect import get_connect_engine
+
         engine = get_connect_engine()
     except Exception as e:
         log.debug("Stripe Connect not available: %s", e)

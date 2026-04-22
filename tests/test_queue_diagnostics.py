@@ -59,12 +59,17 @@ def clean_data():
 def _admit_host(host_id):
     """Mark a host as admitted so it can receive work."""
     import json as _json
+
     with scheduler._atomic_mutation() as conn:
         row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if row:
-            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            data = (
+                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            )
             data["admitted"] = True
-            conn.execute("UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id))
+            conn.execute(
+                "UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id)
+            )
 
 
 # ── _diagnose_queue_block ────────────────────────────────────────────
@@ -97,7 +102,15 @@ class TestDiagnoseQueueBlock:
 
     def test_no_matching_gpu(self):
         job = {"job_id": "j1", "vram_needed_gb": 8, "gpu_model": "H100"}
-        hosts = [{"host_id": "h1", "status": "active", "free_vram_gb": 24, "gpu_model": "RTX 4090", "admitted": True}]
+        hosts = [
+            {
+                "host_id": "h1",
+                "status": "active",
+                "free_vram_gb": 24,
+                "gpu_model": "RTX 4090",
+                "admitted": True,
+            }
+        ]
         reason, detail = scheduler._diagnose_queue_block(job, hosts)
         assert reason == "no_matching_gpu"
         assert "H100" in detail
@@ -114,8 +127,20 @@ class TestDiagnoseQueueBlock:
         """Only the GPU-matching host is unadmitted; others are admitted but wrong GPU."""
         job = {"job_id": "j1", "vram_needed_gb": 8, "gpu_model": "A100"}
         hosts = [
-            {"host_id": "h1", "status": "active", "free_vram_gb": 80, "gpu_model": "A100", "admitted": False},
-            {"host_id": "h2", "status": "active", "free_vram_gb": 24, "gpu_model": "RTX 4090", "admitted": True},
+            {
+                "host_id": "h1",
+                "status": "active",
+                "free_vram_gb": 80,
+                "gpu_model": "A100",
+                "admitted": False,
+            },
+            {
+                "host_id": "h2",
+                "status": "active",
+                "free_vram_gb": 24,
+                "gpu_model": "RTX 4090",
+                "admitted": True,
+            },
         ]
         reason, _ = scheduler._diagnose_queue_block(job, hosts)
         assert reason == "hosts_not_admitted"
@@ -130,7 +155,15 @@ class TestDiagnoseQueueBlock:
     def test_no_gpu_model_filter_skips_gpu_check(self):
         """Job with no gpu_model preference skips the GPU model filter."""
         job = {"job_id": "j1", "vram_needed_gb": 8}
-        hosts = [{"host_id": "h1", "status": "active", "free_vram_gb": 24, "gpu_model": "A100", "admitted": True}]
+        hosts = [
+            {
+                "host_id": "h1",
+                "status": "active",
+                "free_vram_gb": 24,
+                "gpu_model": "A100",
+                "admitted": True,
+            }
+        ]
         reason, _ = scheduler._diagnose_queue_block(job, hosts)
         # Should fall through to "no_hosts_available", not "no_matching_gpu"
         assert reason == "no_hosts_available"
@@ -184,8 +217,11 @@ class TestNotifyRenterQueueBlock:
 
     def _create_test_user(self, email="test@xcelsior.ca", user_id="test-user-1"):
         from db import UserStore
+
         try:
-            UserStore.create_user({"email": email, "user_id": user_id, "name": "Test User", "role": "renter"})
+            UserStore.create_user(
+                {"email": email, "user_id": user_id, "name": "Test User", "role": "renter"}
+            )
         except Exception:
             pass  # already exists
         return user_id
@@ -200,6 +236,7 @@ class TestNotifyRenterQueueBlock:
         )
 
         from db import NotificationStore
+
         notifs = NotificationStore.list_for_user("test@xcelsior.ca", limit=10)
         queue_notifs = [n for n in notifs if n.get("type") == "job_queue_blocked"]
         assert len(queue_notifs) >= 1
@@ -213,11 +250,24 @@ class TestNotifyRenterQueueBlock:
 
         scheduler._notify_renter_queue_block("j-throttle", job, "r", "d", now)
         from db import NotificationStore
-        count1 = len([n for n in NotificationStore.list_for_user("throttle@test.ca", limit=50) if n.get("type") == "job_queue_blocked"])
+
+        count1 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user("throttle@test.ca", limit=50)
+                if n.get("type") == "job_queue_blocked"
+            ]
+        )
 
         # Second call within 15 min should be throttled
         scheduler._notify_renter_queue_block("j-throttle", job, "r", "d", now + 60)
-        count2 = len([n for n in NotificationStore.list_for_user("throttle@test.ca", limit=50) if n.get("type") == "job_queue_blocked"])
+        count2 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user("throttle@test.ca", limit=50)
+                if n.get("type") == "job_queue_blocked"
+            ]
+        )
         assert count2 == count1
 
     def test_throttle_expires_after_15_minutes(self):
@@ -228,11 +278,24 @@ class TestNotifyRenterQueueBlock:
 
         scheduler._notify_renter_queue_block("j-expire", job, "r", "d", now)
         from db import NotificationStore
-        count1 = len([n for n in NotificationStore.list_for_user("expire@test.ca", limit=50) if n.get("type") == "job_queue_blocked"])
+
+        count1 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user("expire@test.ca", limit=50)
+                if n.get("type") == "job_queue_blocked"
+            ]
+        )
 
         # After 15+ min, should create another notification
         scheduler._notify_renter_queue_block("j-expire", job, "r", "d2", now + 901)
-        count2 = len([n for n in NotificationStore.list_for_user("expire@test.ca", limit=50) if n.get("type") == "job_queue_blocked"])
+        count2 = len(
+            [
+                n
+                for n in NotificationStore.list_for_user("expire@test.ca", limit=50)
+                if n.get("type") == "job_queue_blocked"
+            ]
+        )
         assert count2 == count1 + 1
 
     def test_no_notification_for_missing_owner(self):
@@ -255,6 +318,7 @@ class TestProcessQueueEmitsJobError:
     def test_emits_job_error_for_skipped_job(self):
         """Submit a job with no available hosts → process_queue → job_error emitted."""
         from unittest.mock import patch
+
         job = scheduler.submit_job("stuck-job", 8, priority=1)
 
         emitted = []
@@ -286,6 +350,7 @@ class TestProcessQueueEmitsJobError:
     def test_throttles_job_error_within_5_minutes(self):
         """job_error emission is throttled to once per 5 min per job."""
         from unittest.mock import patch
+
         scheduler.submit_job("throttle-test", 8, priority=1)
 
         emitted = []
@@ -306,6 +371,7 @@ class TestProcessQueueEmitsJobError:
     def test_no_error_when_job_assigned(self):
         """If a job is successfully assigned, no job_error should be emitted."""
         from unittest.mock import patch
+
         scheduler.register_host("h-assign", "10.0.0.1", "RTX 4090", 24, 24)
         _admit_host("h-assign")
         scheduler.submit_job("assign-me", 8, priority=1)

@@ -18,7 +18,6 @@ from hypothesis import given, settings, strategies as st
 
 import billing
 
-
 # ── get_tax_rate_for_province ────────────────────────────────────────
 
 

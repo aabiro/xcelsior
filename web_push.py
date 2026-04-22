@@ -19,7 +19,9 @@ log = logging.getLogger("xcelsior.webpush")
 
 VAPID_PUBLIC_KEY = os.environ.get("XCELSIOR_WEB_PUSH_VAPID_PUBLIC_KEY", "").strip()
 VAPID_PRIVATE_KEY = os.environ.get("XCELSIOR_WEB_PUSH_VAPID_PRIVATE_KEY", "").strip()
-VAPID_SUBJECT = os.environ.get("XCELSIOR_WEB_PUSH_VAPID_SUBJECT", "mailto:hello@xcelsior.ca").strip()
+VAPID_SUBJECT = os.environ.get(
+    "XCELSIOR_WEB_PUSH_VAPID_SUBJECT", "mailto:hello@xcelsior.ca"
+).strip()
 WEB_PUSH_STALE_AFTER_DAYS = int(os.environ.get("XCELSIOR_WEB_PUSH_STALE_AFTER_DAYS", "30"))
 
 _runtime_metrics_lock = threading.Lock()
@@ -80,7 +82,9 @@ def _record_runtime_metric(
             _runtime_metrics["last_failure_status_code"] = int(last_failure_status_code)
 
 
-def get_web_push_observability_snapshot(stale_after_days: int | None = None) -> dict[str, float | int]:
+def get_web_push_observability_snapshot(
+    stale_after_days: int | None = None,
+) -> dict[str, float | int]:
     snapshot: dict[str, float | int] = {
         "configured": 1 if is_web_push_configured() else 0,
         "active_subscriptions": 0,

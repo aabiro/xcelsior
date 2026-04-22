@@ -143,6 +143,7 @@ def clean_data(monkeypatch):
     # Clean auth/OAuth tables and reset auth cache/cookies for test isolation
     from oauth_service import reset_auth_cache_for_tests
     from db import auth_connection
+
     with auth_connection() as conn:
         conn.execute("DELETE FROM oauth_refresh_tokens")
         conn.execute("DELETE FROM oauth_clients")
@@ -169,6 +170,7 @@ def clean_data(monkeypatch):
     _oauth_states.clear()
     # Seed wallet for anonymous test user so wallet pre-flight checks pass
     from billing import get_billing_engine
+
     get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
     yield
 
@@ -383,14 +385,16 @@ class TestAdminPushSmoke:
         class FakeNotificationStore:
             @staticmethod
             def create(user_email, notif_type, title, body="", data=None, **kwargs):
-                created.update({
-                    "user_email": user_email,
-                    "notif_type": notif_type,
-                    "title": title,
-                    "body": body,
-                    "data": data or {},
-                    **kwargs,
-                })
+                created.update(
+                    {
+                        "user_email": user_email,
+                        "notif_type": notif_type,
+                        "title": title,
+                        "body": body,
+                        "data": data or {},
+                        **kwargs,
+                    }
+                )
                 return "notif-smoke-123"
 
         class FakeWebPushSubscriptionStore:
@@ -400,22 +404,26 @@ class TestAdminPushSmoke:
 
         monkeypatch.setattr(admin_routes, "NotificationStore", FakeNotificationStore)
         monkeypatch.setattr(admin_routes, "WebPushSubscriptionStore", FakeWebPushSubscriptionStore)
-        monkeypatch.setattr(admin_routes, "get_web_push_observability_snapshot", lambda: {
-            "configured": 1,
-            "active_subscriptions": 1,
-            "revoked_subscriptions": 0,
-            "stale_subscriptions": 0,
-            "delivery_attempts_total": 0,
-            "delivery_success_total": 0,
-            "delivery_failure_total": 0,
-            "delivery_revoked_total": 0,
-            "deliveries_skipped_unconfigured_total": 0,
-            "deliveries_skipped_no_subscriptions_total": 0,
-            "last_delivery_attempt_at": 0,
-            "last_delivery_success_at": 0,
-            "last_delivery_failure_at": 0,
-            "last_failure_status_code": 0,
-        })
+        monkeypatch.setattr(
+            admin_routes,
+            "get_web_push_observability_snapshot",
+            lambda: {
+                "configured": 1,
+                "active_subscriptions": 1,
+                "revoked_subscriptions": 0,
+                "stale_subscriptions": 0,
+                "delivery_attempts_total": 0,
+                "delivery_success_total": 0,
+                "delivery_failure_total": 0,
+                "delivery_revoked_total": 0,
+                "deliveries_skipped_unconfigured_total": 0,
+                "deliveries_skipped_no_subscriptions_total": 0,
+                "last_delivery_attempt_at": 0,
+                "last_delivery_success_at": 0,
+                "last_delivery_failure_at": 0,
+                "last_failure_status_code": 0,
+            },
+        )
 
         r = client.post("/api/admin/web-push/test-notification")
         assert r.status_code == 200
@@ -1401,7 +1409,11 @@ class TestOAuthServer:
         import base64 as _b64
         import hashlib as _hashlib
 
-        challenge = _b64.urlsafe_b64encode(_hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        challenge = (
+            _b64.urlsafe_b64encode(_hashlib.sha256(verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
+        )
         authz = client.get(
             "/oauth/authorize",
             params={
@@ -1452,7 +1464,11 @@ class TestOAuthServer:
         import base64 as _b64
         import hashlib as _hashlib
 
-        challenge = _b64.urlsafe_b64encode(_hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        challenge = (
+            _b64.urlsafe_b64encode(_hashlib.sha256(verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
+        )
         authz = client.get(
             "/oauth/authorize",
             params={
@@ -1794,7 +1810,9 @@ class TestAnalytics:
                 (job_id, provider_id, 5.0, 4.25, 0.75, 0.65, "", now - 600),
             )
 
-        r = client.get("/api/analytics/enhanced?days=30", headers={"Authorization": f"Bearer {token}"})
+        r = client.get(
+            "/api/analytics/enhanced?days=30", headers={"Authorization": f"Bearer {token}"}
+        )
         assert r.status_code == 200
         payload = r.json()
         assert payload["role"] == "provider"
@@ -2058,7 +2076,11 @@ class TestPlatformAdminSecurity:
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         reg = client.post(
             "/api/auth/register",
-            json={"email": "hpcsubmitter@xcelsior.ca", "password": "testpass123", "role": "submitter"},
+            json={
+                "email": "hpcsubmitter@xcelsior.ca",
+                "password": "testpass123",
+                "role": "submitter",
+            },
         ).json()
         token = reg["access_token"]
 
@@ -2067,10 +2089,16 @@ class TestPlatformAdminSecurity:
 
         reg_provider = client.post(
             "/api/auth/register",
-            json={"email": "hpcprovider@xcelsior.ca", "password": "testpass123", "role": "provider"},
+            json={
+                "email": "hpcprovider@xcelsior.ca",
+                "password": "testpass123",
+                "role": "provider",
+            },
         ).json()
         provider_token = reg_provider["access_token"]
-        r2 = client.get("/api/slurm/profiles", headers={"Authorization": f"Bearer {provider_token}"})
+        r2 = client.get(
+            "/api/slurm/profiles", headers={"Authorization": f"Bearer {provider_token}"}
+        )
         assert r2.status_code == 200
 
 
@@ -2086,7 +2114,9 @@ class TestApiKeys:
 
         # Generate key
         r = client.post(
-            "/api/keys/generate", json={"name": "test-key"}, headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate",
+            json={"name": "test-key"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 200
         d = r.json()
@@ -2113,7 +2143,9 @@ class TestApiKeys:
 
         # Generate API key
         key = client.post(
-            "/api/keys/generate", json={"name": "auth-key"}, headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate",
+            json={"name": "auth-key"},
+            headers={"Authorization": f"Bearer {token}"},
         ).json()["key"]
 
         # Use API key to access profile
@@ -2129,7 +2161,9 @@ class TestApiKeys:
 
         # Generate and get preview
         gen = client.post(
-            "/api/keys/generate", json={"name": "revoke-me"}, headers={"Authorization": f"Bearer {token}"}
+            "/api/keys/generate",
+            json={"name": "revoke-me"},
+            headers={"Authorization": f"Bearer {token}"},
         ).json()
         preview = gen["preview"]
 
@@ -2215,6 +2249,7 @@ class TestLogDownload:
 
         # Push some log entries manually
         from routes.instances import push_job_log
+
         push_job_log(job_id, "Starting container...", level="info")
         push_job_log(job_id, "Training epoch 1", level="info")
         push_job_log(job_id, "Loss: 0.5", level="debug")

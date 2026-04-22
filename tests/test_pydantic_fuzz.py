@@ -31,7 +31,6 @@ from routes.teams import (
 )
 from routes.auth import RegisterRequest, LoginRequest, ProfileUpdateRequest
 
-
 # ── Garbage strategy: arbitrary dict with mixed value types ─────────
 
 _scalar = st.one_of(
@@ -142,9 +141,20 @@ def test_update_team_member_role_rejects_or_validates(payload):
 # ── Explicit known-bad cases (must ALWAYS raise) ────────────────────
 
 
-@pytest.mark.parametrize("bad_amount", [
-    0, -1, -0.01, 10_000.01, 10_001, 1e9, float("nan"), float("inf"), -float("inf"),
-])
+@pytest.mark.parametrize(
+    "bad_amount",
+    [
+        0,
+        -1,
+        -0.01,
+        10_000.01,
+        10_001,
+        1e9,
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+    ],
+)
 def test_deposit_request_known_bad_amounts_always_rejected(bad_amount):
     with pytest.raises((ValidationError, TypeError)):
         DepositRequest(amount_cad=bad_amount)
@@ -255,24 +265,28 @@ def test_device_verification_code_too_long_rejected():
 
 # ── HostIn new constraints ───────────────────────────────────────────────────
 
-_VALID_HOST = dict(host_id="h-1", ip="10.0.0.1", gpu_model="RTX 4090",
-                   total_vram_gb=24.0, free_vram_gb=20.0)
+_VALID_HOST = dict(
+    host_id="h-1", ip="10.0.0.1", gpu_model="RTX 4090", total_vram_gb=24.0, free_vram_gb=20.0
+)
 
 
-@pytest.mark.parametrize("field,bad_value", [
-    ("host_id", ""),
-    ("host_id", "x" * 65),
-    ("ip", "x" * 46),
-    ("gpu_model", ""),
-    ("gpu_model", "x" * 65),
-    ("total_vram_gb", -1.0),
-    ("total_vram_gb", 1025.0),
-    ("free_vram_gb", -0.001),
-    ("cost_per_hour", -5.0),
-    ("province", "x" * 11),
-    ("corporation_name", "x" * 257),
-    ("legal_name", "x" * 257),
-])
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("host_id", ""),
+        ("host_id", "x" * 65),
+        ("ip", "x" * 46),
+        ("gpu_model", ""),
+        ("gpu_model", "x" * 65),
+        ("total_vram_gb", -1.0),
+        ("total_vram_gb", 1025.0),
+        ("free_vram_gb", -0.001),
+        ("cost_per_hour", -5.0),
+        ("province", "x" * 11),
+        ("corporation_name", "x" * 257),
+        ("legal_name", "x" * 257),
+    ],
+)
 def test_host_in_field_rejected(field, bad_value):
     with pytest.raises((ValidationError, TypeError)):
         HostIn(**{**_VALID_HOST, field: bad_value})
@@ -285,6 +299,7 @@ def test_status_update_status_bounds_rejected(bad_status):
 
 
 # ── Agent model constraints ──────────────────────────────────────────────────
+
 
 def test_version_report_host_id_too_long_rejected():
     with pytest.raises((ValidationError, TypeError)):
@@ -313,6 +328,7 @@ def test_benchmark_tflops_negative_rejected():
 
 
 # ── Billing new model constraints ────────────────────────────────────────────
+
 
 def test_refund_job_id_empty_rejected():
     with pytest.raises((ValidationError, TypeError)):
@@ -349,18 +365,21 @@ def test_reserved_quantity_bounds_rejected(bad_qty):
 _VALID_OFFER = dict(host_id="host-1", gpu_model="RTX 4090")
 
 
-@pytest.mark.parametrize("field,bad_value", [
-    ("host_id", ""),
-    ("host_id", "x" * 65),
-    ("gpu_model", ""),
-    ("gpu_model", "x" * 65),
-    ("gpu_count_total", 0),
-    ("gpu_count_total", 65),
-    ("ask_cents_per_hour", 0),
-    ("ask_cents_per_hour", -10),
-    ("vram_gb", -0.001),
-    ("vram_gb", 1025.0),
-])
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("host_id", ""),
+        ("host_id", "x" * 65),
+        ("gpu_model", ""),
+        ("gpu_model", "x" * 65),
+        ("gpu_count_total", 0),
+        ("gpu_count_total", 65),
+        ("ask_cents_per_hour", 0),
+        ("ask_cents_per_hour", -10),
+        ("vram_gb", -0.001),
+        ("vram_gb", 1025.0),
+    ],
+)
 def test_gpu_offer_create_field_rejected(field, bad_value):
     with pytest.raises((ValidationError, TypeError)):
         GPUOfferCreate(**{**_VALID_OFFER, field: bad_value})

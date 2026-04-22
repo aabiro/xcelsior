@@ -45,22 +45,27 @@ def _get_current_user(request: Request) -> dict | None:
 
 # ── Helper: _verify_totp_code ──
 
+
 def _verify_totp_code(secret: str, code: str) -> bool:
     """Verify a TOTP code against the current time slice only."""
     import pyotp
+
     totp = pyotp.TOTP(secret)
     return totp.verify(code, valid_window=0)
 
 
 # ── Helper: _hash_backup_code ──
 
+
 def _hash_backup_code(code: str) -> str:
     """Hash a backup code for storage."""
     import hashlib
+
     return hashlib.sha256(code.encode()).hexdigest()
 
 
 # ── Helper: _generate_backup_codes ──
+
 
 def _generate_backup_codes(count: int = 10) -> list[str]:
     """Generate a set of backup codes."""
@@ -74,7 +79,10 @@ def _generate_backup_codes(count: int = 10) -> list[str]:
 
 # ── Helper: _complete_mfa_login ──
 
-def _complete_mfa_login(email: str, challenge_id: str, request: Request | None = None) -> JSONResponse:
+
+def _complete_mfa_login(
+    email: str, challenge_id: str, request: Request | None = None
+) -> JSONResponse:
     """Complete login after successful MFA verification."""
     challenge = MfaStore.get_challenge(challenge_id)
     if not challenge or challenge["email"] != email:
@@ -89,7 +97,9 @@ def _complete_mfa_login(email: str, challenge_id: str, request: Request | None =
     if not user:
         raise HTTPException(400, "User not found")
 
-    token_bundle = issue_user_tokens(user, request, client_id="xcelsior-web", session_type="browser")
+    token_bundle = issue_user_tokens(
+        user, request, client_id="xcelsior-web", session_type="browser"
+    )
     body = {
         "ok": True,
         "access_token": token_bundle["access_token"],
@@ -112,6 +122,7 @@ def _complete_mfa_login(email: str, challenge_id: str, request: Request | None =
 
 # ── Helper: _refresh_mfa_enabled ──
 
+
 def _refresh_mfa_enabled(email: str) -> None:
     """Recalculate mfa_enabled flag for user based on active methods."""
     methods = MfaStore.list_methods(email)
@@ -121,9 +132,11 @@ def _refresh_mfa_enabled(email: str) -> None:
 
 # ── Helper: _send_sms ──
 
+
 def _send_sms(phone_number: str, message: str) -> None:
     """Send an SMS via Twilio. Raises on failure."""
     from twilio.rest import Client
+
     sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     from_phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
@@ -137,6 +150,7 @@ def _send_sms(phone_number: str, message: str) -> None:
         log.error("SMS send failed to %s: %s", phone_number[-4:], e)
         raise HTTPException(502, "Failed to send SMS. Please try again.")
 
+
 @router.get("/api/auth/mfa/methods", tags=["Auth - MFA"])
 def api_mfa_list_methods(request: Request):
     """List the user's configured MFA methods."""
@@ -144,6 +158,7 @@ def api_mfa_list_methods(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:read")
     methods = MfaStore.list_methods(user["email"])
     backup_codes = MfaStore.list_backup_codes(user["email"])
@@ -167,14 +182,17 @@ def api_mfa_list_methods(request: Request):
         "backup_codes_remaining": sum(1 for c in backup_codes if not c["used"]),
     }
 
+
 @router.post("/api/auth/mfa/totp/setup", tags=["Auth - MFA"])
 def api_mfa_totp_setup(request: Request):
     """Generate a TOTP secret and QR code URI for setup."""
     import pyotp
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
     # Check if TOTP already enabled
@@ -190,13 +208,15 @@ def api_mfa_totp_setup(request: Request):
     )
 
     # Store secret temporarily (not enabled until verified)
-    method_id = MfaStore.create_method({
-        "email": user["email"],
-        "method_type": "totp",
-        "secret": secret,
-        "enabled": 0,
-        "created_at": time.time(),
-    })
+    method_id = MfaStore.create_method(
+        {
+            "email": user["email"],
+            "method_type": "totp",
+            "secret": secret,
+            "enabled": 0,
+            "created_at": time.time(),
+        }
+    )
 
     return {
         "ok": True,
@@ -204,11 +224,15 @@ def api_mfa_totp_setup(request: Request):
         "provisioning_uri": provisioning_uri,
         "method_id": method_id,
     }
+
+
 # ── Model: TotpVerifyRequest ──
+
 
 class TotpVerifyRequest(BaseModel):
     code: str
     method_id: int | None = None
+
 
 @router.post("/api/auth/mfa/totp/verify", tags=["Auth - MFA"])
 def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
@@ -217,6 +241,7 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
     methods = MfaStore.list_methods(user["email"])
@@ -239,6 +264,7 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
 
     # Enable the method
     from db import auth_connection
+
     with auth_connection() as conn:
         conn.execute("UPDATE mfa_methods SET enabled = 1 WHERE id = %s", (totp_method["id"],))
 
@@ -258,6 +284,7 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
         "backup_codes": backup_codes,
     }
 
+
 @router.delete("/api/auth/mfa/totp", tags=["Auth - MFA"])
 def api_mfa_totp_disable(request: Request):
     """Disable and remove TOTP."""
@@ -265,6 +292,7 @@ def api_mfa_totp_disable(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
     MfaStore.delete_methods_by_type(user["email"], "totp")
     _refresh_mfa_enabled(user["email"])
@@ -273,17 +301,21 @@ def api_mfa_totp_disable(request: Request):
 
 # ── Model: SmsSetupRequest ──
 
+
 class SmsSetupRequest(BaseModel):
     phone_number: str  # E.164 format, e.g. +14165551234
+
 
 @router.post("/api/auth/mfa/sms/setup", tags=["Auth - MFA"])
 def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     """Register a phone number for SMS MFA. Sends a verification code."""
     import re
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
     phone = req.phone_number.strip()
@@ -300,13 +332,15 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     sms_challenge_id = f"sms-setup:{user['email']}"
     # Remove any existing SMS setup challenge
     MfaStore.delete_challenge(sms_challenge_id)
-    MfaStore.create_challenge({
-        "challenge_id": sms_challenge_id,
-        "email": user["email"],
-        "challenge_data": json.dumps({"code_hash": code_hash, "phone": phone}),
-        "created_at": time.time(),
-        "expires_at": time.time() + 600,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": sms_challenge_id,
+            "email": user["email"],
+            "challenge_data": json.dumps({"code_hash": code_hash, "phone": phone}),
+            "created_at": time.time(),
+            "expires_at": time.time() + 600,
+        }
+    )
 
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Verification code sent", "test_code": code}
@@ -317,8 +351,10 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
 
 # ── Model: SmsVerifyRequest ──
 
+
 class SmsVerifyRequest(BaseModel):
     code: str
+
 
 @router.post("/api/auth/mfa/sms/verify", tags=["Auth - MFA"])
 def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
@@ -327,6 +363,7 @@ def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
     sms_challenge_id = f"sms-setup:{user['email']}"
@@ -342,13 +379,15 @@ def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
 
     MfaStore.delete_challenge(sms_challenge_id)
 
-    MfaStore.create_method({
-        "email": user["email"],
-        "method_type": "sms",
-        "phone_number": pending_data["phone"],
-        "enabled": 1,
-        "created_at": time.time(),
-    })
+    MfaStore.create_method(
+        {
+            "email": user["email"],
+            "method_type": "sms",
+            "phone_number": pending_data["phone"],
+            "enabled": 1,
+            "created_at": time.time(),
+        }
+    )
     _refresh_mfa_enabled(user["email"])
 
     # Generate backup codes if none exist
@@ -365,6 +404,7 @@ def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
         "backup_codes": backup_codes,
     }
 
+
 @router.delete("/api/auth/mfa/sms", tags=["Auth - MFA"])
 def api_mfa_sms_disable(request: Request):
     """Disable and remove SMS MFA."""
@@ -372,6 +412,7 @@ def api_mfa_sms_disable(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
     MfaStore.delete_methods_by_type(user["email"], "sms")
     _refresh_mfa_enabled(user["email"])
@@ -380,20 +421,24 @@ def api_mfa_sms_disable(request: Request):
 
 # ── Helper: _get_fido2_server ──
 
+
 def _get_fido2_server():
     from fido2.server import Fido2Server
     from fido2.webauthn import PublicKeyCredentialRpEntity
+
     rp = PublicKeyCredentialRpEntity(id=_WEBAUTHN_RP_ID, name=_WEBAUTHN_RP_NAME)
     return Fido2Server(rp)
 
 
 # ── Helper: _b64url_encode ──
 
+
 def _b64url_encode(data: bytes) -> str:
     return _b64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
 # ── Helper: _b64url_decode ──
+
 
 def _b64url_decode(s: str) -> bytes:
     padding = 4 - len(s) % 4
@@ -403,6 +448,7 @@ def _b64url_decode(s: str) -> bytes:
 
 
 # ── Helper: _webauthn_options_to_json ──
+
 
 def _webauthn_options_to_json(options) -> dict:
     """Recursively convert WebAuthn options to JSON-safe dict (bytes → base64url)."""
@@ -417,8 +463,10 @@ def _webauthn_options_to_json(options) -> dict:
 
 # ── Model: PasskeyRegisterRequest ──
 
+
 class PasskeyRegisterRequest(BaseModel):
     device_name: str = "Security Key"
+
 
 @router.post("/api/auth/mfa/passkey/register-options", tags=["Auth - MFA"])
 def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Request):
@@ -427,9 +475,14 @@ def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Reque
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
-    from fido2.webauthn import PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor, PublicKeyCredentialType
+    from fido2.webauthn import (
+        PublicKeyCredentialUserEntity,
+        PublicKeyCredentialDescriptor,
+        PublicKeyCredentialType,
+    )
 
     server = _get_fido2_server()
     user_entity = PublicKeyCredentialUserEntity(
@@ -455,25 +508,31 @@ def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Reque
 
     # Store state in challenge
     state_id = f"passkey-reg:{secrets.token_urlsafe(16)}"
-    MfaStore.create_challenge({
-        "challenge_id": state_id,
-        "email": user["email"],
-        "challenge_data": json.dumps({
-            "state": _webauthn_options_to_json(state),
-            "device_name": req.device_name,
-        }),
-        "created_at": time.time(),
-        "expires_at": time.time() + 300,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": state_id,
+            "email": user["email"],
+            "challenge_data": json.dumps(
+                {
+                    "state": _webauthn_options_to_json(state),
+                    "device_name": req.device_name,
+                }
+            ),
+            "created_at": time.time(),
+            "expires_at": time.time() + 300,
+        }
+    )
 
     return {"ok": True, "options": options_dict, "state_id": state_id}
 
 
 # ── Model: PasskeyRegisterCompleteRequest ──
 
+
 class PasskeyRegisterCompleteRequest(BaseModel):
     state_id: str
     credential: dict
+
 
 @router.post("/api/auth/mfa/passkey/register-complete", tags=["Auth - MFA"])
 def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, request: Request):
@@ -482,6 +541,7 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
     challenge = MfaStore.get_challenge(req.state_id)
@@ -520,7 +580,10 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
         log.warning("Passkey registration failed: %s", e)
         error_text = str(e).lower()
         if "already" in error_text and ("registered" in error_text or "credential" in error_text):
-            raise HTTPException(409, "This passkey is already added to your account. Use it to sign in or add a different device.")
+            raise HTTPException(
+                409,
+                "This passkey is already added to your account. Use it to sign in or add a different device.",
+            )
         raise HTTPException(400, "Passkey registration verification failed")
 
     MfaStore.delete_challenge(req.state_id)
@@ -532,18 +595,23 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
 
     existing_passkey = MfaStore.get_passkey_by_credential(credential_id_b64)
     if existing_passkey:
-        raise HTTPException(409, "This passkey is already added to your account. Use it to sign in or add a different device.")
+        raise HTTPException(
+            409,
+            "This passkey is already added to your account. Use it to sign in or add a different device.",
+        )
 
-    method_id = MfaStore.create_method({
-        "email": user["email"],
-        "method_type": "passkey",
-        "credential_id": credential_id_b64,
-        "public_key": public_key_b64,
-        "sign_count": 0,
-        "device_name": device_name,
-        "enabled": 1,
-        "created_at": time.time(),
-    })
+    method_id = MfaStore.create_method(
+        {
+            "email": user["email"],
+            "method_type": "passkey",
+            "credential_id": credential_id_b64,
+            "public_key": public_key_b64,
+            "sign_count": 0,
+            "device_name": device_name,
+            "enabled": 1,
+            "created_at": time.time(),
+        }
+    )
     _refresh_mfa_enabled(user["email"])
 
     # Generate backup codes if none exist
@@ -565,8 +633,10 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
 
 # ── Model: PasskeyDeleteRequest ──
 
+
 class PasskeyDeleteRequest(BaseModel):
     method_id: int
+
 
 @router.post("/api/auth/mfa/passkey/delete", tags=["Auth - MFA"])
 def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
@@ -575,6 +645,7 @@ def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
 
     method = MfaStore.get_method(req.method_id)
@@ -588,8 +659,10 @@ def api_mfa_passkey_delete(req: PasskeyDeleteRequest, request: Request):
 
 # ── Model: PasskeyAuthenticateOptionsRequest ──
 
+
 class PasskeyAuthenticateOptionsRequest(BaseModel):
     challenge_id: str
+
 
 @router.post("/api/auth/mfa/passkey/authenticate-options", tags=["Auth - MFA"])
 def api_mfa_passkey_authenticate_options(req: PasskeyAuthenticateOptionsRequest):
@@ -624,28 +697,36 @@ def api_mfa_passkey_authenticate_options(req: PasskeyAuthenticateOptionsRequest)
 
     # Store WebAuthn state
     state_id = f"passkey-auth:{secrets.token_urlsafe(16)}"
-    MfaStore.create_challenge({
-        "challenge_id": state_id,
-        "email": email,
-        "challenge_data": json.dumps({
-            "state": _webauthn_options_to_json(state),
-            "login_challenge_id": req.challenge_id,
-        }),
-        "created_at": time.time(),
-        "expires_at": time.time() + 300,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": state_id,
+            "email": email,
+            "challenge_data": json.dumps(
+                {
+                    "state": _webauthn_options_to_json(state),
+                    "login_challenge_id": req.challenge_id,
+                }
+            ),
+            "created_at": time.time(),
+            "expires_at": time.time() + 300,
+        }
+    )
 
     return {"ok": True, "options": options_dict, "state_id": state_id}
 
 
 # ── Model: PasskeyAuthenticateCompleteRequest ──
 
+
 class PasskeyAuthenticateCompleteRequest(BaseModel):
     state_id: str
     credential: dict
 
+
 @router.post("/api/auth/mfa/passkey/authenticate-complete", tags=["Auth - MFA"])
-def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteRequest, request: Request):
+def api_mfa_passkey_authenticate_complete(
+    req: PasskeyAuthenticateCompleteRequest, request: Request
+):
     """Verify passkey authentication to complete MFA login."""
     challenge = MfaStore.get_challenge(req.state_id)
     if not challenge:
@@ -717,10 +798,12 @@ def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteReques
 
 # ── Model: MfaVerifyLogin ──
 
+
 class MfaVerifyLogin(BaseModel):
     challenge_id: str
     method: str  # totp | sms | backup
     code: str
+
 
 @router.post("/api/auth/mfa/verify", tags=["Auth - MFA"])
 def api_mfa_verify_login(req: MfaVerifyLogin, request: Request):
@@ -775,8 +858,10 @@ def api_mfa_verify_login(req: MfaVerifyLogin, request: Request):
 
 # ── Model: MfaSendSmsRequest ──
 
+
 class MfaSendSmsRequest(BaseModel):
     challenge_id: str
+
 
 @router.post("/api/auth/mfa/sms/send", tags=["Auth - MFA"])
 def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
@@ -798,19 +883,22 @@ def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
     code_hash = _hash_backup_code(code)
     sms_login_id = f"sms-login:{email}"
     MfaStore.delete_challenge(sms_login_id)
-    MfaStore.create_challenge({
-        "challenge_id": sms_login_id,
-        "email": email,
-        "challenge_data": json.dumps({"code_hash": code_hash}),
-        "created_at": time.time(),
-        "expires_at": time.time() + 600,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": sms_login_id,
+            "email": email,
+            "challenge_data": json.dumps({"code_hash": code_hash}),
+            "created_at": time.time(),
+            "expires_at": time.time() + 600,
+        }
+    )
 
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Code sent", "test_code": code}
 
     _send_sms(method.get("phone_number", ""), f"Your Xcelsior login code is: {code}")
     return {"ok": True, "message": "Code sent"}
+
 
 @router.post("/api/auth/mfa/backup-codes/regenerate", tags=["Auth - MFA"])
 def api_mfa_regenerate_backup_codes(request: Request):
@@ -819,6 +907,7 @@ def api_mfa_regenerate_backup_codes(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
     if not any(bool(m.get("enabled")) for m in MfaStore.list_methods(user["email"])):
         raise HTTPException(400, "MFA is not enabled")
@@ -829,6 +918,7 @@ def api_mfa_regenerate_backup_codes(request: Request):
 
     return {"ok": True, "backup_codes": codes}
 
+
 @router.delete("/api/auth/mfa/all", tags=["Auth - MFA"])
 def api_mfa_disable_all(request: Request):
     """Disable all MFA methods for the user."""
@@ -836,8 +926,10 @@ def api_mfa_disable_all(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     from routes._deps import _require_scope
+
     _require_scope(user, "mfa:write")
     from db import auth_connection
+
     with auth_connection() as conn:
         conn.execute("DELETE FROM mfa_methods WHERE email = %s", (user["email"],))
         conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (user["email"],))

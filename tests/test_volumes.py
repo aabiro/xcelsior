@@ -54,11 +54,14 @@ class TestVolumeEngineCreate:
         return engine
 
     def test_create_success(self, monkeypatch):
-        engine = self._make_engine(monkeypatch, conn_rows=[
-            None,            # FOR UPDATE lock (unused)
-            {"total": 0},   # capacity check
-            None,            # name uniqueness check → no duplicate
-        ])
+        engine = self._make_engine(
+            monkeypatch,
+            conn_rows=[
+                None,  # FOR UPDATE lock (unused)
+                {"total": 0},  # capacity check
+                None,  # name uniqueness check → no duplicate
+            ],
+        )
         vol = engine.create_volume("user-1", "my-data", 10)
         assert vol["name"] == "my-data"
         assert vol["size_gb"] == 10
@@ -91,19 +94,25 @@ class TestVolumeEngineCreate:
             engine.create_volume("user-1", "neg", -5)
 
     def test_create_capacity_exceeded(self, monkeypatch):
-        engine = self._make_engine(monkeypatch, conn_rows=[
-            None,            # FOR UPDATE lock (unused)
-            {"total": 95},  # capacity check: 95 used, requesting 10 → over 100
-        ])
+        engine = self._make_engine(
+            monkeypatch,
+            conn_rows=[
+                None,  # FOR UPDATE lock (unused)
+                {"total": 95},  # capacity check: 95 used, requesting 10 → over 100
+            ],
+        )
         with pytest.raises(ValueError, match="Insufficient storage capacity"):
             engine.create_volume("user-1", "big", 10)
 
     def test_create_duplicate_name(self, monkeypatch):
-        engine = self._make_engine(monkeypatch, conn_rows=[
-            None,                              # FOR UPDATE lock (unused)
-            {"total": 0},                     # capacity check
-            {"volume_id": "vol-existing"},     # name uniqueness → duplicate found
-        ])
+        engine = self._make_engine(
+            monkeypatch,
+            conn_rows=[
+                None,  # FOR UPDATE lock (unused)
+                {"total": 0},  # capacity check
+                {"volume_id": "vol-existing"},  # name uniqueness → duplicate found
+            ],
+        )
         with pytest.raises(ValueError, match="already exists"):
             engine.create_volume("user-1", "dupe", 10)
 
@@ -114,11 +123,14 @@ class TestVolumeEngineCreate:
         time is non-fatal — volume is created with status='error' and retried
         on first attach. This preserves UX when NFS is temporarily down.
         """
-        engine = self._make_engine(monkeypatch, conn_rows=[
-            None,            # FOR UPDATE lock (unused)
-            {"total": 0},
-            None,
-        ])
+        engine = self._make_engine(
+            monkeypatch,
+            conn_rows=[
+                None,  # FOR UPDATE lock (unused)
+                {"total": 0},
+                None,
+            ],
+        )
         monkeypatch.setattr(engine, "_provision_volume_storage", lambda vid, sz, **kw: False)
         result = engine.create_volume("user-1", "bad-nfs", 10)
         assert result["status"] == "error"
@@ -137,8 +149,8 @@ class TestVolumeEngineAttach:
 
         vol_row = {"volume_id": "vol-abc", "status": vol_status, "owner_id": "user-1"}
         rows = [
-            vol_row,         # SELECT ... FOR UPDATE
-            existing_att,    # existing attachment check
+            vol_row,  # SELECT ... FOR UPDATE
+            existing_att,  # existing attachment check
         ]
 
         fake_conn = MagicMock()
@@ -385,6 +397,7 @@ class TestVolumePathSecurity:
 
     def test_path_traversal_rejected(self):
         from security import build_secure_docker_args
+
         with pytest.raises(ValueError, match="\\.\\."):
             build_secure_docker_args(
                 image="pytorch:latest",
@@ -394,6 +407,7 @@ class TestVolumePathSecurity:
 
     def test_null_byte_rejected(self):
         from security import build_secure_docker_args
+
         with pytest.raises(ValueError, match="null byte"):
             build_secure_docker_args(
                 image="pytorch:latest",
@@ -404,6 +418,7 @@ class TestVolumePathSecurity:
     def test_prefix_bypass_rejected(self):
         """A path like /mnt/xcelsior-nfs-evil/ must not pass the prefix check."""
         from security import build_secure_docker_args
+
         with pytest.raises(ValueError, match="outside allowed prefixes"):
             build_secure_docker_args(
                 image="pytorch:latest",
@@ -413,6 +428,7 @@ class TestVolumePathSecurity:
 
     def test_disallowed_prefix_rejected(self):
         from security import build_secure_docker_args
+
         with pytest.raises(ValueError, match="outside allowed prefixes"):
             build_secure_docker_args(
                 image="pytorch:latest",
@@ -422,6 +438,7 @@ class TestVolumePathSecurity:
 
     def test_allowed_xcelsior_volumes_prefix(self):
         from security import build_secure_docker_args
+
         args = build_secure_docker_args(
             image="pytorch:latest",
             container_name="test",
@@ -432,6 +449,7 @@ class TestVolumePathSecurity:
 
     def test_allowed_nfs_prefix(self):
         from security import build_secure_docker_args
+
         args = build_secure_docker_args(
             image="pytorch:latest",
             container_name="test",
@@ -441,6 +459,7 @@ class TestVolumePathSecurity:
 
     def test_volume_without_mode_defaults_ro(self):
         from security import build_secure_docker_args
+
         args = build_secure_docker_args(
             image="pytorch:latest",
             container_name="test",
@@ -454,6 +473,7 @@ class TestVolumePathSecurity:
     def test_host_path_only_volume(self):
         """Volume spec without colon should still be validated."""
         from security import build_secure_docker_args
+
         with pytest.raises(ValueError, match="outside allowed prefixes"):
             build_secure_docker_args(
                 image="pytorch:latest",
@@ -466,6 +486,7 @@ class TestVolumePathSecurity:
         # This tests the API-level check pattern in routes/instances.py
         # The ownership check returns 404 (not 403) for volumes not owned by the requester
         from routes.instances import router
+
         # Verify the route exists — the actual ownership check is tested in integration
         assert router is not None
 
@@ -478,10 +499,12 @@ class TestVolumeAPIEndpoints:
 
     def test_volume_price_constant(self):
         from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
+
         assert VOLUME_PRICE_PER_GB_MONTH_CAD == 0.03
 
     def test_routes_registered(self):
         from routes.volumes import router
+
         paths = [r.path for r in router.routes]
         assert "/api/v2/volumes" in paths
         assert "/api/v2/volumes/available" in paths
@@ -491,6 +514,7 @@ class TestVolumeAPIEndpoints:
 
     def test_volume_engine_singleton(self):
         from volumes import get_volume_engine, VolumeEngine
+
         ve = get_volume_engine()
         assert isinstance(ve, VolumeEngine)
         ve2 = get_volume_engine()
@@ -580,9 +604,11 @@ class TestVolumeHostIds:
 
         engine = VolumeEngine()
         fake_conn = MagicMock()
-        fake_conn.execute = MagicMock(return_value=MagicMock(
-            fetchall=MagicMock(return_value=[{"host_id": "host-1"}, {"host_id": "host-2"}])
-        ))
+        fake_conn.execute = MagicMock(
+            return_value=MagicMock(
+                fetchall=MagicMock(return_value=[{"host_id": "host-1"}, {"host_id": "host-2"}])
+            )
+        )
         fake_conn.commit = MagicMock()
         fake_conn.rollback = MagicMock()
 
@@ -596,6 +622,7 @@ class TestVolumeHostIds:
 
     def test_empty_volume_ids(self, monkeypatch):
         from volumes import VolumeEngine
+
         engine = VolumeEngine()
         assert engine.get_volume_host_ids([]) == set()
 
@@ -606,9 +633,7 @@ class TestVolumeHostIds:
 
         engine = VolumeEngine()
         fake_conn = MagicMock()
-        fake_conn.execute = MagicMock(return_value=MagicMock(
-            fetchall=MagicMock(return_value=[])
-        ))
+        fake_conn.execute = MagicMock(return_value=MagicMock(fetchall=MagicMock(return_value=[])))
         fake_conn.commit = MagicMock()
         fake_conn.rollback = MagicMock()
 
@@ -629,6 +654,7 @@ class TestVolumeEventTypes:
 
     def test_volume_event_types_registered(self):
         from events import EventType
+
         assert EventType.VOLUME_CREATED.value == "volume.created"
         assert EventType.VOLUME_DELETED.value == "volume.deleted"
         assert EventType.VOLUME_ATTACHED.value == "volume.attached"
@@ -644,12 +670,14 @@ class TestVolumeSchema:
     def test_volumes_table_in_ensure(self):
         import inspect
         from db import _ensure_pg_tables
+
         source = inspect.getsource(_ensure_pg_tables)
         assert "CREATE TABLE IF NOT EXISTS volumes" in source
 
     def test_volume_attachments_table_in_ensure(self):
         import inspect
         from db import _ensure_pg_tables
+
         source = inspect.getsource(_ensure_pg_tables)
         assert "CREATE TABLE IF NOT EXISTS volume_attachments" in source
 
@@ -663,6 +691,7 @@ class TestBillingConstantDRY:
     def test_billing_imports_volume_price(self):
         import inspect
         import billing
+
         source = inspect.getsource(billing.BillingEngine.auto_billing_cycle)
         assert "VOLUME_PRICE_PER_GB_MONTH_CAD" in source
         assert "0.07 *" not in source  # no hardcoded magic number
@@ -670,6 +699,7 @@ class TestBillingConstantDRY:
     def test_routes_import_volume_price(self):
         import inspect
         import routes.volumes as rv
+
         source = inspect.getsource(rv)
         assert "VOLUME_PRICE_PER_GB_MONTH_CAD = 0.07" not in source  # not redefined locally
 
@@ -737,21 +767,24 @@ class TestTerminalStateVolumeDetach:
         """The detach_all_for_instance call must be present in update_job_status."""
         import inspect
         from scheduler import update_job_status
+
         source = inspect.getsource(update_job_status)
         assert "detach_all_for_instance" in source
-        assert 'completed' in source and 'failed' in source and 'cancelled' in source
+        assert "completed" in source and "failed" in source and "cancelled" in source
 
     def test_detach_covers_terminated_state(self):
         """update_job_status must also detach volumes for 'terminated' status."""
         import inspect
         from scheduler import update_job_status
+
         source = inspect.getsource(update_job_status)
-        assert 'terminated' in source
+        assert "terminated" in source
 
     def test_detach_in_cancel_route_source(self):
         """The cancel endpoint must call detach_all_for_instance."""
         import inspect
         from routes.instances import api_cancel_instance
+
         source = inspect.getsource(api_cancel_instance)
         assert "detach_all_for_instance" in source
 
@@ -759,6 +792,7 @@ class TestTerminalStateVolumeDetach:
         """preempt_job must detach volumes when job leaves host."""
         import inspect
         from scheduler import preempt_job
+
         source = inspect.getsource(preempt_job)
         assert "detach_all_for_instance" in source
 
@@ -773,6 +807,7 @@ class TestBillingVolumeQuery:
         """Volume billing query must filter to available/attached status."""
         import inspect
         from billing import BillingEngine
+
         source = inspect.getsource(BillingEngine.auto_billing_cycle)
         assert "IN ('available', 'attached')" in source
         assert "!= 'deleted'" not in source  # old pattern removed
@@ -781,6 +816,7 @@ class TestBillingVolumeQuery:
         """terminate_instance must use get_volume_engine(), not VolumeEngine()."""
         import inspect
         from billing import BillingEngine
+
         source = inspect.getsource(BillingEngine.terminate_instance)
         assert "get_volume_engine" in source
         assert "VolumeEngine()" not in source
@@ -796,6 +832,7 @@ class TestWorkerVolumeMountPaths:
         """run_job must read volume_mounts from the job payload."""
         import inspect
         from worker_agent import run_job
+
         source = inspect.getsource(run_job)
         assert "volume_mounts" in source
         # Managed volumes (volume_ids) must use per-volume mount paths, not hardcode /workspace
@@ -806,6 +843,7 @@ class TestWorkerVolumeMountPaths:
         """The agent work endpoint must inject volume_mounts into job payloads."""
         import inspect
         from routes.agent import api_agent_work
+
         source = inspect.getsource(api_agent_work)
         assert "volume_mounts" in source
         assert "get_instance_volumes" in source

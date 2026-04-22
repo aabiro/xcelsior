@@ -116,6 +116,7 @@ CONVERSATION_TTL_SEC = 7 * 86400  # 7 days
 def _chat_db():
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -136,8 +137,13 @@ def _purge_expired():
             (cutoff,),
         ).fetchall()
         for row in expired:
-            conn.execute("DELETE FROM chat_messages WHERE conversation_id = %s", (row["conversation_id"],))
-            conn.execute("DELETE FROM chat_conversations WHERE conversation_id = %s", (row["conversation_id"],))
+            conn.execute(
+                "DELETE FROM chat_messages WHERE conversation_id = %s", (row["conversation_id"],)
+            )
+            conn.execute(
+                "DELETE FROM chat_conversations WHERE conversation_id = %s",
+                (row["conversation_id"],),
+            )
 
 
 def get_or_create_conversation(

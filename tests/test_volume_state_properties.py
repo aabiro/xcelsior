@@ -48,9 +48,7 @@ def test_all_transition_targets_are_valid_statuses():
     for src, targets in t.items():
         assert src in STATUSES, f"unknown source status in map: {src!r}"
         for tgt in targets:
-            assert tgt in STATUSES, (
-                f"unknown target status {tgt!r} in transitions from {src!r}"
-            )
+            assert tgt in STATUSES, f"unknown target status {tgt!r} in transitions from {src!r}"
 
 
 def test_all_non_terminal_reachable_from_provisioning():
@@ -81,18 +79,19 @@ def test_available_attached_roundtrip():
 def test_deleting_cannot_return_to_attached():
     """Data integrity: once a delete is started, re-attach is forbidden."""
     t = _transitions()
-    assert "attached" not in t.get("deleting", set()), (
-        "deleting → attached would allow attach of half-deleted volume"
-    )
+    assert "attached" not in t.get(
+        "deleting", set()
+    ), "deleting → attached would allow attach of half-deleted volume"
 
 
 def test_error_state_is_recoverable():
     """``error`` must have at least one outgoing edge (no dead-lock)."""
     t = _transitions()
     next_from_error = t.get("error", set())
-    assert next_from_error & {"provisioning", "deleting"}, (
-        f"error has no recovery path; outgoing={next_from_error!r}"
-    )
+    assert next_from_error & {
+        "provisioning",
+        "deleting",
+    }, f"error has no recovery path; outgoing={next_from_error!r}"
 
 
 def test_no_self_loops():
@@ -105,9 +104,9 @@ def test_no_self_loops():
 def test_provisioning_cannot_skip_to_attached():
     """Invariant from the state diagram: must pass through ``available``."""
     t = _transitions()
-    assert "attached" not in t.get("provisioning", set()), (
-        "provisioning → attached would skip NFS-export verification"
-    )
+    assert "attached" not in t.get(
+        "provisioning", set()
+    ), "provisioning → attached would skip NFS-export verification"
 
 
 @given(status=st.sampled_from(STATUSES))
@@ -117,9 +116,9 @@ def test_transition_entries_are_sets_of_valid_statuses(status):
     t = _transitions()
     if status in t:
         entry = t[status]
-        assert isinstance(entry, (set, frozenset)), (
-            f"transitions from {status!r} must be a set, got {type(entry).__name__}"
-        )
+        assert isinstance(
+            entry, (set, frozenset)
+        ), f"transitions from {status!r} must be a set, got {type(entry).__name__}"
         for tgt in entry:
             assert isinstance(tgt, str)
             assert tgt in STATUSES

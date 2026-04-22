@@ -94,7 +94,7 @@ class TestDestroyCommand:
             f'[[ "$real" == {shlex.quote(TMP_BASE)}/* ]] && '
             f'rm -rf --one-file-system "$real"'
         )
-        rc = subprocess.call(cmd, shell=True, executable='/bin/bash')
+        rc = subprocess.call(cmd, shell=True, executable="/bin/bash")
         assert rc == 0
         assert not os.path.exists(vol_path)
 
@@ -111,7 +111,7 @@ class TestDestroyCommand:
             f'[[ "$real" == {shlex.quote(TMP_BASE)}/* ]] && '
             f'rm -rf --one-file-system "$real"'
         )
-        rc = subprocess.call(cmd, shell=True, executable='/bin/bash')
+        rc = subprocess.call(cmd, shell=True, executable="/bin/bash")
         # Should fail because resolved path is /tmp, not under TMP_BASE/*
         assert rc != 0
         # /tmp must still exist
@@ -127,7 +127,7 @@ class TestDestroyCommand:
             f'[[ "$real" == {shlex.quote(TMP_BASE)}/* ]] && '
             f'rm -rf --one-file-system "$real"'
         )
-        rc = subprocess.call(cmd, shell=True, executable='/bin/bash')
+        rc = subprocess.call(cmd, shell=True, executable="/bin/bash")
         # readlink -f resolves to /tmp which is NOT under TMP_BASE
         assert rc != 0
         assert os.path.isdir("/tmp")
@@ -136,6 +136,7 @@ class TestDestroyCommand:
         """Verify the destroy command uses --one-file-system."""
         import inspect
         from volumes import VolumeEngine
+
         source = inspect.getsource(VolumeEngine._destroy_volume_storage)
         assert "--one-file-system" in source
 
@@ -149,7 +150,7 @@ class TestDestroyCommand:
             f'rm -rf --one-file-system "$real"'
         )
         # readlink -f returns empty for non-existent paths, so the [[ ]] test fails
-        rc = subprocess.call(cmd, shell=True, executable='/bin/bash')
+        rc = subprocess.call(cmd, shell=True, executable="/bin/bash")
         # This is expected to fail (non-zero) since path doesn't exist
         assert rc != 0 or not os.path.exists(vol_path)
 
@@ -162,12 +163,14 @@ class TestExportBaseSafety:
 
     def test_export_base_constant_exists(self):
         from volumes import NFS_EXPORT_BASE
+
         assert NFS_EXPORT_BASE
         assert "/" in NFS_EXPORT_BASE
 
     def test_volume_path_construction(self):
         """Volume paths must be under NFS_EXPORT_BASE."""
         from volumes import NFS_EXPORT_BASE
+
         vol_id = "vol-abc123"
         path = f"{NFS_EXPORT_BASE}/{vol_id}"
         assert path.startswith(NFS_EXPORT_BASE + "/")
@@ -175,12 +178,14 @@ class TestExportBaseSafety:
     def test_shlex_quote_used_in_provision(self):
         import inspect
         from volumes import VolumeEngine
+
         source = inspect.getsource(VolumeEngine._provision_volume_storage)
         assert "shlex.quote" in source
 
     def test_shlex_quote_used_in_destroy(self):
         import inspect
         from volumes import VolumeEngine
+
         source = inspect.getsource(VolumeEngine._destroy_volume_storage)
         assert "shlex.quote" in source
 
@@ -188,5 +193,6 @@ class TestExportBaseSafety:
         """Destroy must resolve symlinks before deleting."""
         import inspect
         from volumes import VolumeEngine
+
         source = inspect.getsource(VolumeEngine._destroy_volume_storage)
         assert "readlink -f" in source

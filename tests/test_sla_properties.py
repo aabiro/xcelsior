@@ -18,7 +18,6 @@ from hypothesis import given, settings, strategies as st
 
 from sla import compute_credit_pct, HostSLARecord
 
-
 VALID_CREDITS = {0.0, 10.0, 25.0, 100.0}
 
 
@@ -45,15 +44,15 @@ def test_credit_pct_monotonic_non_increasing(a, b):
 
 def test_credit_pct_boundaries():
     """Canonical threshold values."""
-    assert compute_credit_pct(100.0) == 0.0     # perfect uptime
-    assert compute_credit_pct(99.5) == 0.0      # ≥99% → no credit
-    assert compute_credit_pct(99.0) == 0.0      # exact 99.0 → no credit (tier is < 99.0)
-    assert compute_credit_pct(98.9) == 10.0     # just below 99 → 10%
-    assert compute_credit_pct(95.0) == 10.0     # exact 95 → 10%
-    assert compute_credit_pct(94.99) == 25.0    # just below 95 → 25%
-    assert compute_credit_pct(90.0) == 25.0     # exact 90 → 25%
-    assert compute_credit_pct(89.9) == 100.0    # below 90 → full credit
-    assert compute_credit_pct(0.0) == 100.0     # total outage
+    assert compute_credit_pct(100.0) == 0.0  # perfect uptime
+    assert compute_credit_pct(99.5) == 0.0  # ≥99% → no credit
+    assert compute_credit_pct(99.0) == 0.0  # exact 99.0 → no credit (tier is < 99.0)
+    assert compute_credit_pct(98.9) == 10.0  # just below 99 → 10%
+    assert compute_credit_pct(95.0) == 10.0  # exact 95 → 10%
+    assert compute_credit_pct(94.99) == 25.0  # just below 95 → 25%
+    assert compute_credit_pct(90.0) == 25.0  # exact 90 → 25%
+    assert compute_credit_pct(89.9) == 100.0  # below 90 → full credit
+    assert compute_credit_pct(0.0) == 100.0  # total outage
 
 
 # ── HostSLARecord.uptime_pct ─────────────────────────────────────────
@@ -67,8 +66,11 @@ def test_credit_pct_boundaries():
 def test_uptime_pct_bounded(total, downtime):
     """Result is always in [0, 100] regardless of input proportions."""
     rec = HostSLARecord(
-        host_id="h", tier="standard", month="2026-04",
-        total_seconds=total, downtime_seconds=downtime,
+        host_id="h",
+        tier="standard",
+        month="2026-04",
+        total_seconds=total,
+        downtime_seconds=downtime,
     )
     assert 0.0 <= rec.uptime_pct <= 100.0
 
@@ -78,8 +80,11 @@ def test_uptime_pct_bounded(total, downtime):
 def test_uptime_pct_no_downtime_is_100(total):
     """Zero downtime against any positive total ⇒ 100.0%."""
     rec = HostSLARecord(
-        host_id="h", tier="standard", month="2026-04",
-        total_seconds=total, downtime_seconds=0.0,
+        host_id="h",
+        tier="standard",
+        month="2026-04",
+        total_seconds=total,
+        downtime_seconds=0.0,
     )
     assert rec.uptime_pct == 100.0
 
@@ -89,8 +94,11 @@ def test_uptime_pct_no_downtime_is_100(total):
 def test_uptime_pct_full_downtime_is_0(total):
     """Downtime ≥ total ⇒ 0.0%."""
     rec = HostSLARecord(
-        host_id="h", tier="standard", month="2026-04",
-        total_seconds=total, downtime_seconds=total * 2,
+        host_id="h",
+        tier="standard",
+        month="2026-04",
+        total_seconds=total,
+        downtime_seconds=total * 2,
     )
     assert rec.uptime_pct == 0.0
 
@@ -110,8 +118,11 @@ def test_uptime_pct_linear_in_downtime(total, pct_down):
     """uptime_pct == 100 * (1 - downtime/total) for downtime ≤ total."""
     downtime = total * pct_down
     rec = HostSLARecord(
-        host_id="h", tier="standard", month="2026-04",
-        total_seconds=total, downtime_seconds=downtime,
+        host_id="h",
+        tier="standard",
+        month="2026-04",
+        total_seconds=total,
+        downtime_seconds=downtime,
     )
     expected = 100.0 * (1.0 - pct_down)
     assert abs(rec.uptime_pct - expected) < 1e-6

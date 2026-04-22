@@ -34,7 +34,9 @@ NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
 # timeo=600: 60-second initial RPC timeout (in deciseconds); retrans=3: 3 retries.
 # rsize/wsize=1M: large buffers for GPU checkpoint throughput.
 # _netdev: wait for network before mounting at boot.
-NFS_MOUNT_OPTS = "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"
+NFS_MOUNT_OPTS = (
+    "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"
+)
 
 
 class VolumeEngine:
@@ -51,6 +53,7 @@ class VolumeEngine:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -64,6 +67,7 @@ class VolumeEngine:
     def _ssh_exec(self, ip: str, cmd: str, timeout: int = 30) -> tuple[int, str, str]:
         """Execute a command on a remote host via SSH."""
         from scheduler import ssh_exec
+
         return ssh_exec(ip, cmd, timeout=timeout)
 
     def _ssh_exec_with_retry(
@@ -78,14 +82,23 @@ class VolumeEngine:
         for attempt in range(max_retries):
             rc, out, err = self._ssh_exec(ip, cmd, timeout=timeout)
             # rc == 255 with specific stderr patterns = SSH-level failure (not remote cmd)
-            ssh_transient = rc == 255 and ("timeout" in err.lower() or "connection refused" in err.lower()
-                                           or "no route to host" in err.lower())
+            ssh_transient = rc == 255 and (
+                "timeout" in err.lower()
+                or "connection refused" in err.lower()
+                or "no route to host" in err.lower()
+            )
             if rc != 255 or not ssh_transient:
                 return rc, out, err
             if attempt < max_retries - 1:
                 delay = delays[min(attempt, len(delays) - 1)]
-                log.warning("SSH transient failure to %s (attempt %d/%d), retrying in %ds: %s",
-                            ip, attempt + 1, max_retries, delay, err[:120])
+                log.warning(
+                    "SSH transient failure to %s (attempt %d/%d), retrying in %ds: %s",
+                    ip,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    err[:120],
+                )
                 time.sleep(delay)
         return rc, out, err  # last attempt's result
 
@@ -100,18 +113,26 @@ class VolumeEngine:
         (never written to disk on the remote host).
         """
         from scheduler import SSH_KEY_PATH, SSH_USER
+
         full_cmd = [
-            "ssh", "-i", SSH_KEY_PATH,
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=5",
+            "ssh",
+            "-i",
+            SSH_KEY_PATH,
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
             f"{SSH_USER}@{ip}",
             cmd,
         ]
         try:
             result = subprocess.run(
-                full_cmd, input=stdin_data,
-                capture_output=True, timeout=timeout,
+                full_cmd,
+                input=stdin_data,
+                capture_output=True,
+                timeout=timeout,
             )
             return (
                 result.returncode,
@@ -135,12 +156,14 @@ class VolumeEngine:
     def _encrypt_key(raw_key: bytes) -> str:
         """Fernet-encrypt a raw LUKS key for DB storage."""
         from security import encrypt_secret
+
         return encrypt_secret(base64.b64encode(raw_key).decode())
 
     @staticmethod
     def _decrypt_key(ciphertext: str) -> bytes:
         """Recover raw LUKS key from Fernet ciphertext."""
         from security import decrypt_secret
+
         return base64.b64decode(decrypt_secret(ciphertext))
 
     def _store_key(self, conn, volume_id: str, raw_key: bytes) -> None:
@@ -169,18 +192,23 @@ class VolumeEngine:
         )
         log.info("Volume %s: encryption key destroyed (cryptographic erasure)", volume_id)
 
-    def _emit_event(self, event_type: str, volume_id: str, actor: str = "", data: dict | None = None):
+    def _emit_event(
+        self, event_type: str, volume_id: str, actor: str = "", data: dict | None = None
+    ):
         """Best-effort emit a volume lifecycle event into the tamper-evident event store."""
         try:
             from events import Event, EventStore
+
             store = EventStore()
-            store.append(Event(
-                event_type=event_type,
-                entity_type="volume",
-                entity_id=volume_id,
-                actor=f"user:{actor}" if actor else "system",
-                data=data or {},
-            ))
+            store.append(
+                Event(
+                    event_type=event_type,
+                    entity_type="volume",
+                    entity_id=volume_id,
+                    actor=f"user:{actor}" if actor else "system",
+                    data=data or {},
+                )
+            )
         except Exception as e:
             log.warning("Failed to emit volume event %s for %s: %s", event_type, volume_id, e)
 
@@ -195,14 +223,16 @@ class VolumeEngine:
     #
     _VALID_TRANSITIONS: dict[str, set[str]] = {
         "provisioning": {"available", "error"},
-        "available":    {"attached", "deleting"},
-        "attached":     {"available"},
-        "deleting":     {"deleted", "available"},  # available = rollback if NFS delete fails
-        "error":        {"provisioning", "deleting"},  # user can retry or delete errored volumes
+        "available": {"attached", "deleting"},
+        "attached": {"available"},
+        "deleting": {"deleted", "available"},  # available = rollback if NFS delete fails
+        "error": {"provisioning", "deleting"},  # user can retry or delete errored volumes
         # "deleted" is terminal — no outgoing transitions
     }
 
-    def _transition_status(self, conn, volume_id: str, new_status: str, *, current: str | None = None) -> str:
+    def _transition_status(
+        self, conn, volume_id: str, new_status: str, *, current: str | None = None
+    ) -> str:
         """Atomically transition a volume's status with guard validation.
 
         If `current` is provided, it's used as the expected current status
@@ -268,8 +298,10 @@ class VolumeEngine:
         name = name.strip()
         if len(name) > 128:
             raise ValueError("Volume name must be 128 characters or fewer")
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$', name):
-            raise ValueError("Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots")
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name):
+            raise ValueError(
+                "Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots"
+            )
         if size_gb > MAX_VOLUME_SIZE_GB:
             raise ValueError(f"Volume size {size_gb}GB exceeds max {MAX_VOLUME_SIZE_GB}GB")
         if size_gb < 1:
@@ -308,14 +340,26 @@ class VolumeEngine:
                    (volume_id, owner_id, name, storage_type, size_gb,
                     region, province, encrypted, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'provisioning', %s)""",
-                (volume_id, owner_id, name, storage_type, size_gb,
-                 region, province, encrypted, now),
+                (
+                    volume_id,
+                    owner_id,
+                    name,
+                    storage_type,
+                    size_gb,
+                    region,
+                    province,
+                    encrypted,
+                    now,
+                ),
             )
 
         # Provision actual storage on the NFS server
         raw_key = self._generate_volume_key() if encrypted else None
         provision_ok = self._provision_volume_storage(
-            volume_id, size_gb, encrypted=encrypted, raw_key=raw_key,
+            volume_id,
+            size_gb,
+            encrypted=encrypted,
+            raw_key=raw_key,
         )
 
         with self._conn() as conn:
@@ -325,14 +369,32 @@ class VolumeEngine:
                 self._store_key(conn, volume_id, raw_key)
 
         if not provision_ok:
-            log.warning("Volume storage provisioning deferred for %s — NFS unreachable, will retry on attach", volume_id)
+            log.warning(
+                "Volume storage provisioning deferred for %s — NFS unreachable, will retry on attach",
+                volume_id,
+            )
             # Status already set to 'error' above — user can retry via UI
 
         vol_status = "available" if provision_ok else "error"
-        log.info("Volume created: %s name=%s size=%dGB owner=%s status=%s", volume_id, name, size_gb, owner_id, vol_status)
-        self._emit_event("volume.created", volume_id, actor=owner_id, data={
-            "name": name, "size_gb": size_gb, "region": region, "encrypted": encrypted,
-        })
+        log.info(
+            "Volume created: %s name=%s size=%dGB owner=%s status=%s",
+            volume_id,
+            name,
+            size_gb,
+            owner_id,
+            vol_status,
+        )
+        self._emit_event(
+            "volume.created",
+            volume_id,
+            actor=owner_id,
+            data={
+                "name": name,
+                "size_gb": size_gb,
+                "region": region,
+                "encrypted": encrypted,
+            },
+        )
         return {
             "volume_id": volume_id,
             "name": name,
@@ -342,7 +404,12 @@ class VolumeEngine:
         }
 
     def _provision_volume_storage(
-        self, volume_id: str, size_gb: int, *, encrypted: bool = False, raw_key: bytes | None = None,
+        self,
+        volume_id: str,
+        size_gb: int,
+        *,
+        encrypted: bool = False,
+        raw_key: bytes | None = None,
     ) -> bool:
         """Create the volume directory/image on the NFS server.
 
@@ -352,7 +419,9 @@ class VolumeEngine:
         For unencrypted: simple mkdir -p.
         """
         if not NFS_SERVER:
-            log.warning("XCELSIOR_NFS_SERVER not configured — volume %s is metadata-only", volume_id)
+            log.warning(
+                "XCELSIOR_NFS_SERVER not configured — volume %s is metadata-only", volume_id
+            )
             return True  # Allow metadata-only operation in dev/test
 
         vol_path = f"{NFS_EXPORT_BASE}/{volume_id}"
@@ -387,7 +456,8 @@ class VolumeEngine:
 
         # Step 1: Create sparse image file
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SERVER, f"truncate -s {size_gb}G {safe_img}",
+            NFS_SERVER,
+            f"truncate -s {size_gb}G {safe_img}",
         )
         if rc != 0:
             log.error("LUKS truncate failed for %s: %s", volume_id, err)
@@ -400,7 +470,8 @@ class VolumeEngine:
             f"sudo cryptsetup luksFormat --batch-mode --type luks2 "
             f"--key-file /dev/stdin --key-size 512 "
             f"--cipher aes-xts-plain64 --hash sha256 {safe_img}",
-            raw_key, timeout=120,
+            raw_key,
+            timeout=120,
         )
         if rc != 0:
             log.error("LUKS luksFormat failed for %s: %s", volume_id, err)
@@ -411,7 +482,8 @@ class VolumeEngine:
         rc, _, err = self._ssh_exec_with_stdin(
             NFS_SERVER,
             f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
-            raw_key, timeout=60,
+            raw_key,
+            timeout=60,
         )
         if rc != 0:
             log.error("LUKS luksOpen failed for %s: %s", volume_id, err)
@@ -425,7 +497,9 @@ class VolumeEngine:
         )
         if rc != 0:
             log.error("LUKS mkfs failed for %s: %s", volume_id, err)
-            self._ssh_exec_with_retry(NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}")
+            self._ssh_exec_with_retry(
+                NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}"
+            )
             return False
 
         # Step 5: Mount
@@ -443,7 +517,10 @@ class VolumeEngine:
 
         log.info(
             "Encrypted NFS storage created for volume %s: LUKS2 %dGB at %s:%s",
-            volume_id, size_gb, NFS_SERVER, vol_path,
+            volume_id,
+            size_gb,
+            NFS_SERVER,
+            vol_path,
         )
         return True
 
@@ -477,7 +554,10 @@ class VolumeEngine:
                 raw_key = self._generate_volume_key()
 
         provision_ok = self._provision_volume_storage(
-            volume_id, row["size_gb"], encrypted=is_encrypted, raw_key=raw_key,
+            volume_id,
+            row["size_gb"],
+            encrypted=is_encrypted,
+            raw_key=raw_key,
         )
 
         with self._conn() as conn:
@@ -523,8 +603,10 @@ class VolumeEngine:
             raise ValueError("Volume name is required")
         if len(new_name) > 128:
             raise ValueError("Volume name must be 128 characters or fewer")
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$', new_name):
-            raise ValueError("Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots")
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", new_name):
+            raise ValueError(
+                "Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots"
+            )
 
         with self._conn() as conn:
             row = conn.execute(
@@ -633,7 +715,9 @@ class VolumeEngine:
         For unencrypted: remove directory.
         """
         if not NFS_SERVER:
-            log.warning("XCELSIOR_NFS_SERVER not configured — skipping storage deletion for %s", volume_id)
+            log.warning(
+                "XCELSIOR_NFS_SERVER not configured — skipping storage deletion for %s", volume_id
+            )
             return True
 
         vol_path = f"{NFS_EXPORT_BASE}/{volume_id}"
@@ -648,22 +732,27 @@ class VolumeEngine:
             # Unmount (lazy to handle busy)
             self._ssh_exec_with_retry(NFS_SERVER, f"sudo umount -l {safe_path} 2>/dev/null; true")
             # Close LUKS device
-            self._ssh_exec_with_retry(NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true")
+            self._ssh_exec_with_retry(
+                NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true"
+            )
             # Remove backing image and mount point
             rc, _, err = self._ssh_exec_with_retry(
-                NFS_SERVER, f"rm -f {safe_img} && rmdir {safe_path} 2>/dev/null; true",
+                NFS_SERVER,
+                f"rm -f {safe_img} && rmdir {safe_path} 2>/dev/null; true",
             )
             if rc != 0:
                 log.error("NFS encrypted volume cleanup failed for %s: %s", volume_id, err)
                 return False
-            log.info("Encrypted NFS storage destroyed for volume %s (LUKS + image removed)", volume_id)
+            log.info(
+                "Encrypted NFS storage destroyed for volume %s (LUKS + image removed)", volume_id
+            )
             return True
 
         # Unencrypted: safe rm -rf with symlink traversal guard
         cmd = (
             f"real=$(readlink -f {safe_path}) && "
-            f"[[ \"$real\" == {shlex.quote(NFS_EXPORT_BASE)}/* ]] && "
-            f"rm -rf --one-file-system \"$real\""
+            f'[[ "$real" == {shlex.quote(NFS_EXPORT_BASE)}/* ]] && '
+            f'rm -rf --one-file-system "$real"'
         )
         rc, _, stderr = self._ssh_exec_with_retry(NFS_SERVER, cmd)
         if rc != 0:
@@ -769,9 +858,15 @@ class VolumeEngine:
             raise ValueError(f"Failed to mount volume on instance host — attachment rolled back")
 
         log.info("Volume %s attached to %s at %s (%s)", volume_id, instance_id, mount_path, mode)
-        self._emit_event("volume.attached", volume_id, data={
-            "instance_id": instance_id, "mount_path": mount_path, "mode": mode,
-        })
+        self._emit_event(
+            "volume.attached",
+            volume_id,
+            data={
+                "instance_id": instance_id,
+                "mount_path": mount_path,
+                "mode": mode,
+            },
+        )
         return {
             "attachment_id": attachment_id,
             "volume_id": volume_id,
@@ -783,12 +878,18 @@ class VolumeEngine:
     def _mount_on_host(self, volume_id: str, instance_id: str, mount_path: str, mode: str) -> bool:
         """NFS-mount the volume on the host where the instance runs."""
         if not NFS_SERVER:
-            log.warning("XCELSIOR_NFS_SERVER not configured — skipping real mount for %s", volume_id)
+            log.warning(
+                "XCELSIOR_NFS_SERVER not configured — skipping real mount for %s", volume_id
+            )
             return True  # Allow metadata-only in dev/test
 
         host_ip = self._get_instance_host_ip(instance_id)
         if not host_ip:
-            log.error("Cannot mount volume %s: instance %s has no host IP (not running?)", volume_id, instance_id)
+            log.error(
+                "Cannot mount volume %s: instance %s has no host IP (not running?)",
+                volume_id,
+                instance_id,
+            )
             return False
 
         nfs_src = f"{NFS_SERVER}:{NFS_EXPORT_BASE}/{volume_id}"
@@ -836,7 +937,9 @@ class VolumeEngine:
             try:
                 self._unmount_from_host(volume_id, instance_id, mount_path)
             except Exception as e:
-                log.warning("Unmount failed for volume %s on instance %s: %s", volume_id, instance_id, e)
+                log.warning(
+                    "Unmount failed for volume %s on instance %s: %s", volume_id, instance_id, e
+                )
 
             # Atomic DB update within same transaction
             conn.execute(
@@ -859,12 +962,18 @@ class VolumeEngine:
     def _unmount_from_host(self, volume_id: str, instance_id: str, mount_path: str) -> bool:
         """NFS-unmount the volume on the host where the instance runs."""
         if not NFS_SERVER:
-            log.warning("XCELSIOR_NFS_SERVER not configured — skipping real unmount for %s", volume_id)
+            log.warning(
+                "XCELSIOR_NFS_SERVER not configured — skipping real unmount for %s", volume_id
+            )
             return True
 
         host_ip = self._get_instance_host_ip(instance_id)
         if not host_ip:
-            log.warning("Cannot unmount volume %s: instance %s has no host IP (already stopped?)", volume_id, instance_id)
+            log.warning(
+                "Cannot unmount volume %s: instance %s has no host IP (already stopped?)",
+                volume_id,
+                instance_id,
+            )
             return True  # Instance already gone, nothing to unmount
 
         safe_mount = shlex.quote(mount_path)
@@ -934,7 +1043,12 @@ class VolumeEngine:
                 try:
                     self._unmount_from_host(att["volume_id"], instance_id, mount_path)
                 except Exception as e:
-                    log.warning("Unmount failed for volume %s on instance %s: %s", att["volume_id"], instance_id, e)
+                    log.warning(
+                        "Unmount failed for volume %s on instance %s: %s",
+                        att["volume_id"],
+                        instance_id,
+                        e,
+                    )
 
             # Atomic DB update — all volumes detached in one transaction
             for att in atts:
@@ -979,8 +1093,13 @@ class VolumeEngine:
             total += r2.rowcount
             conn.commit()
         if total:
-            log.warning("Cleaned up %d stale volumes (provisioning=%d, deleting=%d, age > %ds)",
-                        total, r1.rowcount, r2.rowcount, max_age_seconds)
+            log.warning(
+                "Cleaned up %d stale volumes (provisioning=%d, deleting=%d, age > %ds)",
+                total,
+                r1.rowcount,
+                r2.rowcount,
+                max_age_seconds,
+            )
         return total
 
     # Keep old name as alias for backward compatibility
@@ -1014,7 +1133,10 @@ class VolumeEngine:
                     "UPDATE volumes SET status = 'available' WHERE volume_id = %s",
                     (ov["volume_id"],),
                 )
-                log.warning("Reconciled orphaned volume %s: attached→available (no active attachments)", ov["volume_id"])
+                log.warning(
+                    "Reconciled orphaned volume %s: attached→available (no active attachments)",
+                    ov["volume_id"],
+                )
                 fixed += 1
 
             # Case 2: active attachments to dead instances
@@ -1042,7 +1164,9 @@ class VolumeEngine:
                     )
                 log.warning(
                     "Reconciled stale attachment %s: volume %s was attached to dead instance %s",
-                    sa["attachment_id"], sa["volume_id"], sa["instance_id"],
+                    sa["attachment_id"],
+                    sa["volume_id"],
+                    sa["instance_id"],
                 )
                 fixed += 1
             conn.commit()

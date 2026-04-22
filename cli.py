@@ -100,7 +100,12 @@ def cmd_jobs(args):
         table.add_column("Host")
         for j in jobs:
             status = j["status"]
-            style = {"running": "green", "queued": "yellow", "failed": "red", "completed": "dim"}.get(status, "")
+            style = {
+                "running": "green",
+                "queued": "yellow",
+                "failed": "red",
+                "completed": "dim",
+            }.get(status, "")
             table.add_row(
                 f"[{style}]{status}[/{style}]" if style else status,
                 j["job_id"],
@@ -729,6 +734,7 @@ def _load_config() -> dict:
     try:
         if sys.version_info >= (3, 11):
             import tomllib
+
             with open(CONFIG_FILE, "rb") as f:
                 return tomllib.load(f)
         else:
@@ -1389,6 +1395,7 @@ def main():
     # ── argcomplete shell completion ──────────────────────────────────
     try:
         import argcomplete
+
         argcomplete.autocomplete(parser)
     except ImportError:
         pass

@@ -35,11 +35,14 @@ try:
         ["email"],
     )
 except Exception:
+
     class _NoopCounter:
         def labels(self, *a, **kw):
             return self
+
         def inc(self, *a, **kw):
             pass
+
     _deprecated_api_key_requests = _NoopCounter()
 
 
@@ -89,18 +92,33 @@ _AUTH_COOKIE_NAME = "xcelsior_session"
 VALID_ACCOUNT_ROLES = {"submitter", "provider"}
 
 PUBLIC_PATHS = {
-    "/", "/docs", "/redoc", "/openapi.json", "/llms.txt",
-    "/dashboard", "/legacy", "/healthz", "/readyz", "/metrics",
+    "/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/llms.txt",
+    "/dashboard",
+    "/legacy",
+    "/healthz",
+    "/readyz",
+    "/metrics",
     "/metrics/prometheus",
-    "/api/stream", "/api/transparency/report",
+    "/api/stream",
+    "/api/transparency/report",
     "/api/providers/webhook",
     "/.well-known/oauth-authorization-server",
     # GPU / pricing / hosts — non-sensitive inventory data needed by dropdowns
-    "/api/v2/gpu/available", "/hosts", "/api/pricing/reference",
-    "/api/pricing/rates", "/api/pricing/spot", "/api/provinces",
+    "/api/v2/gpu/available",
+    "/hosts",
+    "/api/pricing/reference",
+    "/api/pricing/rates",
+    "/api/pricing/spot",
+    "/api/provinces",
     # Crypto / Lightning service-status checks (no sensitive data)
-    "/api/billing/crypto/enabled", "/api/billing/crypto/rate",
-    "/api/billing/lightning/enabled", "/api/billing/lightning/rate",
+    "/api/billing/crypto/enabled",
+    "/api/billing/crypto/rate",
+    "/api/billing/lightning/enabled",
+    "/api/billing/lightning/rate",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
@@ -243,8 +261,13 @@ def _deliver_notifications(event_type: str, data: dict):
         return
     try:
         if _USE_PERSISTENT_AUTH:
-            if event_type in ("job_submitted", "job_status", "job_completed", "job_failed",
-                              "preemption_scheduled"):
+            if event_type in (
+                "job_submitted",
+                "job_status",
+                "job_completed",
+                "job_failed",
+                "preemption_scheduled",
+            ):
                 job_id = data.get("job_id", "")
                 jobs = list_jobs()
                 job = next((j for j in jobs if j.get("job_id") == job_id), None)
@@ -287,6 +310,7 @@ def broadcast_sse(event_type: str, data: dict):
 
 
 # ── Auth Helpers ──────────────────────────────────────────────────────
+
 
 def _get_real_client_ip(request: Request) -> str:
     # Check cf-connecting-ip first so the resolved IP matches
@@ -337,7 +361,9 @@ def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
         merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
         merged["provider_id"] = full_user.get("provider_id", merged.get("provider_id"))
         merged["mfa_enabled"] = bool(full_user.get("mfa_enabled"))
-        merged["email_verified"] = bool(full_user.get("email_verified", merged.get("email_verified")))
+        merged["email_verified"] = bool(
+            full_user.get("email_verified", merged.get("email_verified"))
+        )
         merged["is_admin"] = True if _is_platform_admin(full_user) else False
     else:
         merged["is_admin"] = True if _is_platform_admin(merged) else False
@@ -348,8 +374,13 @@ def _set_auth_cookie(response, token: str, *, max_age: int = SESSION_EXPIRY):
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     is_prod = _base.startswith("https")
     kwargs: dict = dict(
-        key=_AUTH_COOKIE_NAME, value=token, max_age=max_age,
-        httponly=True, secure=is_prod, samesite="lax", path="/",
+        key=_AUTH_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        path="/",
     )
     if is_prod:
         kwargs["domain"] = ".xcelsior.ca"
@@ -361,8 +392,13 @@ def _set_refresh_cookie(response, token: str, *, max_age: int = REFRESH_TOKEN_TT
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     is_prod = _base.startswith("https")
     kwargs: dict = dict(
-        key=REFRESH_COOKIE_NAME, value=token, max_age=max_age,
-        httponly=True, secure=is_prod, samesite="lax", path="/",
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        path="/",
     )
     if is_prod:
         kwargs["domain"] = ".xcelsior.ca"
@@ -406,12 +442,14 @@ def _create_session(email: str, user: dict, request: Request | None = None) -> d
     token = secrets.token_urlsafe(48)
     now = time.time()
     session = {
-        "token": token, "email": email,
+        "token": token,
+        "email": email,
         "user_id": user.get("user_id", email),
         "role": user.get("role", "submitter"),
         "is_admin": True if _is_platform_admin(user) else False,
         "name": user.get("name", ""),
-        "created_at": now, "expires_at": now + SESSION_EXPIRY,
+        "created_at": now,
+        "expires_at": now + SESSION_EXPIRY,
         "ip_address": _get_real_client_ip(request) if request else None,
         "user_agent": request.headers.get("user-agent", "")[:512] if request else None,
         "last_active": now,
@@ -436,8 +474,11 @@ def _get_current_user(request: Request) -> dict | None:
     master = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
     if master and hmac.compare_digest(token, master):
         return {
-            "email": "api-token@xcelsior.ca", "user_id": "api-admin",
-            "role": "admin", "is_admin": True, "name": "API Token",
+            "email": "api-token@xcelsior.ca",
+            "user_id": "api-admin",
+            "role": "admin",
+            "is_admin": True,
+            "name": "API Token",
             "auth_type": "master_token",
         }
 
@@ -483,7 +524,8 @@ def _get_current_user(request: Request) -> dict | None:
             full_user = UserStore.get_user(api_key["email"])
             merged = _merge_auth_user(
                 {
-                    "email": api_key["email"], "user_id": api_key["user_id"],
+                    "email": api_key["email"],
+                    "user_id": api_key["user_id"],
                     "role": api_key.get("role", "submitter"),
                     "is_admin": api_key.get("is_admin", False),
                     "name": api_key.get("name", ""),
@@ -515,7 +557,8 @@ def _get_current_user(request: Request) -> dict | None:
             api_key["last_used"] = time.time()
             merged = _merge_auth_user(
                 {
-                    "email": api_key["email"], "user_id": api_key["user_id"],
+                    "email": api_key["email"],
+                    "user_id": api_key["user_id"],
                     "role": api_key.get("role", "submitter"),
                     "is_admin": api_key.get("is_admin", False),
                     "name": api_key.get("name", ""),
@@ -615,6 +658,7 @@ def _require_write_access(request: Request):
 
 # ── WebSocket Auth ────────────────────────────────────────────────────
 
+
 def _get_ws_client_ip(websocket: WebSocket) -> str:
     """Best-effort client IP extraction for WebSocket rate limiting."""
     for header in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip"):
@@ -688,9 +732,7 @@ def _shared_state_update(namespace: str, default_factory, mutator) -> tuple[bool
 def _purge_ws_tickets_locked(now: float | None = None) -> None:
     now = time.time() if now is None else now
     expired = [
-        token
-        for token, payload in _WS_TICKETS.items()
-        if payload.get("expires_at", 0) <= now
+        token for token, payload in _WS_TICKETS.items() if payload.get("expires_at", 0) <= now
     ]
     for token in expired:
         _WS_TICKETS.pop(token, None)
@@ -822,10 +864,7 @@ def _ws_has_explicit_query_auth(
 ) -> bool:
     return bool(
         websocket.query_params.get("ticket", "").strip()
-        or (
-            allow_query_token
-            and websocket.query_params.get("token", "").strip()
-        )
+        or (allow_query_token and websocket.query_params.get("token", "").strip())
     )
 
 
@@ -904,11 +943,7 @@ def _mutate_shared_ws_connect_buckets(state: dict, key: str, now: float) -> tupl
     limit = max(1, _WS_CONNECT_RATE_LIMIT_REQUESTS)
 
     for bucket_key, entries in buckets.items():
-        cleaned = [
-            float(ts)
-            for ts in (entries or [])
-            if float(ts) > cutoff
-        ]
+        cleaned = [float(ts) for ts in (entries or []) if float(ts) > cutoff]
         if cleaned:
             pruned[bucket_key] = cleaned[-limit:]
 
@@ -979,6 +1014,7 @@ def otel_span(name: str, attributes: dict | None = None):
     """Create a custom OpenTelemetry span (context manager)."""
     if _otel_tracer is None:
         from contextlib import nullcontext
+
         return nullcontext()
     span = _otel_tracer.start_as_current_span(name, attributes=attributes or {})
     return span

@@ -26,7 +26,6 @@ from reputation import (
     TIER_PRICING_PREMIUM,
 )
 
-
 # Canonical tier ordering (by threshold ascending)
 TIER_ORDER = [
     ReputationTier.NEW_USER,
@@ -42,7 +41,9 @@ TIER_RANK = {t: i for i, t in enumerate(TIER_ORDER)}
 # ── score_to_tier ────────────────────────────────────────────────────
 
 
-@given(score=st.floats(min_value=-10_000, max_value=1_000_000, allow_nan=False, allow_infinity=False))
+@given(
+    score=st.floats(min_value=-10_000, max_value=1_000_000, allow_nan=False, allow_infinity=False)
+)
 @settings(max_examples=200, deadline=None)
 def test_score_to_tier_total(score):
     """Never raises, always returns a known tier."""

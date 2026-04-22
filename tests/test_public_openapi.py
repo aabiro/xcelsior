@@ -3,7 +3,6 @@ from pathlib import Path
 
 from scripts.generate_public_openapi import build_public_spec
 
-
 ROOT = Path(__file__).resolve().parent.parent
 FERN_OPENAPI = ROOT / "fern" / "openapi.json"
 

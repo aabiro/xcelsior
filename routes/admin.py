@@ -44,6 +44,7 @@ def api_admin_stats(request: Request):
     try:
         be = get_billing_engine()
         import datetime as _dt
+
         now = _dt.datetime.now(_dt.timezone.utc)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
         with be._conn() as conn:
@@ -62,6 +63,7 @@ def api_admin_stats(request: Request):
         "running_jobs": len(running),
         "revenue_mtd": revenue_mtd,
     }
+
 
 @router.get("/api/admin/users", tags=["Admin"])
 def api_admin_users(request: Request):
@@ -108,19 +110,22 @@ def api_admin_users(request: Request):
         cid = u.get("customer_id", u.get("email", ""))
         email = u.get("email", "")
         last_at = last_activity_map.get(email, 0.0)
-        safe_users.append({
-            "email": email,
-            "role": u.get("role", "submitter"),
-            "is_admin": True if _is_platform_admin(u) else False,
-            "is_active": last_at >= active_threshold,
-            "created_at": created_iso,
-            "wallet_balance_cad": wallet_map.get(cid, 0.0),
-            "total_jobs": job_count_map.get(email, 0),
-            "province": u.get("province", ""),
-            "country": u.get("country", ""),
-            "team_id": u.get("team_id") or None,
-        })
+        safe_users.append(
+            {
+                "email": email,
+                "role": u.get("role", "submitter"),
+                "is_admin": True if _is_platform_admin(u) else False,
+                "is_active": last_at >= active_threshold,
+                "created_at": created_iso,
+                "wallet_balance_cad": wallet_map.get(cid, 0.0),
+                "total_jobs": job_count_map.get(email, 0),
+                "province": u.get("province", ""),
+                "country": u.get("country", ""),
+                "team_id": u.get("team_id") or None,
+            }
+        )
     return {"ok": True, "users": safe_users}
+
 
 @router.get("/api/admin/overview", tags=["Admin"])
 def api_admin_overview(request: Request, days: int = 30):
@@ -162,11 +167,15 @@ def api_admin_overview(request: Request, days: int = 30):
             revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
 
             # Total revenue
-            row = conn.execute("SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters").fetchone()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters"
+            ).fetchone()
             revenue_total = round(float(row["rev"]), 2) if row else 0.0
 
             # Total GPU hours
-            row = conn.execute("SELECT COALESCE(SUM(gpu_seconds), 0) AS s FROM usage_meters").fetchone()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(gpu_seconds), 0) AS s FROM usage_meters"
+            ).fetchone()
             total_gpu_hours = round(float(row["s"]) / 3600, 1) if row else 0.0
 
             # 30-day revenue trend
@@ -184,6 +193,7 @@ def api_admin_overview(request: Request, days: int = 30):
     # 30-day signup trend
     try:
         from db import auth_connection
+
         with auth_connection() as conn:
             for r in conn.execute(
                 "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS signups "
@@ -196,8 +206,17 @@ def api_admin_overview(request: Request, days: int = 30):
 
     # Period-over-period trends (this period vs previous period)
     prev_thirty = thirty_days_ago - days * 86400
-    prev_users = sum(1 for u in users if isinstance(u.get("created_at"), (int, float)) and prev_thirty <= u["created_at"] < thirty_days_ago)
-    curr_users = sum(1 for u in users if isinstance(u.get("created_at"), (int, float)) and u["created_at"] >= thirty_days_ago)
+    prev_users = sum(
+        1
+        for u in users
+        if isinstance(u.get("created_at"), (int, float))
+        and prev_thirty <= u["created_at"] < thirty_days_ago
+    )
+    curr_users = sum(
+        1
+        for u in users
+        if isinstance(u.get("created_at"), (int, float)) and u["created_at"] >= thirty_days_ago
+    )
 
     prev_revenue = 0.0
     try:
@@ -219,8 +238,18 @@ def api_admin_overview(request: Request, days: int = 30):
     curr_revenue = sum(d["revenue"] for d in daily_revenue)
 
     # Host registration trends (registered_at is a unix timestamp)
-    prev_hosts = sum(1 for h in hosts if isinstance(h.get("registered_at"), (int, float)) and prev_thirty <= h["registered_at"] < thirty_days_ago)
-    curr_hosts = sum(1 for h in hosts if isinstance(h.get("registered_at"), (int, float)) and h["registered_at"] >= thirty_days_ago)
+    prev_hosts = sum(
+        1
+        for h in hosts
+        if isinstance(h.get("registered_at"), (int, float))
+        and prev_thirty <= h["registered_at"] < thirty_days_ago
+    )
+    curr_hosts = sum(
+        1
+        for h in hosts
+        if isinstance(h.get("registered_at"), (int, float))
+        and h["registered_at"] >= thirty_days_ago
+    )
 
     # Job count trends from usage_meters
     prev_jobs = 0
@@ -265,8 +294,10 @@ def api_admin_overview(request: Request, days: int = 30):
     }
     try:
         web_push["notification_retained_total"] = NotificationStore.total_count()
-        web_push["current_user_subscription_count"] = WebPushSubscriptionStore.count_active_for_user(
-            user.get("email", ""),
+        web_push["current_user_subscription_count"] = (
+            WebPushSubscriptionStore.count_active_for_user(
+                user.get("email", ""),
+            )
         )
     except Exception as e:
         log.debug("admin_overview: failed to fetch web push data: %s", e)
@@ -278,6 +309,7 @@ def api_admin_overview(request: Request, days: int = 30):
     volume_revenue = 0.0
     try:
         from volumes import VolumeEngine
+
         ve = VolumeEngine()
         with ve._conn() as conn:
             row = conn.execute(
@@ -372,6 +404,7 @@ def api_admin_web_push_test_notification(request: Request):
         "web_push": get_web_push_observability_snapshot(),
     }
 
+
 @router.post("/api/admin/users/{email}/role", tags=["Admin"])
 def api_admin_set_user_role(email: str, request: Request, role: str = "submitter"):
     """Admin sets a user's role."""
@@ -392,6 +425,7 @@ def api_admin_set_user_role(email: str, request: Request, role: str = "submitter
     emit_event("user_role_changed", {"email": email, "role": role})
     return {"ok": True, "email": email, "role": role}
 
+
 @router.post("/api/admin/users/{email}/toggle-admin", tags=["Admin"])
 def api_admin_toggle_admin(email: str, request: Request):
     """Admin toggles another user's admin flag."""
@@ -411,11 +445,13 @@ def api_admin_toggle_admin(email: str, request: Request):
     emit_event("user_admin_toggled", {"email": email, "is_admin": new_val})
     return {"ok": True, "email": email, "is_admin": new_val}
 
+
 @router.get("/api/admin/teams", tags=["Admin"])
 def api_admin_teams(request: Request):
     """List all teams with their members. Platform admin only."""
     _require_admin(request)
     from db import get_db
+
     teams = []
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
@@ -425,6 +461,7 @@ def api_admin_teams(request: Request):
             team["members"] = members
             teams.append(team)
     return {"ok": True, "teams": teams}
+
 
 @router.delete("/api/admin/teams/{team_id}/members/{email}", tags=["Admin"])
 def api_admin_remove_team_member(team_id: str, email: str, request: Request):
@@ -441,6 +478,7 @@ def api_admin_remove_team_member(team_id: str, email: str, request: Request):
     UserStore.remove_team_member(team_id, email)
     emit_event("team_member_removed", {"team_id": team_id, "email": email})
     return {"ok": True, "message": f"{email} removed from team {team_id}"}
+
 
 @router.get("/api/admin/revenue", tags=["Admin"])
 def api_admin_revenue(request: Request, days: int = 90):
@@ -469,7 +507,12 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["daily"] = [
-                {"date": r["day"], "revenue": float(r["revenue"]), "jobs": r["jobs"], "gpu_hours": float(r["gpu_hours"])}
+                {
+                    "date": r["day"],
+                    "revenue": float(r["revenue"]),
+                    "jobs": r["jobs"],
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
                 for r in rows
             ]
     except Exception as e:
@@ -484,7 +527,10 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(gpu_model, 'Unknown') ORDER BY revenue DESC",
                 (since,),
             ).fetchall()
-            result["by_gpu"] = [{"gpu_model": r["gpu_model"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows]
+            result["by_gpu"] = [
+                {"gpu_model": r["gpu_model"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch revenue by GPU", exc_info=True)
         result["by_gpu"] = []
@@ -497,7 +543,10 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(province, 'Unknown') ORDER BY revenue DESC",
                 (since,),
             ).fetchall()
-            result["by_province"] = [{"province": r["province"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows]
+            result["by_province"] = [
+                {"province": r["province"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch revenue by province", exc_info=True)
         result["by_province"] = []
@@ -510,7 +559,10 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM usage_meters WHERE created_at >= %s GROUP BY owner ORDER BY total_spend DESC LIMIT 10",
                 (since,),
             ).fetchall()
-            result["top_customers"] = [{"email": r["email"], "total_spend": float(r["total_spend"]), "jobs": r["jobs"]} for r in rows]
+            result["top_customers"] = [
+                {"email": r["email"], "total_spend": float(r["total_spend"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch top customers", exc_info=True)
         result["top_customers"] = []
@@ -523,12 +575,20 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM payout_ledger WHERE created_at >= %s GROUP BY provider_id ORDER BY earnings DESC LIMIT 10",
                 (since,),
             ).fetchall()
-            result["top_providers"] = [{"provider_id": r["provider_id"], "earnings": float(r["earnings"]), "jobs": r["jobs"]} for r in rows]
+            result["top_providers"] = [
+                {
+                    "provider_id": r["provider_id"],
+                    "earnings": float(r["earnings"]),
+                    "jobs": r["jobs"],
+                }
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch top providers", exc_info=True)
         result["top_providers"] = []
 
     return result
+
 
 @router.get("/api/admin/infrastructure", tags=["Admin"])
 def api_admin_infrastructure(request: Request):
@@ -566,6 +626,7 @@ def api_admin_infrastructure(request: Request):
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -586,6 +647,7 @@ def api_admin_infrastructure(request: Request):
         "reputation_tiers": [{"tier": k, "count": v} for k, v in reputation_tiers.items()],
     }
 
+
 @router.get("/api/admin/activity", tags=["Admin"])
 def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
     """Admin activity feed — recent events, job stats by day, events by type."""
@@ -605,7 +667,9 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
                 "event_type": e.event_type,
                 "entity_type": e.entity_type,
                 "entity_id": e.entity_id,
-                "timestamp": _dt.datetime.fromtimestamp(e.timestamp, tz=_dt.timezone.utc).isoformat(),
+                "timestamp": _dt.datetime.fromtimestamp(
+                    e.timestamp, tz=_dt.timezone.utc
+                ).isoformat(),
                 "actor": e.actor,
                 "data": e.data,
             }
@@ -642,7 +706,12 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
                 (since,),
             ).fetchall()
             result["daily_jobs"] = [
-                {"date": r["day"], "submitted": r["submitted"], "completed": r["completed"], "failed": r["failed"]}
+                {
+                    "date": r["day"],
+                    "submitted": r["submitted"],
+                    "completed": r["completed"],
+                    "failed": r["failed"],
+                }
                 for r in rows
             ]
     except Exception as e:
@@ -651,11 +720,13 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
 
     return result
 
+
 @router.get("/api/admin/verification-queue", tags=["Admin"])
 def api_admin_verification_queue(request: Request):
     """Get verification queue for admin panel."""
     _require_admin(request)
     import datetime as _dt
+
     ve = get_verification_engine()
     store = ve.store
     hosts_map = {h["host_id"]: h for h in list_hosts(active_only=False)}
@@ -670,15 +741,21 @@ def api_admin_verification_queue(request: Request):
             hid = r["host_id"]
             h = hosts_map.get(hid, {})
             last_ts = r["last_check_at"]
-            queue.append({
-                "host_id": hid,
-                "state": r["state"],
-                "overall_score": float(r["overall_score"]),
-                "last_check_at": _dt.datetime.fromtimestamp(last_ts, tz=_dt.timezone.utc).isoformat() if last_ts else None,
-                "gpu_model": h.get("gpu_model") or "Unknown",
-                "province": h.get("province") or "Unknown",
-                "cost_per_hour": float(h.get("cost_per_hour", 0)),
-            })
+            queue.append(
+                {
+                    "host_id": hid,
+                    "state": r["state"],
+                    "overall_score": float(r["overall_score"]),
+                    "last_check_at": (
+                        _dt.datetime.fromtimestamp(last_ts, tz=_dt.timezone.utc).isoformat()
+                        if last_ts
+                        else None
+                    ),
+                    "gpu_model": h.get("gpu_model") or "Unknown",
+                    "province": h.get("province") or "Unknown",
+                    "cost_per_hour": float(h.get("cost_per_hour", 0)),
+                }
+            )
     except Exception as e:
         log.warning("admin_verification_queue: failed to fetch queue", exc_info=True)
         queue = []
@@ -688,6 +765,7 @@ def api_admin_verification_queue(request: Request):
 # ---------------------------------------------------------------------------
 # AI Insights
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/admin/ai-stats", tags=["Admin"])
 def api_admin_ai_stats(request: Request, days: int = 30):
@@ -770,12 +848,20 @@ def api_admin_ai_stats(request: Request, days: int = 30):
     for r in daily_rows:
         d = int(r["day_epoch"])
         if d not in daily_map:
-            daily_map[d] = {"date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime("%Y-%m-%d")}
+            daily_map[d] = {
+                "date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+            }
         daily_map[d][r["source"]] = int(r["cnt"])
     for r in daily_support:
         d = int(r["day_epoch"])
         if d not in daily_map:
-            daily_map[d] = {"date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime("%Y-%m-%d")}
+            daily_map[d] = {
+                "date": _dt.datetime.fromtimestamp(d * 86400, tz=_dt.timezone.utc).strftime(
+                    "%Y-%m-%d"
+                )
+            }
         daily_map[d]["support"] = int(r["cnt"])
     daily = sorted(daily_map.values(), key=lambda x: x["date"])
 
@@ -867,28 +953,32 @@ def api_admin_ai_conversations(
                     cids,
                 ).fetchall()
                 for m in msgs:
-                    messages_map[m["conversation_id"]].append({
-                        "role": m["role"],
-                        "content": m["content"],
-                        "tool_name": m["tool_name"] or None,
-                        "tokens_in": int(m["tokens_in"]),
-                        "tokens_out": int(m["tokens_out"]),
-                        "created_at": m["created_at"],
-                    })
+                    messages_map[m["conversation_id"]].append(
+                        {
+                            "role": m["role"],
+                            "content": m["content"],
+                            "tool_name": m["tool_name"] or None,
+                            "tokens_in": int(m["tokens_in"]),
+                            "tokens_out": int(m["tokens_out"]),
+                            "created_at": m["created_at"],
+                        }
+                    )
 
             for c in ai_convs:
-                conversations.append({
-                    "conversation_id": c["conversation_id"],
-                    "source": c["source"],
-                    "user": c["user_id"],
-                    "title": c["title"],
-                    "created_at": c["created_at"],
-                    "updated_at": c["updated_at"],
-                    "message_count": int(c["message_count"]),
-                    "total_input_tokens": int(c["total_input_tokens"]),
-                    "total_output_tokens": int(c["total_output_tokens"]),
-                    "messages": messages_map.get(c["conversation_id"], []),
-                })
+                conversations.append(
+                    {
+                        "conversation_id": c["conversation_id"],
+                        "source": c["source"],
+                        "user": c["user_id"],
+                        "title": c["title"],
+                        "created_at": c["created_at"],
+                        "updated_at": c["updated_at"],
+                        "message_count": int(c["message_count"]),
+                        "total_input_tokens": int(c["total_input_tokens"]),
+                        "total_output_tokens": int(c["total_output_tokens"]),
+                        "messages": messages_map.get(c["conversation_id"], []),
+                    }
+                )
             total += ai_total
 
         # ---- Public support chat ----
@@ -936,28 +1026,32 @@ def api_admin_ai_conversations(
                         scids,
                     ).fetchall()
                     for m in smsgs:
-                        smsg_map[m["conversation_id"]].append({
-                            "role": m["role"],
-                            "content": m["content"],
-                            "tool_name": None,
-                            "tokens_in": 0,
-                            "tokens_out": 0,
-                            "created_at": m["created_at"],
-                        })
+                        smsg_map[m["conversation_id"]].append(
+                            {
+                                "role": m["role"],
+                                "content": m["content"],
+                                "tool_name": None,
+                                "tokens_in": 0,
+                                "tokens_out": 0,
+                                "created_at": m["created_at"],
+                            }
+                        )
 
                 for c in sconvs:
-                    conversations.append({
-                        "conversation_id": c["conversation_id"],
-                        "source": "support",
-                        "user": c["user_email"] or c["ip_hash"] or "anonymous",
-                        "title": "",
-                        "created_at": c["created_at"],
-                        "updated_at": c["updated_at"],
-                        "message_count": len(smsg_map.get(c["conversation_id"], [])),
-                        "total_input_tokens": 0,
-                        "total_output_tokens": 0,
-                        "messages": smsg_map.get(c["conversation_id"], []),
-                    })
+                    conversations.append(
+                        {
+                            "conversation_id": c["conversation_id"],
+                            "source": "support",
+                            "user": c["user_email"] or c["ip_hash"] or "anonymous",
+                            "title": "",
+                            "created_at": c["created_at"],
+                            "updated_at": c["updated_at"],
+                            "message_count": len(smsg_map.get(c["conversation_id"], [])),
+                            "total_input_tokens": 0,
+                            "total_output_tokens": 0,
+                            "messages": smsg_map.get(c["conversation_id"], []),
+                        }
+                    )
             total += support_total
 
     # Sort merged results by updated_at descending
@@ -970,7 +1064,6 @@ def api_admin_ai_conversations(
         "page": page,
         "per_page": per_page,
     }
-
 
 
 # ── P1.2 — Worker agent rolling self-update ────────────────────────────────
@@ -1030,7 +1123,10 @@ def api_admin_agent_rollout(request: Request, body: dict):
             continue
         try:
             cmd_id = enqueue_agent_command(
-                hid, "upgrade_agent", args=args, created_by=user.get("email", "admin"),
+                hid,
+                "upgrade_agent",
+                args=args,
+                created_by=user.get("email", "admin"),
             )
             enqueued.append({"host_id": hid, "cmd_id": cmd_id})
         except Exception as e:

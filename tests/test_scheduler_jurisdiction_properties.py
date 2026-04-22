@@ -50,28 +50,43 @@ def _stub_verification_engine(monkeypatch):
 
 GPU_MODELS = ["RTX 3060", "RTX 4090", "A100", "H100"]
 
-host_strategy = st.fixed_dictionaries({
-    "host_id": st.text(alphabet="abcdef0123456789", min_size=3, max_size=8),
-    "status": st.just("active"),
-    "admitted": st.booleans(),
-    "free_vram_gb": st.floats(min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False),
-    "total_vram_gb": st.floats(min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False),
-    "gpu_model": st.sampled_from(GPU_MODELS),
-    "gpu_count": st.integers(min_value=1, max_value=8),
-    "cost_per_hour": st.floats(min_value=0.01, max_value=10.0, allow_nan=False, allow_infinity=False),
-    "compute_score": st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-    "country": st.sampled_from(["CA", "US"]),
-})
+host_strategy = st.fixed_dictionaries(
+    {
+        "host_id": st.text(alphabet="abcdef0123456789", min_size=3, max_size=8),
+        "status": st.just("active"),
+        "admitted": st.booleans(),
+        "free_vram_gb": st.floats(
+            min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False
+        ),
+        "total_vram_gb": st.floats(
+            min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False
+        ),
+        "gpu_model": st.sampled_from(GPU_MODELS),
+        "gpu_count": st.integers(min_value=1, max_value=8),
+        "cost_per_hour": st.floats(
+            min_value=0.01, max_value=10.0, allow_nan=False, allow_infinity=False
+        ),
+        "compute_score": st.floats(
+            min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False
+        ),
+        "country": st.sampled_from(["CA", "US"]),
+    }
+)
 
-job_strategy = st.fixed_dictionaries({
-    "name": st.text(min_size=0, max_size=32),
-    "vram_needed_gb": st.floats(min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False),
-})
+job_strategy = st.fixed_dictionaries(
+    {
+        "name": st.text(min_size=0, max_size=32),
+        "vram_needed_gb": st.floats(
+            min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False
+        ),
+    }
+)
 
 
 @given(job=job_strategy)
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_empty_hosts_returns_none(job):
@@ -80,7 +95,8 @@ def test_empty_hosts_returns_none(job):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_is_one_of_the_input_hosts(job, hosts):
@@ -91,7 +107,8 @@ def test_result_is_one_of_the_input_hosts(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_result_satisfies_vram_fits(job, hosts):
@@ -102,7 +119,8 @@ def test_result_satisfies_vram_fits(job, hosts):
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_determinism(job, hosts):
@@ -126,7 +144,8 @@ from jurisdiction import JurisdictionConstraint
 
 @given(job=job_strategy, hosts=st.lists(host_strategy, max_size=8))
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_constraint_non_none_does_not_crash_and_respects_country(job, hosts):
@@ -138,7 +157,7 @@ def test_constraint_non_none_does_not_crash_and_respects_country(job, hosts):
     constraint = JurisdictionConstraint(canada_only=True)
     result = scheduler.allocate_jurisdiction_aware(job, hosts, constraint=constraint)
     if result is not None:
-        assert result.get("country") == "CA", (
-            f"canada_only=True but got host with country={result.get('country')!r}"
-        )
+        assert (
+            result.get("country") == "CA"
+        ), f"canada_only=True but got host with country={result.get('country')!r}"
         assert scheduler._vram_fits(result, job["vram_needed_gb"])

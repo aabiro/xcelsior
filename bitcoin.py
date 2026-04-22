@@ -93,18 +93,21 @@ def _rpc_call_host(
     timeout: float | None = None,
 ) -> dict:
     """Call a specific Bitcoin Core JSON-RPC host."""
-    payload = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": method,
-        "params": params or [],
-    }).encode()
+    payload = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params or [],
+        }
+    ).encode()
 
     url = f"http://{host}:{BTC_RPC_PORT}"
     if wallet:
         quoted = urllib.parse.quote(wallet, safe="")
         url = f"{url}/wallet/{quoted}"
     import base64
+
     auth = base64.b64encode(f"{BTC_RPC_USER}:{BTC_RPC_PASS}".encode()).decode()
 
     req = urllib.request.Request(
@@ -229,15 +232,21 @@ def _ensure_wallet_ready(
                     raise
         else:
             try:
-                _rpc_call("createwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
+                _rpc_call(
+                    "createwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback
+                )
             except Exception as exc:
                 msg = _wallet_error_message(exc)
                 if "database already exists" in msg or "already exists" in msg:
-                    _rpc_call("loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
+                    _rpc_call(
+                        "loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback
+                    )
                 else:
                     raise
 
-    info = _rpc_call("getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback)
+    info = _rpc_call(
+        "getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback
+    )
     if _wallet_has_receiving_keys(info):
         return
 
@@ -246,7 +255,9 @@ def _ensure_wallet_ready(
     except Exception:
         pass
 
-    info = _rpc_call("getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback)
+    info = _rpc_call(
+        "getwalletinfo", wallet=wallet_name, timeout=timeout, skip_fallback=skip_fallback
+    )
     if not _wallet_has_receiving_keys(info):
         raise RuntimeError(
             f"Bitcoin wallet '{wallet_name}' has no receiving keys available",
@@ -337,10 +348,7 @@ def describe_service_error(exc: Exception | str) -> str:
     message = exc.strip() if isinstance(exc, str) else str(exc).strip()
     normalized = message.lower()
 
-    if (
-        "unable to fetch btc/cad rate" in normalized
-        or "failed to fetch btc/cad rate" in normalized
-    ):
+    if "unable to fetch btc/cad rate" in normalized or "failed to fetch btc/cad rate" in normalized:
         return "Bitcoin pricing service is currently unavailable"
 
     if any(
@@ -421,8 +429,7 @@ def get_service_status() -> dict:
 
 def _ensure_sqlite_tables(conn: sqlite3.Connection) -> None:
     """Ensure BTC-related tables exist for lightweight SQLite-backed tests."""
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS crypto_deposits (
+    conn.execute("""CREATE TABLE IF NOT EXISTS crypto_deposits (
                deposit_id TEXT PRIMARY KEY,
                customer_id TEXT NOT NULL,
                btc_address TEXT NOT NULL,
@@ -436,11 +443,8 @@ def _ensure_sqlite_tables(conn: sqlite3.Connection) -> None:
                expires_at REAL NOT NULL,
                confirmed_at REAL NOT NULL DEFAULT 0,
                credited_at REAL NOT NULL DEFAULT 0
-           )"""
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_status ON crypto_deposits(status)"
-    )
+           )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_crypto_deposits_status ON crypto_deposits(status)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_customer ON crypto_deposits(customer_id)"
     )
@@ -448,8 +452,7 @@ def _ensure_sqlite_tables(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_crypto_deposits_address ON crypto_deposits(btc_address)"
     )
 
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS fintrac_reports (
+    conn.execute("""CREATE TABLE IF NOT EXISTS fintrac_reports (
                report_id TEXT PRIMARY KEY,
                customer_id TEXT NOT NULL,
                report_type TEXT NOT NULL,
@@ -460,8 +463,7 @@ def _ensure_sqlite_tables(conn: sqlite3.Connection) -> None:
                status TEXT NOT NULL DEFAULT 'pending',
                created_at REAL NOT NULL,
                notes TEXT NOT NULL DEFAULT ''
-           )"""
-    )
+           )""")
 
 
 class _SqliteCompatConnection:
@@ -524,13 +526,25 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                (deposit_id, customer_id, btc_address, amount_btc, amount_cad,
                 btc_cad_rate, status, confirmations, txid, created_at, expires_at)
                VALUES (%s, %s, %s, %s, %s, %s, 'pending', 0, '', %s, %s)""",
-            (deposit_id, customer_id, address, amount_btc, amount_cad,
-             rate, now, now + BTC_DEPOSIT_EXPIRY),
+            (
+                deposit_id,
+                customer_id,
+                address,
+                amount_btc,
+                amount_cad,
+                rate,
+                now,
+                now + BTC_DEPOSIT_EXPIRY,
+            ),
         )
 
     log.info(
         "BTC deposit created: %s addr=%s amount=%.8f BTC ($%.2f CAD @ %.2f)",
-        deposit_id, address, amount_btc, amount_cad, rate,
+        deposit_id,
+        address,
+        amount_btc,
+        amount_cad,
+        rate,
     )
 
     return {
@@ -585,14 +599,18 @@ def refresh_deposit(deposit_id: str) -> dict | None:
             (rate, amount_btc, now + BTC_DEPOSIT_EXPIRY, now, deposit_id),
         )
 
-    dep.update({
-        "btc_cad_rate": rate,
-        "amount_btc": amount_btc,
-        "status": "pending",
-        "expires_at": now + BTC_DEPOSIT_EXPIRY,
-        "qr_data": f"bitcoin:{dep['btc_address']}?amount={amount_btc}",
-    })
-    log.info("BTC deposit refreshed: %s new_rate=%.2f amount=%.8f BTC", deposit_id, rate, amount_btc)
+    dep.update(
+        {
+            "btc_cad_rate": rate,
+            "amount_btc": amount_btc,
+            "status": "pending",
+            "expires_at": now + BTC_DEPOSIT_EXPIRY,
+            "qr_data": f"bitcoin:{dep['btc_address']}?amount={amount_btc}",
+        }
+    )
+    log.info(
+        "BTC deposit refreshed: %s new_rate=%.2f amount=%.8f BTC", deposit_id, rate, amount_btc
+    )
     return dep
 
 
@@ -663,7 +681,9 @@ def check_and_update_deposit(deposit: dict) -> dict:
 
     log.info(
         "BTC deposit %s: status=%s confirmations=%d",
-        deposit_id, new_status, confirmations,
+        deposit_id,
+        new_status,
+        confirmations,
     )
     return deposit
 
@@ -733,7 +753,7 @@ def fintrac_check_btc_deposit(customer_id: str, amount_cad: float) -> dict | Non
             report_type="LVCTR",
             trigger_amount=total_24h + amount_cad,
             notes=f"24-hour BTC aggregate: ${total_24h + amount_cad:.2f} CAD "
-                  f"({total_24h:.2f} prior + {amount_cad:.2f} new)",
+            f"({total_24h:.2f} prior + {amount_cad:.2f} new)",
         )
 
     return report
@@ -756,13 +776,15 @@ def _create_btc_fintrac_report(
                 trigger_currency, aggregate_window_start, aggregate_window_end,
                 status, created_at, notes)
                VALUES (%s, %s, %s, %s, 'BTC', %s, %s, 'pending', %s, %s)""",
-            (report_id, customer_id, report_type, trigger_amount,
-             now - 86400, now, now, notes),
+            (report_id, customer_id, report_type, trigger_amount, now - 86400, now, now, notes),
         )
 
     log.warning(
         "FINTRAC %s report (BTC): %s customer=%s amount=$%.2f CAD",
-        report_type, report_id, customer_id, trigger_amount,
+        report_type,
+        report_id,
+        customer_id,
+        trigger_amount,
     )
 
     return {

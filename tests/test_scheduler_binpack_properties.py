@@ -22,33 +22,48 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 import scheduler
 
-
 GPU_MODELS = ["RTX 3060", "RTX 4090", "A100", "H100", "L4"]
 
-host_strategy = st.fixed_dictionaries({
-    "host_id": st.text(alphabet="abcdef0123456789", min_size=3, max_size=8),
-    "status": st.sampled_from(["active", "active", "active", "offline"]),
-    "admitted": st.booleans(),
-    "free_vram_gb": st.floats(min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False),
-    "total_vram_gb": st.floats(min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False),
-    "gpu_model": st.sampled_from(GPU_MODELS),
-    "gpu_count": st.integers(min_value=1, max_value=8),
-    "cost_per_hour": st.floats(min_value=0.01, max_value=10.0, allow_nan=False, allow_infinity=False),
-    "compute_score": st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-    "reputation_score": st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-    "country": st.sampled_from(["CA", "US"]),
-    "province": st.sampled_from(["ON", "QC", "BC", ""]),
-    "recommended_runtime": st.sampled_from(["runc", "gvisor", "kata"]),
-})
+host_strategy = st.fixed_dictionaries(
+    {
+        "host_id": st.text(alphabet="abcdef0123456789", min_size=3, max_size=8),
+        "status": st.sampled_from(["active", "active", "active", "offline"]),
+        "admitted": st.booleans(),
+        "free_vram_gb": st.floats(
+            min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False
+        ),
+        "total_vram_gb": st.floats(
+            min_value=0.0, max_value=80.0, allow_nan=False, allow_infinity=False
+        ),
+        "gpu_model": st.sampled_from(GPU_MODELS),
+        "gpu_count": st.integers(min_value=1, max_value=8),
+        "cost_per_hour": st.floats(
+            min_value=0.01, max_value=10.0, allow_nan=False, allow_infinity=False
+        ),
+        "compute_score": st.floats(
+            min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False
+        ),
+        "reputation_score": st.floats(
+            min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False
+        ),
+        "country": st.sampled_from(["CA", "US"]),
+        "province": st.sampled_from(["ON", "QC", "BC", ""]),
+        "recommended_runtime": st.sampled_from(["runc", "gvisor", "kata"]),
+    }
+)
 
-job_strategy = st.fixed_dictionaries({
-    "job_id": st.text(min_size=4, max_size=12, alphabet="abcdef0123456789"),
-    "name": st.text(min_size=0, max_size=32),
-    "num_gpus": st.integers(min_value=1, max_value=4),
-    "gpu_model": st.one_of(st.just(""), st.sampled_from(GPU_MODELS)),
-    "vram_needed_gb": st.floats(min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False),
-    "tier": st.sampled_from(["free", "community", "pro", "sovereign", "regulated", "secure"]),
-})
+job_strategy = st.fixed_dictionaries(
+    {
+        "job_id": st.text(min_size=4, max_size=12, alphabet="abcdef0123456789"),
+        "name": st.text(min_size=0, max_size=32),
+        "num_gpus": st.integers(min_value=1, max_value=4),
+        "gpu_model": st.one_of(st.just(""), st.sampled_from(GPU_MODELS)),
+        "vram_needed_gb": st.floats(
+            min_value=0.0, max_value=40.0, allow_nan=False, allow_infinity=False
+        ),
+        "tier": st.sampled_from(["free", "community", "pro", "sovereign", "regulated", "secure"]),
+    }
+)
 
 
 @given(job=job_strategy)
@@ -119,7 +134,8 @@ def test_determinism(job, hosts):
     province=st.sampled_from(["ON", "QC", "BC", None]),
 )
 @settings(
-    deadline=None, max_examples=100,
+    deadline=None,
+    max_examples=100,
     suppress_health_check=[HealthCheck.filter_too_much],
 )
 def test_locality_hint_does_not_break_feasibility(job, hosts, province):

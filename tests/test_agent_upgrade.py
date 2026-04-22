@@ -6,6 +6,7 @@ Covers:
 - ``min_version`` gating skips when we're already at/above target.
 - Bad args (missing url/sha256, wrong sha256 length) are rejected.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -35,6 +36,7 @@ def _fake_response(status_code: int, body: bytes):
         def __init__(self):
             self.status_code = status_code
             self.content = body
+
     return R()
 
 
@@ -42,9 +44,7 @@ def test_upgrade_agent_bad_args_rejected(fake_agent_file):
     assert worker_agent._handle_upgrade_agent({}) is False
     assert worker_agent._handle_upgrade_agent({"url": "https://x/"}) is False
     # Wrong sha length
-    assert worker_agent._handle_upgrade_agent(
-        {"url": "https://x/", "sha256": "abc"}
-    ) is False
+    assert worker_agent._handle_upgrade_agent({"url": "https://x/", "sha256": "abc"}) is False
 
 
 def test_upgrade_agent_sha_mismatch_does_not_replace(fake_agent_file):
@@ -52,11 +52,8 @@ def test_upgrade_agent_sha_mismatch_does_not_replace(fake_agent_file):
     new_bytes = b"# new agent bytes\nVERSION = '99.0.0'\n"
     wrong_sha = "0" * 64
 
-    with patch.object(worker_agent.requests, "get",
-                      return_value=_fake_response(200, new_bytes)):
-        ok = worker_agent._handle_upgrade_agent(
-            {"url": "https://x/", "sha256": wrong_sha}
-        )
+    with patch.object(worker_agent.requests, "get", return_value=_fake_response(200, new_bytes)):
+        ok = worker_agent._handle_upgrade_agent({"url": "https://x/", "sha256": wrong_sha})
 
     assert ok is False
     # File must be untouched
@@ -73,8 +70,7 @@ def test_upgrade_agent_success_replaces_file_and_exits(fake_agent_file, monkeypa
     exits: list[int] = []
     monkeypatch.setattr(worker_agent.os, "_exit", lambda code: exits.append(code))
 
-    with patch.object(worker_agent.requests, "get",
-                      return_value=_fake_response(200, new_bytes)):
+    with patch.object(worker_agent.requests, "get", return_value=_fake_response(200, new_bytes)):
         worker_agent._handle_upgrade_agent(
             {"url": "https://x/worker_agent.py", "sha256": correct_sha}
         )
@@ -95,11 +91,13 @@ def test_upgrade_agent_skip_when_already_at_target(fake_agent_file, monkeypatch)
     monkeypatch.setattr(worker_agent, "_self_sha256", lambda: target_sha)
     # And min_version <= our VERSION
     assert worker_agent.VERSION == "2.1.0"
-    ok = worker_agent._handle_upgrade_agent({
-        "url": "https://x/",
-        "sha256": target_sha,
-        "min_version": "2.0.0",  # we're at 2.1.0
-    })
+    ok = worker_agent._handle_upgrade_agent(
+        {
+            "url": "https://x/",
+            "sha256": target_sha,
+            "min_version": "2.0.0",  # we're at 2.1.0
+        }
+    )
     # Returned True (skipped cleanly) and didn't download anything.
     assert ok is True
 

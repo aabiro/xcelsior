@@ -71,9 +71,11 @@ def _reset_state():
             os.remove(f)
     # Reset wallet to active status and $10k balance
     from billing import get_billing_engine
+
     be = get_billing_engine()
     be.deposit("anonymous", 10_000.0, description="Test credits")
     from db import _get_pg_pool
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute(
@@ -84,16 +86,19 @@ def _reset_state():
 
 def _register_host(host_id, vram=24.0, cost=0.50, ip="10.0.0.1", gpu="RTX 4090"):
     """Register a host via the API."""
-    resp = client.put("/host", json={
-        "host_id": host_id,
-        "ip": ip,
-        "gpu_model": gpu,
-        "total_vram_gb": vram,
-        "free_vram_gb": vram,
-        "cost_per_hour": cost,
-        "country": "CA",
-        "province": "ON",
-    })
+    resp = client.put(
+        "/host",
+        json={
+            "host_id": host_id,
+            "ip": ip,
+            "gpu_model": gpu,
+            "total_vram_gb": vram,
+            "free_vram_gb": vram,
+            "cost_per_hour": cost,
+            "country": "CA",
+            "province": "ON",
+        },
+    )
     assert resp.status_code == 200
     return resp.json()["host"]
 
@@ -102,10 +107,13 @@ def _admit_host(host_id):
     """Admit a host so it can receive jobs."""
     with scheduler._atomic_mutation() as conn:
         row = conn.execute(
-            "SELECT payload FROM hosts WHERE host_id = %s", (host_id,),
+            "SELECT payload FROM hosts WHERE host_id = %s",
+            (host_id,),
         ).fetchone()
         if row:
-            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            data = (
+                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            )
             data["admitted"] = True
             data["status"] = "active"
             conn.execute(
@@ -175,10 +183,13 @@ class TestHappyPathLifecycle:
 
         # 4. Claim lease (assigned → leased)
         if inst["status"] == "assigned":
-            lease_resp = client.post("/agent/lease/claim", json={
-                "host_id": "hp-host-1",
-                "job_id": job_id,
-            })
+            lease_resp = client.post(
+                "/agent/lease/claim",
+                json={
+                    "host_id": "hp-host-1",
+                    "job_id": job_id,
+                },
+            )
             assert lease_resp.status_code == 200
             lease = lease_resp.json()
             assert lease.get("ok") is True
@@ -197,6 +208,7 @@ class TestHappyPathLifecycle:
 
         # 6. Push logs and verify they appear
         from routes.instances import push_job_log
+
         push_job_log(job_id, "Training epoch 1/10", level="info")
         push_job_log(job_id, "Loss: 0.45", level="info")
         push_job_log(job_id, "GPU memory: 12.3 GB", level="debug")
@@ -283,7 +295,10 @@ class TestHappyPathLifecycle:
         big = _get_instance(inst_big["job_id"])
         small = _get_instance(inst_small["job_id"])
         # At least one should be assigned (big fits on the 80GB host)
-        assert big["status"] in ("assigned", "running") or small["status"] in ("assigned", "running")
+        assert big["status"] in ("assigned", "running") or small["status"] in (
+            "assigned",
+            "running",
+        )
 
     def test_logs_limit_cap(self):
         """Verify the log endpoint caps at 10k entries."""
@@ -296,6 +311,7 @@ class TestHappyPathLifecycle:
 
         # Push more logs than the max buffer size
         from routes.instances import push_job_log
+
         for i in range(600):
             push_job_log(job_id, f"Line {i}")
 
@@ -314,11 +330,14 @@ class TestHappyPathLifecycle:
         _admit_host("gpu-2060")
         _admit_host("gpu-4090")
 
-        resp = client.post("/instance", json={
-            "name": "gpu-specific-job",
-            "vram_needed_gb": 8,
-            "gpu_model": "A100",
-        })
+        resp = client.post(
+            "/instance",
+            json={
+                "name": "gpu-specific-job",
+                "vram_needed_gb": 8,
+                "gpu_model": "A100",
+            },
+        )
         assert resp.status_code == 200
         job_id = resp.json()["instance"]["job_id"]
 
@@ -359,6 +378,7 @@ class TestWorkerDeathLeaseExpiry:
 
         # Claim lease with very short duration
         from events import get_event_store
+
         es = get_event_store()
         lease = es.grant_lease(job_id, "ld-h1", duration_sec=1)
         _set_status(job_id, "leased", host_id="ld-h1")
@@ -371,6 +391,7 @@ class TestWorkerDeathLeaseExpiry:
         # Wait for it to expire (1s duration + 60s grace in prod — but we
         # can manually expire by backdating)
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute(
@@ -406,6 +427,7 @@ class TestWorkerDeathLeaseExpiry:
 
         # Claim lease
         from events import get_event_store
+
         es = get_event_store()
         lease = es.grant_lease(job_id, "lr-h1", duration_sec=300)
         original_expiry = lease.expires_at
@@ -428,6 +450,7 @@ class TestWorkerDeathLeaseExpiry:
             client.post("/queue/process")
 
         from events import get_event_store
+
         es = get_event_store()
         es.grant_lease(job_id, "lc-h1", duration_sec=300)
 
@@ -582,6 +605,7 @@ class TestWalletEmptyPauseResume:
 
         # Resume (patch run_job to avoid SSH failure overwriting status)
         from unittest.mock import patch
+
         with patch("scheduler.run_job", return_value="fake-container-id"):
             resume_resp = client.post(f"/instances/{job_id}/resume")
         assert resume_resp.status_code == 200
@@ -598,6 +622,7 @@ class TestWalletEmptyPauseResume:
 
         # Drain wallet
         from billing import get_billing_engine
+
         be = get_billing_engine()
         wallet = be.get_wallet("anonymous")
         if wallet["balance_cad"] > 0:
@@ -605,18 +630,20 @@ class TestWalletEmptyPauseResume:
 
         # Suspend the wallet
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            conn.execute(
-                "UPDATE wallets SET status = 'suspended' WHERE customer_id = 'anonymous'"
-            )
+            conn.execute("UPDATE wallets SET status = 'suspended' WHERE customer_id = 'anonymous'")
             conn.commit()
 
         # Try to submit — should get 402
-        resp = client.post("/instance", json={
-            "name": "blocked-job",
-            "vram_needed_gb": 8,
-        })
+        resp = client.post(
+            "/instance",
+            json={
+                "name": "blocked-job",
+                "vram_needed_gb": 8,
+            },
+        )
         assert resp.status_code == 402
 
     def test_zero_balance_blocks_without_grace(self):
@@ -624,6 +651,7 @@ class TestWalletEmptyPauseResume:
         _reset_state()
 
         from billing import get_billing_engine
+
         be = get_billing_engine()
         wallet = be.get_wallet("anonymous")
         if wallet["balance_cad"] > 0:
@@ -631,6 +659,7 @@ class TestWalletEmptyPauseResume:
 
         # Set grace to past
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute(
@@ -639,10 +668,13 @@ class TestWalletEmptyPauseResume:
             )
             conn.commit()
 
-        resp = client.post("/instance", json={
-            "name": "no-grace-job",
-            "vram_needed_gb": 8,
-        })
+        resp = client.post(
+            "/instance",
+            json={
+                "name": "no-grace-job",
+                "vram_needed_gb": 8,
+            },
+        )
         assert resp.status_code == 402
 
     def test_resume_with_no_funds_rejected(self):
@@ -664,6 +696,7 @@ class TestWalletEmptyPauseResume:
 
         # Drain wallet
         from billing import get_billing_engine
+
         be = get_billing_engine()
         wallet = be.get_wallet("anonymous")
         if wallet["balance_cad"] > 0:
@@ -757,8 +790,9 @@ class TestBillingCharge:
 
         # Second bill should be rejected (already billed)
         resp2 = client.post(f"/billing/bill/{job_id}")
-        assert resp2.status_code == 400, \
-            f"Second bill should return 400 (already billed), got {resp2.status_code}"
+        assert (
+            resp2.status_code == 400
+        ), f"Second bill should return 400 (already billed), got {resp2.status_code}"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -778,13 +812,16 @@ class TestAgentLogIngestion:
         job_id = inst["job_id"]
 
         # Push logs via agent endpoint
-        resp = client.post(f"/agent/logs/{job_id}", json={
-            "lines": [
-                {"message": "Container started", "level": "info"},
-                {"message": "Downloading model", "level": "info"},
-                {"message": "Training started", "level": "info"},
-            ],
-        })
+        resp = client.post(
+            f"/agent/logs/{job_id}",
+            json={
+                "lines": [
+                    {"message": "Container started", "level": "info"},
+                    {"message": "Downloading model", "level": "info"},
+                    {"message": "Training started", "level": "info"},
+                ],
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["accepted"] > 0
 
@@ -814,20 +851,26 @@ class TestAgentLogIngestion:
         """Image pull error in logs triggers job_error SSE event."""
         _reset_state()
 
-        resp = client.post("/agent/logs/img-pull-test", json={
-            "lines": [
-                {"message": "Pulling image...", "level": "info"},
-                {"message": "Error response from daemon: manifest unknown", "level": "error"},
-            ],
-        })
+        resp = client.post(
+            "/agent/logs/img-pull-test",
+            json={
+                "lines": [
+                    {"message": "Pulling image...", "level": "info"},
+                    {"message": "Error response from daemon: manifest unknown", "level": "error"},
+                ],
+            },
+        )
         assert resp.status_code == 200
 
     def test_agent_log_gzip(self):
         """Gzip-compressed log batch is accepted."""
         import gzip
-        data = _json.dumps({
-            "lines": [{"message": "Compressed log", "level": "info"}],
-        }).encode()
+
+        data = _json.dumps(
+            {
+                "lines": [{"message": "Compressed log", "level": "info"}],
+            }
+        ).encode()
         compressed = gzip.compress(data)
         resp = client.post(
             "/agent/logs/gzip-test",
@@ -871,6 +914,7 @@ class TestStateTransitions:
 
         # Claim lease → leased
         from events import get_event_store
+
         es = get_event_store()
         es.grant_lease(job_id, "stl-h1", duration_sec=300)
         _set_status(job_id, "leased", host_id="stl-h1")
@@ -946,7 +990,8 @@ class TestOwnershipAccess:
         _reset_state()
         # Push a log to a deliberately weird job_id
         from routes.instances import push_job_log, _job_log_buffers
-        weird_id = "evil\"; rm -rf /; \""
+
+        weird_id = 'evil"; rm -rf /; "'
         push_job_log(weird_id, "test line")
 
         resp = client.get(f"/instances/{weird_id}/logs/download")
@@ -954,9 +999,10 @@ class TestOwnershipAccess:
             disp = resp.headers.get("content-disposition", "")
             # Should not contain raw shell-dangerous characters
             filename_part = disp.split("filename=")[-1].strip('"') if "filename=" in disp else ""
-            for dangerous_char in ['"', ';', '`', '$', '|']:
-                assert dangerous_char not in filename_part, \
-                    f"Dangerous char '{dangerous_char}' found in filename: {filename_part}"
+            for dangerous_char in ['"', ";", "`", "$", "|"]:
+                assert (
+                    dangerous_char not in filename_part
+                ), f"Dangerous char '{dangerous_char}' found in filename: {filename_part}"
         # Clean up
         _job_log_buffers.pop(weird_id, None)
 
@@ -983,6 +1029,7 @@ class TestEventStoreIntegrity:
 
         # Walk through states
         from events import get_event_store
+
         es = get_event_store()
         es.grant_lease(job_id, "ev-h1", duration_sec=300)
         _set_status(job_id, "leased", host_id="ev-h1")
@@ -1022,7 +1069,9 @@ class TestDockerComposeSmoke:
         # Build
         result = subprocess.run(
             ["docker", "compose", "-f", compose_file, "build"],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True,
+            text=True,
+            timeout=300,
             cwd=project_root,
         )
         assert result.returncode == 0, f"Build failed: {result.stderr[:500]}"
@@ -1030,7 +1079,9 @@ class TestDockerComposeSmoke:
         # Start in detached mode
         up_result = subprocess.run(
             ["docker", "compose", "-f", compose_file, "up", "-d"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
             cwd=project_root,
         )
         assert up_result.returncode == 0, f"Up failed: {up_result.stderr[:500]}"
@@ -1038,6 +1089,7 @@ class TestDockerComposeSmoke:
         try:
             # Wait for API to be ready
             import urllib.request
+
             healthy = False
             for _ in range(30):
                 try:
@@ -1054,10 +1106,13 @@ class TestDockerComposeSmoke:
 
             # Submit a test instance via curl
             import urllib.request
-            data = _json.dumps({
-                "name": "smoke-test",
-                "vram_needed_gb": 4,
-            }).encode()
+
+            data = _json.dumps(
+                {
+                    "name": "smoke-test",
+                    "vram_needed_gb": 4,
+                }
+            ).encode()
             req = urllib.request.Request(
                 "http://localhost:9500/instance",
                 data=data,
@@ -1073,7 +1128,9 @@ class TestDockerComposeSmoke:
             # Always clean up
             subprocess.run(
                 ["docker", "compose", "-f", compose_file, "down", "-v"],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True,
+                text=True,
+                timeout=60,
                 cwd=project_root,
             )
 
@@ -1103,8 +1160,11 @@ class TestAgentWorkPull:
         if work_resp.status_code == 204:
             # Job may have auto-transitioned past assigned; verify it's at least assigned/running
             inst = _get_instance(job_id)
-            assert inst["status"] in ("assigned", "running", "leased"), \
-                f"Job should be assigned/running but is {inst['status']}"
+            assert inst["status"] in (
+                "assigned",
+                "running",
+                "leased",
+            ), f"Job should be assigned/running but is {inst['status']}"
         else:
             work = work_resp.json()
             jobs_list = work.get("instances", work.get("jobs", []))
@@ -1129,10 +1189,13 @@ class TestAgentWorkPull:
             # Already running; skip lease test
             pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
 
-        resp = client.post("/agent/lease/claim", json={
-            "host_id": "lc-api-h1",
-            "job_id": job_id,
-        })
+        resp = client.post(
+            "/agent/lease/claim",
+            json={
+                "host_id": "lc-api-h1",
+                "job_id": job_id,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("ok") is True
@@ -1155,16 +1218,22 @@ class TestAgentWorkPull:
             pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
 
         # Claim first
-        client.post("/agent/lease/claim", json={
-            "host_id": "lr-api-h1",
-            "job_id": job_id,
-        })
+        client.post(
+            "/agent/lease/claim",
+            json={
+                "host_id": "lr-api-h1",
+                "job_id": job_id,
+            },
+        )
 
         # Renew
-        renew_resp = client.post("/agent/lease/renew", json={
-            "host_id": "lr-api-h1",
-            "job_id": job_id,
-        })
+        renew_resp = client.post(
+            "/agent/lease/renew",
+            json={
+                "host_id": "lr-api-h1",
+                "job_id": job_id,
+            },
+        )
         assert renew_resp.status_code == 200
 
     def test_agent_lease_release_via_api(self):
@@ -1183,14 +1252,20 @@ class TestAgentWorkPull:
         if inst["status"] != "assigned":
             pytest.skip(f"Job already in '{inst['status']}' state, not 'assigned'")
 
-        client.post("/agent/lease/claim", json={
-            "host_id": "rl-api-h1",
-            "job_id": job_id,
-        })
+        client.post(
+            "/agent/lease/claim",
+            json={
+                "host_id": "rl-api-h1",
+                "job_id": job_id,
+            },
+        )
 
-        release_resp = client.post("/agent/lease/release", json={
-            "job_id": job_id,
-        })
+        release_resp = client.post(
+            "/agent/lease/release",
+            json={
+                "job_id": job_id,
+            },
+        )
         assert release_resp.status_code == 200
 
 
@@ -1226,6 +1301,7 @@ class TestConcurrentBilling:
 
     def test_concurrent_bill_same_job(self):
         from concurrent.futures import ThreadPoolExecutor
+
         _reset_state()
         _register_host("conc-h1", vram=80)
         _admit_host("conc-h1")

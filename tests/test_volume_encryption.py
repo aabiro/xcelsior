@@ -13,7 +13,6 @@ os.environ["XCELSIOR_ENV"] = "dev"
 
 from volumes import VolumeEngine
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -154,11 +153,14 @@ class TestProvisionEncrypted:
         engine._ssh_exec_with_retry = mock_ssh_retry
         engine._ssh_exec_with_stdin = mock_ssh_stdin
 
-        with patch.object(type(engine), '__module__', 'volumes'):
+        with patch.object(type(engine), "__module__", "volumes"):
             with patch("volumes.NFS_SERVER", nfs_server):
                 with patch("volumes.NFS_EXPORT_BASE", "/exports/volumes"):
                     result = engine._provision_volume_storage(
-                        volume_id, size_gb, encrypted=True, raw_key=raw_key,
+                        volume_id,
+                        size_gb,
+                        encrypted=True,
+                        raw_key=raw_key,
                     )
         return result, ssh_calls, stdin_calls, raw_key
 
@@ -219,7 +221,9 @@ class TestProvisionEncrypted:
         """Without NFS_SERVER, provision is metadata-only → True."""
         engine = _make_engine()
         with patch("volumes.NFS_SERVER", ""):
-            ok = engine._provision_volume_storage("vol-x", 10, encrypted=True, raw_key=os.urandom(32))
+            ok = engine._provision_volume_storage(
+                "vol-x", 10, encrypted=True, raw_key=os.urandom(32)
+            )
         assert ok is True
 
     def test_no_key_returns_false(self):
@@ -248,7 +252,9 @@ class TestProvisionEncrypted:
         engine._ssh_exec_with_retry = ssh_retry
         engine._ssh_exec_with_stdin = ssh_stdin_fail_format
         with patch("volumes.NFS_SERVER", "10.0.0.1"):
-            ok = engine._provision_volume_storage("vol-x", 10, encrypted=True, raw_key=os.urandom(32))
+            ok = engine._provision_volume_storage(
+                "vol-x", 10, encrypted=True, raw_key=os.urandom(32)
+            )
         assert ok is False
         # Should have cleaned up: stale cleanup + truncate + rm -f of image
         assert any("rm -f" in c for c in cleanup_cmds)
@@ -273,7 +279,9 @@ class TestProvisionEncrypted:
         engine._ssh_exec_with_retry = ssh_retry
         engine._ssh_exec_with_stdin = ssh_stdin
         with patch("volumes.NFS_SERVER", "10.0.0.1"):
-            ok = engine._provision_volume_storage("vol-x", 10, encrypted=True, raw_key=os.urandom(32))
+            ok = engine._provision_volume_storage(
+                "vol-x", 10, encrypted=True, raw_key=os.urandom(32)
+            )
         assert ok is False
         assert any("rm -f" in c for c in cleanup_cmds)
 
@@ -293,7 +301,9 @@ class TestProvisionEncrypted:
         engine._ssh_exec_with_retry = ssh_retry
         engine._ssh_exec_with_stdin = lambda ip, cmd, data, **kw: (0, "", "")
         with patch("volumes.NFS_SERVER", "10.0.0.1"):
-            ok = engine._provision_volume_storage("vol-x", 10, encrypted=True, raw_key=os.urandom(32))
+            ok = engine._provision_volume_storage(
+                "vol-x", 10, encrypted=True, raw_key=os.urandom(32)
+            )
         assert ok is False
         # Should close LUKS and remove image
         assert any("luksClose" in c for c in cleanup_cmds)
@@ -314,7 +324,9 @@ class TestProvisionEncrypted:
         engine._ssh_exec_with_retry = ssh_retry
         engine._ssh_exec_with_stdin = lambda ip, cmd, data, **kw: (0, "", "")
         with patch("volumes.NFS_SERVER", "10.0.0.1"):
-            ok = engine._provision_volume_storage("vol-x", 10, encrypted=True, raw_key=os.urandom(32))
+            ok = engine._provision_volume_storage(
+                "vol-x", 10, encrypted=True, raw_key=os.urandom(32)
+            )
         assert ok is False
         assert any("luksClose" in c for c in cleanup_cmds)
         assert any("rmdir" in c for c in cleanup_cmds)
@@ -448,9 +460,9 @@ class TestCreateVolumeEncryption:
 
     def test_encrypted_stores_key(self, monkeypatch):
         conn_rows = [
-            None,            # FOR UPDATE lock
-            {"total": 0},   # capacity check
-            None,            # name uniqueness
+            None,  # FOR UPDATE lock
+            {"total": 0},  # capacity check
+            None,  # name uniqueness
         ]
         engine, stored_keys = self._make(monkeypatch, conn_rows)
         vol = engine.create_volume("user-1", "enc-vol", 10, encrypted=True)
@@ -489,9 +501,12 @@ class TestDeleteVolumeEncryption:
             # First call: SELECT * FROM volumes ... FOR UPDATE
             if call_idx == 1:
                 cursor.fetchone.return_value = {
-                    "volume_id": "vol-enc1", "owner_id": "user-1",
-                    "status": "available", "encrypted": True,
-                    "size_gb": 10, "name": "enc-vol",
+                    "volume_id": "vol-enc1",
+                    "owner_id": "user-1",
+                    "status": "available",
+                    "encrypted": True,
+                    "size_gb": 10,
+                    "name": "enc-vol",
                 }
             # Second call: SELECT attachment_id ...
             elif call_idx == 2:
@@ -546,9 +561,12 @@ class TestRetryProvisionEncryption:
             call_idx += 1
             if call_idx == 1:
                 cursor.fetchone.return_value = {
-                    "volume_id": "vol-retry", "owner_id": "user-1",
-                    "status": "error", "size_gb": 20,
-                    "encrypted": True, "key_ciphertext": existing_ct,
+                    "volume_id": "vol-retry",
+                    "owner_id": "user-1",
+                    "status": "error",
+                    "size_gb": 20,
+                    "encrypted": True,
+                    "key_ciphertext": existing_ct,
                 }
             else:
                 cursor.fetchone.return_value = None
@@ -587,9 +605,12 @@ class TestRetryProvisionEncryption:
             call_idx += 1
             if call_idx == 1:
                 cursor.fetchone.return_value = {
-                    "volume_id": "vol-retry2", "owner_id": "user-1",
-                    "status": "error", "size_gb": 10,
-                    "encrypted": True, "key_ciphertext": "",
+                    "volume_id": "vol-retry2",
+                    "owner_id": "user-1",
+                    "status": "error",
+                    "size_gb": 10,
+                    "encrypted": True,
+                    "key_ciphertext": "",
                 }
             else:
                 cursor.fetchone.return_value = None
@@ -707,12 +728,14 @@ class TestSchedulerEncryptedWorkspace:
         """scheduler.submit_job must persist encrypted_workspace in the job dict."""
         import inspect
         from scheduler import submit_job
+
         sig = inspect.signature(submit_job)
         assert "encrypted_workspace" in sig.parameters
 
     def test_submit_job_defaults_false(self):
         import inspect
         from scheduler import submit_job
+
         sig = inspect.signature(submit_job)
         param = sig.parameters["encrypted_workspace"]
         assert param.default is False
@@ -724,12 +747,14 @@ class TestSchedulerEncryptedWorkspace:
 class TestJobInEncryptedWorkspace:
     def test_job_in_has_encrypted_workspace(self):
         from routes.instances import JobIn
+
         job = JobIn(name="test", image="nvidia/cuda:12.0-base")
         assert hasattr(job, "encrypted_workspace")
         assert job.encrypted_workspace is False
 
     def test_job_in_accepts_true(self):
         from routes.instances import JobIn
+
         job = JobIn(name="test", image="nvidia/cuda:12.0-base", encrypted_workspace=True)
         assert job.encrypted_workspace is True
 
@@ -740,13 +765,15 @@ class TestJobInEncryptedWorkspace:
 class TestAdminReopenEndpoint:
     def test_route_exists(self):
         from routes.volumes import router
+
         paths = [r.path for r in router.routes]
         assert "/api/v2/admin/volumes/reopen-encrypted" in paths
 
     def test_route_method_is_post(self):
         from routes.volumes import router
+
         for r in router.routes:
-            if getattr(r, 'path', '') == "/api/v2/admin/volumes/reopen-encrypted":
+            if getattr(r, "path", "") == "/api/v2/admin/volumes/reopen-encrypted":
                 assert "POST" in r.methods
                 break
         else:
@@ -762,6 +789,7 @@ class TestKeySize:
     def test_volumes_py_uses_512(self):
         import inspect
         from volumes import VolumeEngine
+
         src = inspect.getsource(VolumeEngine._provision_volume_storage)
         assert "--key-size 512" in src
         assert "--key-size 256" not in src
@@ -769,6 +797,7 @@ class TestKeySize:
     def test_worker_agent_uses_512(self):
         import inspect
         from worker_agent import provision_encrypted_volume
+
         src = inspect.getsource(provision_encrypted_volume)
         # worker_agent uses list args: "--key-size", "512"
         assert '"512"' in src or "'512'" in src
@@ -784,6 +813,7 @@ class TestSudoPresence:
     def test_provision_sudo(self):
         import inspect
         from volumes import VolumeEngine
+
         src = inspect.getsource(VolumeEngine._provision_volume_storage)
         # Every cryptsetup, mount, mkfs.ext4 in the encrypted path must have sudo
         lines = src.split("\n")
@@ -793,16 +823,17 @@ class TestSudoPresence:
             if stripped.startswith("#") or stripped.startswith("log."):
                 continue
             # Check cryptsetup commands have sudo
-            if "cryptsetup" in stripped and "f\"" in stripped or "f'" in stripped:
+            if "cryptsetup" in stripped and 'f"' in stripped or "f'" in stripped:
                 if "sudo cryptsetup" not in stripped and "2>/dev/null" not in stripped:
                     # Lines with 2>/dev/null are in cleanup strings that DO have sudo
                     pass
-            if "mkfs.ext4" in stripped and "f\"" in stripped:
+            if "mkfs.ext4" in stripped and 'f"' in stripped:
                 assert "sudo mkfs.ext4" in stripped, f"Missing sudo on mkfs: {stripped}"
 
     def test_destroy_sudo(self):
         import inspect
         from volumes import VolumeEngine
+
         src = inspect.getsource(VolumeEngine._destroy_volume_storage)
         assert "sudo umount" in src
         assert "sudo cryptsetup luksClose" in src
@@ -810,6 +841,7 @@ class TestSudoPresence:
     def test_reopen_sudo(self):
         import inspect
         from volumes import VolumeEngine
+
         src = inspect.getsource(VolumeEngine.reopen_luks_volume)
         assert "sudo cryptsetup luksOpen" in src
         assert "sudo mount" in src
@@ -821,21 +853,25 @@ class TestSudoPresence:
 class TestVolumeCreateModel:
     def test_default_encrypted_true(self):
         from routes.volumes import VolumeCreate
+
         model = VolumeCreate(name="test-vol", size_gb=10)
         assert model.encrypted is True
 
     def test_explicit_encrypted_false(self):
         from routes.volumes import VolumeCreate
+
         model = VolumeCreate(name="test-vol", size_gb=10, encrypted=False)
         assert model.encrypted is False
 
     def test_default_size(self):
         from routes.volumes import VolumeCreate
+
         model = VolumeCreate(name="vol")
         assert model.size_gb == 50
 
     def test_default_region(self):
         from routes.volumes import VolumeCreate
+
         model = VolumeCreate(name="vol")
         assert model.region == "ca-east"
 
@@ -912,9 +948,12 @@ class TestDeleteVolumeUnencrypted:
             call_idx += 1
             if call_idx == 1:
                 cursor.fetchone.return_value = {
-                    "volume_id": "vol-plain1", "owner_id": "user-1",
-                    "status": "available", "encrypted": False,
-                    "size_gb": 10, "name": "plain-vol",
+                    "volume_id": "vol-plain1",
+                    "owner_id": "user-1",
+                    "status": "available",
+                    "encrypted": False,
+                    "size_gb": 10,
+                    "name": "plain-vol",
                 }
             elif call_idx == 2:
                 cursor.fetchone.return_value = None  # no attachment
@@ -950,6 +989,7 @@ class TestWorkerProvisionEncryptedVolume:
 
     def test_provision_success(self, monkeypatch):
         import worker_agent
+
         calls = []
 
         def mock_run(args, **kw):
@@ -966,6 +1006,7 @@ class TestWorkerProvisionEncryptedVolume:
         monkeypatch.setattr("worker_agent.os.urandom", lambda n: mock_key)
 
         import builtins
+
         original_open = builtins.open
         written_data = {}
 
@@ -1019,6 +1060,7 @@ class TestWorkerProvisionEncryptedVolume:
     def test_provision_truncate_failure(self, monkeypatch):
         import subprocess
         import worker_agent
+
         call_count = 0
 
         def mock_run(args, **kw):
@@ -1039,6 +1081,7 @@ class TestWorkerProvisionEncryptedVolume:
     def test_provision_luks_format_failure(self, monkeypatch):
         import subprocess
         import worker_agent
+
         call_count = 0
 
         def mock_run(args, **kw):
@@ -1058,6 +1101,7 @@ class TestWorkerProvisionEncryptedVolume:
         monkeypatch.setattr("worker_agent.os.path.isdir", lambda p: False)
 
         import builtins
+
         original_open = builtins.open
 
         @contextmanager
@@ -1075,6 +1119,7 @@ class TestWorkerProvisionEncryptedVolume:
 
     def test_umask_set_077(self, monkeypatch):
         import worker_agent
+
         umask_values = []
 
         def mock_run(args, **kw):
@@ -1092,6 +1137,7 @@ class TestWorkerProvisionEncryptedVolume:
         monkeypatch.setattr("worker_agent.os.urandom", lambda n: b"\x00" * 32)
 
         import builtins
+
         original_open = builtins.open
 
         @contextmanager
@@ -1116,6 +1162,7 @@ class TestWorkerDestroyEncryptedVolume:
 
     def test_destroy_shreds_key(self, monkeypatch):
         import worker_agent
+
         calls = []
 
         def mock_run(args, **kw):
@@ -1141,9 +1188,12 @@ class TestWorkerDestroyEncryptedVolume:
 
     def test_destroy_removes_backing_file(self, monkeypatch):
         import worker_agent
+
         removed = []
 
-        monkeypatch.setattr("worker_agent.subprocess.run", lambda args, **kw: MagicMock(returncode=0))
+        monkeypatch.setattr(
+            "worker_agent.subprocess.run", lambda args, **kw: MagicMock(returncode=0)
+        )
         monkeypatch.setattr("worker_agent.os.path.exists", lambda p: True)
         monkeypatch.setattr("worker_agent.os.path.isdir", lambda p: True)
         monkeypatch.setattr("worker_agent.os.remove", lambda p: removed.append(p))
@@ -1175,6 +1225,7 @@ class TestWorkerDestroyEncryptedVolume:
 
     def test_destroy_calls_detach_first(self, monkeypatch):
         import worker_agent
+
         detach_called = {"called": False}
         original_detach = worker_agent.detach_encrypted_volume
 
@@ -1183,7 +1234,9 @@ class TestWorkerDestroyEncryptedVolume:
             return True
 
         monkeypatch.setattr("worker_agent.detach_encrypted_volume", mock_detach)
-        monkeypatch.setattr("worker_agent.subprocess.run", lambda args, **kw: MagicMock(returncode=0))
+        monkeypatch.setattr(
+            "worker_agent.subprocess.run", lambda args, **kw: MagicMock(returncode=0)
+        )
         monkeypatch.setattr("worker_agent.os.path.exists", lambda p: True)
         monkeypatch.setattr("worker_agent.os.path.isdir", lambda p: True)
         monkeypatch.setattr("worker_agent.os.remove", lambda p: None)
@@ -1198,6 +1251,7 @@ class TestWorkerAttachEncryptedVolume:
 
     def test_attach_no_backing_file(self, monkeypatch):
         import worker_agent
+
         monkeypatch.setattr("worker_agent.os.path.exists", lambda p: False)
         result = worker_agent.attach_encrypted_volume("noback")
         assert result is None
@@ -1214,6 +1268,7 @@ class TestWorkerAttachEncryptedVolume:
 
     def test_attach_success(self, monkeypatch):
         import worker_agent
+
         calls = []
 
         def mock_run(args, **kw):
@@ -1243,6 +1298,7 @@ class TestWorkerDetachEncryptedVolume:
 
     def test_detach_success(self, monkeypatch):
         import worker_agent
+
         calls = []
 
         def mock_run(args, **kw):
@@ -1264,6 +1320,7 @@ class TestWorkerDetachEncryptedVolume:
     def test_detach_umount_failure(self, monkeypatch):
         import subprocess
         import worker_agent
+
         call_count = 0
 
         def mock_run(args, **kw):
@@ -1287,6 +1344,7 @@ class TestWorkerCleanupPartialVolume:
 
     def test_cleanup_uses_shred_for_key(self, monkeypatch):
         import worker_agent
+
         calls = []
 
         def mock_run(args, **kw):
@@ -1316,8 +1374,12 @@ class TestWorkerCleanupPartialVolume:
         monkeypatch.setattr("worker_agent.subprocess.run", mock_run)
         monkeypatch.setattr("worker_agent.os.path.exists", lambda p: True)
         monkeypatch.setattr("worker_agent.os.path.isdir", lambda p: True)
-        monkeypatch.setattr("worker_agent.os.remove", lambda p: (_ for _ in ()).throw(OSError("boom")))
-        monkeypatch.setattr("worker_agent.os.rmdir", lambda p: (_ for _ in ()).throw(OSError("boom")))
+        monkeypatch.setattr(
+            "worker_agent.os.remove", lambda p: (_ for _ in ()).throw(OSError("boom"))
+        )
+        monkeypatch.setattr(
+            "worker_agent.os.rmdir", lambda p: (_ for _ in ()).throw(OSError("boom"))
+        )
 
         # Should not raise
         worker_agent._cleanup_partial_volume("errorvol")
@@ -1331,6 +1393,7 @@ class TestEnsureVolumeDirs:
 
     def test_creates_base_and_key_dirs(self, monkeypatch):
         import worker_agent
+
         created = []
 
         def mock_makedirs(path, mode=None, exist_ok=False):

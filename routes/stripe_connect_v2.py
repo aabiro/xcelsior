@@ -43,8 +43,7 @@ if not STRIPE_SECRET_KEY:
 STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
 if not STRIPE_WEBHOOK_SECRET:
     log.warning(
-        "XCELSIOR_STRIPE_WEBHOOK_SECRET is not set. "
-        "Webhook signature verification will fail."
+        "XCELSIOR_STRIPE_WEBHOOK_SECRET is not set. " "Webhook signature verification will fail."
     )
 
 # Base URL for redirect URLs (onboarding return/refresh, checkout success).
@@ -130,12 +129,14 @@ except Exception as exc:
 
 class CreateAccountRequest(BaseModel):
     """Body for POST /api/connect/accounts."""
+
     display_name: str  # Human-readable name for the connected account
     contact_email: str  # Email address used for onboarding communications
 
 
 class CreateProductRequest(BaseModel):
     """Body for POST /api/connect/products."""
+
     name: str  # Product name shown to customers
     description: str = ""  # Optional product description
     price_cents: int  # Price in the smallest currency unit (e.g. cents)
@@ -145,6 +146,7 @@ class CreateProductRequest(BaseModel):
 
 class CheckoutRequest(BaseModel):
     """Body for POST /api/connect/checkout."""
+
     product_id: str  # Stripe product ID (prod_xxx)
     quantity: int = 1  # Number of items to purchase
 
@@ -290,14 +292,7 @@ def get_account_status(account_id: str):
     # Check if the recipient configuration's stripe_transfers capability is active.
     ready_to_receive_payments = False
     try:
-        status = (
-            account.configuration
-            .recipient
-            .capabilities
-            .stripe_balance
-            .stripe_transfers
-            .status
-        )
+        status = account.configuration.recipient.capabilities.stripe_balance.stripe_transfers.status
         ready_to_receive_payments = status == "active"
     except (AttributeError, TypeError):
         pass
@@ -306,9 +301,7 @@ def get_account_status(account_id: str):
     requirements_status = None
     onboarding_complete = False
     try:
-        requirements_status = (
-            account.requirements.summary.minimum_deadline.status
-        )
+        requirements_status = account.requirements.summary.minimum_deadline.status
         onboarding_complete = requirements_status not in ("currently_due", "past_due")
     except (AttributeError, TypeError):
         # If requirements or summary is None, treat as complete.
@@ -396,7 +389,9 @@ def create_product(req: CreateProductRequest):
 
     log.info(
         "Created product %s (%s) for connected account %s",
-        stripe_product_id, req.name, req.account_id,
+        stripe_product_id,
+        req.name,
+        req.account_id,
     )
 
     return {
@@ -415,8 +410,7 @@ def list_products(account_id: Optional[str] = None):
         conn.row_factory = dict_row
         if account_id:
             rows = conn.execute(
-                "SELECT * FROM connect_products WHERE account_id = %s "
-                "ORDER BY created_at DESC",
+                "SELECT * FROM connect_products WHERE account_id = %s " "ORDER BY created_at DESC",
                 (account_id,),
             ).fetchall()
         else:
@@ -554,9 +548,7 @@ async def handle_thin_webhook(request: Request):
     # parse_event_notification verifies the signature and returns a lightweight
     # event object containing { id, type, ... }.
     try:
-        thin_event = client.parse_event_notification(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        thin_event = client.parse_event_notification(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except Exception as e:
         log.warning("Webhook signature verification failed: %s", e)
         raise HTTPException(400, "Invalid webhook signature") from e

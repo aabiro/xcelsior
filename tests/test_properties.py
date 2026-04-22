@@ -5,6 +5,7 @@ All tests are pure-logic (no DB, no network):
 - scheduler: allocate() / allocate_binpack() selection invariants
 - volume: attach/detach state-machine invariants via in-memory mocking
 """
+
 from __future__ import annotations
 
 import sys
@@ -106,13 +107,17 @@ def test_billing_spot_discount_half_price():
 
 # ── Province tax rate invariants ──────────────────────────────────────────────
 
-@pytest.mark.parametrize("province,expected_rate", [
-    ("ON", 0.13),
-    ("AB", 0.05),
-    ("QC", 0.14975),
-    ("NS", 0.15),
-    ("BC", 0.12),
-])
+
+@pytest.mark.parametrize(
+    "province,expected_rate",
+    [
+        ("ON", 0.13),
+        ("AB", 0.05),
+        ("QC", 0.14975),
+        ("NS", 0.15),
+        ("BC", 0.12),
+    ],
+)
 def test_province_tax_rate_known_values(province, expected_rate):
     rate, _ = get_tax_rate_for_province(province)
     assert abs(rate - expected_rate) < 1e-9, f"{province}: got {rate}, expected {expected_rate}"
@@ -134,9 +139,7 @@ def test_province_tax_rate_always_positive_bounded(province):
 # Patch DB/volume calls so allocate() works without a live DB.
 # The import is done inline in allocate() as `from volumes import get_volume_engine`
 # so we must patch at the volumes module level.
-_PATCH_VOLUMES = patch(
-    "volumes.get_volume_engine", side_effect=Exception("no DB in tests")
-)
+_PATCH_VOLUMES = patch("volumes.get_volume_engine", side_effect=Exception("no DB in tests"))
 
 from scheduler import allocate, allocate_binpack, _vram_fits, VRAM_DRIVER_OVERHEAD_GB
 
@@ -196,6 +199,7 @@ def _make_job(
 
 # ── _vram_fits unit tests ─────────────────────────────────────────────────────
 
+
 @given(
     total=st.floats(min_value=0.0, max_value=128.0),
     free=st.floats(min_value=0.0, max_value=128.0),
@@ -235,6 +239,7 @@ def test_vram_fits_below_overhead_tolerance():
 
 
 # ── allocate() invariants ─────────────────────────────────────────────────────
+
 
 def test_allocate_empty_hosts_returns_none():
     with _PATCH_VOLUMES:
@@ -336,12 +341,13 @@ def test_allocate_result_vram_sufficient(n_hosts, vram_needed):
     with _PATCH_VOLUMES:
         result = allocate(job, hosts)
     if result is not None:
-        assert _vram_fits(result, vram_needed), (
-            f"allocated host {result['host_id']} cannot fit vram_needed={vram_needed}"
-        )
+        assert _vram_fits(
+            result, vram_needed
+        ), f"allocated host {result['host_id']} cannot fit vram_needed={vram_needed}"
 
 
 # ── allocate_binpack() invariants ─────────────────────────────────────────────
+
 
 def test_binpack_empty_hosts_returns_none():
     assert allocate_binpack(_make_job(), []) is None
@@ -389,10 +395,7 @@ def test_binpack_multi_gpu_gang_scheduling_matches():
 def test_binpack_result_vram_sufficient(n_hosts, vram_needed):
     """When binpack returns a host, it must satisfy VRAM."""
     assume(math.isfinite(vram_needed))
-    hosts = [
-        _make_host(f"h{i}", total_vram_gb=24.0, free_vram_gb=24.0)
-        for i in range(n_hosts)
-    ]
+    hosts = [_make_host(f"h{i}", total_vram_gb=24.0, free_vram_gb=24.0) for i in range(n_hosts)]
     result = allocate_binpack(_make_job(vram_needed_gb=vram_needed), hosts)
     if result is not None:
         assert _vram_fits(result, vram_needed)
@@ -401,6 +404,7 @@ def test_binpack_result_vram_sufficient(n_hosts, vram_needed):
 # ─────────────────────────────────────────────────────────────────────────────
 # Volume state-machine invariants (in-memory mock)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class _InMemoryVolumeStore:
     """Minimal in-memory replica of VolumeEngine state for SM testing."""
@@ -446,6 +450,7 @@ class _InMemoryVolumeStore:
 
 
 # ── Volume SM tests ───────────────────────────────────────────────────────────
+
 
 def test_volume_create_valid_size():
     store = _InMemoryVolumeStore()

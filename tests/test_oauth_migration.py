@@ -3,10 +3,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 import scheduler
+
 os.environ.setdefault("XCELSIOR_API_TOKEN", "testtoken")
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
 from api import app
+
 client = TestClient(app)
 
 
@@ -84,7 +86,7 @@ def clean_oauth_migration_state():
 class TestOAuthMigrationSecurity:
     def test_machine_client_cannot_access_mfa(self):
         token = _register_and_get_token("mfa-machine@xcelsior.ca")
-        
+
         created = client.post(
             "/api/oauth/clients",
             headers={"Authorization": f"Bearer {token}"},
@@ -96,7 +98,7 @@ class TestOAuthMigrationSecurity:
                 "scopes": ["api"],
             },
         ).json()["client"]
-        
+
         token_resp = client.post(
             "/oauth/token",
             data={
@@ -107,14 +109,16 @@ class TestOAuthMigrationSecurity:
             },
         )
         machine_token = token_resp.json()["access_token"]
-        
+
         # Access MFA
-        r = client.get("/api/auth/mfa/methods", headers={"Authorization": f"Bearer {machine_token}"})
+        r = client.get(
+            "/api/auth/mfa/methods", headers={"Authorization": f"Bearer {machine_token}"}
+        )
         assert r.status_code == 403
-        
+
     def test_machine_client_cannot_access_ssh_keys_by_default(self):
         token = _register_and_get_token("ssh-machine@xcelsior.ca")
-        
+
         created = client.post(
             "/api/oauth/clients",
             headers={"Authorization": f"Bearer {token}"},
@@ -126,7 +130,7 @@ class TestOAuthMigrationSecurity:
                 "scopes": ["api"],
             },
         ).json()["client"]
-        
+
         token_resp = client.post(
             "/oauth/token",
             data={
@@ -137,15 +141,16 @@ class TestOAuthMigrationSecurity:
             },
         )
         machine_token = token_resp.json()["access_token"]
-        
+
         # Access SSH keys (requires interactive user by default)
         r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
         assert r.status_code == 403
-        
+
     def test_deprecation_telemetry_fired_on_api_key_usage(self, monkeypatch):
         import routes._deps as _deps_mod
+
         token = _register_and_get_token("deprecated-telemetry@xcelsior.ca")
-        
+
         # Create an API key
         key_resp = client.post(
             "/api/keys/generate",
@@ -154,14 +159,17 @@ class TestOAuthMigrationSecurity:
         )
         assert key_resp.status_code == 200
         api_key = key_resp.json()["key"]
-        
+
         # Get baseline counter metric value
         try:
-            baseline = _deps_mod._deprecated_api_key_requests.labels("deprecated-telemetry@xcelsior.ca")._value.get()
+            baseline = _deps_mod._deprecated_api_key_requests.labels(
+                "deprecated-telemetry@xcelsior.ca"
+            )._value.get()
         except:
             baseline = 0
-            
+
         import api
+
         monkeypatch.setenv("XCELSIOR_API_TOKEN", "test-master-token")
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         monkeypatch.setattr(api, "AUTH_REQUIRED", True)
@@ -172,10 +180,12 @@ class TestOAuthMigrationSecurity:
         # Verify deprecation headers exist
         assert "Deprecation" in r.headers
         assert "Warning" in r.headers
-        
+
         # Verify prometheus counter increased
         try:
-            metric_val = _deps_mod._deprecated_api_key_requests.labels("deprecated-telemetry@xcelsior.ca")._value.get()
+            metric_val = _deps_mod._deprecated_api_key_requests.labels(
+                "deprecated-telemetry@xcelsior.ca"
+            )._value.get()
             assert metric_val > baseline
         except:
-            pass # Noop counter in test mode
+            pass  # Noop counter in test mode

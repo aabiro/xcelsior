@@ -76,12 +76,8 @@ def _analytics_customer_scope(user: dict) -> str:
     Usage meters and wallet records are keyed by customer_id, not email.
     Falling back preserves older/test flows that may still use user_id/email.
     """
-    return str(
-        user.get("customer_id")
-        or user.get("user_id")
-        or user.get("email")
-        or ""
-    ).strip()
+    return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "").strip()
+
 
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
@@ -93,6 +89,7 @@ def api_bill_instance(job_id: str, request: Request):
         if not record:
             raise HTTPException(status_code=400, detail=f"Could not bill job {job_id}")
         return {"ok": True, "bill": record}
+
 
 @router.post("/billing/bill-all", tags=["Billing"])
 def api_bill_all(request: Request):
@@ -106,6 +103,7 @@ def api_bill_all(request: Request):
         raise HTTPException(status_code=500, detail="Billing run failed") from exc
     return {"billed": len(bills), "bills": bills}
 
+
 @router.get("/billing", tags=["Billing"])
 def api_billing():
     """Get all billing records and total revenue."""
@@ -114,6 +112,7 @@ def api_billing():
         "records": records,
         "total_revenue": get_total_revenue(),
     }
+
 
 @router.get("/api/billing/wallet/{customer_id}", tags=["Billing"])
 def api_get_wallet(customer_id: str):
@@ -125,6 +124,7 @@ def api_get_wallet(customer_id: str):
 
 # ── Model: DepositRequest ──
 
+
 class DepositRequest(BaseModel):
     amount_cad: float = Field(gt=0, le=10000)
     description: str = Field(default="Credit deposit", max_length=500)
@@ -132,10 +132,12 @@ class DepositRequest(BaseModel):
 
 # ── Model: PaymentIntentRequest ──
 
+
 class PaymentIntentRequest(BaseModel):
     customer_id: str = Field(min_length=1, max_length=128)
     amount_cad: float = Field(gt=0, le=10000)
     description: str = Field(default="Compute credits", max_length=500)
+
 
 @router.post("/api/billing/payment-intent", tags=["Billing"])
 def api_create_payment_intent(req: PaymentIntentRequest):
@@ -150,15 +152,14 @@ def api_create_payment_intent(req: PaymentIntentRequest):
     result = mgr.create_credit_deposit(req.customer_id, req.amount_cad, req.description)
     return {"ok": True, "intent": result}
 
+
 # ── PayPal ───────────────────────────────────────────────────────────────
 
 _PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
 _PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
 _PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox")  # sandbox | live
 _PAYPAL_BASE = (
-    "https://api-m.paypal.com"
-    if _PAYPAL_MODE == "live"
-    else "https://api-m.sandbox.paypal.com"
+    "https://api-m.paypal.com" if _PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
 )
 
 
@@ -282,6 +283,7 @@ def api_deposit(customer_id: str, req: DepositRequest):
     result = be.deposit(customer_id, req.amount_cad, req.description)
     return {"ok": True, **result}
 
+
 @router.post("/api/billing/wallet/{customer_id}/reset-testing", tags=["Billing"])
 def api_reset_wallet_testing_state(customer_id: str, request: Request):
     """Reset wallet balance and promo state for admin testing."""
@@ -289,6 +291,7 @@ def api_reset_wallet_testing_state(customer_id: str, request: Request):
     be = get_billing_engine()
     result = be.reset_wallet_testing_state(customer_id)
     return {"ok": True, **result}
+
 
 @router.post("/api/billing/free-credits/{customer_id}", tags=["Billing"])
 def api_claim_free_credits(customer_id: str, request: Request):
@@ -301,8 +304,14 @@ def api_claim_free_credits(customer_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Authentication required")
     # Resolve customer_id from full user profile (session may lack it)
-    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
-    uid = (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    full_user = (
+        UserStore.get_user(user["email"])
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
+    uid = (
+        (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    )
     if uid != customer_id:
         raise HTTPException(403, "You can only claim credits for your own account")
 
@@ -322,6 +331,7 @@ def api_claim_free_credits(customer_id: str, request: Request):
         "already_claimed": already_claimed,
     }
 
+
 @router.get("/api/billing/free-credits/{customer_id}/status", tags=["Billing"])
 def api_free_credits_status(customer_id: str, request: Request):
     """Check whether the customer has already claimed the free signup bonus."""
@@ -329,8 +339,14 @@ def api_free_credits_status(customer_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Authentication required")
     # Resolve customer_id from full user profile (session may lack it)
-    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
-    uid = (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    full_user = (
+        UserStore.get_user(user["email"])
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
+    uid = (
+        (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    )
     if uid != customer_id:
         raise HTTPException(403, "Forbidden")
     be = get_billing_engine()
@@ -342,12 +358,14 @@ def api_free_credits_status(customer_id: str, request: Request):
         ).fetchone()
     return {"ok": True, "claimed": row is not None}
 
+
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
 def api_wallet_history(customer_id: str, limit: int = 50):
     """Get transaction history for a wallet."""
     be = get_billing_engine()
     history = be.get_wallet_history(customer_id, limit)
     return {"ok": True, "customer_id": customer_id, "transactions": history}
+
 
 @router.get("/api/billing/wallet/{customer_id}/depletion", tags=["Billing"])
 def api_wallet_depletion(customer_id: str):
@@ -359,6 +377,7 @@ def api_wallet_depletion(customer_id: str):
     be = get_billing_engine()
     return {"ok": True, **be.time_to_zero(customer_id)}
 
+
 @router.get("/api/billing/usage/{customer_id}", tags=["Billing"])
 def api_usage_summary(customer_id: str, period_start: float = 0, period_end: float = 0):
     """Get usage summary for a customer."""
@@ -369,6 +388,7 @@ def api_usage_summary(customer_id: str, period_start: float = 0, period_end: flo
     be = get_billing_engine()
     summary = be.get_usage_summary(customer_id, period_start, period_end)
     return {"ok": True, **summary}
+
 
 @router.get("/api/billing/invoice/{customer_id}", tags=["Billing"])
 def api_generate_invoice(
@@ -386,6 +406,7 @@ def api_generate_invoice(
     be = get_billing_engine()
     invoice = be.generate_invoice(customer_id, customer_name, period_start, period_end, tax_rate)
     return {"ok": True, "invoice": invoice.to_dict()}
+
 
 @router.get("/api/billing/export/caf/{customer_id}", tags=["Billing"])
 def api_export_caf(
@@ -421,9 +442,7 @@ def api_export_caf(
         return StreamingResponse(
             iter([pdf_bytes]),
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.pdf"
-            },
+            headers={"Content-Disposition": f"attachment; filename=xcelsior-caf-{customer_id}.pdf"},
         )
 
     if format in ("html", "form", "print"):
@@ -436,6 +455,7 @@ def api_export_caf(
 
     report = be.export_caf_report(customer_id, period_start, period_end)
     return {"ok": True, **report}
+
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
 def api_list_invoices(customer_id: str, limit: int = 12):
@@ -474,6 +494,7 @@ def api_list_invoices(customer_id: str, limit: int = 12):
         except Exception as e:
             log.debug("invoice formatting failed: %s", e)
     return {"ok": True, "invoices": invoices, "count": len(invoices)}
+
 
 @router.get("/api/billing/invoice/{customer_id}/download", tags=["Billing"])
 def api_download_invoice(
@@ -575,6 +596,7 @@ def api_download_invoice(
         },
     )
 
+
 @router.get("/api/billing/attestation", tags=["Billing"])
 def api_provider_attestation():
     """Get Xcelsior supplier attestation bundle for Fund claims."""
@@ -585,10 +607,12 @@ def api_provider_attestation():
 
 # ── Model: RefundRequest ──
 
+
 class RefundRequest(BaseModel):
     job_id: str = Field(min_length=1, max_length=128)
     exit_code: int = Field(ge=0, le=255)
     failure_reason: str = Field(default="", max_length=1000)
+
 
 @router.post("/api/billing/refund", tags=["Billing"])
 def api_process_refund(req: RefundRequest):
@@ -605,9 +629,11 @@ def api_process_refund(req: RefundRequest):
 
 # ── Model: CryptoDepositRequest ──
 
+
 class CryptoDepositRequest(BaseModel):
     customer_id: str = Field(min_length=1, max_length=128)
     amount_cad: float = Field(gt=0, le=10000)
+
 
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
 def api_crypto_deposit(req: CryptoDepositRequest):
@@ -630,6 +656,7 @@ def api_crypto_deposit(req: CryptoDepositRequest):
         detail = _btc_mod.describe_service_error(e)
         raise HTTPException(503, detail)
 
+
 @router.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
 def api_crypto_deposit_status(deposit_id: str):
     """Poll deposit confirmation status."""
@@ -639,6 +666,7 @@ def api_crypto_deposit_status(deposit_id: str):
     if not dep:
         raise HTTPException(404, "Deposit not found")
     return {"ok": True, **dep}
+
 
 @router.get("/api/billing/crypto/rate", tags=["Billing"])
 def api_crypto_rate():
@@ -651,6 +679,7 @@ def api_crypto_rate():
     except Exception as e:
         raise HTTPException(502, f"Unable to fetch rate: {e}")
 
+
 @router.post("/api/billing/crypto/refresh/{deposit_id}", tags=["Billing"])
 def api_crypto_refresh(deposit_id: str):
     """Refresh an expired deposit with a new BTC/CAD rate."""
@@ -660,6 +689,7 @@ def api_crypto_refresh(deposit_id: str):
     if not dep:
         raise HTTPException(404, "Deposit not found")
     return {"ok": True, **dep}
+
 
 @router.get("/api/billing/crypto/enabled", tags=["Billing"])
 def api_crypto_enabled():
@@ -686,7 +716,12 @@ class LnDepositRequest(BaseModel):
 def api_ln_enabled():
     """Check if Lightning deposits are enabled and node is reachable."""
     if not _ln_mod:
-        return {"ok": True, "enabled": False, "available": False, "reason": "Lightning module not available"}
+        return {
+            "ok": True,
+            "enabled": False,
+            "available": False,
+            "reason": "Lightning module not available",
+        }
     return {"ok": True, **_ln_mod.get_service_status()}
 
 
@@ -699,7 +734,10 @@ def api_ln_create_deposit(req: LnDepositRequest, request: Request):
         raise HTTPException(503, "Lightning deposits are not enabled")
     try:
         result = _ln_mod.create_deposit(req.customer_id, req.amount_cad)
-        broadcast_sse("ln_deposit_created", {"deposit_id": result["deposit_id"], "customer_id": req.customer_id})
+        broadcast_sse(
+            "ln_deposit_created",
+            {"deposit_id": result["deposit_id"], "customer_id": req.customer_id},
+        )
         return {"ok": True, **result}
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -734,12 +772,14 @@ def api_ln_rate():
 
 # ── Model: EstimateRequest ──
 
+
 class EstimateRequest(BaseModel):
     gpu_model: str = Field(default="RTX 4090", max_length=64)
     duration_hours: float = Field(default=1.0, ge=0.0, le=8760)  # max 1 year
     spot: bool = False
     sovereignty: bool = False
     is_canadian: bool = True
+
 
 @router.post("/api/pricing/estimate", tags=["Billing"])
 def api_estimate_cost(req: EstimateRequest):
@@ -755,6 +795,7 @@ def api_estimate_cost(req: EstimateRequest):
         is_canadian=req.is_canadian,
     )
     return {"ok": True, **estimate}
+
 
 @router.get("/api/pricing/reference", tags=["Billing"])
 def api_reference_pricing():
@@ -853,12 +894,10 @@ def api_pricing_models():
     from db import pg_connection
 
     with pg_connection() as conn:
-        cur = conn.execute(
-            """SELECT DISTINCT gpu_model, vram_gb, base_rate_cad
+        cur = conn.execute("""SELECT DISTINCT gpu_model, vram_gb, base_rate_cad
                FROM gpu_pricing
                WHERE active = TRUE AND tier = 'standard' AND pricing_mode = 'on_demand'
-               ORDER BY base_rate_cad ASC"""
-        )
+               ORDER BY base_rate_cad ASC""")
         rows = cur.fetchall()
 
     models = [{"gpu_model": r[0], "vram_gb": r[1], "base_rate_cad": r[2]} for r in rows]
@@ -867,12 +906,14 @@ def api_pricing_models():
 
 # ── Model: ReservedCommitmentRequest ──
 
+
 class ReservedCommitmentRequest(BaseModel):
     customer_id: str = Field(min_length=1, max_length=128)
     gpu_model: str = Field(default="RTX 4090", max_length=64)
     commitment_type: str = Field(default="1_month", pattern="^(1_month|3_month|1_year)$")
     quantity: int = Field(default=1, ge=1, le=1000)  # number of GPU slots reserved
     province: str = Field(default="ON", max_length=10)
+
 
 @router.get("/api/pricing/reserved-plans", tags=["Billing"])
 def api_reserved_plans():
@@ -898,6 +939,7 @@ def api_reserved_plans():
             samples[gpu] = round(rate * (1 - tier["discount_pct"] / 100), 4)
         enriched[tier_key] = {**tier, "sample_hourly_rates_cad": samples}
     return {"ok": True, "currency": "CAD", "reserved_tiers": enriched}
+
 
 @router.post("/api/pricing/reserve", tags=["Billing"])
 def api_reserve_commitment(req: ReservedCommitmentRequest):
@@ -962,6 +1004,7 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
     )
     return {"ok": True, **commitment}
 
+
 @router.get("/api/analytics/usage", tags=["Billing"])
 def api_usage_analytics(
     request: Request,
@@ -1018,9 +1061,7 @@ def api_usage_analytics(
         params.append(customer_id)
     # Provider filter: use payout ownership instead of assuming provider_id == host_id.
     if provider_id:
-        where_clauses.append(
-            "job_id IN (SELECT job_id FROM payout_splits WHERE provider_id = %s)"
-        )
+        where_clauses.append("job_id IN (SELECT job_id FROM payout_splits WHERE provider_id = %s)")
         params.append(provider_id)
 
     where_sql = " AND ".join(where_clauses)
@@ -1046,7 +1087,9 @@ def api_usage_analytics(
                     "job_count": r["job_count"],
                     "total_cost_cad": float(r["total_cost_cad"] or 0),
                     "total_gpu_hours": (
-                        round(float(r["total_gpu_seconds"] or 0) / 3600, 2) if r["total_gpu_seconds"] else 0
+                        round(float(r["total_gpu_seconds"] or 0) / 3600, 2)
+                        if r["total_gpu_seconds"]
+                        else 0
                     ),
                     "avg_gpu_utilization_pct": float(r["avg_gpu_util_pct"] or 0),
                     "canadian_jobs": r["canadian_jobs"],
@@ -1100,7 +1143,11 @@ def api_analytics_enhanced(
     if not user:
         raise HTTPException(401, "Not authenticated")
     if user.get("email"):
-        full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
+        full_user = (
+            UserStore.get_user(user["email"])
+            if _USE_PERSISTENT_AUTH
+            else _users_db.get(user["email"], {})
+        )
         user = _merge_auth_user(user, full_user)
 
     is_admin = bool(user.get("is_admin"))
@@ -1145,8 +1192,12 @@ def api_analytics_enhanced(
                 params,
             ).fetchall()
             result["cost_per_hour_trend"] = [
-                {"date": r["date"], "cost_per_hour": float(r["cost_per_hour"]),
-                 "gpu_hours": float(r["gpu_hours"]), "spend": float(r["spend"])}
+                {
+                    "date": r["date"],
+                    "cost_per_hour": float(r["cost_per_hour"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                    "spend": float(r["spend"]),
+                }
                 for r in cph_rows
             ]
 
@@ -1176,15 +1227,17 @@ def api_analytics_enhanced(
                 params,
             ).fetchall()
             result["duration_histogram"] = [
-                {"bucket": r["bucket"], "count": int(r["count"]),
-                 "total_cost": float(r["total_cost"])}
+                {
+                    "bucket": r["bucket"],
+                    "count": int(r["count"]),
+                    "total_cost": float(r["total_cost"]),
+                }
                 for r in dur_rows
             ]
 
             # ── 4. GPU hours by day (dedicated chart) ──
             result["daily_gpu_hours"] = [
-                {"date": r["date"], "hours": float(r["gpu_hours"])}
-                for r in cph_rows
+                {"date": r["date"], "hours": float(r["gpu_hours"])} for r in cph_rows
             ]
 
             # ── 5. Hourly heatmap (jobs by day-of-week + hour) ──
@@ -1197,8 +1250,7 @@ def api_analytics_enhanced(
                 params,
             ).fetchall()
             result["hourly_heatmap"] = [
-                {"dow": int(r["dow"]), "hour": int(r["hour"]),
-                 "count": int(r["count"])}
+                {"dow": int(r["dow"]), "hour": int(r["hour"]), "count": int(r["count"])}
                 for r in heat_rows
             ]
 
@@ -1222,9 +1274,12 @@ def api_analytics_enhanced(
                     params,
                 ).fetchall()
             result["top_entities"] = [
-                {"entity": r["entity"], "job_count": int(r["job_count"]),
-                 "total_cost": float(r["total_cost"]),
-                 "gpu_hours": float(r["gpu_hours"])}
+                {
+                    "entity": r["entity"],
+                    "job_count": int(r["job_count"]),
+                    "total_cost": float(r["total_cost"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
                 for r in top_rows
             ]
 
@@ -1242,7 +1297,11 @@ def api_analytics_enhanced(
             result["sovereignty"] = {
                 "total_jobs": total_jobs_sov,
                 "canadian_jobs": int((sov_row["canadian"] or 0)) if sov_row else 0,
-                "canadian_pct": round(int((sov_row["canadian"] or 0)) / total_jobs_sov * 100, 1) if total_jobs_sov else 0,
+                "canadian_pct": (
+                    round(int((sov_row["canadian"] or 0)) / total_jobs_sov * 100, 1)
+                    if total_jobs_sov
+                    else 0
+                ),
                 "canadian_spend": float(sov_row["ca_spend"]) if sov_row else 0,
                 "international_spend": float(sov_row["intl_spend"]) if sov_row else 0,
             }
@@ -1287,9 +1346,12 @@ def api_analytics_enhanced(
                     (provider_id, since, now),
                 ).fetchall()
                 result["provider_daily"] = [
-                    {"date": r["date"], "jobs_served": int(r["jobs_served"]),
-                     "total_revenue": float(r["total_revenue"]),
-                     "avg_util": float(r["avg_util"])}
+                    {
+                        "date": r["date"],
+                        "jobs_served": int(r["jobs_served"]),
+                        "total_revenue": float(r["total_revenue"]),
+                        "avg_util": float(r["avg_util"]),
+                    }
                     for r in prov_rows
                 ]
 
@@ -1304,9 +1366,13 @@ def api_analytics_enhanced(
                     (provider_id, since, now),
                 ).fetchone()
                 result["provider_summary"] = {
-                    "total_jobs_served": int(prov_summary["total_jobs_served"]) if prov_summary else 0,
+                    "total_jobs_served": (
+                        int(prov_summary["total_jobs_served"]) if prov_summary else 0
+                    ),
                     "total_revenue": float(prov_summary["total_revenue"]) if prov_summary else 0,
-                    "total_gpu_hours": float(prov_summary["total_gpu_hours"]) if prov_summary else 0,
+                    "total_gpu_hours": (
+                        float(prov_summary["total_gpu_hours"]) if prov_summary else 0
+                    ),
                     "avg_util": float(prov_summary["avg_util"]) if prov_summary else 0,
                 }
 
@@ -1323,9 +1389,12 @@ def api_analytics_enhanced(
                     [customer_id, since],
                 ).fetchall()
                 result["wallet_activity"] = [
-                    {"date": r["date"], "tx_type": r["tx_type"],
-                     "total_amount": float(r["total_amount"]),
-                     "tx_count": int(r["tx_count"])}
+                    {
+                        "date": r["date"],
+                        "tx_type": r["tx_type"],
+                        "total_amount": float(r["total_amount"]),
+                        "tx_count": int(r["tx_count"]),
+                    }
                     for r in wallet_rows
                 ]
             except Exception:
@@ -1343,10 +1412,13 @@ def api_analytics_enhanced(
                 params,
             ).fetchall()
             result["peak_days"] = [
-                {"date": r["date"], "jobs": int(r["jobs"]),
-                 "gpu_hours": float(r["gpu_hours"]),
-                 "spend": float(r["spend"]),
-                 "avg_util": float(r["avg_util"])}
+                {
+                    "date": r["date"],
+                    "jobs": int(r["jobs"]),
+                    "gpu_hours": float(r["gpu_hours"]),
+                    "spend": float(r["spend"]),
+                    "avg_util": float(r["avg_util"]),
+                }
                 for r in peak_rows
             ]
 
@@ -1359,11 +1431,13 @@ def api_analytics_enhanced(
 
 # ── Model: AutoTopupConfig ──
 
+
 class AutoTopupConfig(BaseModel):
     enabled: bool = True
     amount_cad: float = 25.0
     threshold_cad: float = 5.0
     stripe_payment_method_id: str = ""
+
 
 @router.post("/api/v2/billing/auto-topup", tags=["Billing"])
 def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
@@ -1381,6 +1455,7 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
         payment_method_id=body.stripe_payment_method_id,
     )
     return {"ok": True, "auto_topup": body.model_dump()}
+
 
 @router.get("/api/v2/billing/auto-topup", tags=["Billing"])
 def api_billing_get_topup(request: Request):

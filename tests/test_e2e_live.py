@@ -57,11 +57,15 @@ def _e2e_healthz():
 
 def _e2e_register():
     global user_id, customer_id
-    r = api("post", "/api/auth/register", json={
-        "email": TEST_EMAIL,
-        "password": TEST_PASS,
-        "name": "E2E Test User",
-    })
+    r = api(
+        "post",
+        "/api/auth/register",
+        json={
+            "email": TEST_EMAIL,
+            "password": TEST_PASS,
+            "name": "E2E Test User",
+        },
+    )
     assert r.status_code == 200, f"Register failed: {r.status_code} {r.text[:200]}"
     data = r.json()
     assert data.get("ok") or data.get("user_id"), f"Unexpected: {data}"
@@ -71,10 +75,14 @@ def _e2e_register():
 
 def _e2e_login():
     global session_token
-    r = api("post", "/api/auth/login", json={
-        "email": TEST_EMAIL,
-        "password": TEST_PASS,
-    })
+    r = api(
+        "post",
+        "/api/auth/login",
+        json={
+            "email": TEST_EMAIL,
+            "password": TEST_PASS,
+        },
+    )
     assert r.status_code == 200, f"Login failed: {r.status_code} {r.text[:200]}"
     data = r.json()
     session_token = data.get("access_token", data.get("token", data.get("session_token", "")))
@@ -88,7 +96,12 @@ def _e2e_login():
 
 
 def _e2e_auth_me():
-    r = api("get", "/api/auth/me", headers={"Authorization": f"Bearer {session_token}"}, allow_redirects=True)
+    r = api(
+        "get",
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {session_token}"},
+        allow_redirects=True,
+    )
     assert r.status_code == 200, f"me failed: {r.status_code} {r.text[:200]}"
     data = r.json()
     # The response may nest user info under a key
@@ -98,16 +111,26 @@ def _e2e_auth_me():
 
 def _e2e_change_password():
     new_pass = TEST_PASS + "X"
-    r = api("post", "/api/auth/change-password", headers={"Authorization": f"Bearer {session_token}"}, json={
-        "current_password": TEST_PASS,
-        "new_password": new_pass,
-    })
+    r = api(
+        "post",
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={
+            "current_password": TEST_PASS,
+            "new_password": new_pass,
+        },
+    )
     assert r.status_code == 200, f"Change password failed: {r.status_code} {r.text[:200]}"
     # Change back
-    r2 = api("post", "/api/auth/change-password", headers={"Authorization": f"Bearer {session_token}"}, json={
-        "current_password": new_pass,
-        "new_password": TEST_PASS,
-    })
+    r2 = api(
+        "post",
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={
+            "current_password": new_pass,
+            "new_password": TEST_PASS,
+        },
+    )
     assert r2.status_code == 200
 
 
@@ -127,9 +150,14 @@ api_key_value = None
 
 def _e2e_generate_api_key():
     global api_key_value
-    r = api("post", "/api/keys/generate", headers={"Authorization": f"Bearer {session_token}"}, json={
-        "name": "e2e-test-key",
-    })
+    r = api(
+        "post",
+        "/api/keys/generate",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={
+            "name": "e2e-test-key",
+        },
+    )
     assert r.status_code == 200, f"Generate key failed: {r.status_code} {r.text[:200]}"
     data = r.json()
     api_key_value = data.get("key", data.get("api_key", ""))
@@ -155,7 +183,9 @@ def _e2e_delete_api_key():
     keys = r.json().get("keys", r.json().get("api_keys", []))
     if keys:
         preview = keys[0].get("preview", keys[0].get("key_preview", api_key_value[:8]))
-        r2 = api("delete", f"/api/keys/{preview}", headers={"Authorization": f"Bearer {session_token}"})
+        r2 = api(
+            "delete", f"/api/keys/{preview}", headers={"Authorization": f"Bearer {session_token}"}
+        )
         assert r2.status_code == 200, f"Delete key failed: {r2.status_code} {r2.text[:200]}"
 
 
@@ -170,14 +200,21 @@ run_test("Delete API key", _e2e_delete_api_key)
 # ═══════════════════════════════════════════════════════════════════════
 print("\n═══ 3. SSH KEY MANAGEMENT ═══")
 
-SSH_TEST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA e2e-test"
+SSH_TEST_KEY = (
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA e2e-test"
+)
 
 
 def _e2e_add_ssh_key():
-    r = api("post", "/api/ssh/keys", headers={"Authorization": f"Bearer {session_token}"}, json={
-        "name": "e2e-test-ssh",
-        "public_key": SSH_TEST_KEY,
-    })
+    r = api(
+        "post",
+        "/api/ssh/keys",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={
+            "name": "e2e-test-ssh",
+            "public_key": SSH_TEST_KEY,
+        },
+    )
     assert r.status_code == 200, f"Add SSH key failed: {r.status_code} {r.text[:200]}"
 
 
@@ -195,7 +232,11 @@ def _e2e_delete_ssh_key():
     if keys:
         key_id = keys[0].get("id", keys[0].get("key_id", ""))
         if key_id:
-            r2 = api("delete", f"/api/ssh/keys/{key_id}", headers={"Authorization": f"Bearer {session_token}"})
+            r2 = api(
+                "delete",
+                f"/api/ssh/keys/{key_id}",
+                headers={"Authorization": f"Bearer {session_token}"},
+            )
             assert r2.status_code == 200, f"Delete SSH key failed: {r2.status_code} {r2.text[:200]}"
 
 
@@ -217,27 +258,44 @@ def _e2e_get_wallet():
         r = api("get", "/api/auth/me", headers={"Authorization": f"Bearer {session_token}"})
         customer_id = r.json().get("customer_id", "")
     assert customer_id, "No customer_id found"
-    r = api("get", f"/api/billing/wallet/{customer_id}", headers={"Authorization": f"Bearer {session_token}"})
+    r = api(
+        "get",
+        f"/api/billing/wallet/{customer_id}",
+        headers={"Authorization": f"Bearer {session_token}"},
+    )
     assert r.status_code == 200, f"Wallet failed: {r.status_code} {r.text[:200]}"
     data = r.json()
     assert "balance_cad" in data or "wallet" in data, f"No balance: {data}"
 
 
 def _e2e_wallet_history():
-    r = api("get", f"/api/billing/wallet/{customer_id}/history", headers={"Authorization": f"Bearer {session_token}"})
+    r = api(
+        "get",
+        f"/api/billing/wallet/{customer_id}/history",
+        headers={"Authorization": f"Bearer {session_token}"},
+    )
     assert r.status_code == 200, f"History failed: {r.status_code} {r.text[:200]}"
 
 
 def _e2e_invoices():
-    r = api("get", f"/api/billing/invoices/{customer_id}", headers={"Authorization": f"Bearer {session_token}"})
+    r = api(
+        "get",
+        f"/api/billing/invoices/{customer_id}",
+        headers={"Authorization": f"Bearer {session_token}"},
+    )
     assert r.status_code == 200, f"Invoices failed: {r.status_code} {r.text[:200]}"
 
 
 def _e2e_create_deposit():
     """Test creating a Stripe PaymentIntent (does NOT charge — just creates intent)."""
-    r = api("post", f"/api/billing/wallet/{customer_id}/deposit", headers={"Authorization": f"Bearer {session_token}"}, json={
-        "amount_cad": 1.00,
-    })
+    r = api(
+        "post",
+        f"/api/billing/wallet/{customer_id}/deposit",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={
+            "amount_cad": 1.00,
+        },
+    )
     # May fail if Stripe config issue, but the endpoint should respond
     assert r.status_code in (200, 400, 500), f"Deposit endpoint unreachable: {r.status_code}"
     if r.status_code == 200:
@@ -263,8 +321,9 @@ def _e2e_list_hosts():
     hosts = r.json().get("hosts", [])
     assert len(hosts) >= 1, f"Expected at least 1 active host, got {len(hosts)}"
     gpu_host = hosts[0]
-    assert "2060" in gpu_host.get("gpu_model", "").lower() or "2060" in str(gpu_host), \
-        f"Expected 2060 host: {gpu_host.get('gpu_model')}"
+    assert "2060" in gpu_host.get("gpu_model", "").lower() or "2060" in str(
+        gpu_host
+    ), f"Expected 2060 host: {gpu_host.get('gpu_model')}"
 
 
 def _e2e_compute_score():
@@ -286,12 +345,17 @@ test_job_id = None
 
 def _e2e_submit_job():
     global test_job_id
-    r = api("post", "/instance", headers=AUTH, json={
-        "name": "e2e-test-job",
-        "vram_needed_gb": 2.0,
-        "priority": 1,
-        "image": "alpine:latest",
-    })
+    r = api(
+        "post",
+        "/instance",
+        headers=AUTH,
+        json={
+            "name": "e2e-test-job",
+            "vram_needed_gb": 2.0,
+            "priority": 1,
+            "image": "alpine:latest",
+        },
+    )
     assert r.status_code == 200, f"Submit job failed: {r.status_code} {r.text[:200]}"
     data = r.json()
     inst = data.get("instance", {})
@@ -320,7 +384,9 @@ def _e2e_get_instance_status():
     if test_job_id:
         job = next((j for j in jobs if j.get("job_id") == test_job_id), None)
         if job:
-            print(f"    → job status: {job.get('status')}, host: {job.get('host_id', 'unassigned')}")
+            print(
+                f"    → job status: {job.get('status')}, host: {job.get('host_id', 'unassigned')}"
+            )
 
 
 run_test("Submit job", _e2e_submit_job)
@@ -392,9 +458,14 @@ team_id = None
 
 def _e2e_create_team():
     global team_id
-    r = api("post", "/api/teams", headers={"Authorization": f"Bearer {session_token}"}, json={
-        "name": "E2E Test Team",
-    })
+    r = api(
+        "post",
+        "/api/teams",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={
+            "name": "E2E Test Team",
+        },
+    )
     assert r.status_code == 200, f"Create team: {r.status_code} {r.text[:200]}"
     data = r.json()
     team_id = data.get("team_id", data.get("id", ""))
@@ -416,10 +487,15 @@ print("\n═══ 11. CHAT ═══")
 
 
 def _e2e_chat():
-    r = api("post", "/api/chat", headers=AUTH, json={
-        "message": "What is Xcelsior?",
-        "session_id": "e2e-test",
-    })
+    r = api(
+        "post",
+        "/api/chat",
+        headers=AUTH,
+        json={
+            "message": "What is Xcelsior?",
+            "session_id": "e2e-test",
+        },
+    )
     # Chat might return 200 or stream, just check it doesn't 500
     assert r.status_code in (200, 201), f"Chat: {r.status_code} {r.text[:200]}"
 
@@ -541,6 +617,7 @@ def _e2e_page(path):
     def _test():
         r = requests.get(f"{BASE}{path}", timeout=15, allow_redirects=True)
         assert r.status_code in (200, 307, 302), f"Page {path}: HTTP {r.status_code}"
+
     return _test
 
 

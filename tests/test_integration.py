@@ -56,6 +56,7 @@ def _reset_state():
             os.remove(f)
     # Seed wallet for anonymous test user so wallet pre-flight checks pass
     from billing import get_billing_engine
+
     get_billing_engine().deposit("anonymous", 10_000.0, description="Test credits")
 
 
@@ -64,7 +65,9 @@ def _admit_host(host_id):
     with scheduler._atomic_mutation() as conn:
         row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
         if row:
-            data = row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            data = (
+                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
+            )
             data["admitted"] = True
             data["status"] = "active"
             conn.execute(
@@ -88,7 +91,9 @@ def test_job_lifecycle_and_billing_via_api():
     )
     _admit_host("h-int-1")
 
-    create = client.post("/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium"})
+    create = client.post(
+        "/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium"}
+    )
     inst = create.json()["instance"]
     job_id = inst["job_id"]
     # auto queue processing assigns during submit

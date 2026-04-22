@@ -14,6 +14,7 @@ INFERENCE_JOB_TTL_SEC = int(os.environ.get("XCELSIOR_INFERENCE_TTL", "86400"))  
 def _inference_db():
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -36,6 +37,7 @@ def store_inference_job(
 ):
     """Persist an inference job submission."""
     from psycopg.types.json import Jsonb
+
     with _inference_db() as conn:
         conn.execute(
             "INSERT INTO inference_jobs "
@@ -45,16 +47,23 @@ def store_inference_job(
             "customer_id=EXCLUDED.customer_id, model=EXCLUDED.model, inputs=EXCLUDED.inputs, "
             "max_tokens=EXCLUDED.max_tokens, temperature=EXCLUDED.temperature, "
             "timeout_sec=EXCLUDED.timeout_sec, status='queued', submitted_at=EXCLUDED.submitted_at",
-            (job_id, customer_id, model, Jsonb(inputs), max_tokens, temperature, timeout_sec, time.time()),
+            (
+                job_id,
+                customer_id,
+                model,
+                Jsonb(inputs),
+                max_tokens,
+                temperature,
+                timeout_sec,
+                time.time(),
+            ),
         )
 
 
 def get_inference_job(job_id: str) -> Optional[dict]:
     """Return inference job metadata, or None if not found."""
     with _inference_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM inference_jobs WHERE job_id = %s", (job_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM inference_jobs WHERE job_id = %s", (job_id,)).fetchone()
         if not row:
             return None
         d = dict(row)
@@ -66,6 +75,7 @@ def get_inference_job(job_id: str) -> Optional[dict]:
 def store_inference_result(job_id: str, outputs: list, model: str, latency_ms: float):
     """Persist inference results from a worker callback."""
     from psycopg.types.json import Jsonb
+
     now = time.time()
     with _inference_db() as conn:
         conn.execute(

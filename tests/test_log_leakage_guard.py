@@ -12,6 +12,7 @@ Patterns detected:
 The allowlist is used for lines that are deliberately safe (e.g., logging that
 a key *is configured* without logging its value).
 """
+
 from __future__ import annotations
 
 import ast
@@ -65,6 +66,7 @@ _ALLOWLIST: set[tuple[str, int]] = {
 
 # ── AST helpers ──────────────────────────────────────────────────────────────
 
+
 def _is_log_call(node: ast.Call) -> bool:
     """Return True if `node` is a log.<method>(...) call."""
     func = node.func
@@ -104,7 +106,10 @@ def _names_in_node(node: ast.expr) -> list[str]:
         # f-string embedded name: f"...{access_token}..."
         elif isinstance(child, ast.FormattedValue):
             if isinstance(child.value, ast.Name):
-                if id(child.value) not in subscript_receivers and id(child.value) not in attr_receivers:
+                if (
+                    id(child.value) not in subscript_receivers
+                    and id(child.value) not in attr_receivers
+                ):
                     names.append(child.value.id.lower())
     return names
 
@@ -138,9 +143,7 @@ def _check_file(path: Path) -> list[str]:
         for arg in node.args[1:]:
             for name in _names_in_node(arg):
                 if _is_sensitive_name(name):
-                    violations.append(
-                        f"{rel}:{lineno}  argument name '{name}' looks like a secret"
-                    )
+                    violations.append(f"{rel}:{lineno}  argument name '{name}' looks like a secret")
                     break
 
         # Also check f-strings in the first positional arg
@@ -158,6 +161,7 @@ def _check_file(path: Path) -> list[str]:
 
 
 # ── Test ─────────────────────────────────────────────────────────────────────
+
 
 def test_no_log_leakage():
     """No production log call may pass a raw secret/token variable."""

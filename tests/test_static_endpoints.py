@@ -6,6 +6,7 @@ Verifies:
 - Unknown files under /static/ return 404 (no directory traversal)
 - Path traversal attempts are rejected
 """
+
 from __future__ import annotations
 
 import hashlib

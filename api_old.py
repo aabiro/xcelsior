@@ -248,6 +248,7 @@ def _start_background_tasks():
     def _billing_cycle():
         try:
             from billing import get_billing_engine
+
             be = get_billing_engine()
             with otel_span("billing.cycle"):
                 be.auto_billing_cycle()
@@ -255,82 +256,97 @@ def _start_background_tasks():
                 be.stop_jobs_for_suspended_wallets()
         except Exception as e:
             log.error("Billing cycle error: %s", e)
+
     tasks.append(("billing_cycle", _billing_cycle, 300))
 
     # 2. Stripe webhook event processor (every 30 seconds)
     def _webhook_processor():
         try:
             from stripe_connect import get_stripe_manager
+
             sm = get_stripe_manager()
             with otel_span("webhook.process_pending"):
                 sm.process_pending_events()
         except Exception as e:
             log.error("Webhook processor error: %s", e)
+
     tasks.append(("webhook_processor", _webhook_processor, 30))
 
     # 3. Spot price updater (every 10 minutes)
     def _spot_updater():
         try:
             from marketplace import get_marketplace_engine
+
             me = get_marketplace_engine()
             me.update_spot_prices()
             me.expire_reservations()
         except Exception as e:
             log.error("Spot updater error: %s", e)
+
     tasks.append(("spot_updater", _spot_updater, 600))
 
     # 4. Inference scaledown (every 5 minutes)
     def _inference_scaledown():
         try:
             from inference import get_inference_engine
+
             ie = get_inference_engine()
             ie.scaledown_idle_workers()
         except Exception as e:
             log.error("Inference scaledown error: %s", e)
+
     tasks.append(("inference_scaledown", _inference_scaledown, 300))
 
     # 5. Cloud burst evaluator (every 2 minutes)
     def _burst_evaluator():
         try:
             from cloudburst import get_burst_engine
+
             cbe = get_burst_engine()
             cbe.evaluate_burst_need()
             cbe.drain_idle_instances()
             cbe.update_burst_spending()
         except Exception as e:
             log.error("Burst evaluator error: %s", e)
+
     tasks.append(("burst_evaluator", _burst_evaluator, 120))
 
     # 6. SLA credit issuance (every hour)
     def _sla_credits():
         try:
             from sla import get_sla_engine
+
             se = get_sla_engine()
             se.auto_issue_credits()
         except Exception as e:
             log.error("SLA credits error: %s", e)
+
     tasks.append(("sla_credits", _sla_credits, 3600))
 
     # 7. Event snapshotting (every 15 minutes)
     def _event_snapshots():
         try:
             from events import get_snapshot_manager
+
             sm = get_snapshot_manager()
             sm.snapshot_all_jobs()
         except Exception as e:
             log.error("Event snapshots error: %s", e)
+
     tasks.append(("event_snapshots", _event_snapshots, 900))
 
     # 8. Data retention / privacy purge (every 6 hours)
     def _privacy_purge():
         try:
             from privacy import get_lifecycle_manager, get_consent_manager
+
             lm = get_lifecycle_manager()
             lm.purge_expired()
             cm = get_consent_manager()
             cm.expire_implied_consents()
         except Exception as e:
             log.error("Privacy purge error: %s", e)
+
     tasks.append(("privacy_purge", _privacy_purge, 21600))
 
     # 9. Session cleanup — purge expired sessions (every hour)
@@ -341,16 +357,19 @@ def _start_background_tasks():
                 log.info("Session cleanup: purged %d expired sessions", count)
         except Exception as e:
             log.error("Session cleanup error: %s", e)
+
     tasks.append(("session_cleanup", _session_cleanup, 3600))
 
     # 10. FINTRAC compliance check (every hour)
     def _fintrac_check():
         try:
             from billing import get_billing_engine
+
             be = get_billing_engine()
             be.fintrac_check_transaction(amount_cad=0, user_id="__periodic_scan__")
         except Exception as e:
             log.debug("fintrac periodic check error (expected for zero amount): %s", e)
+
     tasks.append(("fintrac_check", _fintrac_check, 3600))
 
     for name, func, interval in tasks:
@@ -425,6 +444,7 @@ app.add_middleware(
 _CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _CSRF_ALLOWED_ORIGINS = {urllib.parse.urlparse(o).netloc for o in _CORS_ORIGINS}
 
+
 @app.middleware("http")
 async def csrf_origin_check(request: Request, call_next):
     if request.method not in _CSRF_SAFE_METHODS:
@@ -437,6 +457,7 @@ async def csrf_origin_check(request: Request, call_next):
                     content={"detail": "Cross-origin request rejected"},
                 )
     return await call_next(request)
+
 
 # ── OpenTelemetry Instrumentation ─────────────────────────────────────
 # Auto-instruments all FastAPI routes; custom spans for job lifecycle,
@@ -463,6 +484,7 @@ try:
     _otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if _otel_endpoint:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
         _otel_exporter = OTLPSpanExporter(endpoint=_otel_endpoint)
         _otel_provider.add_span_processor(BatchSpanProcessor(_otel_exporter))
 
@@ -472,12 +494,16 @@ try:
     from opentelemetry.propagators.textmap import DefaultGetter
     from opentelemetry.trace.propagation import TraceContextTextMapPropagator
     from opentelemetry.baggage.propagation import W3CBaggagePropagator
-    _w3c_propagator = CompositePropagator([
-        TraceContextTextMapPropagator(),
-        W3CBaggagePropagator(),
-    ])
+
+    _w3c_propagator = CompositePropagator(
+        [
+            TraceContextTextMapPropagator(),
+            W3CBaggagePropagator(),
+        ]
+    )
     from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
     from opentelemetry import context as _otel_ctx
+
     set_global_textmap(_w3c_propagator)
 
     # Instrument the app
@@ -503,6 +529,7 @@ def otel_span(name: str, attributes: dict | None = None):
     """
     if _otel_tracer is None:
         from contextlib import nullcontext
+
         return nullcontext()
     span = _otel_tracer.start_as_current_span(name, attributes=attributes or {})
     return span
@@ -580,9 +607,17 @@ _NOTIF_EVENT_MAP = {
     "job_status": ("instance", "Instance {status}", "Instance {job_id} is now {status}."),
     "host_registered": ("host", "Host Registered", "A new host has been registered."),
     "host_removed": ("host", "Host Removed", "Host {host_id} has been removed."),
-    "job_completed": ("instance", "Instance Completed", "Instance {job_id} completed successfully."),
+    "job_completed": (
+        "instance",
+        "Instance Completed",
+        "Instance {job_id} completed successfully.",
+    ),
     "job_failed": ("instance", "Instance Failed", "Instance {job_id} has failed."),
-    "preemption_scheduled": ("instance", "Preemption Scheduled", "Instance {job_id} is being preempted."),
+    "preemption_scheduled": (
+        "instance",
+        "Preemption Scheduled",
+        "Instance {job_id} is being preempted.",
+    ),
 }
 
 
@@ -599,8 +634,13 @@ def _deliver_notifications(event_type: str, data: dict):
         # Determine which users to notify based on event type
         if _USE_PERSISTENT_AUTH:
             # For job events, notify the submitter; for host/admin events, notify admins
-            if event_type in ("job_submitted", "job_status", "job_completed", "job_failed",
-                              "preemption_scheduled"):
+            if event_type in (
+                "job_submitted",
+                "job_status",
+                "job_completed",
+                "job_failed",
+                "preemption_scheduled",
+            ):
                 # Find the job owner from the jobs list
                 job_id = data.get("job_id", "")
                 jobs = list_jobs()
@@ -724,12 +764,16 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                     session = UserStore.get_session(token)
                     if session:
                         request.state.user_id = session.get("user_id", "")
-                        request.state.customer_id = session.get("customer_id", session.get("user_id", ""))
+                        request.state.customer_id = session.get(
+                            "customer_id", session.get("user_id", "")
+                        )
                         return await call_next(request)
                     api_key = UserStore.get_api_key(token)
                     if api_key:
                         request.state.user_id = api_key.get("user_id", "")
-                        request.state.customer_id = api_key.get("customer_id", api_key.get("user_id", ""))
+                        request.state.customer_id = api_key.get(
+                            "customer_id", api_key.get("user_id", "")
+                        )
                         return await call_next(request)
                 else:
                     with _user_lock:
@@ -886,6 +930,7 @@ class ComplianceGateMiddleware(BaseHTTPMiddleware):
             if customer_id:
                 try:
                     from privacy import get_consent_manager
+
                     cm = get_consent_manager()
                     if not cm.has_consent(customer_id, "billing"):
                         return JSONResponse(
@@ -1186,11 +1231,14 @@ def api_submit_instance(j: JobIn, request: Request):
         else:
             vram_needed = 4.0  # minimal default when no hosts available
 
-    with otel_span("job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}):
+    with otel_span(
+        "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
+    ):
         customer_id = user.get("customer_id", user.get("user_id", ""))
 
         # ── Wallet pre-flight: block launch if wallet is broke ────────
         from billing import get_billing_engine
+
         be = get_billing_engine()
         wallet = be.get_wallet(customer_id)
         if wallet.get("status") == "suspended":
@@ -1230,13 +1278,24 @@ def api_submit_instance(j: JobIn, request: Request):
                         container_id = run_job(updated, host, docker_image=j.image or None)
                         if container_id:
                             job = _refresh_job(job["job_id"]) or job
-                            log.info("Direct launch: job %s running on host %s", job["job_id"], target_host_id)
+                            log.info(
+                                "Direct launch: job %s running on host %s",
+                                job["job_id"],
+                                target_host_id,
+                            )
                         else:
                             job = _refresh_job(job["job_id"]) or job
-                            log.warning("Direct launch: container start failed for job %s on host %s",
-                                        job["job_id"], target_host_id)
+                            log.warning(
+                                "Direct launch: container start failed for job %s on host %s",
+                                job["job_id"],
+                                target_host_id,
+                            )
                     else:
-                        log.warning("Direct launch: host %s not found, job %s stays queued", target_host_id, job["job_id"])
+                        log.warning(
+                            "Direct launch: host %s not found, job %s stays queued",
+                            target_host_id,
+                            job["job_id"],
+                        )
                         update_job_status(job["job_id"], "queued")
                         job = _refresh_job(job["job_id"]) or job
             except Exception as e:
@@ -1303,6 +1362,7 @@ def api_update_instance(job_id: str, update: StatusUpdate):
             extras["container_name"] = update.container_name
         if extras:
             from scheduler import _set_job_fields
+
             _set_job_fields(job_id, **extras)
         broadcast_sse("job_status", {"job_id": job_id, "status": update.status})
         return {"ok": True, "job_id": job_id, "status": update.status}
@@ -1557,12 +1617,7 @@ class LegacyTerminalTicketIn(BaseModel):
 
 
 def _legacy_terminal_session_key(user: dict) -> str:
-    return str(
-        user.get("customer_id")
-        or user.get("user_id")
-        or user.get("email")
-        or "anonymous"
-    )
+    return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "anonymous")
 
 
 def _acquire_legacy_terminal_session_slot(user: dict) -> bool:
@@ -1744,12 +1799,8 @@ _TERMINAL_RATE_LIMIT_BYTES = 10_240  # 10 KB/s
 _LEGACY_TERMINAL_MAX_INPUT_FRAME_BYTES = int(
     os.environ.get("XCELSIOR_TERMINAL_MAX_INPUT_FRAME_BYTES", "65536")
 )
-_LEGACY_TERMINAL_MAX_RESIZE_COLS = int(
-    os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_COLS", "500")
-)
-_LEGACY_TERMINAL_MAX_RESIZE_ROWS = int(
-    os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_ROWS", "200")
-)
+_LEGACY_TERMINAL_MAX_RESIZE_COLS = int(os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_COLS", "500"))
+_LEGACY_TERMINAL_MAX_RESIZE_ROWS = int(os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_ROWS", "200"))
 _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES = int(
     os.environ.get("XCELSIOR_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES", "5")
 )
@@ -1858,7 +1909,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             return
 
     if instance.get("status") != "running":
-        await websocket.send_json({"type": "error", "message": f"Instance is {instance.get('status', 'unknown')}, not running"})
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Instance is {instance.get('status', 'unknown')}, not running",
+            }
+        )
         await websocket.close(code=4003)
         _release_legacy_terminal_session_slot(user)
         return
@@ -1887,7 +1943,11 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
         _release_legacy_terminal_session_slot(user)
         return
     docker_cmd = [
-        "docker", "exec", "-it", container_id, shell,
+        "docker",
+        "exec",
+        "-it",
+        container_id,
+        shell,
     ]
 
     session_start = time.time()
@@ -1898,6 +1958,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
 
     try:
         import pty as _pty, fcntl, struct, termios
+
         master_fd, slave_fd = _pty.openpty()
         process = await asyncio.create_subprocess_exec(
             *docker_cmd,
@@ -1924,7 +1985,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                 stderr=asyncio.subprocess.STDOUT,
             )
         except FileNotFoundError:
-            await websocket.send_json({"type": "error", "message": "Docker not available on this host"})
+            await websocket.send_json(
+                {"type": "error", "message": "Docker not available on this host"}
+            )
             await websocket.close(code=4003)
             _release_legacy_terminal_session_slot(user)
             return
@@ -1934,7 +1997,9 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             _release_legacy_terminal_session_slot(user)
             return
 
-    await websocket.send_json({"type": "output", "data": f"Connected to {instance.get('name', instance_id)}\\r\\n"})
+    await websocket.send_json(
+        {"type": "output", "data": f"Connected to {instance.get('name', instance_id)}\\r\\n"}
+    )
 
     bytes_this_second = 0
     last_rate_reset = time.time()
@@ -1959,9 +2024,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                 elif process and process.stdout:
                     # Pipe mode fallback
                     try:
-                        chunk = await asyncio.wait_for(
-                            process.stdout.read(4096), timeout=5.0
-                        )
+                        chunk = await asyncio.wait_for(process.stdout.read(4096), timeout=5.0)
                     except asyncio.TimeoutError:
                         continue
                 else:
@@ -1996,17 +2059,19 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
             while not closed:
                 # Session timeout check
                 if time.time() - session_start > _TERMINAL_SESSION_TIMEOUT:
-                    await websocket.send_json({"type": "error", "message": "Session timed out (30 min)"})
+                    await websocket.send_json(
+                        {"type": "error", "message": "Session timed out (30 min)"}
+                    )
                     closed = True
                     break
                 try:
-                    raw = await asyncio.wait_for(
-                        websocket.receive_text(), timeout=10.0
-                    )
+                    raw = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
                 except asyncio.TimeoutError:
                     continue
                 if _legacy_frame_too_large(raw):
-                    await websocket.send_json({"type": "error", "message": "Input frame too large", "code": 1009})
+                    await websocket.send_json(
+                        {"type": "error", "message": "Input frame too large", "code": 1009}
+                    )
                     await websocket.close(code=1009)
                     closed = True
                     break
@@ -2015,7 +2080,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                 except json.JSONDecodeError:
                     malformed_control_frames += 1
                     if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
-                        await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "Too many malformed control frames",
+                                "code": 1008,
+                            }
+                        )
                         await websocket.close(code=1008)
                         closed = True
                         break
@@ -2024,14 +2095,25 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                     data = msg.get("data", "")
                     if not isinstance(data, str):
                         malformed_control_frames += 1
-                        if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
-                            await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                        if (
+                            malformed_control_frames
+                            >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES
+                        ):
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": "Too many malformed control frames",
+                                    "code": 1008,
+                                }
+                            )
                             await websocket.close(code=1008)
                             closed = True
                             break
                         continue
                     if _legacy_frame_too_large(data):
-                        await websocket.send_json({"type": "error", "message": "Input frame too large", "code": 1009})
+                        await websocket.send_json(
+                            {"type": "error", "message": "Input frame too large", "code": 1009}
+                        )
                         await websocket.close(code=1009)
                         closed = True
                         break
@@ -2042,12 +2124,25 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                         await process.stdin.drain()
                 elif msg.get("type") == "resize":
                     try:
-                        cols = max(1, min(_LEGACY_TERMINAL_MAX_RESIZE_COLS, int(msg.get("cols", 80))))
-                        rows = max(1, min(_LEGACY_TERMINAL_MAX_RESIZE_ROWS, int(msg.get("rows", 24))))
+                        cols = max(
+                            1, min(_LEGACY_TERMINAL_MAX_RESIZE_COLS, int(msg.get("cols", 80)))
+                        )
+                        rows = max(
+                            1, min(_LEGACY_TERMINAL_MAX_RESIZE_ROWS, int(msg.get("rows", 24)))
+                        )
                     except (TypeError, ValueError):
                         malformed_control_frames += 1
-                        if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
-                            await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                        if (
+                            malformed_control_frames
+                            >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES
+                        ):
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": "Too many malformed control frames",
+                                    "code": 1008,
+                                }
+                            )
                             await websocket.close(code=1008)
                             closed = True
                             break
@@ -2055,6 +2150,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                     if master_fd is not None:
                         try:
                             import fcntl, struct, termios
+
                             winsize = struct.pack("HHHH", rows, cols, 0, 0)
                             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
                         except (ImportError, OSError):
@@ -2064,7 +2160,13 @@ async def ws_terminal(websocket: WebSocket, instance_id: str):
                 else:
                     malformed_control_frames += 1
                     if malformed_control_frames >= _LEGACY_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES:
-                        await websocket.send_json({"type": "error", "message": "Too many malformed control frames", "code": 1008})
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": "Too many malformed control frames",
+                                "code": 1008,
+                            }
+                        )
                         await websocket.close(code=1008)
                         closed = True
                         break
@@ -2206,12 +2308,21 @@ def api_get_pubkey():
 
 # ── User SSH Public Key Management ────────────────────────────────────
 
-VALID_SSH_KEY_TYPES = {"ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "sk-ssh-ed25519@openssh.com", "sk-ecdsa-sha2-nistp256@openssh.com"}
+VALID_SSH_KEY_TYPES = {
+    "ssh-rsa",
+    "ssh-ed25519",
+    "ecdsa-sha2-nistp256",
+    "ecdsa-sha2-nistp384",
+    "ecdsa-sha2-nistp521",
+    "sk-ssh-ed25519@openssh.com",
+    "sk-ecdsa-sha2-nistp256@openssh.com",
+}
 
 
 def _validate_ssh_public_key(key_str: str) -> str:
     """Validate and normalize an SSH public key string. Returns the key type or raises."""
     import base64 as _b64, re as _re
+
     key_str = key_str.strip()
     # Remove any comment-only lines
     lines = [l.strip() for l in key_str.splitlines() if l.strip() and not l.strip().startswith("#")]
@@ -2235,6 +2346,7 @@ def _validate_ssh_public_key(key_str: str) -> str:
 def _ssh_key_fingerprint(key_str: str) -> str:
     """Compute SHA-256 fingerprint of an SSH public key (like ssh-keygen -l)."""
     import base64 as _b64
+
     parts = key_str.strip().split(None, 2)
     raw = _b64.b64decode(parts[1])
     digest = _hashlib.sha256(raw).digest()
@@ -2914,11 +3026,14 @@ def api_auth_register(body: RegisterRequest, request: Request):
     if _USE_PERSISTENT_AUTH:
         UserStore.create_user(user)
         # Set verification fields
-        UserStore.update_user(email, {
-            "email_verified": 0,
-            "email_verification_token": verification_token,
-            "email_verification_expires": verification_expires,
-        })
+        UserStore.update_user(
+            email,
+            {
+                "email_verified": 0,
+                "email_verification_token": verification_token,
+                "email_verification_expires": verification_expires,
+            },
+        )
     else:
         user["email_verified"] = 0
         user["email_verification_token"] = verification_token
@@ -2944,7 +3059,8 @@ def api_auth_register(body: RegisterRequest, request: Request):
     # Welcome notification for the new user
     try:
         NotificationStore.create(
-            email, "system",
+            email,
+            "system",
             "Welcome to Xcelsior!",
             "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
             {"user_id": user_id},
@@ -2974,7 +3090,14 @@ def api_auth_register(body: RegisterRequest, request: Request):
     # In test mode, auto-verify and return session (no email service)
     if XCELSIOR_ENV == "test":
         if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(email, {"email_verified": 1, "email_verification_token": None, "email_verification_expires": None})
+            UserStore.update_user(
+                email,
+                {
+                    "email_verified": 1,
+                    "email_verification_token": None,
+                    "email_verification_expires": None,
+                },
+            )
         else:
             with _user_lock:
                 if email in _users_db:
@@ -2994,11 +3117,13 @@ def api_auth_register(body: RegisterRequest, request: Request):
             },
         }
 
-    return JSONResponse(content={
-        "ok": True,
-        "email_verification_required": True,
-        "message": "Account created. Please check your email to verify your address.",
-    })
+    return JSONResponse(
+        content={
+            "ok": True,
+            "email_verification_required": True,
+            "message": "Account created. Please check your email to verify your address.",
+        }
+    )
 
 
 @app.post("/api/auth/login", tags=["Auth"])
@@ -3026,12 +3151,18 @@ def api_auth_login(body: LoginRequest, request: Request):
 
     # Check email verification
     if not user.get("email_verified"):
-        return JSONResponse(status_code=403, content={
-            "ok": False,
-            "email_verification_required": True,
-            "email": email,
-            "error": {"code": "email_not_verified", "message": "Please verify your email address before logging in."},
-        })
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "email_verification_required": True,
+                "email": email,
+                "error": {
+                    "code": "email_not_verified",
+                    "message": "Please verify your email address before logging in.",
+                },
+            },
+        )
 
     # ── MFA check ──
     if _USE_PERSISTENT_AUTH and user.get("mfa_enabled"):
@@ -3041,19 +3172,23 @@ def api_auth_login(body: LoginRequest, request: Request):
             challenge_id = secrets.token_urlsafe(32)
             # Store a temporary partial session token
             partial_token = secrets.token_urlsafe(48)
-            MfaStore.create_challenge({
-                "challenge_id": challenge_id,
-                "email": email,
-                "session_token": partial_token,
-                "created_at": time.time(),
-                "expires_at": time.time() + 300,  # 5-minute window
-            })
-            return JSONResponse(content={
-                "ok": True,
-                "mfa_required": True,
-                "challenge_id": challenge_id,
-                "methods": [m["method_type"] for m in enabled_methods],
-            })
+            MfaStore.create_challenge(
+                {
+                    "challenge_id": challenge_id,
+                    "email": email,
+                    "session_token": partial_token,
+                    "created_at": time.time(),
+                    "expires_at": time.time() + 300,  # 5-minute window
+                }
+            )
+            return JSONResponse(
+                content={
+                    "ok": True,
+                    "mfa_required": True,
+                    "challenge_id": challenge_id,
+                    "methods": [m["method_type"] for m in enabled_methods],
+                }
+            )
 
     session = _create_session(email, user, request)
 
@@ -3062,7 +3197,8 @@ def api_auth_login(body: LoginRequest, request: Request):
     try:
         if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
             NotificationStore.create(
-                email, "system",
+                email,
+                "system",
                 "Welcome to Xcelsior!",
                 "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
@@ -3281,7 +3417,8 @@ def api_auth_oauth_callback(provider: str, request: Request):
     try:
         if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
             NotificationStore.create(
-                email, "system",
+                email,
+                "system",
                 "Welcome to Xcelsior!",
                 "Welcome to your Notifications Inbox! This is your new go-to destination for important account updates and personalized recommendations. Check back here to stay informed and maximize your Xcelsior experience!",
                 {"user_id": user["user_id"]},
@@ -3295,9 +3432,13 @@ def api_auth_oauth_callback(provider: str, request: Request):
     # Non-httpOnly cookie so login page JS can show "Last used" badge
     _base = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     _oauth_kw: dict = dict(
-        key="xcelsior_last_oauth", value=provider,
-        max_age=86400 * 365, httponly=False,
-        secure=_base.startswith("https"), samesite="lax", path="/",
+        key="xcelsior_last_oauth",
+        value=provider,
+        max_age=86400 * 365,
+        httponly=False,
+        secure=_base.startswith("https"),
+        samesite="lax",
+        path="/",
     )
     if _base.startswith("https"):
         _oauth_kw["domain"] = ".xcelsior.ca"
@@ -3725,9 +3866,11 @@ def api_auth_change_password(request: Request, req: ChangePasswordRequest):
 
 # ── Two-Factor Authentication (MFA) ─────────────────────────────────
 
+
 def _verify_totp_code(secret: str, code: str) -> bool:
     """Verify a TOTP code, allowing ±1 window for clock drift."""
     import pyotp
+
     totp = pyotp.TOTP(secret)
     return totp.verify(code, valid_window=1)
 
@@ -3735,6 +3878,7 @@ def _verify_totp_code(secret: str, code: str) -> bool:
 def _hash_backup_code(code: str) -> str:
     """Hash a backup code for storage."""
     import hashlib
+
     return hashlib.sha256(code.encode()).hexdigest()
 
 
@@ -3748,7 +3892,9 @@ def _generate_backup_codes(count: int = 10) -> list[str]:
     return codes
 
 
-def _complete_mfa_login(email: str, challenge_id: str, request: Request | None = None) -> JSONResponse:
+def _complete_mfa_login(
+    email: str, challenge_id: str, request: Request | None = None
+) -> JSONResponse:
     """Complete login after successful MFA verification."""
     challenge = MfaStore.get_challenge(challenge_id)
     if not challenge or challenge["email"] != email:
@@ -3794,6 +3940,7 @@ def _refresh_mfa_enabled(email: str) -> None:
 def _send_sms(phone_number: str, message: str) -> None:
     """Send an SMS via Twilio. Raises on failure."""
     from twilio.rest import Client
+
     sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     from_phone = os.environ.get("TWILIO_PHONE_NUMBER", "")
@@ -3809,6 +3956,7 @@ def _send_sms(phone_number: str, message: str) -> None:
 
 
 # ── MFA: List methods ──
+
 
 @app.get("/api/auth/mfa/methods", tags=["Auth – MFA"])
 def api_mfa_list_methods(request: Request):
@@ -3838,10 +3986,12 @@ def api_mfa_list_methods(request: Request):
 
 # ── MFA: TOTP Setup ──
 
+
 @app.post("/api/auth/mfa/totp/setup", tags=["Auth – MFA"])
 def api_mfa_totp_setup(request: Request):
     """Generate a TOTP secret and QR code URI for setup."""
     import pyotp
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -3859,13 +4009,15 @@ def api_mfa_totp_setup(request: Request):
     )
 
     # Store secret temporarily (not enabled until verified)
-    method_id = MfaStore.create_method({
-        "email": user["email"],
-        "method_type": "totp",
-        "secret": secret,
-        "enabled": 0,
-        "created_at": time.time(),
-    })
+    method_id = MfaStore.create_method(
+        {
+            "email": user["email"],
+            "method_type": "totp",
+            "secret": secret,
+            "enabled": 0,
+            "created_at": time.time(),
+        }
+    )
 
     return {
         "ok": True,
@@ -3907,6 +4059,7 @@ def api_mfa_totp_verify(request: Request, req: TotpVerifyRequest):
 
     # Enable the method
     from db import auth_connection
+
     with auth_connection() as conn:
         conn.execute("UPDATE mfa_methods SET enabled = 1 WHERE id = %s", (totp_method["id"],))
 
@@ -3940,6 +4093,7 @@ def api_mfa_totp_disable(request: Request):
 
 # ── MFA: SMS ──
 
+
 class SmsSetupRequest(BaseModel):
     phone_number: str  # E.164 format, e.g. +14165551234
 
@@ -3948,6 +4102,7 @@ class SmsSetupRequest(BaseModel):
 def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     """Register a phone number for SMS MFA. Sends a verification code."""
     import re
+
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -3966,13 +4121,15 @@ def api_mfa_sms_setup(request: Request, req: SmsSetupRequest):
     sms_challenge_id = f"sms-setup:{user['email']}"
     # Remove any existing SMS setup challenge
     MfaStore.delete_challenge(sms_challenge_id)
-    MfaStore.create_challenge({
-        "challenge_id": sms_challenge_id,
-        "email": user["email"],
-        "challenge_data": json.dumps({"code_hash": code_hash, "phone": phone}),
-        "created_at": time.time(),
-        "expires_at": time.time() + 600,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": sms_challenge_id,
+            "email": user["email"],
+            "challenge_data": json.dumps({"code_hash": code_hash, "phone": phone}),
+            "created_at": time.time(),
+            "expires_at": time.time() + 600,
+        }
+    )
 
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Verification code sent", "test_code": code}
@@ -4005,13 +4162,15 @@ def api_mfa_sms_verify(request: Request, req: SmsVerifyRequest):
 
     MfaStore.delete_challenge(sms_challenge_id)
 
-    MfaStore.create_method({
-        "email": user["email"],
-        "method_type": "sms",
-        "phone_number": pending_data["phone"],
-        "enabled": 1,
-        "created_at": time.time(),
-    })
+    MfaStore.create_method(
+        {
+            "email": user["email"],
+            "method_type": "sms",
+            "phone_number": pending_data["phone"],
+            "enabled": 1,
+            "created_at": time.time(),
+        }
+    )
     _refresh_mfa_enabled(user["email"])
 
     # Generate backup codes if none exist
@@ -4052,6 +4211,7 @@ _WEBAUTHN_ORIGIN = os.environ.get("XCELSIOR_WEBAUTHN_ORIGIN", "https://xcelsior.
 def _get_fido2_server():
     from fido2.server import Fido2Server
     from fido2.webauthn import PublicKeyCredentialRpEntity
+
     rp = PublicKeyCredentialRpEntity(id=_WEBAUTHN_RP_ID, name=_WEBAUTHN_RP_NAME)
     return Fido2Server(rp)
 
@@ -4089,7 +4249,11 @@ def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Reque
     if not user:
         raise HTTPException(401, "Not authenticated")
 
-    from fido2.webauthn import PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor, PublicKeyCredentialType
+    from fido2.webauthn import (
+        PublicKeyCredentialUserEntity,
+        PublicKeyCredentialDescriptor,
+        PublicKeyCredentialType,
+    )
 
     server = _get_fido2_server()
     user_entity = PublicKeyCredentialUserEntity(
@@ -4115,16 +4279,20 @@ def api_mfa_passkey_register_options(req: PasskeyRegisterRequest, request: Reque
 
     # Store state in challenge
     state_id = f"passkey-reg:{secrets.token_urlsafe(16)}"
-    MfaStore.create_challenge({
-        "challenge_id": state_id,
-        "email": user["email"],
-        "challenge_data": json.dumps({
-            "state": _webauthn_options_to_json(state),
-            "device_name": req.device_name,
-        }),
-        "created_at": time.time(),
-        "expires_at": time.time() + 300,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": state_id,
+            "email": user["email"],
+            "challenge_data": json.dumps(
+                {
+                    "state": _webauthn_options_to_json(state),
+                    "device_name": req.device_name,
+                }
+            ),
+            "created_at": time.time(),
+            "expires_at": time.time() + 300,
+        }
+    )
 
     return {"ok": True, "options": options_dict, "state_id": state_id}
 
@@ -4184,16 +4352,18 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
     credential_id_b64 = _b64url_encode(cred_data.credential_id)
     public_key_b64 = _b64url_encode(bytes(cred_data))
 
-    method_id = MfaStore.create_method({
-        "email": user["email"],
-        "method_type": "passkey",
-        "credential_id": credential_id_b64,
-        "public_key": public_key_b64,
-        "sign_count": 0,
-        "device_name": device_name,
-        "enabled": 1,
-        "created_at": time.time(),
-    })
+    method_id = MfaStore.create_method(
+        {
+            "email": user["email"],
+            "method_type": "passkey",
+            "credential_id": credential_id_b64,
+            "public_key": public_key_b64,
+            "sign_count": 0,
+            "device_name": device_name,
+            "enabled": 1,
+            "created_at": time.time(),
+        }
+    )
     _refresh_mfa_enabled(user["email"])
 
     # Generate backup codes if none exist
@@ -4270,16 +4440,20 @@ def api_mfa_passkey_authenticate_options(req: PasskeyAuthenticateOptionsRequest)
 
     # Store WebAuthn state
     state_id = f"passkey-auth:{secrets.token_urlsafe(16)}"
-    MfaStore.create_challenge({
-        "challenge_id": state_id,
-        "email": email,
-        "challenge_data": json.dumps({
-            "state": _webauthn_options_to_json(state),
-            "login_challenge_id": req.challenge_id,
-        }),
-        "created_at": time.time(),
-        "expires_at": time.time() + 300,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": state_id,
+            "email": email,
+            "challenge_data": json.dumps(
+                {
+                    "state": _webauthn_options_to_json(state),
+                    "login_challenge_id": req.challenge_id,
+                }
+            ),
+            "created_at": time.time(),
+            "expires_at": time.time() + 300,
+        }
+    )
 
     return {"ok": True, "options": options_dict, "state_id": state_id}
 
@@ -4290,7 +4464,9 @@ class PasskeyAuthenticateCompleteRequest(BaseModel):
 
 
 @app.post("/api/auth/mfa/passkey/authenticate-complete", tags=["Auth – MFA"])
-def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteRequest, request: Request):
+def api_mfa_passkey_authenticate_complete(
+    req: PasskeyAuthenticateCompleteRequest, request: Request
+):
     """Verify passkey authentication to complete MFA login."""
     challenge = MfaStore.get_challenge(req.state_id)
     if not challenge:
@@ -4361,6 +4537,7 @@ def api_mfa_passkey_authenticate_complete(req: PasskeyAuthenticateCompleteReques
 
 
 # ── MFA: Login verification ──
+
 
 class MfaVerifyLogin(BaseModel):
     challenge_id: str
@@ -4443,13 +4620,15 @@ def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
     code_hash = _hash_backup_code(code)
     sms_login_id = f"sms-login:{email}"
     MfaStore.delete_challenge(sms_login_id)
-    MfaStore.create_challenge({
-        "challenge_id": sms_login_id,
-        "email": email,
-        "challenge_data": json.dumps({"code_hash": code_hash}),
-        "created_at": time.time(),
-        "expires_at": time.time() + 600,
-    })
+    MfaStore.create_challenge(
+        {
+            "challenge_id": sms_login_id,
+            "email": email,
+            "challenge_data": json.dumps({"code_hash": code_hash}),
+            "created_at": time.time(),
+            "expires_at": time.time() + 600,
+        }
+    )
 
     if os.environ.get("XCELSIOR_ENV") == "test":
         return {"ok": True, "message": "Code sent", "test_code": code}
@@ -4459,6 +4638,7 @@ def api_mfa_sms_send_login(req: MfaSendSmsRequest, request: Request):
 
 
 # ── MFA: Backup codes ──
+
 
 @app.post("/api/auth/mfa/backup-codes/regenerate", tags=["Auth – MFA"])
 def api_mfa_regenerate_backup_codes(request: Request):
@@ -4478,6 +4658,7 @@ def api_mfa_regenerate_backup_codes(request: Request):
 
 # ── MFA: Disable all ──
 
+
 @app.delete("/api/auth/mfa/all", tags=["Auth – MFA"])
 def api_mfa_disable_all(request: Request):
     """Disable all MFA methods for the user."""
@@ -4486,6 +4667,7 @@ def api_mfa_disable_all(request: Request):
         raise HTTPException(401, "Not authenticated")
 
     from db import auth_connection
+
     with auth_connection() as conn:
         conn.execute("DELETE FROM mfa_methods WHERE email = %s", (user["email"],))
         conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (user["email"],))
@@ -4511,6 +4693,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     _check_auth_rate_limit(request)
     if _USE_PERSISTENT_AUTH:
         from db import auth_connection
+
         with auth_connection() as conn:
             row = conn.execute(
                 "SELECT email, email_verification_expires FROM users WHERE email_verification_token = %s",
@@ -4530,7 +4713,9 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
             for em, u in _users_db.items():
                 if u.get("email_verification_token") == req.token:
                     if time.time() > u.get("email_verification_expires", 0):
-                        raise HTTPException(400, "Verification link has expired. Please request a new one.")
+                        raise HTTPException(
+                            400, "Verification link has expired. Please request a new one."
+                        )
                     u["email_verified"] = 1
                     u.pop("email_verification_token", None)
                     u.pop("email_verification_expires", None)
@@ -4602,7 +4787,10 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
 
     if not user:
         # Don't reveal whether the email exists
-        return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
+        return {
+            "ok": True,
+            "message": "If that email is registered, a verification link has been sent.",
+        }
 
     if user.get("email_verified"):
         return {"ok": True, "message": "Email is already verified."}
@@ -4611,10 +4799,13 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     verification_expires = time.time() + 86400
 
     if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, {
-            "email_verification_token": verification_token,
-            "email_verification_expires": verification_expires,
-        })
+        UserStore.update_user(
+            email,
+            {
+                "email_verification_token": verification_token,
+                "email_verification_expires": verification_expires,
+            },
+        )
     else:
         with _user_lock:
             u = _users_db.get(email)
@@ -4639,7 +4830,10 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     except Exception as e:
         log.debug("verification email send failed: %s", e)
 
-    return {"ok": True, "message": "If that email is registered, a verification link has been sent."}
+    return {
+        "ok": True,
+        "message": "If that email is registered, a verification link has been sent.",
+    }
 
 
 # ── Session Management ────────────────────────────────────────────────
@@ -4664,22 +4858,25 @@ def api_auth_list_sessions(request: Request):
     else:
         with _user_lock:
             sessions = [
-                s for s in _sessions.values()
+                s
+                for s in _sessions.values()
                 if s.get("email") == user["email"] and s["expires_at"] > time.time()
             ]
 
     result = []
     for s in sessions:
         token = s["token"]
-        result.append({
-            "token_prefix": token[:8],
-            "is_current": token == current_token,
-            "ip_address": s.get("ip_address", ""),
-            "user_agent": s.get("user_agent", ""),
-            "created_at": s.get("created_at"),
-            "last_active": s.get("last_active"),
-            "expires_at": s.get("expires_at"),
-        })
+        result.append(
+            {
+                "token_prefix": token[:8],
+                "is_current": token == current_token,
+                "ip_address": s.get("ip_address", ""),
+                "user_agent": s.get("user_agent", ""),
+                "created_at": s.get("created_at"),
+                "last_active": s.get("last_active"),
+                "expires_at": s.get("expires_at"),
+            }
+        )
 
     return {"ok": True, "sessions": result}
 
@@ -4712,7 +4909,13 @@ def api_auth_revoke_session(token_prefix: str, request: Request):
 # Teams share billing, hosts, and job visibility
 
 
-def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str | None = None, cta_label: str = "Go to Dashboard"):
+def _send_team_email(
+    to_email: str,
+    subject: str,
+    body_text: str,
+    cta_url: str | None = None,
+    cta_label: str = "Go to Dashboard",
+):
     """Send a styled team notification email in a background thread. Best-effort.
 
     Matches the dark-theme style from frontend/src/emails/layout.tsx.
@@ -4780,6 +4983,7 @@ def _send_team_email(to_email: str, subject: str, body_text: str, cta_url: str |
             log.warning("TEAM EMAIL FAILED: %s -> %s | %s", subject, to_email, e)
 
     import threading
+
     threading.Thread(target=_do_send, daemon=True).start()
 
 
@@ -4928,7 +5132,9 @@ def api_remove_team_member(team_id: str, email: str, request: Request):
 
 
 @app.patch("/api/teams/{team_id}/members/{email}", tags=["Teams"])
-def api_update_team_member_role(team_id: str, email: str, body: UpdateTeamMemberRoleRequest, request: Request):
+def api_update_team_member_role(
+    team_id: str, email: str, body: UpdateTeamMemberRoleRequest, request: Request
+):
     """Update a team member's role. Only admins can change roles."""
     user = _get_current_user(request)
     if not user:
@@ -5776,6 +5982,7 @@ def healthz():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -5783,9 +5990,15 @@ def healthz():
             checks["database"] = "connected" if r else "error"
 
             # Counts for observability
-            hosts = conn.execute("SELECT COUNT(*) as cnt FROM hosts WHERE status = 'active'").fetchone()
-            jobs = conn.execute("SELECT COUNT(*) as cnt FROM jobs WHERE status = 'running'").fetchone()
-            queued = conn.execute("SELECT COUNT(*) as cnt FROM jobs WHERE status = 'queued'").fetchone()
+            hosts = conn.execute(
+                "SELECT COUNT(*) as cnt FROM hosts WHERE status = 'active'"
+            ).fetchone()
+            jobs = conn.execute(
+                "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'running'"
+            ).fetchone()
+            queued = conn.execute(
+                "SELECT COUNT(*) as cnt FROM jobs WHERE status = 'queued'"
+            ).fetchone()
             checks["active_hosts"] = hosts["cnt"] if hosts else 0
             checks["running_jobs"] = jobs["cnt"] if jobs else 0
             checks["queued_jobs"] = queued["cnt"] if queued else 0
@@ -5859,13 +6072,16 @@ def metrics_prometheus():
     # GPU telemetry if available
     try:
         from nvml_telemetry import get_all_gpu_stats
+
         gpu_stats = get_all_gpu_stats()
         if gpu_stats:
-            lines.extend([
-                "",
-                "# HELP xcelsior_gpu_utilization_percent GPU utilization percentage",
-                "# TYPE xcelsior_gpu_utilization_percent gauge",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_utilization_percent GPU utilization percentage",
+                    "# TYPE xcelsior_gpu_utilization_percent gauge",
+                ]
+            )
             for gs in gpu_stats:
                 idx = gs.get("index", 0)
                 model = gs.get("name", "unknown").replace(" ", "_")
@@ -5873,21 +6089,25 @@ def metrics_prometheus():
                     f'xcelsior_gpu_utilization_percent{{gpu="{idx}",model="{model}"}} '
                     f'{gs.get("utilization", 0)}'
                 )
-            lines.extend([
-                "",
-                "# HELP xcelsior_gpu_temperature_celsius GPU temperature",
-                "# TYPE xcelsior_gpu_temperature_celsius gauge",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_temperature_celsius GPU temperature",
+                    "# TYPE xcelsior_gpu_temperature_celsius gauge",
+                ]
+            )
             for gs in gpu_stats:
                 idx = gs.get("index", 0)
                 lines.append(
                     f'xcelsior_gpu_temperature_celsius{{gpu="{idx}"}} {gs.get("temperature", 0)}'
                 )
-            lines.extend([
-                "",
-                "# HELP xcelsior_gpu_memory_used_bytes GPU memory used",
-                "# TYPE xcelsior_gpu_memory_used_bytes gauge",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "# HELP xcelsior_gpu_memory_used_bytes GPU memory used",
+                    "# TYPE xcelsior_gpu_memory_used_bytes gauge",
+                ]
+            )
             for gs in gpu_stats:
                 idx = gs.get("index", 0)
                 lines.append(
@@ -5901,6 +6121,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -5908,12 +6129,14 @@ def metrics_prometheus():
                 "SELECT COUNT(*) as pending FROM stripe_event_inbox WHERE status = 'pending'"
             ).fetchone()
             backlog = row["pending"] if row else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_webhook_backlog Pending webhook events",
-            "# TYPE xcelsior_webhook_backlog gauge",
-            f"xcelsior_webhook_backlog {backlog}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_webhook_backlog Pending webhook events",
+                "# TYPE xcelsior_webhook_backlog gauge",
+                f"xcelsior_webhook_backlog {backlog}",
+            ]
+        )
     except Exception as e:
         log.debug("webhook backlog metric failed: %s", e)
 
@@ -5921,17 +6144,19 @@ def metrics_prometheus():
     try:
         _snap_running = snap.get("running_jobs", 0)
         _snap_queued = snap.get("queue_depth", 0)
-        lines.extend([
-            "",
-            "# HELP xcelsior_scheduling_latency_seconds Scheduling cycle latency",
-            "# TYPE xcelsior_scheduling_latency_seconds histogram",
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="0.1"}} {_snap_running}',
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="1.0"}} {_snap_running}',
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="10.0"}} {_snap_running + _snap_queued}',
-            f'xcelsior_scheduling_latency_seconds_bucket{{le="+Inf"}} {_snap_running + _snap_queued}',
-            f"xcelsior_scheduling_latency_seconds_sum 0",
-            f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_scheduling_latency_seconds Scheduling cycle latency",
+                "# TYPE xcelsior_scheduling_latency_seconds histogram",
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="0.1"}} {_snap_running}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="1.0"}} {_snap_running}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="10.0"}} {_snap_running + _snap_queued}',
+                f'xcelsior_scheduling_latency_seconds_bucket{{le="+Inf"}} {_snap_running + _snap_queued}',
+                f"xcelsior_scheduling_latency_seconds_sum 0",
+                f"xcelsior_scheduling_latency_seconds_count {_snap_running + _snap_queued}",
+            ]
+        )
     except Exception as e:
         log.debug("scheduling latency metric failed: %s", e)
 
@@ -5939,6 +6164,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool as _pgp2
         from psycopg.rows import dict_row as _dr2
+
         pool2 = _pgp2()
         with pool2.connection() as conn2:
             conn2.row_factory = _dr2
@@ -5946,12 +6172,14 @@ def metrics_prometheus():
                 "SELECT COUNT(*) as cnt FROM wallet_transactions WHERE description LIKE '%grace%' OR description LIKE '%suspend%'"
             ).fetchone()
             dep_cnt = dep_row["cnt"] if dep_row else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_wallet_depletion_events_total Total wallet depletion events",
-            "# TYPE xcelsior_wallet_depletion_events_total counter",
-            f"xcelsior_wallet_depletion_events_total {dep_cnt}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_wallet_depletion_events_total Total wallet depletion events",
+                "# TYPE xcelsior_wallet_depletion_events_total counter",
+                f"xcelsior_wallet_depletion_events_total {dep_cnt}",
+            ]
+        )
     except Exception as e:
         log.debug("wallet depletion metric failed: %s", e)
 
@@ -5959,6 +6187,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool as _pgp3
         from psycopg.rows import dict_row as _dr3
+
         pool3 = _pgp3()
         with pool3.connection() as conn3:
             conn3.row_factory = _dr3
@@ -5969,12 +6198,14 @@ def metrics_prometheus():
             warm = cache_row["warm"] if cache_row else 0
             total_infer = cold + warm
             cold_rate = round(cold / total_infer, 4) if total_infer > 0 else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_inference_cold_start_rate Fraction of inference requests requiring cold start",
-            "# TYPE xcelsior_inference_cold_start_rate gauge",
-            f"xcelsior_inference_cold_start_rate {cold_rate}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_inference_cold_start_rate Fraction of inference requests requiring cold start",
+                "# TYPE xcelsior_inference_cold_start_rate gauge",
+                f"xcelsior_inference_cold_start_rate {cold_rate}",
+            ]
+        )
     except Exception as e:
         log.debug("inference cold start metric failed: %s", e)
 
@@ -5982,6 +6213,7 @@ def metrics_prometheus():
     try:
         from db import _get_pg_pool as _pgp4
         from psycopg.rows import dict_row as _dr4
+
         pool4 = _pgp4()
         with pool4.connection() as conn4:
             conn4.row_factory = _dr4
@@ -5993,16 +6225,19 @@ def metrics_prometheus():
                      AND result->>'tokens_generated' IS NOT NULL"""
             ).fetchone()
             tps = round(tps_row["tps"], 2) if tps_row else 0
-        lines.extend([
-            "",
-            "# HELP xcelsior_inference_tokens_per_second Aggregate inference throughput",
-            "# TYPE xcelsior_inference_tokens_per_second gauge",
-            f"xcelsior_inference_tokens_per_second {tps}",
-        ])
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_inference_tokens_per_second Aggregate inference throughput",
+                "# TYPE xcelsior_inference_tokens_per_second gauge",
+                f"xcelsior_inference_tokens_per_second {tps}",
+            ]
+        )
     except Exception as e:
         log.debug("inference tokens/sec metric failed: %s", e)
 
     from starlette.responses import Response
+
     return Response(
         content="\n".join(lines) + "\n",
         media_type="text/plain; version=0.0.4; charset=utf-8",
@@ -6310,8 +6545,14 @@ def api_claim_free_credits(customer_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Authentication required")
     # Resolve customer_id from full user profile (session may lack it)
-    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
-    uid = (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    full_user = (
+        UserStore.get_user(user["email"])
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
+    uid = (
+        (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    )
     if uid != customer_id:
         raise HTTPException(403, "You can only claim credits for your own account")
 
@@ -6339,8 +6580,14 @@ def api_free_credits_status(customer_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Authentication required")
     # Resolve customer_id from full user profile (session may lack it)
-    full_user = UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
-    uid = (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    full_user = (
+        UserStore.get_user(user["email"])
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
+    uid = (
+        (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
+    )
     if uid != customer_id:
         raise HTTPException(403, "Forbidden")
     be = get_billing_engine()
@@ -6710,6 +6957,7 @@ def api_reputation_me(request: Request):
         return {"ok": True, "score": 0, "tier": "bronze"}
     if user:
         from routes._deps import _require_scope
+
         _require_scope(user, "reputation:read")
     re = get_reputation_engine()
     score = re.compute_score(user_id)
@@ -7241,26 +7489,72 @@ def api_compliance_status(request: Request):
     user_customer_id = (full_user.get("customer_id") or "") if full_user else ""
 
     # 1. Province Tax Matrix — platform-level, always passes if code is correct
-    expected_provinces = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
+    expected_provinces = {
+        "AB",
+        "BC",
+        "MB",
+        "NB",
+        "NL",
+        "NS",
+        "NT",
+        "NU",
+        "ON",
+        "PE",
+        "QC",
+        "SK",
+        "YT",
+    }
     configured = set(PROVINCE_TAX_RATES.keys())
     missing = expected_provinces - configured
     if not missing:
-        checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "pass",
-                        "description": f"Tax rates configured for all {len(configured)} provinces and territories."})
+        checks.append(
+            {
+                "id": "province_matrix",
+                "name": "Province Tax Matrix",
+                "status": "pass",
+                "description": f"Tax rates configured for all {len(configured)} provinces and territories.",
+            }
+        )
     else:
-        checks.append({"id": "province_matrix", "name": "Province Tax Matrix", "status": "fail",
-                        "description": f"Missing tax rates for: {', '.join(sorted(missing))}. Contact support to resolve.",
-                        "action": {"label": "View tax matrix", "href": "/dashboard/compliance?tab=provinces"}})
+        checks.append(
+            {
+                "id": "province_matrix",
+                "name": "Province Tax Matrix",
+                "status": "fail",
+                "description": f"Missing tax rates for: {', '.join(sorted(missing))}. Contact support to resolve.",
+                "action": {
+                    "label": "View tax matrix",
+                    "href": "/dashboard/compliance?tab=provinces",
+                },
+            }
+        )
 
     # 2. Data Residency — requires user to enable Canada-only routing in settings
     canada_only_env = os.environ.get("XCELSIOR_CANADA_ONLY", "false").lower() == "true"
     if canada_only_user or canada_only_env:
-        checks.append({"id": "data_residency", "name": "Data Residency", "status": "pass",
-                        "description": "Canada-only data residency enforced." + (" Your account restricts all compute and storage to Canadian infrastructure." if canada_only_user else " Platform-wide enforcement active.")})
+        checks.append(
+            {
+                "id": "data_residency",
+                "name": "Data Residency",
+                "status": "pass",
+                "description": "Canada-only data residency enforced."
+                + (
+                    " Your account restricts all compute and storage to Canadian infrastructure."
+                    if canada_only_user
+                    else " Platform-wide enforcement active."
+                ),
+            }
+        )
     else:
-        checks.append({"id": "data_residency", "name": "Data Residency", "status": "warn",
-                        "description": "Canada-only routing is not enabled. Enable it in your Jurisdiction settings to restrict all compute and data to Canadian infrastructure.",
-                        "action": {"label": "Open Jurisdiction settings", "href": "/dashboard/settings"}})
+        checks.append(
+            {
+                "id": "data_residency",
+                "name": "Data Residency",
+                "status": "warn",
+                "description": "Canada-only routing is not enabled. Enable it in your Jurisdiction settings to restrict all compute and data to Canadian infrastructure.",
+                "action": {"label": "Open Jurisdiction settings", "href": "/dashboard/settings"},
+            }
+        )
 
     # 3. Trust Tiers — requires user to have registered provider hosts
     expected_tiers = 4
@@ -7268,6 +7562,7 @@ def api_compliance_status(request: Request):
     has_hosts = False
     if user_id:
         from db import auth_connection
+
         with auth_connection() as conn:
             cnt = conn.execute(
                 "SELECT COUNT(*) AS c FROM hosts WHERE payload->>'user_id' = %s AND status = 'active'",
@@ -7275,29 +7570,65 @@ def api_compliance_status(request: Request):
             ).fetchone()
             has_hosts = cnt and cnt["c"] > 0
     if tier_count >= expected_tiers and has_hosts:
-        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "pass",
-                        "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system."})
+        checks.append(
+            {
+                "id": "trust_tiers",
+                "name": "Trust Tier Definitions",
+                "status": "pass",
+                "description": f"{tier_count} trust tiers active. Your hosts are enrolled and earning reputation in the tier system.",
+            }
+        )
     elif tier_count >= expected_tiers:
-        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
-                        "action": {"label": "Register a host", "href": "/dashboard/hosts"}})
+        checks.append(
+            {
+                "id": "trust_tiers",
+                "name": "Trust Tier Definitions",
+                "status": "warn",
+                "description": f"{tier_count} tiers defined but you have no active provider hosts. Register a GPU host to participate in the trust tier system.",
+                "action": {"label": "Register a host", "href": "/dashboard/hosts"},
+            }
+        )
     else:
-        checks.append({"id": "trust_tiers", "name": "Trust Tier Definitions", "status": "warn",
-                        "description": f"Only {tier_count}/{expected_tiers} trust tiers defined.",
-                        "action": {"label": "View trust tiers", "href": "/dashboard/trust"}})
+        checks.append(
+            {
+                "id": "trust_tiers",
+                "name": "Trust Tier Definitions",
+                "status": "warn",
+                "description": f"Only {tier_count}/{expected_tiers} trust tiers defined.",
+                "action": {"label": "View trust tiers", "href": "/dashboard/trust"},
+            }
+        )
 
     # 4. Québec Law 25 (PIA) — requires user to set their province
     if user_province:
         if user_province == "QC":
-            checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                            "description": "Province set to QC — Privacy Impact Assessments are enforced automatically for all data transfers involving Quebec residents."})
+            checks.append(
+                {
+                    "id": "quebec_law25",
+                    "name": "Québec Law 25 (PIA)",
+                    "status": "pass",
+                    "description": "Province set to QC — Privacy Impact Assessments are enforced automatically for all data transfers involving Quebec residents.",
+                }
+            )
         else:
-            checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "pass",
-                            "description": f"Province set to {user_province}. PIA checks will apply automatically if you process data from QC residents."})
+            checks.append(
+                {
+                    "id": "quebec_law25",
+                    "name": "Québec Law 25 (PIA)",
+                    "status": "pass",
+                    "description": f"Province set to {user_province}. PIA checks will apply automatically if you process data from QC residents.",
+                }
+            )
     else:
-        checks.append({"id": "quebec_law25", "name": "Québec Law 25 (PIA)", "status": "warn",
-                        "description": "Your province is not set. Set your province in Settings so Law 25 compliance checks can be applied automatically.",
-                        "action": {"label": "Update your profile", "href": "/dashboard/settings"}})
+        checks.append(
+            {
+                "id": "quebec_law25",
+                "name": "Québec Law 25 (PIA)",
+                "status": "warn",
+                "description": "Your province is not set. Set your province in Settings so Law 25 compliance checks can be applied automatically.",
+                "action": {"label": "Update your profile", "href": "/dashboard/settings"},
+            }
+        )
 
     # 5. Audit Trail — checks for user-specific events, not just global existence
     try:
@@ -7309,52 +7640,110 @@ def api_compliance_status(request: Request):
         else:
             has_events = False
         if has_events:
-            checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "pass",
-                            "description": "Tamper-evident event logging active. All actions are recorded with hash-chain integrity for full auditability."})
+            checks.append(
+                {
+                    "id": "audit_trail",
+                    "name": "Audit Trail",
+                    "status": "pass",
+                    "description": "Tamper-evident event logging active. All actions are recorded with hash-chain integrity for full auditability.",
+                }
+            )
         else:
-            checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "warn",
-                            "description": "No audit events recorded yet. Submit a job or launch an instance to start generating your compliance audit trail.",
-                            "action": {"label": "Launch an instance", "href": "/dashboard/instances/new"}})
+            checks.append(
+                {
+                    "id": "audit_trail",
+                    "name": "Audit Trail",
+                    "status": "warn",
+                    "description": "No audit events recorded yet. Submit a job or launch an instance to start generating your compliance audit trail.",
+                    "action": {"label": "Launch an instance", "href": "/dashboard/instances/new"},
+                }
+            )
     except Exception as e:
         log.debug("audit trail check failed: %s", e)
-        checks.append({"id": "audit_trail", "name": "Audit Trail", "status": "fail",
-                        "description": "Event store unavailable — audit logging is disabled. Contact support.",
-                        "action": {"label": "View events", "href": "/dashboard/events"}})
+        checks.append(
+            {
+                "id": "audit_trail",
+                "name": "Audit Trail",
+                "status": "fail",
+                "description": "Event store unavailable — audit logging is disabled. Contact support.",
+                "action": {"label": "View events", "href": "/dashboard/events"},
+            }
+        )
 
     # 6. Payment Processing — check if THIS user has completed Stripe Connect onboarding
     try:
         mgr = get_stripe_manager()
         from stripe_connect import STRIPE_ENABLED
+
         if not STRIPE_ENABLED:
-            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Payment processing is not configured on this platform. Stripe Connect is required for provider payouts and customer billing.",
-                            "action": {"label": "View billing", "href": "/dashboard/billing"}})
+            checks.append(
+                {
+                    "id": "payment_rails",
+                    "name": "Payment Processing",
+                    "status": "warn",
+                    "description": "Payment processing is not configured on this platform. Stripe Connect is required for provider payouts and customer billing.",
+                    "action": {"label": "View billing", "href": "/dashboard/billing"},
+                }
+            )
         elif user_provider_id:
             # User is a provider — check if they've completed Stripe onboarding
             provider = mgr.get_provider(user_provider_id)
             if provider and provider.get("stripe_account_id"):
                 status = provider.get("status", "pending")
                 if status == "active":
-                    checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "pass",
-                                    "description": "Stripe Connect onboarded. Your provider account is active and ready to receive payouts."})
+                    checks.append(
+                        {
+                            "id": "payment_rails",
+                            "name": "Payment Processing",
+                            "status": "pass",
+                            "description": "Stripe Connect onboarded. Your provider account is active and ready to receive payouts.",
+                        }
+                    )
                 else:
-                    checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                                    "description": f"Stripe Connect account status: {status}. Complete your onboarding to start receiving provider payouts.",
-                                    "action": {"label": "Complete onboarding", "href": "/dashboard/earnings"}})
+                    checks.append(
+                        {
+                            "id": "payment_rails",
+                            "name": "Payment Processing",
+                            "status": "warn",
+                            "description": f"Stripe Connect account status: {status}. Complete your onboarding to start receiving provider payouts.",
+                            "action": {
+                                "label": "Complete onboarding",
+                                "href": "/dashboard/earnings",
+                            },
+                        }
+                    )
             else:
-                checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                                "description": "You are registered as a provider but have not completed Stripe Connect onboarding. Complete it to receive payouts.",
-                                "action": {"label": "Set up Stripe Connect", "href": "/dashboard/earnings"}})
+                checks.append(
+                    {
+                        "id": "payment_rails",
+                        "name": "Payment Processing",
+                        "status": "warn",
+                        "description": "You are registered as a provider but have not completed Stripe Connect onboarding. Complete it to receive payouts.",
+                        "action": {"label": "Set up Stripe Connect", "href": "/dashboard/earnings"},
+                    }
+                )
         else:
             # Not a provider — check from customer perspective
-            checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "warn",
-                            "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
-                            "action": {"label": "Become a provider", "href": "/dashboard/earnings"}})
+            checks.append(
+                {
+                    "id": "payment_rails",
+                    "name": "Payment Processing",
+                    "status": "warn",
+                    "description": "Stripe Connect is available. Register as a provider and complete Stripe onboarding to earn from your GPU resources.",
+                    "action": {"label": "Become a provider", "href": "/dashboard/earnings"},
+                }
+            )
     except Exception as e:
         log.debug("payment rails check failed: %s", e)
-        checks.append({"id": "payment_rails", "name": "Payment Processing", "status": "fail",
-                        "description": "Payment processing module unavailable. Contact support.",
-                        "action": {"label": "View billing", "href": "/dashboard/billing"}})
+        checks.append(
+            {
+                "id": "payment_rails",
+                "name": "Payment Processing",
+                "status": "fail",
+                "description": "Payment processing module unavailable. Contact support.",
+                "action": {"label": "View billing", "href": "/dashboard/billing"},
+            }
+        )
 
     return {"ok": True, "checks": checks}
 
@@ -7385,9 +7774,21 @@ def api_tax_rates():
     rates = {}
     for code, (total, desc) in PROVINCE_TAX_RATES.items():
         if code in HST_PROVINCES:
-            rates[code] = {"rate": total, "description": desc, "gst": 0, "pst": 0, "hst": HST_PROVINCES[code]}
+            rates[code] = {
+                "rate": total,
+                "description": desc,
+                "gst": 0,
+                "pst": 0,
+                "hst": HST_PROVINCES[code],
+            }
         elif code in PST_PROVINCES:
-            rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": PST_PROVINCES[code], "hst": 0}
+            rates[code] = {
+                "rate": total,
+                "description": desc,
+                "gst": 0.05,
+                "pst": PST_PROVINCES[code],
+                "hst": 0,
+            }
         else:
             # GST-only (AB, territories)
             rates[code] = {"rate": total, "description": desc, "gst": 0.05, "pst": 0, "hst": 0}
@@ -7534,11 +7935,13 @@ def api_get_consents(entity_id: str):
 # "Log all access/subpoenas in DB; API /transparency/report"
 # Tracks legal requests, data disclosures, and CLOUD Act diligence.
 
+
 @contextmanager
 def _transparency_db():
     """PostgreSQL connection for transparency tables."""
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -7762,7 +8165,9 @@ def api_agent_verify(payload: VerificationReportPayload):
     result = ve.run_verification(payload.host_id, payload.report)
 
     # Wire verification → reputation: grant HARDWARE_AUDIT points on pass
-    if result.state == "verified" or (hasattr(result.state, "value") and result.state.value == "verified"):
+    if result.state == "verified" or (
+        hasattr(result.state, "value") and result.state.value == "verified"
+    ):
         try:
             re = get_reputation_engine()
             re.add_verification(payload.host_id, VerificationType.HARDWARE_AUDIT)
@@ -7970,6 +8375,7 @@ def api_register_provider(req: ProviderRegisterRequest):
     )
     # Link provider_id to user account
     from db import UserStore
+
     UserStore.update_user(req.email, {"provider_id": req.provider_id})
 
     broadcast_sse(
@@ -8270,6 +8676,7 @@ def api_inference_submit(req: InferenceRequest, request: Request):
 
     # Wallet pre-flight
     from billing import get_billing_engine
+
     _w = get_billing_engine().get_wallet(customer_id)
     if _w.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
@@ -8391,6 +8798,7 @@ def api_inference_post_result(job_id: str, body: InferenceResultCallback):
 
 class V1InferenceRequest(BaseModel):
     """OpenAI-compatible inference request for /v1/inference."""
+
     model: str = Field(..., description="Model name or HuggingFace repo")
     inputs: list[str] | str = Field(..., description="Text input(s) for inference")
     max_tokens: int = Field(512, ge=1, le=8192)
@@ -8411,6 +8819,7 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
 
     # Wallet pre-flight
     from billing import get_billing_engine
+
     _w = get_billing_engine().get_wallet(customer_id)
     if _w.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
@@ -8469,7 +8878,8 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
                     "usage": {
                         "input_tokens": result.get("input_tokens", 0),
                         "output_tokens": result.get("output_tokens", 0),
-                        "total_tokens": result.get("input_tokens", 0) + result.get("output_tokens", 0),
+                        "total_tokens": result.get("input_tokens", 0)
+                        + result.get("output_tokens", 0),
                     },
                     "latency_ms": result.get("latency_ms", 0),
                 }
@@ -8497,6 +8907,7 @@ def api_v1_inference_async(body: V1InferenceRequest, request: Request):
 
     # Wallet pre-flight
     from billing import get_billing_engine
+
     _w = get_billing_engine().get_wallet(customer_id)
     if _w.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
@@ -8585,6 +8996,7 @@ def api_list_all_artifacts():
     try:
         artifacts = []
         from artifacts import ArtifactType as AT
+
         for atype in AT:
             artifacts.extend(mgr.primary.list_objects(f"{atype.value}/"))
         return {"ok": True, "artifacts": artifacts}
@@ -8597,6 +9009,7 @@ def api_slurm_list_instances(request: Request):
     """List all tracked Slurm jobs."""
     _require_provider_or_admin(request)
     from slurm_adapter import _load_slurm_map, get_slurm_job_status
+
     job_map = _load_slurm_map()
     jobs = []
     for xcelsior_id, slurm_id in job_map.items():
@@ -8627,6 +9040,7 @@ def api_get_user_preferences(request: Request):
     if isinstance(raw_prefs, str):
         try:
             import json as _json
+
             raw_prefs = _json.loads(raw_prefs)
         except Exception as e:
             raw_prefs = {}
@@ -8662,6 +9076,7 @@ def api_set_user_preferences(request: Request, body: dict):
             if isinstance(existing_prefs, str):
                 try:
                     import json as _json
+
                     existing_prefs = _json.loads(existing_prefs)
                 except Exception as e:
                     existing_prefs = {}
@@ -8749,6 +9164,7 @@ def api_admin_stats(request: Request):
     try:
         be = get_billing_engine()
         import datetime as _dt
+
         now = _dt.datetime.now(_dt.timezone.utc)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
         with be._conn() as conn:
@@ -8814,17 +9230,19 @@ def api_admin_users(request: Request):
         cid = u.get("customer_id", u.get("email", ""))
         email = u.get("email", "")
         last_at = last_activity_map.get(email, 0.0)
-        safe_users.append({
-            "email": email,
-            "role": u.get("role", "submitter"),
-            "is_admin": 1 if _is_platform_admin(u) else 0,
-            "is_active": last_at >= active_threshold,
-            "created_at": created_iso,
-            "wallet_balance_cad": wallet_map.get(cid, 0.0),
-            "total_jobs": job_count_map.get(email, 0),
-            "province": u.get("province", ""),
-            "country": u.get("country", ""),
-        })
+        safe_users.append(
+            {
+                "email": email,
+                "role": u.get("role", "submitter"),
+                "is_admin": 1 if _is_platform_admin(u) else 0,
+                "is_active": last_at >= active_threshold,
+                "created_at": created_iso,
+                "wallet_balance_cad": wallet_map.get(cid, 0.0),
+                "total_jobs": job_count_map.get(email, 0),
+                "province": u.get("province", ""),
+                "country": u.get("country", ""),
+            }
+        )
     return {"ok": True, "users": safe_users}
 
 
@@ -8868,11 +9286,15 @@ def api_admin_overview(request: Request, days: int = 30):
             revenue_mtd = round(float(row["rev"]), 2) if row else 0.0
 
             # Total revenue
-            row = conn.execute("SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters").fetchone()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(total_cost_cad), 0) AS rev FROM usage_meters"
+            ).fetchone()
             revenue_total = round(float(row["rev"]), 2) if row else 0.0
 
             # Total GPU hours
-            row = conn.execute("SELECT COALESCE(SUM(gpu_seconds), 0) AS s FROM usage_meters").fetchone()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(gpu_seconds), 0) AS s FROM usage_meters"
+            ).fetchone()
             total_gpu_hours = round(float(row["s"]) / 3600, 1) if row else 0.0
 
             # 30-day revenue trend
@@ -8890,6 +9312,7 @@ def api_admin_overview(request: Request, days: int = 30):
     # 30-day signup trend
     try:
         from db import auth_connection
+
         with auth_connection() as conn:
             for r in conn.execute(
                 "SELECT to_char(to_timestamp(created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS signups "
@@ -8902,8 +9325,17 @@ def api_admin_overview(request: Request, days: int = 30):
 
     # Period-over-period trends (this period vs previous period)
     prev_thirty = thirty_days_ago - days * 86400
-    prev_users = sum(1 for u in users if isinstance(u.get("created_at"), (int, float)) and prev_thirty <= u["created_at"] < thirty_days_ago)
-    curr_users = sum(1 for u in users if isinstance(u.get("created_at"), (int, float)) and u["created_at"] >= thirty_days_ago)
+    prev_users = sum(
+        1
+        for u in users
+        if isinstance(u.get("created_at"), (int, float))
+        and prev_thirty <= u["created_at"] < thirty_days_ago
+    )
+    curr_users = sum(
+        1
+        for u in users
+        if isinstance(u.get("created_at"), (int, float)) and u["created_at"] >= thirty_days_ago
+    )
 
     prev_revenue = 0.0
     try:
@@ -8925,8 +9357,18 @@ def api_admin_overview(request: Request, days: int = 30):
     curr_revenue = sum(d["revenue"] for d in daily_revenue)
 
     # Host registration trends (registered_at is a unix timestamp)
-    prev_hosts = sum(1 for h in hosts if isinstance(h.get("registered_at"), (int, float)) and prev_thirty <= h["registered_at"] < thirty_days_ago)
-    curr_hosts = sum(1 for h in hosts if isinstance(h.get("registered_at"), (int, float)) and h["registered_at"] >= thirty_days_ago)
+    prev_hosts = sum(
+        1
+        for h in hosts
+        if isinstance(h.get("registered_at"), (int, float))
+        and prev_thirty <= h["registered_at"] < thirty_days_ago
+    )
+    curr_hosts = sum(
+        1
+        for h in hosts
+        if isinstance(h.get("registered_at"), (int, float))
+        and h["registered_at"] >= thirty_days_ago
+    )
 
     # Job count trends from usage_meters
     prev_jobs = 0
@@ -9055,7 +9497,12 @@ def api_admin_revenue(request: Request, days: int = 90):
                 (since,),
             ).fetchall()
             result["daily"] = [
-                {"date": r["day"], "revenue": float(r["revenue"]), "jobs": r["jobs"], "gpu_hours": float(r["gpu_hours"])}
+                {
+                    "date": r["day"],
+                    "revenue": float(r["revenue"]),
+                    "jobs": r["jobs"],
+                    "gpu_hours": float(r["gpu_hours"]),
+                }
                 for r in rows
             ]
     except Exception as e:
@@ -9070,7 +9517,10 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(gpu_model, 'Unknown') ORDER BY revenue DESC",
                 (since,),
             ).fetchall()
-            result["by_gpu"] = [{"gpu_model": r["gpu_model"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows]
+            result["by_gpu"] = [
+                {"gpu_model": r["gpu_model"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch revenue by GPU", exc_info=True)
         result["by_gpu"] = []
@@ -9083,7 +9533,10 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM usage_meters WHERE created_at >= %s GROUP BY COALESCE(province, 'Unknown') ORDER BY revenue DESC",
                 (since,),
             ).fetchall()
-            result["by_province"] = [{"province": r["province"], "revenue": float(r["revenue"]), "jobs": r["jobs"]} for r in rows]
+            result["by_province"] = [
+                {"province": r["province"], "revenue": float(r["revenue"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch revenue by province", exc_info=True)
         result["by_province"] = []
@@ -9096,7 +9549,10 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM usage_meters WHERE created_at >= %s GROUP BY owner ORDER BY total_spend DESC LIMIT 10",
                 (since,),
             ).fetchall()
-            result["top_customers"] = [{"email": r["email"], "total_spend": float(r["total_spend"]), "jobs": r["jobs"]} for r in rows]
+            result["top_customers"] = [
+                {"email": r["email"], "total_spend": float(r["total_spend"]), "jobs": r["jobs"]}
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch top customers", exc_info=True)
         result["top_customers"] = []
@@ -9109,7 +9565,14 @@ def api_admin_revenue(request: Request, days: int = 90):
                 "FROM payout_ledger WHERE created_at >= %s GROUP BY provider_id ORDER BY earnings DESC LIMIT 10",
                 (since,),
             ).fetchall()
-            result["top_providers"] = [{"provider_id": r["provider_id"], "earnings": float(r["earnings"]), "jobs": r["jobs"]} for r in rows]
+            result["top_providers"] = [
+                {
+                    "provider_id": r["provider_id"],
+                    "earnings": float(r["earnings"]),
+                    "jobs": r["jobs"],
+                }
+                for r in rows
+            ]
     except Exception as e:
         log.warning("admin_revenue: failed to fetch top providers", exc_info=True)
         result["top_providers"] = []
@@ -9153,6 +9616,7 @@ def api_admin_infrastructure(request: Request):
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -9193,7 +9657,9 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
                 "event_type": e.event_type,
                 "entity_type": e.entity_type,
                 "entity_id": e.entity_id,
-                "timestamp": _dt.datetime.fromtimestamp(e.timestamp, tz=_dt.timezone.utc).isoformat(),
+                "timestamp": _dt.datetime.fromtimestamp(
+                    e.timestamp, tz=_dt.timezone.utc
+                ).isoformat(),
                 "actor": e.actor,
                 "data": e.data,
             }
@@ -9230,7 +9696,12 @@ def api_admin_activity(request: Request, days: int = 7, limit: int = 100):
                 (since,),
             ).fetchall()
             result["daily_jobs"] = [
-                {"date": r["day"], "submitted": r["submitted"], "completed": r["completed"], "failed": r["failed"]}
+                {
+                    "date": r["day"],
+                    "submitted": r["submitted"],
+                    "completed": r["completed"],
+                    "failed": r["failed"],
+                }
                 for r in rows
             ]
     except Exception as e:
@@ -9245,6 +9716,7 @@ def api_admin_verification_queue(request: Request):
     """Get verification queue for admin panel."""
     _require_admin(request)
     import datetime as _dt
+
     ve = get_verification_engine()
     store = ve.store
     hosts_map = {h["host_id"]: h for h in list_hosts(active_only=False)}
@@ -9259,15 +9731,21 @@ def api_admin_verification_queue(request: Request):
             hid = r["host_id"]
             h = hosts_map.get(hid, {})
             last_ts = r["last_check_at"]
-            queue.append({
-                "host_id": hid,
-                "state": r["state"],
-                "overall_score": float(r["overall_score"]),
-                "last_check_at": _dt.datetime.fromtimestamp(last_ts, tz=_dt.timezone.utc).isoformat() if last_ts else None,
-                "gpu_model": h.get("gpu_model") or "Unknown",
-                "province": h.get("province") or "Unknown",
-                "cost_per_hour": float(h.get("cost_per_hour", 0)),
-            })
+            queue.append(
+                {
+                    "host_id": hid,
+                    "state": r["state"],
+                    "overall_score": float(r["overall_score"]),
+                    "last_check_at": (
+                        _dt.datetime.fromtimestamp(last_ts, tz=_dt.timezone.utc).isoformat()
+                        if last_ts
+                        else None
+                    ),
+                    "gpu_model": h.get("gpu_model") or "Unknown",
+                    "province": h.get("province") or "Unknown",
+                    "cost_per_hour": float(h.get("cost_per_hour", 0)),
+                }
+            )
     except Exception as e:
         log.warning("admin_verification_queue: failed to fetch queue", exc_info=True)
         queue = []
@@ -9408,10 +9886,20 @@ from privacy import get_crypto_shredder, get_consent_manager, execute_right_to_e
 
 # ── GPU Marketplace Offers ────────────────────────────────────────────
 
-OPENAPI_TAGS.append({"name": "Marketplace v2", "description": "GPU marketplace offers, allocations, spot pricing, reservations."})
+OPENAPI_TAGS.append(
+    {
+        "name": "Marketplace v2",
+        "description": "GPU marketplace offers, allocations, spot pricing, reservations.",
+    }
+)
 OPENAPI_TAGS.append({"name": "Volumes", "description": "Persistent volume lifecycle management."})
 OPENAPI_TAGS.append({"name": "Cloud Burst", "description": "Cloud provider burst auto-scaling."})
-OPENAPI_TAGS.append({"name": "Inference v2", "description": "Production serverless inference with OpenAI-compatible API."})
+OPENAPI_TAGS.append(
+    {
+        "name": "Inference v2",
+        "description": "Production serverless inference with OpenAI-compatible API.",
+    }
+)
 
 
 class GPUOfferCreate(BaseModel):
@@ -9570,6 +10058,7 @@ def api_marketplace_release(allocation_id: str):
 
 # ── GPU Availability (shared by Serverless + Volumes) ─────────────────
 
+
 @app.get("/api/v2/gpu/available", tags=["GPU"])
 def api_gpu_available():
     """List available GPU types with regions, VRAM, pricing, and counts.
@@ -9581,6 +10070,7 @@ def api_gpu_available():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -9595,14 +10085,18 @@ def api_gpu_available():
         gpus = []
         source = "gpu_offers"
         for r in rows:
-            gpus.append({
-                "gpu_model": r["gpu_model"],
-                "vram_gb": r["vram_gb"],
-                "region": r["region"],
-                "province": r.get("province", ""),
-                "count_available": r["count_available"],
-                "price_per_hour_cad": round(r["min_price_cents"] / 100, 2) if r["min_price_cents"] else 0,
-            })
+            gpus.append(
+                {
+                    "gpu_model": r["gpu_model"],
+                    "vram_gb": r["vram_gb"],
+                    "region": r["region"],
+                    "province": r.get("province", ""),
+                    "count_available": r["count_available"],
+                    "price_per_hour_cad": (
+                        round(r["min_price_cents"] / 100, 2) if r["min_price_cents"] else 0
+                    ),
+                }
+            )
         if not gpus:
             # Fallback: derive from registered hosts
             source = "hosts"
@@ -9621,14 +10115,16 @@ def api_gpu_available():
                        ORDER BY payload->>'gpu_model'""",
                 ).fetchall()
             for h in hosts:
-                gpus.append({
-                    "gpu_model": h.get("gpu_model", "Unknown"),
-                    "vram_gb": h.get("total_vram_gb", 0),
-                    "region": h.get("region", "ca-east"),
-                    "province": h.get("province", ""),
-                    "count_available": h.get("count_available", 0),
-                    "price_per_hour_cad": round(float(h.get("min_price", 0)), 2),
-                })
+                gpus.append(
+                    {
+                        "gpu_model": h.get("gpu_model", "Unknown"),
+                        "vram_gb": h.get("total_vram_gb", 0),
+                        "region": h.get("region", "ca-east"),
+                        "province": h.get("province", ""),
+                        "count_available": h.get("count_available", 0),
+                        "price_per_hour_cad": round(float(h.get("min_price", 0)), 2),
+                    }
+                )
         if not gpus:
             source = "none"
             log.warning("GPU availability: no GPUs found in gpu_offers or hosts tables")
@@ -9640,6 +10136,7 @@ def api_gpu_available():
 
 # ── Inference v2: OpenAI-Compatible ───────────────────────────────────
 
+
 class InferenceEndpointCreate(BaseModel):
     model_name: str
     gpu_type: str = ""
@@ -9650,9 +10147,9 @@ class InferenceEndpointCreate(BaseModel):
     max_batch_size: int = 8
     max_concurrent: int = 4
     scaledown_window_sec: int = 300
-    mode: str = "sync"            # sync or async
+    mode: str = "sync"  # sync or async
     health_endpoint: str = "/health"
-    api_format: str = "openai"    # openai or custom
+    api_format: str = "openai"  # openai or custom
 
 
 @app.post("/api/v2/inference/endpoints", tags=["Inference v2"])
@@ -9756,6 +10253,7 @@ def api_inference_delete_endpoint(endpoint_id: str, request: Request):
 
 class ChatCompletionRequest(BaseModel):
     """OpenAI-compatible chat completion request."""
+
     model: str
     messages: list[dict] = Field(default_factory=list)
     max_tokens: int = Field(512, ge=1, le=32768)
@@ -9774,6 +10272,7 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
 
     ie = get_inference_engine()
     from inference import InferenceRequest as InfReq
+
     inf_req = InfReq(
         request_id=str(uuid.uuid4()),
         endpoint_id="",
@@ -9794,11 +10293,13 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
         "object": "chat.completion",
         "created": int(time.time()),
         "model": body.model,
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": ""},
-            "finish_reason": None,
-        }],
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": ""},
+                "finish_reason": None,
+            }
+        ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "xcelsior": {"request_id": inf_req.request_id, "status": "processing"},
     }
@@ -9809,7 +10310,7 @@ def api_inference_complete(request_id: str, request: Request):
     """Worker callback: mark inference request as completed with results."""
     ie = get_inference_engine()
     try:
-        body = json.loads(request._body) if hasattr(request, '_body') else {}
+        body = json.loads(request._body) if hasattr(request, "_body") else {}
     except Exception as e:
         body = {}
     ie.complete_request(
@@ -9826,6 +10327,7 @@ def api_inference_complete(request_id: str, request: Request):
 # ── Persistent Volumes ────────────────────────────────────────────────
 
 VOLUME_PRICE_PER_GB_MONTH_CAD = 0.07  # $0.07/GB/month per plan.md §10.2
+
 
 class VolumeCreate(BaseModel):
     name: str
@@ -9919,6 +10421,7 @@ def api_volume_detach(volume_id: str, request: Request):
     # Find active attachment and detach
     from db import _get_pg_pool
     from psycopg.rows import dict_row
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row
@@ -9956,6 +10459,7 @@ def api_volume_delete(volume_id: str, request: Request):
 
 
 # ── Auto-Billing Configuration ────────────────────────────────────────
+
 
 class AutoTopupConfig(BaseModel):
     enabled: bool = True
@@ -10003,6 +10507,7 @@ def api_billing_get_topup(request: Request):
 
 # ── Cloud Burst Status ────────────────────────────────────────────────
 
+
 @app.get("/api/v2/burst/status", tags=["Cloud Burst"])
 def api_burst_status(request: Request):
     """Get cloud burst auto-scaling status."""
@@ -10015,6 +10520,7 @@ def api_burst_status(request: Request):
 
 
 # ── Privacy & Consent ─────────────────────────────────────────────────
+
 
 class ConsentRequest(BaseModel):
     purpose: str
@@ -10074,6 +10580,7 @@ def api_privacy_right_to_erasure(request: Request):
 # ── Bin-Pack Scheduler Route ──────────────────────────────────────────
 
 from scheduler import allocate_binpack, process_queue_binpack
+
 
 @app.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
 def api_process_queue_binpack(canada_only: bool = False, province: str = ""):

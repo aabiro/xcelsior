@@ -70,7 +70,9 @@ def get_node_info() -> dict:
     return _rpc_call("getinfo")
 
 
-def create_invoice(amount_msat: int, label: str, description: str, expiry: int | None = None) -> dict:
+def create_invoice(
+    amount_msat: int, label: str, description: str, expiry: int | None = None
+) -> dict:
     """Create a BOLT11 invoice.
 
     Args:
@@ -83,12 +85,15 @@ def create_invoice(amount_msat: int, label: str, description: str, expiry: int |
         dict with bolt11, payment_hash, payment_secret, expires_at.
     """
     expiry = expiry or LN_INVOICE_EXPIRY
-    return _rpc_call("invoice", {
-        "amount_msat": amount_msat,
-        "label": label,
-        "description": description,
-        "expiry": expiry,
-    })
+    return _rpc_call(
+        "invoice",
+        {
+            "amount_msat": amount_msat,
+            "label": label,
+            "description": description,
+            "expiry": expiry,
+        },
+    )
 
 
 def check_invoice(label: str) -> dict | None:
@@ -130,6 +135,7 @@ def get_btc_cad_rate() -> float:
         return _ln_rate_cache["rate"]
 
     import urllib.request
+
     try:
         req = urllib.request.Request(
             "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=cad",
@@ -196,12 +202,8 @@ def _ensure_ln_tables():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_ln_deposits_customer ON ln_deposits(customer_id)"
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ln_deposits_label ON ln_deposits(label)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ln_deposits_status ON ln_deposits(status)"
-        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ln_deposits_label ON ln_deposits(label)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ln_deposits_status ON ln_deposits(status)")
 
 
 _tables_ensured = False
@@ -289,14 +291,29 @@ def create_deposit(customer_id: str, amount_cad: float) -> dict:
                 amount_msat, amount_sats, amount_btc, amount_cad, btc_cad_rate,
                 status, created_at, expires_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
-            (deposit_id, customer_id, label, invoice["bolt11"],
-             invoice["payment_hash"], amount_msat, amount_sats, amount_btc,
-             amount_cad, rate, now, invoice["expires_at"]),
+            (
+                deposit_id,
+                customer_id,
+                label,
+                invoice["bolt11"],
+                invoice["payment_hash"],
+                amount_msat,
+                amount_sats,
+                amount_btc,
+                amount_cad,
+                rate,
+                now,
+                invoice["expires_at"],
+            ),
         )
 
     log.info(
         "LN DEPOSIT CREATED: %s | %s | %d sats ($%.2f CAD) @ $%.0f",
-        deposit_id, customer_id, amount_sats, amount_cad, rate,
+        deposit_id,
+        customer_id,
+        amount_sats,
+        amount_cad,
+        rate,
     )
 
     return {
@@ -378,9 +395,7 @@ def get_pending_deposits() -> list[dict]:
     """Get all pending (unpaid) Lightning deposits for confirmation checking."""
     _ensure_tables_once()
     with _ln_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM ln_deposits WHERE status = 'pending'"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM ln_deposits WHERE status = 'pending'").fetchall()
         return [dict(r) for r in rows]
 
 
@@ -388,9 +403,7 @@ def get_paid_uncredited() -> list[dict]:
     """Get all paid but not yet credited deposits."""
     _ensure_tables_once()
     with _ln_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM ln_deposits WHERE status = 'paid'"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM ln_deposits WHERE status = 'paid'").fetchall()
         return [dict(r) for r in rows]
 
 
@@ -432,7 +445,9 @@ def process_ln_deposits(credit_callback=None):
             mark_credited(dep["deposit_id"])
             log.info(
                 "LN WALLET CREDITED: %s +$%.2f CAD (%s)",
-                dep["customer_id"], dep["amount_cad"], dep["deposit_id"],
+                dep["customer_id"],
+                dep["amount_cad"],
+                dep["deposit_id"],
             )
         except Exception as e:
             log.error("LN credit failed for %s: %s", dep["deposit_id"], e)

@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-
 # ── OpenTelemetry Tests ──────────────────────────────────────────────
 
 
@@ -38,12 +37,14 @@ class TestOpenTelemetryIntegration:
     def test_otel_span_helper_exists(self):
         """api.py exports an otel_span() helper."""
         import api
+
         assert hasattr(api, "otel_span"), "otel_span not found in api module"
         assert callable(api.otel_span)
 
     def test_otel_span_returns_context_manager(self):
         """otel_span() returns a usable context manager even when OTel is disabled."""
         import api
+
         ctx = api.otel_span("test.span", {"key": "value"})
         # Should work as a context manager regardless of OTel state
         with ctx:
@@ -52,12 +53,14 @@ class TestOpenTelemetryIntegration:
     def test_otel_enabled_flag_exists(self):
         """_OTEL_ENABLED flag is defined in api.py."""
         import api
+
         assert hasattr(api, "_OTEL_ENABLED")
         assert isinstance(api._OTEL_ENABLED, bool)
 
     def test_otel_tracer_attribute(self):
         """_otel_tracer is defined (may be None if OTel not installed)."""
         import api
+
         assert hasattr(api, "_otel_tracer")
 
     def test_fastapi_instrumentor_import_attempted(self):
@@ -82,8 +85,16 @@ class TestOpenTelemetryIntegration:
         all_text = (base / "api.py").read_text()
         for py in routes_dir.glob("*.py"):
             all_text += py.read_text()
-        for span_name in ["job.submit", "job.status_update", "billing.bill_job", "webhook.stripe", "billing.cycle"]:
-            assert span_name in all_text, f"Custom span '{span_name}' not found in routes/ or api.py"
+        for span_name in [
+            "job.submit",
+            "job.status_update",
+            "billing.bill_job",
+            "webhook.stripe",
+            "billing.cycle",
+        ]:
+            assert (
+                span_name in all_text
+            ), f"Custom span '{span_name}' not found in routes/ or api.py"
 
     def test_otlp_exporter_conditional(self):
         """OTLP exporter only activates when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
@@ -105,6 +116,7 @@ class TestOpenTelemetryGracefulDegradation:
     def test_otel_span_with_none_tracer(self):
         """otel_span returns nullcontext when _otel_tracer is None."""
         import routes._deps as _deps_mod
+
         original = _deps_mod._otel_tracer
         try:
             _deps_mod._otel_tracer = None
@@ -130,36 +142,43 @@ class TestLUKSVolumeConstants:
 
     def test_volume_base_dir_constant(self):
         import worker_agent as wa
+
         assert hasattr(wa, "VOLUME_BASE_DIR")
         assert "volumes" in wa.VOLUME_BASE_DIR
 
     def test_volume_key_dir_constant(self):
         import worker_agent as wa
+
         assert hasattr(wa, "VOLUME_KEY_DIR")
         assert "volume-keys" in wa.VOLUME_KEY_DIR
 
     def test_provision_function_exists(self):
         import worker_agent as wa
+
         assert hasattr(wa, "provision_encrypted_volume")
         assert callable(wa.provision_encrypted_volume)
 
     def test_attach_function_exists(self):
         import worker_agent as wa
+
         assert hasattr(wa, "attach_encrypted_volume")
         assert callable(wa.attach_encrypted_volume)
 
     def test_detach_function_exists(self):
         import worker_agent as wa
+
         assert hasattr(wa, "detach_encrypted_volume")
         assert callable(wa.detach_encrypted_volume)
 
     def test_destroy_function_exists(self):
         import worker_agent as wa
+
         assert hasattr(wa, "destroy_encrypted_volume")
         assert callable(wa.destroy_encrypted_volume)
 
     def test_cleanup_function_exists(self):
         import worker_agent as wa
+
         assert hasattr(wa, "_cleanup_partial_volume")
         assert callable(wa._cleanup_partial_volume)
 
@@ -172,10 +191,13 @@ class TestLUKSVolumeProvisioning:
     @patch("worker_agent.os.umask", return_value=0o022)
     @patch("worker_agent.os.urandom", return_value=b"\x00" * 32)
     @patch("builtins.open", new_callable=MagicMock)
-    def test_provision_calls_cryptsetup(self, mock_open, mock_urandom, mock_umask, mock_makedirs, mock_run):
+    def test_provision_calls_cryptsetup(
+        self, mock_open, mock_urandom, mock_umask, mock_makedirs, mock_run
+    ):
         """provision_encrypted_volume calls truncate, luksFormat, luksOpen, mkfs, mount."""
         mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
         import worker_agent as wa
+
         result = wa.provision_encrypted_volume("vol-abc123", 50)
         assert result is True
 
@@ -193,10 +215,13 @@ class TestLUKSVolumeProvisioning:
     @patch("worker_agent.os.urandom", return_value=b"\x00" * 32)
     @patch("builtins.open", new_callable=MagicMock)
     @patch("worker_agent._cleanup_partial_volume")
-    def test_provision_cleanup_on_failure(self, mock_cleanup, mock_open, mock_urandom, mock_umask, mock_makedirs, mock_run):
+    def test_provision_cleanup_on_failure(
+        self, mock_cleanup, mock_open, mock_urandom, mock_umask, mock_makedirs, mock_run
+    ):
         """Failed provisioning calls _cleanup_partial_volume."""
         mock_run.side_effect = subprocess.CalledProcessError(1, "cryptsetup", stderr="error")
         import worker_agent as wa
+
         result = wa.provision_encrypted_volume("vol-fail", 10)
         assert result is False
         mock_cleanup.assert_called_once_with("vol-fail")
@@ -209,6 +234,7 @@ class TestLUKSVolumeProvisioning:
         mock_exists.side_effect = lambda p: True  # All files exist
         mock_run.return_value = MagicMock(returncode=1, stderr="", stdout="")  # Not mounted yet
         import worker_agent as wa
+
         result = wa.attach_encrypted_volume("vol-attach1")
         assert result is not None
 
@@ -217,6 +243,7 @@ class TestLUKSVolumeProvisioning:
     def test_attach_fails_no_backing(self, mock_exists, mock_run):
         """attach fails when backing file doesn't exist."""
         import worker_agent as wa
+
         result = wa.attach_encrypted_volume("vol-nope")
         assert result is None
 
@@ -227,6 +254,7 @@ class TestLUKSVolumeProvisioning:
         mock_exists.return_value = True
         mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
         import worker_agent as wa
+
         result = wa.detach_encrypted_volume("vol-det1")
         assert result is True
 
@@ -240,10 +268,13 @@ class TestLUKSVolumeCryptoErasure:
     @patch("worker_agent.os.remove")
     @patch("worker_agent.os.path.isdir", return_value=True)
     @patch("worker_agent.os.rmdir")
-    def test_destroy_shreds_key(self, mock_rmdir, mock_isdir, mock_remove, mock_exists, mock_run, mock_detach):
+    def test_destroy_shreds_key(
+        self, mock_rmdir, mock_isdir, mock_remove, mock_exists, mock_run, mock_detach
+    ):
         """destroy_encrypted_volume uses shred on the key file."""
         mock_run.return_value = MagicMock(returncode=0)
         import worker_agent as wa
+
         result = wa.destroy_encrypted_volume("vol-del1")
         assert result is True
 
@@ -257,10 +288,13 @@ class TestLUKSVolumeCryptoErasure:
     @patch("worker_agent.os.remove")
     @patch("worker_agent.os.path.isdir", return_value=True)
     @patch("worker_agent.os.rmdir")
-    def test_destroy_removes_backing_file(self, mock_rmdir, mock_isdir, mock_remove, mock_exists, mock_run, mock_detach):
+    def test_destroy_removes_backing_file(
+        self, mock_rmdir, mock_isdir, mock_remove, mock_exists, mock_run, mock_detach
+    ):
         """destroy removes the backing .img file."""
         mock_run.return_value = MagicMock(returncode=0)
         import worker_agent as wa
+
         wa.destroy_encrypted_volume("vol-del2")
         assert mock_remove.called
 
@@ -271,6 +305,7 @@ class TestRunJobEncryptedVolumes:
     def test_run_job_docstring_mentions_encrypted(self):
         """run_job docstring references encrypted volumes."""
         import worker_agent as wa
+
         assert "encrypted" in wa.run_job.__doc__.lower()
 
     def test_source_references_attach_detach(self):

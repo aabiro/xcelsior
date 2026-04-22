@@ -97,9 +97,7 @@ OAUTH_CLIENT_SECRET = os.environ.get("XCELSIOR_OAUTH_CLIENT_SECRET", "")
 OAUTH_SCOPE = os.environ.get("XCELSIOR_OAUTH_SCOPE", "api").strip()
 OAUTH_TOKEN_URL = os.environ.get("XCELSIOR_OAUTH_TOKEN_URL", "")
 OAUTH_TOKEN_TIMEOUT_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_TIMEOUT_SEC", "10"))
-OAUTH_TOKEN_REFRESH_SKEW_SEC = int(
-    os.environ.get("XCELSIOR_OAUTH_TOKEN_REFRESH_SKEW_SEC", "60")
-)
+OAUTH_TOKEN_REFRESH_SKEW_SEC = int(os.environ.get("XCELSIOR_OAUTH_TOKEN_REFRESH_SKEW_SEC", "60"))
 
 # Optional tuning
 COST_PER_HOUR = float(os.environ.get("XCELSIOR_COST_PER_HOUR", "0.50"))
@@ -132,9 +130,11 @@ def _self_sha256() -> str:
     """
     try:
         import hashlib
+
         return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     except Exception:
         return ""
+
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -505,7 +505,8 @@ def setup_tailscale():
             status = json.loads(r.stdout)
             if status.get("BackendState") == "Running":
                 log.info(
-                    "Headscale mesh already connected (IP: %s)", status.get("TailscaleIPs", ["?"])[0]
+                    "Headscale mesh already connected (IP: %s)",
+                    status.get("TailscaleIPs", ["?"])[0],
                 )
                 return True
 
@@ -772,8 +773,7 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
     if min_version and _vtuple(VERSION) >= _vtuple(min_version) and _vtuple(min_version):
         # Already at or beyond target and args also asked for the same sha as us: skip.
         if expected_sha == _self_sha256():
-            log.info("upgrade_agent cmd=%s already at %s (sha matches) — skipped",
-                     cmd_id, VERSION)
+            log.info("upgrade_agent cmd=%s already at %s (sha matches) — skipped", cmd_id, VERSION)
             return True
 
     self_path = Path(__file__).resolve()
@@ -781,8 +781,13 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
     bak_path = self_path.with_suffix(".py.bak")
 
     try:
-        log.info("upgrade_agent cmd=%s by=%s downloading %s (expect sha=%s)",
-                 cmd_id, by, url, expected_sha[:12])
+        log.info(
+            "upgrade_agent cmd=%s by=%s downloading %s (expect sha=%s)",
+            cmd_id,
+            by,
+            url,
+            expected_sha[:12],
+        )
         resp = requests.get(url, timeout=30)
         if resp.status_code != 200:
             log.warning("upgrade_agent download failed: status=%s", resp.status_code)
@@ -790,8 +795,11 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
         data = resp.content
         actual_sha = hashlib.sha256(data).hexdigest()
         if actual_sha != expected_sha:
-            log.error("upgrade_agent sha mismatch: expected=%s got=%s — aborting",
-                      expected_sha, actual_sha)
+            log.error(
+                "upgrade_agent sha mismatch: expected=%s got=%s — aborting",
+                expected_sha,
+                actual_sha,
+            )
             return False
         new_path.write_bytes(data)
         try:
@@ -807,8 +815,11 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
             log.warning("upgrade_agent backup failed (continuing): %s", e)
 
         os.replace(new_path, self_path)
-        log.warning("upgrade_agent cmd=%s installed new agent sha=%s — exiting for systemd restart",
-                    cmd_id, actual_sha[:12])
+        log.warning(
+            "upgrade_agent cmd=%s installed new agent sha=%s — exiting for systemd restart",
+            cmd_id,
+            actual_sha[:12],
+        )
         # Flush handlers and exit cleanly. systemd Restart=always respawns us.
         logging.shutdown()
         os._exit(0)
@@ -863,15 +874,21 @@ def drain_agent_commands() -> int:
                 # Verify container still belongs to us and is running
                 inspect = subprocess.run(
                     ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if inspect.returncode != 0 or inspect.stdout.strip() != "true":
-                    log.info("reinject_shell cmd=%s container=%s not running — skipped",
-                             cmd_id, container_name)
+                    log.info(
+                        "reinject_shell cmd=%s container=%s not running — skipped",
+                        cmd_id,
+                        container_name,
+                    )
                     _motd_reinjection_total.labels(result="skipped").inc()
                     continue
-                log.info("Executing admin reinject_shell cmd=%s job=%s by=%s",
-                         cmd_id, job_id[:8], by)
+                log.info(
+                    "Executing admin reinject_shell cmd=%s job=%s by=%s", cmd_id, job_id[:8], by
+                )
                 _inject_ssh_keys(job_id, container_name)
                 _motd_reinjection_total.labels(result="success").inc()
                 dispatched += 1
@@ -888,8 +905,16 @@ def drain_agent_commands() -> int:
     return dispatched
 
 
-def report_job_status(job_id, status, host_id=None, container_id=None, container_name=None,
-                      ssh_port=None, interactive=None, error_message=None):
+def report_job_status(
+    job_id,
+    status,
+    host_id=None,
+    container_id=None,
+    container_name=None,
+    ssh_port=None,
+    interactive=None,
+    error_message=None,
+):
     """Update job status on the scheduler.
 
     PATCH /instance/{job_id}
@@ -1260,7 +1285,9 @@ def cache_init():
     try:
         subprocess.run(
             ["docker", "image", "prune", "-f"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
@@ -1333,7 +1360,9 @@ def cache_prepull_popular(popular_images, max_concurrent=3):
                 return True
             else:
                 stderr = pull.stdout.read() if pull.stdout else ""
-                log.warning("Pre-pull failed %s: %s", img_tag, stderr[:200] if stderr else "unknown")
+                log.warning(
+                    "Pre-pull failed %s: %s", img_tag, stderr[:200] if stderr else "unknown"
+                )
         except subprocess.TimeoutExpired:
             log.warning("Pre-pull timed out: %s (>15 min)", img_tag)
         except FileNotFoundError:
@@ -1399,8 +1428,10 @@ def _mount_nfs(server, path, mount_point):
             "-t",
             "nfs",
             "-o",
-            os.environ.get("XCELSIOR_NFS_MOUNT_OPTS",
-                           "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"),
+            os.environ.get(
+                "XCELSIOR_NFS_MOUNT_OPTS",
+                "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp",
+            ),
             f"{server}:{path}",
             mount_point,
         ]
@@ -1466,7 +1497,7 @@ def nvme_cache_size_gb() -> float:
             for f in os.scandir(entry.path):
                 if f.is_file():
                     total += f.stat().st_size
-    return total / (1024 ** 3)
+    return total / (1024**3)
 
 
 def nvme_cache_evict_lru():
@@ -1523,6 +1554,7 @@ def nvme_prepull_model(model_id: str, revision: str = "main", source_nfs: str = 
         if source_nfs and os.path.isdir(source_nfs):
             try:
                 import shutil
+
                 log.info("NVMe pre-pull: copying %s from NFS %s", model_id, source_nfs)
                 for item in os.listdir(source_nfs):
                     src = os.path.join(source_nfs, item)
@@ -1537,10 +1569,13 @@ def nvme_prepull_model(model_id: str, revision: str = "main", source_nfs: str = 
         # Strategy 2: Download from HuggingFace Hub
         try:
             dl_cmd = [
-                "huggingface-cli", "download",
+                "huggingface-cli",
+                "download",
                 model_id,
-                "--revision", revision,
-                "--local-dir", dest,
+                "--revision",
+                revision,
+                "--local-dir",
+                dest,
                 "--quiet",
             ]
             result = subprocess.run(
@@ -1601,7 +1636,10 @@ def provision_encrypted_volume(volume_id: str, size_gb: int) -> bool:
         # 1. Create sparse backing file
         subprocess.run(
             ["truncate", "-s", f"{size_gb}G", backing_file],
-            check=True, capture_output=True, text=True, timeout=30,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
 
         # 2. Generate per-volume random key (256-bit)
@@ -1616,40 +1654,61 @@ def provision_encrypted_volume(volume_id: str, size_gb: int) -> bool:
         # 3. LUKS format the backing file
         subprocess.run(
             [
-                "cryptsetup", "luksFormat",
+                "cryptsetup",
+                "luksFormat",
                 "--batch-mode",
-                "--type", "luks2",
-                "--key-file", key_file,
-                "--cipher", "aes-xts-plain64",
-                "--key-size", "512",
-                "--hash", "sha256",
+                "--type",
+                "luks2",
+                "--key-file",
+                key_file,
+                "--cipher",
+                "aes-xts-plain64",
+                "--key-size",
+                "512",
+                "--hash",
+                "sha256",
                 backing_file,
             ],
-            check=True, capture_output=True, text=True, timeout=60,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
         # 4. Open LUKS device
         subprocess.run(
             [
-                "cryptsetup", "luksOpen",
-                "--key-file", key_file,
-                backing_file, mapper_name,
+                "cryptsetup",
+                "luksOpen",
+                "--key-file",
+                key_file,
+                backing_file,
+                mapper_name,
             ],
-            check=True, capture_output=True, text=True, timeout=30,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
 
         # 5. Create ext4 filesystem
         dm_path = f"/dev/mapper/{mapper_name}"
         subprocess.run(
             ["mkfs.ext4", "-q", "-L", f"vol-{volume_id[:8]}", dm_path],
-            check=True, capture_output=True, text=True, timeout=120,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
 
         # 6. Mount
         os.makedirs(mount_point, exist_ok=True)
         subprocess.run(
             ["mount", dm_path, mount_point],
-            check=True, capture_output=True, text=True, timeout=30,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
 
         log.info("Volume %s provisioned: %dGB LUKS2+ext4 at %s", volume_id, size_gb, mount_point)
@@ -1683,7 +1742,10 @@ def attach_encrypted_volume(volume_id: str) -> str | None:
         if not os.path.exists(dm_path):
             subprocess.run(
                 ["cryptsetup", "luksOpen", "--key-file", key_file, backing_file, mapper_name],
-                check=True, capture_output=True, text=True, timeout=30,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
 
         # Mount if not already mounted
@@ -1692,7 +1754,10 @@ def attach_encrypted_volume(volume_id: str) -> str | None:
         if r.returncode != 0:
             subprocess.run(
                 ["mount", dm_path, mount_point],
-                check=True, capture_output=True, text=True, timeout=30,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
 
         log.info("Volume %s attached at %s", volume_id, mount_point)
@@ -1715,14 +1780,20 @@ def detach_encrypted_volume(volume_id: str) -> bool:
         if r.returncode == 0:
             subprocess.run(
                 ["umount", mount_point],
-                check=True, capture_output=True, text=True, timeout=30,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
 
         # Close LUKS device
         if os.path.exists(dm_path):
             subprocess.run(
                 ["cryptsetup", "luksClose", mapper_name],
-                check=True, capture_output=True, text=True, timeout=30,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
 
         log.info("Volume %s detached", volume_id)
@@ -1751,10 +1822,16 @@ def destroy_encrypted_volume(volume_id: str) -> bool:
         if os.path.exists(key_file):
             r = subprocess.run(
                 ["shred", "-u", "-z", "-n", "3", key_file],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if r.returncode != 0:
-                log.critical("SECURITY: shred failed for volume %s key — key may remain on disk: %s", volume_id, r.stderr)
+                log.critical(
+                    "SECURITY: shred failed for volume %s key — key may remain on disk: %s",
+                    volume_id,
+                    r.stderr,
+                )
                 return False
             log.info("Volume %s: LUKS key destroyed (cryptographic erasure)", volume_id)
 
@@ -1786,12 +1863,15 @@ def _cleanup_partial_volume(volume_id: str):
         subprocess.run(["umount", mount_point], capture_output=True, timeout=10)
     with suppress(Exception):
         if os.path.exists(dm_path):
-            subprocess.run(["cryptsetup", "luksClose", mapper_name], capture_output=True, timeout=10)
+            subprocess.run(
+                ["cryptsetup", "luksClose", mapper_name], capture_output=True, timeout=10
+            )
     with suppress(Exception):
         if os.path.exists(key_file):
             subprocess.run(
                 ["shred", "-u", "-z", "-n", "3", key_file],
-                capture_output=True, timeout=30,
+                capture_output=True,
+                timeout=30,
             )
     with suppress(Exception):
         if os.path.exists(backing_file):
@@ -1880,7 +1960,8 @@ def run_job(job):
                 consecutive_failures += 1
                 log.warning(
                     "Lease renewal failed for job %s — attempt %d",
-                    job_id, consecutive_failures,
+                    job_id,
+                    consecutive_failures,
                 )
                 if consecutive_failures >= 3:
                     # Lease may have expired after a VPS restart; try to reclaim.
@@ -1955,7 +2036,9 @@ def run_job(job):
                 if mounted:
                     volumes = list(volumes) + [f"{vol_host_mount}:{container_path}:rw"]
                     managed_vol_mounts.append(vol_host_mount)
-                    log.info("Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path)
+                    log.info(
+                        "Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path
+                    )
                 else:
                     log.warning("Managed volume %s mount failed — skipping", vid)
             else:
@@ -1972,8 +2055,22 @@ def run_job(job):
                 # Ensure container user can write
                 subprocess.run(["chmod", "1777", ws_mount], capture_output=True, timeout=10)
                 volumes = list(volumes) + [f"{ws_mount}:/workspace:rw"]
-                log.info("Encrypted workspace provisioned for job %s: %dGB LUKS at %s", job_id, ws_size_gb, ws_mount)
-                _push_log_lines(job_id, [{"message": "Encrypted workspace ready (LUKS2+AES-256)", "level": "info", "timestamp": time.time()}])
+                log.info(
+                    "Encrypted workspace provisioned for job %s: %dGB LUKS at %s",
+                    job_id,
+                    ws_size_gb,
+                    ws_mount,
+                )
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": "Encrypted workspace ready (LUKS2+AES-256)",
+                            "level": "info",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
                 report_job_status(job_id, "failed")
@@ -1988,12 +2085,24 @@ def run_job(job):
 
         if image_already_cached:
             log.info("Image %s already cached — skipping pull", image)
-            _push_log_lines(job_id, [{"message": f"Image {image} (cached ✓)", "level": "info", "timestamp": time.time()}])
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Image {image} (cached ✓)",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
             cache_track_pull(image)
         else:
             cache_evict_lru(exclude_images={image})  # Evict before pulling — protect job's image
             log.info("Pulling image %s...", image)
-            _push_log_lines(job_id, [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}])
+            _push_log_lines(
+                job_id,
+                [{"message": f"Pulling image {image}…", "level": "info", "timestamp": time.time()}],
+            )
 
             pull_proc = subprocess.Popen(
                 ["docker", "pull", image],
@@ -2024,7 +2133,16 @@ def run_job(job):
             pull_rc = pull_proc.wait(timeout=1800)
             if pull_rc != 0:
                 log.error("Image pull failed for %s (exit %d)", image, pull_rc)
-                _push_log_lines(job_id, [{"message": f"Image pull failed (exit {pull_rc})", "level": "error", "timestamp": time.time()}])
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"Image pull failed (exit {pull_rc})",
+                            "level": "error",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
                 report_job_status(job_id, "failed")
                 return
 
@@ -2081,11 +2199,16 @@ def run_job(job):
             extra_docker_args.extend(["-p", f"{host_port}:{ssh_port}"])
             # Interactive containers need writable filesystem for SSH
             # Remove --read-only and add writable tmpfs for home/ssh
-            extra_docker_args.extend([
-                "--tmpfs", "/home:rw,size=1g",
-                "--tmpfs", "/run:rw,size=64m",
-                "--tmpfs", "/var/log:rw,size=256m",
-            ])
+            extra_docker_args.extend(
+                [
+                    "--tmpfs",
+                    "/home:rw,size=1g",
+                    "--tmpfs",
+                    "/run:rw,size=64m",
+                    "--tmpfs",
+                    "/var/log:rw,size=256m",
+                ]
+            )
             log.info("SSH port mapping: host:%d → container:%d", host_port, ssh_port)
 
         docker_args = build_secure_docker_args(
@@ -2110,7 +2233,16 @@ def run_job(job):
         current_stage = "starting container"
         _remove_container(container_name)
         log.info("Starting container %s", container_name)
-        _push_log_lines(job_id, [{"message": "Pull complete — starting container…", "level": "info", "timestamp": time.time()}])
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": "Pull complete — starting container…",
+                    "level": "info",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
         start = subprocess.run(
             docker_args,
             capture_output=True,
@@ -2119,20 +2251,43 @@ def run_job(job):
         )
         if start.returncode != 0:
             log.error("Container start failed: %s", start.stderr.strip())
-            _push_log_lines(job_id, [{"message": f"Container start failed: {start.stderr.strip()}", "level": "error", "timestamp": time.time()}])
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Container start failed: {start.stderr.strip()}",
+                        "level": "error",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
             report_job_status(job_id, "failed")
             return
 
         container_id = start.stdout.strip()[:12]
         log.info("Container started: %s", container_id)
-        _push_log_lines(job_id, [{"message": f"Container started ({container_id})", "level": "info", "timestamp": time.time()}])
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"Container started ({container_id})",
+                    "level": "info",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
 
         # 4a. Register container metadata with scheduler (status still "starting")
         #     so the web terminal backend can resolve container_name before we
         #     flip to "running". Keeping the UI badge on "starting" until SSH
         #     injection actually finishes means "Running" is a truthful signal.
-        report_job_status(job_id, "starting", host_id=HOST_ID,
-                          container_id=container_id, container_name=container_name)
+        report_job_status(
+            job_id,
+            "starting",
+            host_id=HOST_ID,
+            container_id=container_id,
+            container_name=container_name,
+        )
 
         # 4b. Inject user's SSH keys into the container (best-effort, 45s base
         #     budget, extended by 45s when openssh-server must be installed).
@@ -2142,17 +2297,28 @@ def run_job(job):
         _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
         # 4c. SSH is either ready or has emitted a reason — flip to "running".
-        report_job_status(job_id, "running", host_id=HOST_ID,
-                          container_id=container_id, container_name=container_name)
+        report_job_status(
+            job_id,
+            "running",
+            host_id=HOST_ID,
+            container_id=container_id,
+            container_name=container_name,
+        )
 
         # For interactive jobs, report SSH connection info
         if is_interactive:
             report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
             log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
-            _push_log_lines(job_id, [
-                {"message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
-                 "level": "info", "timestamp": time.time()},
-            ])
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    },
+                ],
+            )
 
         # 5. Apply egress rules (best-effort)
         try:
@@ -2179,21 +2345,31 @@ def run_job(job):
 
     except subprocess.TimeoutExpired:
         log.error("Job %s timed out while %s", job_id, current_stage)
-        _push_log_lines(job_id, [{
-            "message": f"Timed out while {current_stage}",
-            "level": "error",
-            "timestamp": time.time(),
-        }])
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"Timed out while {current_stage}",
+                    "level": "error",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
         _kill_container(container_name)
         report_job_status(job_id, "failed")
         release_lease(job_id, "failed")
     except Exception as e:
         log.error("Job %s failed: %s", job_id, e, exc_info=True)
-        _push_log_lines(job_id, [{
-            "message": f"Instance failed: {e}",
-            "level": "error",
-            "timestamp": time.time(),
-        }])
+        _push_log_lines(
+            job_id,
+            [
+                {
+                    "message": f"Instance failed: {e}",
+                    "level": "error",
+                    "timestamp": time.time(),
+                }
+            ],
+        )
         _kill_container(container_name)
         report_job_status(job_id, "failed", error_message=str(e))
         release_lease(job_id, "failed")
@@ -2239,10 +2415,10 @@ def run_job(job):
 import gzip as _gzip
 import tempfile as _tempfile
 
-_LOG_BATCH_SIZE = 50        # flush every N lines
-_LOG_FLUSH_INTERVAL = 1.0   # or every N seconds
-_LOG_BACKOFF_MAX = 60       # max retry delay (seconds)
-_LOG_SPOOL_MAX = 50_000     # max lines in disk spool before dropping oldest
+_LOG_BATCH_SIZE = 50  # flush every N lines
+_LOG_FLUSH_INTERVAL = 1.0  # or every N seconds
+_LOG_BACKOFF_MAX = 60  # max retry delay (seconds)
+_LOG_SPOOL_MAX = 50_000  # max lines in disk spool before dropping oldest
 
 
 class LogForwarder:
@@ -2259,9 +2435,7 @@ class LogForwarder:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._buffer: list[dict] = []
-        self._spool_path = os.path.join(
-            _tempfile.gettempdir(), f"xcelsior-logs-{job_id}.jsonl"
-        )
+        self._spool_path = os.path.join(_tempfile.gettempdir(), f"xcelsior-logs-{job_id}.jsonl")
         self._tail_proc = None
         self._tail_thread = None
         self._flush_thread = None
@@ -2324,7 +2498,7 @@ class LogForwarder:
                         try:
                             dt = datetime.fromisoformat(line[:space].rstrip("Z"))
                             ts = dt.timestamp()
-                            msg = line[space + 1:]
+                            msg = line[space + 1 :]
                         except (ValueError, IndexError):
                             pass
 
@@ -2363,7 +2537,9 @@ class LogForwarder:
 
         # Spool to disk (WAL-style) so we don't lose lines if API is down
         try:
-            spool_size = os.path.getsize(self._spool_path) if os.path.exists(self._spool_path) else 0
+            spool_size = (
+                os.path.getsize(self._spool_path) if os.path.exists(self._spool_path) else 0
+            )
         except OSError:
             spool_size = 0
         if spool_size < 10_000_000:  # 10MB cap
@@ -2500,7 +2676,11 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
     """
     check_interval = 10  # Check less frequently — container is meant to stay alive
 
-    log.info("Monitoring interactive container %s (job %s) — will run until stopped", container_name, job_id)
+    log.info(
+        "Monitoring interactive container %s (job %s) — will run until stopped",
+        container_name,
+        job_id,
+    )
 
     while not _shutdown.is_set():
         # Check if this job has been preempted/cancelled
@@ -2530,14 +2710,20 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                     timeout=10,
                 )
                 exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
-                log.warning("Interactive container %s exited unexpectedly (code %d)", container_name, exit_code)
+                log.warning(
+                    "Interactive container %s exited unexpectedly (code %d)",
+                    container_name,
+                    exit_code,
+                )
                 report_job_status(job_id, "failed")
                 release_lease(job_id, "failed")
                 _remove_container(container_name)
                 return
 
             elif status not in ("running", "created", "restarting"):
-                log.warning("Interactive container %s in unexpected state: %s", container_name, status)
+                log.warning(
+                    "Interactive container %s in unexpected state: %s", container_name, status
+                )
                 report_job_status(job_id, "failed")
                 release_lease(job_id, "failed")
                 _remove_container(container_name)
@@ -2579,11 +2765,14 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
       * Exceptions and timeouts are caught and translated into a
         user-readable summary — nothing ever escapes this function.
     """
+
     def _note(msg: str, level: str = "info"):
         """Push a user-visible log line (only for interactive jobs)."""
         if interactive:
             try:
-                _push_log_lines(job_id, [{"message": msg, "level": level, "timestamp": time.time()}])
+                _push_log_lines(
+                    job_id, [{"message": msg, "level": level, "timestamp": time.time()}]
+                )
             except Exception:
                 pass
 
@@ -2596,9 +2785,17 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             return
         try:
             subprocess.run(
-                ["docker", "exec", container_name, "sh", "-c",
-                 f"printf '%s\\n' {_shell_quote(msg)} > /proc/1/fd/1 2>/dev/null || true"],
-                capture_output=True, timeout=3, check=False,
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    f"printf '%s\\n' {_shell_quote(msg)} > /proc/1/fd/1 2>/dev/null || true",
+                ],
+                capture_output=True,
+                timeout=3,
+                check=False,
             )
         except Exception:
             pass
@@ -2644,34 +2841,52 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH (root@host:port) into this instance. The web terminal works without a key.",
                 level="info",
             )
-            log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
+            log.info(
+                "No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection",
+                job_id,
+            )
 
         # --- Prepare /root/.ssh (always — sshd needs it even with no keys) ---
         subprocess.run(
             ["docker", "exec", container_name, "mkdir", "-p", "/root/.ssh"],
-            capture_output=True, timeout=_remaining(5),
+            capture_output=True,
+            timeout=_remaining(5),
         )
         subprocess.run(
             ["docker", "exec", container_name, "chmod", "700", "/root/.ssh"],
-            capture_output=True, timeout=_remaining(5),
+            capture_output=True,
+            timeout=_remaining(5),
         )
 
         if keys:
             # Write authorized_keys
             authorized_keys = "\n".join(keys) + "\n"
             subprocess.run(
-                ["docker", "exec", container_name, "sh", "-c",
-                 f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
-                 "chmod 600 /root/.ssh/authorized_keys"],
-                capture_output=True, timeout=_remaining(5),
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    f"echo {_shell_quote(authorized_keys)} > /root/.ssh/authorized_keys && "
+                    "chmod 600 /root/.ssh/authorized_keys",
+                ],
+                capture_output=True,
+                timeout=_remaining(5),
             )
-            log.info("Injected %d SSH key(s) into container %s for job %s", len(keys), container_name, job_id)
+            log.info(
+                "Injected %d SSH key(s) into container %s for job %s",
+                len(keys),
+                container_name,
+                job_id,
+            )
             _note(f"Injected {len(keys)} SSH key(s)")
 
         # --- Detect sshd, install if missing ---
         sshd_check = subprocess.run(
             ["docker", "exec", container_name, "which", "sshd"],
-            capture_output=True, timeout=_remaining(5),
+            capture_output=True,
+            timeout=_remaining(5),
         )
         sshd_present = sshd_check.returncode == 0
 
@@ -2705,14 +2920,19 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             )
             install = subprocess.run(
                 ["docker", "exec", container_name, "sh", "-c", install_script],
-                capture_output=True, timeout=_remaining(30),
+                capture_output=True,
+                timeout=_remaining(30),
             )
             sshd_present = install.returncode == 0
             if sshd_present:
                 log.info("Installed openssh-server in container %s", container_name)
                 _note("OpenSSH server installed")
             else:
-                err = (install.stderr.decode(errors="replace").strip() if isinstance(install.stderr, bytes) else (install.stderr or "").strip())[:200]
+                err = (
+                    install.stderr.decode(errors="replace").strip()
+                    if isinstance(install.stderr, bytes)
+                    else (install.stderr or "").strip()
+                )[:200]
                 log.warning("sshd install failed in %s: %s", container_name, err)
                 _note(
                     "Could not install OpenSSH server in this image — web terminal still works. "
@@ -2723,18 +2943,32 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
         if sshd_present:
             # Generate host keys if missing
             subprocess.run(
-                ["docker", "exec", container_name, "sh", "-c",
-                 "ls /etc/ssh/ssh_host_*_key 2>/dev/null || ssh-keygen -A"],
-                capture_output=True, timeout=_remaining(10),
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    "ls /etc/ssh/ssh_host_*_key 2>/dev/null || ssh-keygen -A",
+                ],
+                capture_output=True,
+                timeout=_remaining(10),
             )
             # Ensure PermitRootLogin is enabled and configure keepalive so SSH
             # sessions don't get cut by NAT/firewall idle timeouts.
             subprocess.run(
-                ["docker", "exec", container_name, "sh", "-c",
-                 "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true; "
-                 "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
-                 "printf '\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config"],
-                capture_output=True, timeout=_remaining(5),
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "printf '\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config",
+                ],
+                capture_output=True,
+                timeout=_remaining(5),
             )
 
             # Set up MOTD + custom shell prompt for the interactive instance.
@@ -2762,10 +2996,10 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 "# Coloured prompt: user@xcelsior-<id>:cwd $\n"
                 "PS1='\\[\\e[1;36m\\]\\u\\[\\e[0m\\]@\\[\\e[1;35m\\]xcelsior-'\"$XCELSIOR_INSTANCE\"'\\[\\e[0m\\]:\\[\\e[1;33m\\]\\w\\[\\e[0m\\]\\$ '\n"
                 "export PS1\n"
-                "if [ -z \"$XCELSIOR_MOTD_SHOWN\" ] && [ -t 1 ] && [ -r /etc/motd.xcelsior ]; then\n"
+                'if [ -z "$XCELSIOR_MOTD_SHOWN" ] && [ -t 1 ] && [ -r /etc/motd.xcelsior ]; then\n'
                 "  export XCELSIOR_MOTD_SHOWN=1\n"
                 "  printf 'Last login: %s\\n' \"$(date '+%a %b %e %H:%M:%S %Y')\" 2>/dev/null || true\n"
-                "  eval \"echo \\\"$(cat /etc/motd.xcelsior)\\\"\"\n"
+                '  eval "echo \\"$(cat /etc/motd.xcelsior)\\""\n'
                 "fi\n"
             )
             # Loader injected into every login-shell startup file. Sourcing /etc/profile.d/xcelsior.sh
@@ -2774,9 +3008,9 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             # `grep -qF` matches literal string; `|| echo >>` makes the append idempotent.
             append_loader = (
                 f"for rc in /etc/profile /etc/bash.bashrc /root/.bashrc /root/.profile /root/.bash_profile; do "
-                f"  touch \"$rc\" 2>/dev/null; "
+                f'  touch "$rc" 2>/dev/null; '
                 f"  grep -qF 'profile.d/xcelsior.sh' \"$rc\" 2>/dev/null || "
-                f"  echo {_shell_quote(loader)} >> \"$rc\"; "
+                f'  echo {_shell_quote(loader)} >> "$rc"; '
                 f"done"
             )
             # Some minimal images (Alpine, nvidia/cuda:*-base, distroless-ish) ship /etc/profile
@@ -2785,44 +3019,62 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             ensure_profile_d_loop = (
                 "grep -qF '/etc/profile.d' /etc/profile 2>/dev/null || "
                 "printf '\\n# Xcelsior: source /etc/profile.d/*.sh\\n"
-                "for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done\\n' "
+                'for f in /etc/profile.d/*.sh; do [ -r "$f" ] && . "$f"; done\\n\' '
                 ">> /etc/profile"
             )
             # Force root's login shell to bash if available (default on ubuntu is /bin/bash already,
             # but `nvidia/cuda:*-base` on debian-slim defaults root to /bin/sh which doesn't do PS1).
             set_root_shell = (
                 "if command -v bash >/dev/null 2>&1; then "
-                "  (command -v usermod >/dev/null 2>&1 && usermod -s \"$(command -v bash)\" root) "
-                "  || (command -v chsh    >/dev/null 2>&1 && chsh -s \"$(command -v bash)\" root) "
+                '  (command -v usermod >/dev/null 2>&1 && usermod -s "$(command -v bash)" root) '
+                '  || (command -v chsh    >/dev/null 2>&1 && chsh -s "$(command -v bash)" root) '
                 "  || sed -i 's|^root:\\(.*\\):[^:]*$|root:\\1:'\"$(command -v bash)\"'|' /etc/passwd 2>/dev/null "
                 "  || true; "
                 "fi"
             )
             subprocess.run(
-                ["docker", "exec", container_name, "sh", "-c",
-                 f"echo {_shell_quote(motd)} > /etc/motd.xcelsior && "
-                 f"echo {_shell_quote(profile)} > /etc/profile.d/xcelsior.sh && "
-                 "chmod 644 /etc/motd.xcelsior /etc/profile.d/xcelsior.sh && "
-                 + ensure_profile_d_loop + " ; "
-                 + append_loader + " ; "
-                 + set_root_shell + " ; "
-                 # Silence default debian/ubuntu motd noise so ours is the only banner shown
-                 "rm -f /etc/update-motd.d/* 2>/dev/null; "
-                 ": > /etc/motd 2>/dev/null || true"],
-                capture_output=True, timeout=_remaining(15),
+                [
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
+                    f"echo {_shell_quote(motd)} > /etc/motd.xcelsior && "
+                    f"echo {_shell_quote(profile)} > /etc/profile.d/xcelsior.sh && "
+                    "chmod 644 /etc/motd.xcelsior /etc/profile.d/xcelsior.sh && "
+                    + ensure_profile_d_loop
+                    + " ; "
+                    + append_loader
+                    + " ; "
+                    + set_root_shell
+                    + " ; "
+                    # Silence default debian/ubuntu motd noise so ours is the only banner shown
+                    "rm -f /etc/update-motd.d/* 2>/dev/null; " ": > /etc/motd 2>/dev/null || true",
+                ],
+                capture_output=True,
+                timeout=_remaining(15),
             )
 
             # Start sshd
             sshd_start = subprocess.run(
                 ["docker", "exec", container_name, "/usr/sbin/sshd"],
-                capture_output=True, timeout=_remaining(5),
+                capture_output=True,
+                timeout=_remaining(5),
             )
             sshd_started = sshd_start.returncode == 0
             if sshd_started:
                 log.info("sshd started in container %s", container_name)
-                _note("SSH daemon ready — connections accepted" if keys else "SSH daemon started (add keys to connect)")
+                _note(
+                    "SSH daemon ready — connections accepted"
+                    if keys
+                    else "SSH daemon started (add keys to connect)"
+                )
             else:
-                err = sshd_start.stderr.decode(errors="replace").strip() if isinstance(sshd_start.stderr, bytes) else (sshd_start.stderr or "").strip()
+                err = (
+                    sshd_start.stderr.decode(errors="replace").strip()
+                    if isinstance(sshd_start.stderr, bytes)
+                    else (sshd_start.stderr or "").strip()
+                )
                 log.warning("sshd start failed in %s: %s", container_name, err)
                 _note(f"SSH daemon failed to start: {err[:200]}", level="warning")
         else:
@@ -2884,11 +3136,15 @@ def _remove_container(container_name):
             timeout=15,
         )
         if result.returncode != 0 and "No such container" not in result.stderr:
-            log.warning("docker rm -f %s failed: %s — trying by ID", container_name, result.stderr.strip())
+            log.warning(
+                "docker rm -f %s failed: %s — trying by ID", container_name, result.stderr.strip()
+            )
             # Fallback: find container ID by name and remove by ID
             ps = subprocess.run(
                 ["docker", "ps", "-a", "--filter", f"name=^/{container_name}$", "-q"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             for cid in ps.stdout.strip().splitlines():
                 if cid:
@@ -3006,34 +3262,46 @@ def telemetry_loop():
                                     # timeout is the critical safety guard here.
                                     stat_result = subprocess.run(
                                         ["stat", "-f", "--format=%b %f %S", mp],
-                                        capture_output=True, text=True, timeout=3,
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=3,
                                     )
                                     if stat_result.returncode == 0:
                                         parts = stat_result.stdout.strip().split()
-                                        blocks, bfree, bsize = int(parts[0]), int(parts[1]), int(parts[2])
-                                        total = (blocks * bsize) / (1024 ** 3)
-                                        used = ((blocks - bfree) * bsize) / (1024 ** 3)
-                                        vol_health.append({
-                                            "volume_id": entry,
-                                            "mounted": True,
-                                            "total_gb": round(total, 2),
-                                            "used_gb": round(used, 2),
-                                        })
+                                        blocks, bfree, bsize = (
+                                            int(parts[0]),
+                                            int(parts[1]),
+                                            int(parts[2]),
+                                        )
+                                        total = (blocks * bsize) / (1024**3)
+                                        used = ((blocks - bfree) * bsize) / (1024**3)
+                                        vol_health.append(
+                                            {
+                                                "volume_id": entry,
+                                                "mounted": True,
+                                                "total_gb": round(total, 2),
+                                                "used_gb": round(used, 2),
+                                            }
+                                        )
                                     else:
-                                        vol_health.append({
+                                        vol_health.append(
+                                            {
+                                                "volume_id": entry,
+                                                "mounted": False,
+                                                "total_gb": 0,
+                                                "used_gb": 0,
+                                            }
+                                        )
+                                        nfs_healthy = False
+                                except (subprocess.TimeoutExpired, OSError):
+                                    vol_health.append(
+                                        {
                                             "volume_id": entry,
                                             "mounted": False,
                                             "total_gb": 0,
                                             "used_gb": 0,
-                                        })
-                                        nfs_healthy = False
-                                except (subprocess.TimeoutExpired, OSError):
-                                    vol_health.append({
-                                        "volume_id": entry,
-                                        "mounted": False,
-                                        "total_gb": 0,
-                                        "used_gb": 0,
-                                    })
+                                        }
+                                    )
                                     nfs_healthy = False
                         if vol_health:
                             metrics["volume_health"] = vol_health
@@ -3286,7 +3554,8 @@ def adopt_running_containers():
                             fails += 1
                             log.warning(
                                 "Adopted-lease renewal failed for job %s — attempt %d",
-                                jid, fails,
+                                jid,
+                                fails,
                             )
                             if fails >= 3:
                                 new = claim_lease(jid)
@@ -3348,7 +3617,12 @@ def reinject_shells_for_running():
         list might include briefly stopped/exiting containers).
       - Each attempt is logged with container name, outcome, and duration.
     """
-    if os.environ.get("WORKER_AGENT_AUTO_REINJECT", "true").strip().lower() not in ("1", "true", "yes", "on"):
+    if os.environ.get("WORKER_AGENT_AUTO_REINJECT", "true").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         log.info("Shell re-injection disabled via WORKER_AGENT_AUTO_REINJECT")
         return
 
@@ -3377,7 +3651,9 @@ def reinject_shells_for_running():
             # Verify container is actually running in docker's view
             inspect = subprocess.run(
                 ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if inspect.returncode != 0 or inspect.stdout.strip() != "true":
                 stats["skipped"] += 1
@@ -3389,17 +3665,30 @@ def reinject_shells_for_running():
             dur = time.monotonic() - t0
             stats["success"] += 1
             _motd_reinjection_total.labels(result="success").inc()
-            log.info("Re-injected shell for container=%s job=%s duration=%.2fs",
-                     container_name, job_id[:8], dur)
+            log.info(
+                "Re-injected shell for container=%s job=%s duration=%.2fs",
+                container_name,
+                job_id[:8],
+                dur,
+            )
         except Exception as e:
             dur = time.monotonic() - t0
             stats["failure"] += 1
             _motd_reinjection_total.labels(result="failure").inc()
-            log.warning("Re-inject failed container=%s job=%s duration=%.2fs err=%s",
-                        container_name, job_id[:8], dur, e)
+            log.warning(
+                "Re-inject failed container=%s job=%s duration=%.2fs err=%s",
+                container_name,
+                job_id[:8],
+                dur,
+                e,
+            )
 
-    log.info("Shell re-injection complete: %d success, %d failure, %d skipped",
-             stats["success"], stats["failure"], stats["skipped"])
+    log.info(
+        "Shell re-injection complete: %d success, %d failure, %d skipped",
+        stats["success"],
+        stats["failure"],
+        stats["skipped"],
+    )
 
 
 def cleanup_orphaned_volume_mounts():
@@ -3419,7 +3708,9 @@ def cleanup_orphaned_volume_mounts():
     try:
         result = subprocess.run(
             ["docker", "ps", "--filter", "name=xcl-", "--format", "{{.ID}}"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode == 0:
             for cid in result.stdout.strip().split("\n"):
@@ -3428,10 +3719,16 @@ def cleanup_orphaned_volume_mounts():
                     continue
                 # Inspect container to get bind mount sources
                 insp = subprocess.run(
-                    ["docker", "inspect", "--format",
-                     '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
-                     cid],
-                    capture_output=True, text=True, timeout=5,
+                    [
+                        "docker",
+                        "inspect",
+                        "--format",
+                        '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{" "}}{{end}}{{end}}',
+                        cid,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if insp.returncode == 0:
                     for src in insp.stdout.strip().split():
@@ -3457,10 +3754,13 @@ def cleanup_orphaned_volume_mounts():
         try:
             check = subprocess.run(
                 ["mountpoint", "-q", mount_path],
-                capture_output=True, timeout=5,
+                capture_output=True,
+                timeout=5,
             )
         except subprocess.TimeoutExpired:
-            log.warning("mountpoint check timed out for %s — skipping (possible stale NFS)", mount_path)
+            log.warning(
+                "mountpoint check timed out for %s — skipping (possible stale NFS)", mount_path
+            )
             continue
         if check.returncode != 0:
             continue  # Not mounted, skip
@@ -3594,6 +3894,7 @@ def main():
         """Pre-pull entire IMAGE_TEMPLATES catalog on startup."""
         try:
             from security import IMAGE_TEMPLATES
+
             catalog_images = [t["image"] for t in IMAGE_TEMPLATES]
             # Also fetch popular images from API (covers user-custom images)
             api_popular = fetch_popular_images()
@@ -3613,7 +3914,11 @@ def main():
             if not to_pull:
                 log.info("Image warmer: all %d catalog images already cached", len(catalog_images))
                 return
-            log.info("Image warmer: pre-pulling %d/%d images in background...", len(to_pull), len(catalog_images))
+            log.info(
+                "Image warmer: pre-pulling %d/%d images in background...",
+                len(to_pull),
+                len(catalog_images),
+            )
             cache_prepull_popular(to_pull, max_concurrent=2)
             log.info("Image warmer: done — all catalog images cached")
         except Exception as e:

@@ -28,6 +28,7 @@ from events import (
 def _clean_events():
     """Clean events table before each test for isolation."""
     from db import _get_pg_pool
+
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.execute("DELETE FROM events")

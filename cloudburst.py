@@ -57,28 +57,75 @@ BURST_HETZNER_SSH_KEY_NAME = os.environ.get("XCELSIOR_BURST_HETZNER_SSH_KEY_NAME
 BURST_HETZNER_IMAGE = os.environ.get("XCELSIOR_BURST_HETZNER_IMAGE", "ubuntu-24.04")
 
 # Provider priority: try cheapest first
-BURST_PROVIDER_PRIORITY = [p.strip() for p in os.environ.get(
-    "XCELSIOR_BURST_PROVIDER_PRIORITY", "hetzner,oci,gcp,aws"
-).split(",") if p.strip()]
+BURST_PROVIDER_PRIORITY = [
+    p.strip()
+    for p in os.environ.get("XCELSIOR_BURST_PROVIDER_PRIORITY", "hetzner,oci,gcp,aws").split(",")
+    if p.strip()
+]
 
 # Cloud provider instance types and pricing
 CLOUD_INSTANCE_TYPES = {
     "aws": {
-        "g5.xlarge": {"gpu_model": "A10G", "gpu_count": 1, "cost_per_hour_cad": 1.80, "region": "ca-central-1"},
-        "g5.2xlarge": {"gpu_model": "A10G", "gpu_count": 1, "cost_per_hour_cad": 2.10, "region": "ca-central-1"},
-        "p4d.24xlarge": {"gpu_model": "A100", "gpu_count": 8, "cost_per_hour_cad": 55.0, "region": "ca-central-1"},
+        "g5.xlarge": {
+            "gpu_model": "A10G",
+            "gpu_count": 1,
+            "cost_per_hour_cad": 1.80,
+            "region": "ca-central-1",
+        },
+        "g5.2xlarge": {
+            "gpu_model": "A10G",
+            "gpu_count": 1,
+            "cost_per_hour_cad": 2.10,
+            "region": "ca-central-1",
+        },
+        "p4d.24xlarge": {
+            "gpu_model": "A100",
+            "gpu_count": 8,
+            "cost_per_hour_cad": 55.0,
+            "region": "ca-central-1",
+        },
     },
     "gcp": {
-        "a2-highgpu-1g": {"gpu_model": "A100", "gpu_count": 1, "cost_per_hour_cad": 5.50, "region": "northamerica-northeast1"},
-        "g2-standard-4": {"gpu_model": "L4", "gpu_count": 1, "cost_per_hour_cad": 1.20, "region": "northamerica-northeast1"},
+        "a2-highgpu-1g": {
+            "gpu_model": "A100",
+            "gpu_count": 1,
+            "cost_per_hour_cad": 5.50,
+            "region": "northamerica-northeast1",
+        },
+        "g2-standard-4": {
+            "gpu_model": "L4",
+            "gpu_count": 1,
+            "cost_per_hour_cad": 1.20,
+            "region": "northamerica-northeast1",
+        },
     },
     "oci": {
-        "VM.GPU.A10.1": {"gpu_model": "A10G", "gpu_count": 1, "cost_per_hour_cad": 1.10, "region": "ca-toronto-1"},
-        "VM.GPU.A10.2": {"gpu_model": "A10G", "gpu_count": 2, "cost_per_hour_cad": 2.20, "region": "ca-toronto-1"},
-        "BM.GPU.A100-v2.8": {"gpu_model": "A100", "gpu_count": 8, "cost_per_hour_cad": 45.0, "region": "ca-toronto-1"},
+        "VM.GPU.A10.1": {
+            "gpu_model": "A10G",
+            "gpu_count": 1,
+            "cost_per_hour_cad": 1.10,
+            "region": "ca-toronto-1",
+        },
+        "VM.GPU.A10.2": {
+            "gpu_model": "A10G",
+            "gpu_count": 2,
+            "cost_per_hour_cad": 2.20,
+            "region": "ca-toronto-1",
+        },
+        "BM.GPU.A100-v2.8": {
+            "gpu_model": "A100",
+            "gpu_count": 8,
+            "cost_per_hour_cad": 45.0,
+            "region": "ca-toronto-1",
+        },
     },
     "hetzner": {
-        "gpu-a100-80": {"gpu_model": "A100", "gpu_count": 1, "cost_per_hour_cad": 3.20, "region": "nbg1"},
+        "gpu-a100-80": {
+            "gpu_model": "A100",
+            "gpu_count": 1,
+            "cost_per_hour_cad": 3.20,
+            "region": "nbg1",
+        },
         "gpu-l4": {"gpu_model": "L4", "gpu_count": 1, "cost_per_hour_cad": 0.95, "region": "nbg1"},
     },
 }
@@ -91,6 +138,7 @@ class CloudBurstEngine:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -176,7 +224,9 @@ class CloudBurstEngine:
         instance_id = f"burst-{uuid.uuid4().hex[:12]}"
 
         # Actually provision the cloud VM
-        cloud_instance_id = self._launch_cloud_vm(cloud_provider, instance_type, instance_id, type_info)
+        cloud_instance_id = self._launch_cloud_vm(
+            cloud_provider, instance_type, instance_id, type_info
+        )
 
         with self._conn() as conn:
             status = "provisioning" if cloud_instance_id else "error"
@@ -186,18 +236,34 @@ class CloudBurstEngine:
                     gpu_model, gpu_count, cost_per_hour_cad,
                     status, cloud_instance_id, started_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (instance_id, cloud_provider, instance_type,
-                 type_info["region"], type_info["gpu_model"],
-                 type_info["gpu_count"], type_info["cost_per_hour_cad"],
-                 status, cloud_instance_id or "", now),
+                (
+                    instance_id,
+                    cloud_provider,
+                    instance_type,
+                    type_info["region"],
+                    type_info["gpu_model"],
+                    type_info["gpu_count"],
+                    type_info["cost_per_hour_cad"],
+                    status,
+                    cloud_instance_id or "",
+                    now,
+                ),
             )
 
         if not cloud_instance_id:
-            raise ValueError(f"Failed to launch {cloud_provider}/{instance_type} — check CLI configuration")
+            raise ValueError(
+                f"Failed to launch {cloud_provider}/{instance_type} — check CLI configuration"
+            )
 
-        log.info("BURST PROVISION: %s %s/%s gpu=%s cost=$%.2f/hr cloud_id=%s",
-                 instance_id, cloud_provider, instance_type,
-                 type_info["gpu_model"], type_info["cost_per_hour_cad"], cloud_instance_id)
+        log.info(
+            "BURST PROVISION: %s %s/%s gpu=%s cost=$%.2f/hr cloud_id=%s",
+            instance_id,
+            cloud_provider,
+            instance_type,
+            type_info["gpu_model"],
+            type_info["cost_per_hour_cad"],
+            cloud_instance_id,
+        )
 
         return {
             "instance_id": instance_id,
@@ -237,8 +303,9 @@ class CloudBurstEngine:
         candidates.sort()  # cheapest first
         return (candidates[0][1], candidates[0][2])
 
-    def _launch_cloud_vm(self, provider: str, instance_type: str,
-                         xcelsior_id: str, type_info: dict) -> Optional[str]:
+    def _launch_cloud_vm(
+        self, provider: str, instance_type: str, xcelsior_id: str, type_info: dict
+    ) -> Optional[str]:
         """Launch a VM via the cloud provider CLI. Returns the cloud instance ID."""
         if provider == "aws":
             return self._launch_aws(instance_type, xcelsior_id, type_info)
@@ -260,15 +327,22 @@ class CloudBurstEngine:
 
         region = type_info.get("region", "ca-central-1")
         cmd = [
-            "aws", "ec2", "run-instances",
-            "--image-id", BURST_AWS_AMI,
-            "--instance-type", instance_type,
-            "--region", region,
-            "--count", "1",
+            "aws",
+            "ec2",
+            "run-instances",
+            "--image-id",
+            BURST_AWS_AMI,
+            "--instance-type",
+            instance_type,
+            "--region",
+            region,
+            "--count",
+            "1",
             "--tag-specifications",
             f"ResourceType=instance,Tags=[{{Key=Name,Value=xcelsior-{xcelsior_id}}},"
             f"{{Key=xcelsior-id,Value={xcelsior_id}}}]",
-            "--output", "json",
+            "--output",
+            "json",
         ]
         if BURST_AWS_KEY_PAIR:
             cmd.extend(["--key-name", BURST_AWS_KEY_PAIR])
@@ -304,15 +378,27 @@ class CloudBurstEngine:
 
         vm_name = f"xcelsior-{xcelsior_id}"
         cmd = [
-            "gcloud", "compute", "instances", "create", vm_name,
-            "--project", BURST_GCP_PROJECT,
-            "--zone", BURST_GCP_ZONE,
-            "--machine-type", instance_type,
-            "--image-family", BURST_GCP_IMAGE_FAMILY,
-            "--image-project", "deeplearning-platform-release",
-            "--maintenance-policy", "TERMINATE",
-            "--labels", f"xcelsior-id={xcelsior_id}",
-            "--format", "json",
+            "gcloud",
+            "compute",
+            "instances",
+            "create",
+            vm_name,
+            "--project",
+            BURST_GCP_PROJECT,
+            "--zone",
+            BURST_GCP_ZONE,
+            "--machine-type",
+            instance_type,
+            "--image-family",
+            BURST_GCP_IMAGE_FAMILY,
+            "--image-project",
+            "deeplearning-platform-release",
+            "--maintenance-policy",
+            "TERMINATE",
+            "--labels",
+            f"xcelsior-id={xcelsior_id}",
+            "--format",
+            "json",
         ]
 
         # Add accelerator config based on GPU model
@@ -356,14 +442,24 @@ class CloudBurstEngine:
 
         display_name = f"xcelsior-{xcelsior_id}"
         cmd = [
-            "oci", "compute", "instance", "launch",
-            "--compartment-id", BURST_OCI_COMPARTMENT,
-            "--availability-domain", f"{BURST_OCI_REGION}-AD-1",
-            "--shape", instance_type,
-            "--display-name", display_name,
-            "--image-id", BURST_OCI_IMAGE,
-            "--freeform-tags", _json.dumps({"xcelsior-id": xcelsior_id}),
-            "--output", "json",
+            "oci",
+            "compute",
+            "instance",
+            "launch",
+            "--compartment-id",
+            BURST_OCI_COMPARTMENT,
+            "--availability-domain",
+            f"{BURST_OCI_REGION}-AD-1",
+            "--shape",
+            instance_type,
+            "--display-name",
+            display_name,
+            "--image-id",
+            BURST_OCI_IMAGE,
+            "--freeform-tags",
+            _json.dumps({"xcelsior-id": xcelsior_id}),
+            "--output",
+            "json",
         ]
         if BURST_OCI_SUBNET:
             cmd.extend(["--subnet-id", BURST_OCI_SUBNET])
@@ -387,21 +483,33 @@ class CloudBurstEngine:
             log.error("OCI launch error: %s", e)
             return None
 
-    def _launch_hetzner(self, instance_type: str, xcelsior_id: str, type_info: dict) -> Optional[str]:
+    def _launch_hetzner(
+        self, instance_type: str, xcelsior_id: str, type_info: dict
+    ) -> Optional[str]:
         """Launch a Hetzner Cloud GPU server via the hcloud CLI."""
         if not BURST_HETZNER_TOKEN:
-            log.error("XCELSIOR_BURST_HETZNER_TOKEN not configured — cannot launch Hetzner instance")
+            log.error(
+                "XCELSIOR_BURST_HETZNER_TOKEN not configured — cannot launch Hetzner instance"
+            )
             return None
 
         server_name = f"xcelsior-{xcelsior_id}"
         cmd = [
-            "hcloud", "server", "create",
-            "--name", server_name,
-            "--type", instance_type,
-            "--image", BURST_HETZNER_IMAGE,
-            "--location", BURST_HETZNER_LOCATION,
-            "--label", f"xcelsior-id={xcelsior_id}",
-            "--output", "json",
+            "hcloud",
+            "server",
+            "create",
+            "--name",
+            server_name,
+            "--type",
+            instance_type,
+            "--image",
+            BURST_HETZNER_IMAGE,
+            "--location",
+            BURST_HETZNER_LOCATION,
+            "--label",
+            f"xcelsior-id={xcelsior_id}",
+            "--output",
+            "json",
         ]
         if BURST_HETZNER_SSH_KEY_NAME:
             cmd.extend(["--ssh-key", BURST_HETZNER_SSH_KEY_NAME])
@@ -473,7 +581,9 @@ class CloudBurstEngine:
                         (inst["instance_id"],),
                     )
                     drained += 1
-                    log.info("BURST DRAIN: %s idle for >%ds", inst["instance_id"], BURST_DRAIN_IDLE_SEC)
+                    log.info(
+                        "BURST DRAIN: %s idle for >%ds", inst["instance_id"], BURST_DRAIN_IDLE_SEC
+                    )
 
         # Actually terminate drained instances
         for inst in running:
@@ -515,7 +625,9 @@ class CloudBurstEngine:
                 (now, total_cost, instance_id),
             )
 
-        log.info("BURST TERMINATED: %s runtime=%.1fh cost=$%.2f", instance_id, runtime_hours, total_cost)
+        log.info(
+            "BURST TERMINATED: %s runtime=%.1fh cost=$%.2f", instance_id, runtime_hours, total_cost
+        )
 
     def _terminate_cloud_vm(self, provider: str, cloud_id: str, inst: dict):
         """Terminate a cloud VM via provider CLI."""
@@ -523,10 +635,18 @@ class CloudBurstEngine:
             if provider == "aws":
                 region = inst.get("region", "ca-central-1")
                 result = subprocess.run(
-                    ["aws", "ec2", "terminate-instances",
-                     "--instance-ids", cloud_id,
-                     "--region", region],
-                    capture_output=True, text=True, timeout=60,
+                    [
+                        "aws",
+                        "ec2",
+                        "terminate-instances",
+                        "--instance-ids",
+                        cloud_id,
+                        "--region",
+                        region,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                 )
                 if result.returncode != 0:
                     log.error("AWS terminate failed for %s: %s", cloud_id, result.stderr)
@@ -535,11 +655,21 @@ class CloudBurstEngine:
 
             elif provider == "gcp":
                 result = subprocess.run(
-                    ["gcloud", "compute", "instances", "delete", cloud_id,
-                     "--project", BURST_GCP_PROJECT,
-                     "--zone", BURST_GCP_ZONE,
-                     "--quiet"],
-                    capture_output=True, text=True, timeout=120,
+                    [
+                        "gcloud",
+                        "compute",
+                        "instances",
+                        "delete",
+                        cloud_id,
+                        "--project",
+                        BURST_GCP_PROJECT,
+                        "--zone",
+                        BURST_GCP_ZONE,
+                        "--quiet",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
                 )
                 if result.returncode != 0:
                     log.error("GCP terminate failed for %s: %s", cloud_id, result.stderr)
@@ -548,10 +678,18 @@ class CloudBurstEngine:
 
             elif provider == "oci":
                 result = subprocess.run(
-                    ["oci", "compute", "instance", "terminate",
-                     "--instance-id", cloud_id,
-                     "--force"],
-                    capture_output=True, text=True, timeout=120,
+                    [
+                        "oci",
+                        "compute",
+                        "instance",
+                        "terminate",
+                        "--instance-id",
+                        cloud_id,
+                        "--force",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
                 )
                 if result.returncode != 0:
                     log.error("OCI terminate failed for %s: %s", cloud_id, result.stderr)
@@ -562,7 +700,10 @@ class CloudBurstEngine:
                 env = {**os.environ, "HCLOUD_TOKEN": BURST_HETZNER_TOKEN}
                 result = subprocess.run(
                     ["hcloud", "server", "delete", cloud_id],
-                    capture_output=True, text=True, timeout=60, env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    env=env,
                 )
                 if result.returncode != 0:
                     log.error("Hetzner terminate failed for %s: %s", cloud_id, result.stderr)

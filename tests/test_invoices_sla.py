@@ -174,6 +174,7 @@ class TestSLAHostsSummary:
         """When no hosts are registered, returns empty list."""
         # Clean up hosts from prior tests in the shared PG database
         from db import _get_pg_pool
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.execute("DELETE FROM hosts")

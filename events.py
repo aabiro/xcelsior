@@ -78,28 +78,38 @@ STORAGE_BILLED_STATES = frozenset(
 # Valid state transitions — anything not here is rejected
 VALID_TRANSITIONS = {
     JobState.QUEUED: {JobState.ASSIGNED, JobState.CANCELLED},
-    JobState.ASSIGNED: {JobState.LEASED, JobState.STARTING, JobState.RUNNING, JobState.QUEUED, JobState.FAILED, JobState.CANCELLED},
+    JobState.ASSIGNED: {
+        JobState.LEASED,
+        JobState.STARTING,
+        JobState.RUNNING,
+        JobState.QUEUED,
+        JobState.FAILED,
+        JobState.CANCELLED,
+    },
     JobState.LEASED: {JobState.STARTING, JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
     JobState.STARTING: {JobState.RUNNING, JobState.FAILED, JobState.CANCELLED},
     JobState.RUNNING: {
-        JobState.COMPLETED, JobState.FAILED, JobState.PREEMPTED, JobState.CANCELLED,
-        JobState.STOPPING,   # User-initiated graceful stop
-        JobState.RESTARTING, # User-initiated restart
-        JobState.TERMINATED, # User-initiated hard kill
+        JobState.COMPLETED,
+        JobState.FAILED,
+        JobState.PREEMPTED,
+        JobState.CANCELLED,
+        JobState.STOPPING,  # User-initiated graceful stop
+        JobState.RESTARTING,  # User-initiated restart
+        JobState.TERMINATED,  # User-initiated hard kill
     },
     JobState.STOPPING: {
-        JobState.STOPPED,    # Stop succeeded
-        JobState.RUNNING,    # Stop failed, container still alive
-        JobState.TERMINATED, # User cancels during stop
+        JobState.STOPPED,  # Stop succeeded
+        JobState.RUNNING,  # Stop failed, container still alive
+        JobState.TERMINATED,  # User cancels during stop
     },
     JobState.STOPPED: {
-        JobState.RESTARTING, # User starts a stopped instance
-        JobState.TERMINATED, # User terminates a stopped instance
+        JobState.RESTARTING,  # User starts a stopped instance
+        JobState.TERMINATED,  # User terminates a stopped instance
     },
     JobState.RESTARTING: {
-        JobState.RUNNING,    # Restart succeeded
-        JobState.STOPPED,    # Restart failed — container is stopped
-        JobState.FAILED,     # Restart fatally failed
+        JobState.RUNNING,  # Restart succeeded
+        JobState.STOPPED,  # Restart failed — container is stopped
+        JobState.FAILED,  # Restart fatally failed
     },
     JobState.COMPLETED: set(),  # Terminal
     JobState.FAILED: {JobState.QUEUED},  # Retry
@@ -258,6 +268,7 @@ class EventStore:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -276,6 +287,7 @@ class EventStore:
         to a past event breaks every subsequent hash.
         """
         from psycopg.types.json import Jsonb
+
         with self._conn() as conn:
             # Lock to prevent concurrent forks of the hash chain
             conn.execute("LOCK TABLE events IN EXCLUSIVE MODE")
@@ -319,9 +331,7 @@ class EventStore:
                     "SELECT * FROM events ORDER BY timestamp ASC LIMIT %s", (limit,)
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM events ORDER BY timestamp ASC"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM events ORDER BY timestamp ASC").fetchall()
 
         if not rows:
             return {"valid": True, "events_checked": 0, "broken_at": None}
@@ -354,7 +364,11 @@ class EventStore:
                 timestamp=row["timestamp"],
                 actor=row["actor"],
                 data=row["data"] if isinstance(row["data"], dict) else json.loads(row["data"]),
-                metadata=row["metadata"] if isinstance(row["metadata"], dict) else json.loads(row["metadata"]),
+                metadata=(
+                    row["metadata"]
+                    if isinstance(row["metadata"], dict)
+                    else json.loads(row["metadata"])
+                ),
                 prev_hash=row["prev_hash"] or "",
             )
             recomputed = evt.compute_hash()
@@ -411,7 +425,11 @@ class EventStore:
                     timestamp=r["timestamp"],
                     actor=r["actor"],
                     data=r["data"] if isinstance(r["data"], dict) else json.loads(r["data"]),
-                    metadata=r["metadata"] if isinstance(r["metadata"], dict) else json.loads(r["metadata"]),
+                    metadata=(
+                        r["metadata"]
+                        if isinstance(r["metadata"], dict)
+                        else json.loads(r["metadata"])
+                    ),
                     prev_hash=r.get("prev_hash", ""),
                     event_hash=r.get("event_hash", ""),
                 )
@@ -697,6 +715,7 @@ def get_state_machine() -> JobStateMachine:
 
 # ── Event Snapshots (for performance at scale) ───────────────────────
 
+
 class EventSnapshotManager:
     """Manages periodic snapshots of entity state for fast reads.
 
@@ -709,6 +728,7 @@ class EventSnapshotManager:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -719,9 +739,12 @@ class EventSnapshotManager:
                 conn.rollback()
                 raise
 
-    def create_snapshot(self, entity_type: str, entity_id: str, state: dict, sequence_number: int) -> dict:
+    def create_snapshot(
+        self, entity_type: str, entity_id: str, state: dict, sequence_number: int
+    ) -> dict:
         """Create a snapshot of an entity's current state."""
         from psycopg.types.json import Jsonb
+
         now = time.time()
         with self._conn() as conn:
             conn.execute(
@@ -730,7 +753,11 @@ class EventSnapshotManager:
                    VALUES (%s, %s, %s, %s, %s)""",
                 (entity_type, entity_id, Jsonb(state), sequence_number, now),
             )
-        return {"entity_type": entity_type, "entity_id": entity_id, "sequence_number": sequence_number}
+        return {
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "sequence_number": sequence_number,
+        }
 
     def get_latest_snapshot(self, entity_type: str, entity_id: str) -> Optional[dict]:
         """Get the most recent snapshot for an entity."""
@@ -815,7 +842,11 @@ class EventSnapshotManager:
                 )
 
         if archived:
-            log.info("EVENT ARCHIVE: moved %d events older than %d days to cold storage", archived, max_age_days)
+            log.info(
+                "EVENT ARCHIVE: moved %d events older than %d days to cold storage",
+                archived,
+                max_age_days,
+            )
         return archived
 
 

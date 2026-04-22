@@ -38,6 +38,7 @@ TEST_USER = {
 def client():
     """FastAPI TestClient with volume routes."""
     from api import app
+
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -58,6 +59,7 @@ def cleanup_vids():
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -103,11 +105,15 @@ class TestVolumeValidation:
         assert r.status_code == 422
 
     def test_size_zero(self, client, auth_headers):
-        r = client.post("/api/v2/volumes", json={"name": "valid", "size_gb": 0}, headers=auth_headers)
+        r = client.post(
+            "/api/v2/volumes", json={"name": "valid", "size_gb": 0}, headers=auth_headers
+        )
         assert r.status_code == 422
 
     def test_size_too_large(self, client, auth_headers):
-        r = client.post("/api/v2/volumes", json={"name": "valid", "size_gb": 3000}, headers=auth_headers)
+        r = client.post(
+            "/api/v2/volumes", json={"name": "valid", "size_gb": 3000}, headers=auth_headers
+        )
         assert r.status_code == 422
 
     def test_invalid_mount_path(self, client, auth_headers):
@@ -194,6 +200,7 @@ class TestRetryEndpoint:
         # Create a volume and force it to error state
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
 
         vid = f"vol-{uuid.uuid4().hex[:12]}"
@@ -204,7 +211,18 @@ class TestRetryEndpoint:
                 """INSERT INTO volumes (volume_id, owner_id, name, storage_type, size_gb,
                    region, province, encrypted, status, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (vid, "api-admin", "retry-api-test", "nfs", 1, "ca-east", "ON", False, "error", time.time()),
+                (
+                    vid,
+                    "api-admin",
+                    "retry-api-test",
+                    "nfs",
+                    1,
+                    "ca-east",
+                    "ON",
+                    False,
+                    "error",
+                    time.time(),
+                ),
             )
             conn.commit()
 
@@ -287,6 +305,7 @@ class TestResponseShape:
 
     def test_create_includes_pricing(self, client, auth_headers, cleanup_vids):
         from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
+
         name = _unique_name()
         r = client.post("/api/v2/volumes", json={"name": name, "size_gb": 10}, headers=auth_headers)
         vol = r.json()["volume"]

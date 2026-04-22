@@ -63,6 +63,7 @@ def _clear_state_namespace(namespace: str) -> None:
         placeholder = "%s" if backend == "postgres" else "?"
         conn.execute(f"DELETE FROM state WHERE namespace = {placeholder}", (namespace,))
 
+
 @pytest.fixture(autouse=True)
 def _clean():
     """Reset DB state between tests."""
@@ -115,8 +116,10 @@ def _bypass_tcp_preflight(monkeypatch):
     Also resets the Docker client pool between tests so stale mocks from
     TestDockerClientPool don't leak into TestDockerClientFactory.
     """
+
     async def _ok(host_ip):
         return True, "ok"
+
     monkeypatch.setattr(term_mod, "_verify_host_reachable", _ok)
     with term_mod._docker_client_cache_lock:
         term_mod._docker_client_cache.clear()
@@ -156,20 +159,31 @@ def _container_probe_shim(monkeypatch):
     yield
 
 
-def _inject_job(job_id="j-1", status="running", owner="user-1", host_id="h-1",
-                host_ip="10.0.0.5", name="test-instance", **extra):
+def _inject_job(
+    job_id="j-1",
+    status="running",
+    owner="user-1",
+    host_id="h-1",
+    host_ip="10.0.0.5",
+    name="test-instance",
+    **extra,
+):
     """Insert a fake job directly into the scheduler store."""
     payload = {
-        "job_id": job_id, "status": status, "owner": owner,
-        "host_id": host_id, "host_ip": host_ip, "name": name,
-        "container_name": f"xcl-{job_id}", **extra,
+        "job_id": job_id,
+        "status": status,
+        "owner": owner,
+        "host_id": host_id,
+        "host_ip": host_ip,
+        "name": name,
+        "container_name": f"xcl-{job_id}",
+        **extra,
     }
     with scheduler._atomic_mutation() as conn:
         conn.execute(
             "INSERT INTO jobs (job_id, status, priority, submitted_at, host_id, payload) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            (job_id, status, 0, time.time(), host_id,
-             json.dumps(payload)),
+            (job_id, status, 0, time.time(), host_id, json.dumps(payload)),
         )
 
 
@@ -245,59 +259,86 @@ class TestBuildSshOpts:
 class TestHostIpRegex:
     """Validate the _HOST_IP_RE allowlist regex."""
 
-    @pytest.mark.parametrize("ip", [
-        "10.0.0.1", "192.168.1.100", "my-host.local",
-        "gpu-node-03", "100.64.0.12", "a.b.c.d",
-    ])
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "10.0.0.1",
+            "192.168.1.100",
+            "my-host.local",
+            "gpu-node-03",
+            "100.64.0.12",
+            "a.b.c.d",
+        ],
+    )
     def test_valid_ips(self, ip):
         assert term_mod._HOST_IP_RE.fullmatch(ip) is not None
 
-    @pytest.mark.parametrize("ip", [
-        "10.0.0.1; rm -rf /", "$(whoami)", "`id`",
-        "host\ninjection", "host ip", "",
-        "10.0.0.1 && echo pwned", "host|cat /etc/passwd",
-    ])
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "10.0.0.1; rm -rf /",
+            "$(whoami)",
+            "`id`",
+            "host\ninjection",
+            "host ip",
+            "",
+            "10.0.0.1 && echo pwned",
+            "host|cat /etc/passwd",
+        ],
+    )
     def test_rejects_injection(self, ip):
         assert term_mod._HOST_IP_RE.fullmatch(ip) is None
 
 
 class TestContainerRefValidation:
-    @pytest.mark.parametrize("container_ref", [
-        "xcl-j1",
-        "container_01",
-        "abc123def456",
-        "name.with.dots",
-    ])
+    @pytest.mark.parametrize(
+        "container_ref",
+        [
+            "xcl-j1",
+            "container_01",
+            "abc123def456",
+            "name.with.dots",
+        ],
+    )
     def test_accepts_safe_container_refs(self, container_ref):
         assert term_mod._sanitize_container_ref(container_ref) == container_ref
 
-    @pytest.mark.parametrize("container_ref", [
-        "",
-        " bad",
-        "../etc/passwd",
-        "xcl-j1;rm -rf /",
-        "name with spaces",
-        "$(id)",
-    ])
+    @pytest.mark.parametrize(
+        "container_ref",
+        [
+            "",
+            " bad",
+            "../etc/passwd",
+            "xcl-j1;rm -rf /",
+            "name with spaces",
+            "$(id)",
+        ],
+    )
     def test_rejects_unsafe_container_refs(self, container_ref):
         assert term_mod._sanitize_container_ref(container_ref) is None
 
 
 class TestShellAllowlist:
-    @pytest.mark.parametrize("shell", [
-        "/bin/bash",
-        "/bin/sh",
-        "/usr/bin/bash",
-    ])
+    @pytest.mark.parametrize(
+        "shell",
+        [
+            "/bin/bash",
+            "/bin/sh",
+            "/usr/bin/bash",
+        ],
+    )
     def test_allows_expected_shells(self, shell):
         assert term_mod._shell_path_allowed(shell) is True
 
-    @pytest.mark.parametrize("shell", [
-        "/bin/cat",
-        "bash",
-        "/bin/bash -l",
-        "/tmp/custom-shell",
-    ])
+    @pytest.mark.parametrize(
+        "shell",
+        [
+            "/bin/cat",
+            "bash",
+            "/bin/bash -l",
+            "/tmp/custom-shell",
+        ],
+    )
     def test_rejects_non_allowlisted_shells(self, shell):
         assert term_mod._shell_path_allowed(shell) is False
 
@@ -362,30 +403,39 @@ class TestSharedLimiterState:
 class TestWsOriginValidation:
     def test_cookie_auth_requires_origin_when_enabled(self):
         ws = _FakeWs(cookies={deps_mod._AUTH_COOKIE_NAME: "session-token"})
-        assert deps_mod._validate_ws_origin(
-            ws,
-            require_for_cookie_auth=True,
-            allow_query_token=False,
-        ) is False
+        assert (
+            deps_mod._validate_ws_origin(
+                ws,
+                require_for_cookie_auth=True,
+                allow_query_token=False,
+            )
+            is False
+        )
 
     def test_ticket_auth_can_omit_origin(self):
         ws = _FakeWs(query_params={"ticket": "ticket-123"})
-        assert deps_mod._validate_ws_origin(
-            ws,
-            require_for_cookie_auth=True,
-            allow_query_token=False,
-        ) is True
+        assert (
+            deps_mod._validate_ws_origin(
+                ws,
+                require_for_cookie_auth=True,
+                allow_query_token=False,
+            )
+            is True
+        )
 
     def test_legacy_query_token_does_not_bypass_cookie_origin_requirement(self):
         ws = _FakeWs(
             cookies={deps_mod._AUTH_COOKIE_NAME: "session-token"},
             query_params={"token": "legacy-token"},
         )
-        assert deps_mod._validate_ws_origin(
-            ws,
-            require_for_cookie_auth=True,
-            allow_query_token=False,
-        ) is False
+        assert (
+            deps_mod._validate_ws_origin(
+                ws,
+                require_for_cookie_auth=True,
+                allow_query_token=False,
+            )
+            is False
+        )
 
 
 class TestWsTicketHelpers:
@@ -406,12 +456,15 @@ class TestWsTicketHelpers:
             target="job-1",
         )
         assert consumed["user_id"] == "user-1"
-        assert deps_mod._consume_ws_ticket(
-            issued["ticket"],
-            _FakeWs(client_host="127.0.0.1"),
-            purpose="terminal",
-            target="job-1",
-        ) is None
+        assert (
+            deps_mod._consume_ws_ticket(
+                issued["ticket"],
+                _FakeWs(client_host="127.0.0.1"),
+                purpose="terminal",
+                target="job-1",
+            )
+            is None
+        )
 
     def test_ticket_survives_without_local_memory_cache(self):
         request = _FakeRequest(client_host="127.0.0.1")
@@ -443,12 +496,15 @@ class TestWsTicketHelpers:
             purpose="terminal",
             target="job-1",
         )
-        assert deps_mod._consume_ws_ticket(
-            issued["ticket"],
-            _FakeWs(client_host="127.0.0.2"),
-            purpose="terminal",
-            target="job-1",
-        ) is None
+        assert (
+            deps_mod._consume_ws_ticket(
+                issued["ticket"],
+                _FakeWs(client_host="127.0.0.2"),
+                purpose="terminal",
+                target="job-1",
+            )
+            is None
+        )
 
 
 class TestWsAuthOptions:
@@ -468,12 +524,15 @@ class TestContainerIdentity:
             id="cid-1234567890ab",
             labels={"xcelsior.job_id": "job-1"},
         )
-        assert term_mod._container_identity_matches(
-            container,
-            instance_id="job-1",
-            expected_name="xcl-job-1",
-            expected_container_id="cid-1234",
-        ) is True
+        assert (
+            term_mod._container_identity_matches(
+                container,
+                instance_id="job-1",
+                expected_name="xcl-job-1",
+                expected_container_id="cid-1234",
+            )
+            is True
+        )
 
     def test_rejects_label_mismatch(self):
         container = SimpleNamespace(
@@ -481,12 +540,15 @@ class TestContainerIdentity:
             id="cid-1234567890ab",
             labels={"xcelsior.job_id": "other-job"},
         )
-        assert term_mod._container_identity_matches(
-            container,
-            instance_id="job-1",
-            expected_name="xcl-job-1",
-            expected_container_id="cid-1234",
-        ) is False
+        assert (
+            term_mod._container_identity_matches(
+                container,
+                instance_id="job-1",
+                expected_name="xcl-job-1",
+                expected_container_id="cid-1234",
+            )
+            is False
+        )
 
 
 class TestConstants:
@@ -518,6 +580,7 @@ class TestContainerExists:
 
     def test_returns_false_when_not_found(self):
         from docker.errors import NotFound
+
         mock_client = MagicMock()
         mock_client.containers.get.side_effect = NotFound("not found")
         with patch.object(term_mod, "_docker_client", return_value=mock_client):
@@ -525,6 +588,7 @@ class TestContainerExists:
 
     def test_returns_false_on_docker_error(self):
         from docker.errors import DockerException
+
         mock_client = MagicMock()
         mock_client.containers.get.side_effect = DockerException("conn refused")
         with patch.object(term_mod, "_docker_client", return_value=mock_client):
@@ -564,6 +628,7 @@ class TestTmuxAvailable:
 
     def test_false_on_exception(self):
         from docker.errors import NotFound
+
         mock_client = MagicMock()
         mock_client.containers.get.side_effect = NotFound("nope")
         with patch.object(term_mod, "_docker_client", return_value=mock_client):
@@ -586,7 +651,8 @@ class TestDockerClientPool:
         monkeypatch.setattr(term_mod, "_patch_paramiko_host_keys", lambda: True)
         # Transport probe sees a live transport by default.
         monkeypatch.setattr(
-            term_mod, "_paramiko_transport_from_client",
+            term_mod,
+            "_paramiko_transport_from_client",
             lambda cl: MagicMock(is_active=MagicMock(return_value=True)),
         )
 
@@ -679,7 +745,8 @@ class TestDockerClientPool:
         c1 = term_mod._docker_client(host_ip="10.0.0.5")
         # Flip the transport to dead for the next call.
         monkeypatch.setattr(
-            term_mod, "_paramiko_transport_from_client",
+            term_mod,
+            "_paramiko_transport_from_client",
             lambda cl: MagicMock(is_active=MagicMock(return_value=False)),
         )
         c2 = term_mod._docker_client(host_ip="10.0.0.5")
@@ -763,6 +830,7 @@ class TestNoopMetrics:
         """When prometheus_client is installed, _PROMETHEUS is True."""
         try:
             import prometheus_client  # noqa: F401
+
             assert term_mod._PROMETHEUS is True
         except ImportError:
             assert term_mod._PROMETHEUS is False
@@ -777,6 +845,7 @@ class TestWsAuth:
     def test_rejects_no_auth(self, monkeypatch):
         """WS without auth token gets closed with 4001."""
         import routes._deps as _deps_mod
+
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         with pytest.raises(Exception):
             with client.websocket_connect("/ws/terminal/fake-id"):
@@ -785,6 +854,7 @@ class TestWsAuth:
     def test_rejects_invalid_token(self, monkeypatch):
         """WS with garbage token gets closed."""
         import routes._deps as _deps_mod
+
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
         with pytest.raises(Exception):
             with client.websocket_connect("/ws/terminal/fake-id?token=garbage"):
@@ -862,7 +932,11 @@ class TestInstanceStreamTicketApi:
         _inject_job(job_id="j-stream-ticket-2", status="running", owner="user-1")
         monkeypatch.setattr(
             "routes.instances._require_auth",
-            lambda request: {"user_id": "other-user", "customer_id": "other-user", "email": "o@test"},
+            lambda request: {
+                "user_id": "other-user",
+                "customer_id": "other-user",
+                "email": "o@test",
+            },
         )
 
         response = client.post("/api/instances/j-stream-ticket-2/stream-ticket")
@@ -908,7 +982,11 @@ class TestTerminalTicketApi:
         monkeypatch.setattr(
             term_mod,
             "_require_auth",
-            lambda request: {"user_id": "other-user", "customer_id": "other-user", "email": "o@test"},
+            lambda request: {
+                "user_id": "other-user",
+                "customer_id": "other-user",
+                "email": "o@test",
+            },
         )
 
         response = client.post("/api/terminal/ticket", json={"instance_id": "j-ticket-2"})
@@ -971,7 +1049,8 @@ class TestWsInstanceResolution:
         # Will proceed past ownership check -- should hit container polling
         # and eventually timeout/error, but NOT a 4003
         monkeypatch.setattr(
-            "routes.terminal._container_exists", lambda *a, **kw: False,
+            "routes.terminal._container_exists",
+            lambda *a, **kw: False,
         )
         # Speed up polling
         monkeypatch.setattr(term_mod, "_CONTAINER_POLL_BUDGET_SEC", 0.05)
@@ -1042,6 +1121,7 @@ class TestContainerPolling:
         monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
         # Docker client will fail at exec -- that's expected
         from docker.errors import DockerException
+
         mock_client = MagicMock()
         mock_client.containers.get.side_effect = DockerException("test: no real docker")
         monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: mock_client)
@@ -1071,7 +1151,9 @@ class TestHostIpValidation:
             lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(
-            job_id="j-inject", status="running", owner="user-1",
+            job_id="j-inject",
+            status="running",
+            owner="user-1",
             host_ip="10.0.0.1; rm -rf /",
         )
         with client.websocket_connect("/ws/terminal/j-inject") as ws:
@@ -1257,7 +1339,9 @@ class TestPtySession:
             lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         _inject_job(
-            job_id="j-pty", status="running", owner="user-1",
+            job_id="j-pty",
+            status="running",
+            owner="user-1",
             host_ip="",  # local mode
             shell="/bin/cat",
         )
@@ -1288,7 +1372,9 @@ class TestPtySession:
             os.set_blocking(master_fd, False)
             process = await asyncio.create_subprocess_exec(
                 "/bin/cat",
-                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
             )
             os.close(slave_fd)
 
@@ -1380,6 +1466,7 @@ class TestPtySession:
 
                 async def _wrapper_app(scope, receive, send):
                     from starlette.websockets import WebSocket as _SW
+
                     ws = _SW(scope, receive, send)
                     await _patched_handler(ws, scope["path_params"]["instance_id"])
 
@@ -1395,7 +1482,8 @@ class TestPtySession:
                     break
 
         monkeypatch.setattr(
-            term_mod, "__test_cleanup__",
+            term_mod,
+            "__test_cleanup__",
             _restore,
             raising=False,
         )
@@ -1504,6 +1592,7 @@ class TestResize:
     def test_resize_pty_packs_winsize(self):
         """_resize_pty packs correct TIOCSWINSZ struct."""
         import pty as _pty
+
         master_fd, slave_fd = _pty.openpty()
         try:
             import fcntl
@@ -1517,7 +1606,7 @@ class TestResize:
             _resize(120, 40)
 
             # Verify the size was set
-            buf = fcntl.ioctl(master_fd, termios.TIOCGWINSZ, b'\x00' * 8)
+            buf = fcntl.ioctl(master_fd, termios.TIOCGWINSZ, b"\x00" * 8)
             rows, cols = struct.unpack("HHHH", buf)[:2]
             assert rows == 40
             assert cols == 120
@@ -1565,14 +1654,12 @@ class TestDockerExecBuilding:
 class TestRouteRegistration:
     def test_terminal_ws_route_exists(self):
         """The /ws/terminal/{instance_id} route is registered on the app."""
-        ws_routes = [
-            r.path for r in app.routes
-            if hasattr(r, "path") and "terminal" in r.path
-        ]
+        ws_routes = [r.path for r in app.routes if hasattr(r, "path") and "terminal" in r.path]
         assert "/ws/terminal/{instance_id}" in ws_routes
 
     def test_router_is_api_router(self):
         from fastapi import APIRouter
+
         assert isinstance(term_mod.router, APIRouter)
 
 
@@ -1584,15 +1671,25 @@ class TestRouteRegistration:
 class TestFrontendIntegration:
     def test_webterminal_component_exists(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         assert os.path.exists(path)
 
     def test_webterminal_uses_binary_protocol(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1602,8 +1699,13 @@ class TestFrontendIntegration:
 
     def test_webterminal_has_search_panel(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1611,8 +1713,13 @@ class TestFrontendIntegration:
 
     def test_webterminal_uses_terminal_ticket_auth(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1622,8 +1729,13 @@ class TestFrontendIntegration:
 
     def test_webterminal_stops_retrying_on_policy_close_codes(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1633,8 +1745,12 @@ class TestFrontendIntegration:
 
     def test_instance_stream_hook_uses_ticket_auth(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "hooks", "useInstanceWebSocket.ts",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "hooks",
+            "useInstanceWebSocket.ts",
         )
         with open(path) as f:
             content = f.read()
@@ -1644,9 +1760,16 @@ class TestFrontendIntegration:
 
     def test_instance_page_renders_terminal(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "app", "(dashboard)", "dashboard",
-            "instances", "[id]", "page.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "app",
+            "(dashboard)",
+            "dashboard",
+            "instances",
+            "[id]",
+            "page.tsx",
         )
         if not os.path.exists(path):
             pytest.skip("Frontend source not available")
@@ -1658,8 +1781,13 @@ class TestFrontendIntegration:
 
     def test_xterm_css_imported(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1667,8 +1795,13 @@ class TestFrontendIntegration:
 
     def test_webgl_addon_used(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1676,8 +1809,13 @@ class TestFrontendIntegration:
 
     def test_unicode11_addon_used(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1685,8 +1823,13 @@ class TestFrontendIntegration:
 
     def test_reconnect_logic_exists(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
@@ -1696,15 +1839,28 @@ class TestFrontendIntegration:
 
     def test_keyboard_shortcuts(self):
         path = os.path.join(
-            os.path.dirname(__file__), "..",
-            "frontend", "src", "components", "terminal", "WebTerminal.tsx",
+            os.path.dirname(__file__),
+            "..",
+            "frontend",
+            "src",
+            "components",
+            "terminal",
+            "WebTerminal.tsx",
         )
         with open(path) as f:
             content = f.read()
         # Ctrl+F search
-        assert "Ctrl+F" in content or ("KeyF" in content and "ctrlKey" in content) or "attachCustomKeyEventHandler" in content
+        assert (
+            "Ctrl+F" in content
+            or ("KeyF" in content and "ctrlKey" in content)
+            or "attachCustomKeyEventHandler" in content
+        )
         # Ctrl+C smart copy
-        assert "Ctrl+C" in content or ("KeyC" in content and "ctrlKey" in content) or "hasSelection" in content
+        assert (
+            "Ctrl+C" in content
+            or ("KeyC" in content and "ctrlKey" in content)
+            or "hasSelection" in content
+        )
 
 
 # ===============================================================================
@@ -1721,7 +1877,7 @@ class TestLegacyApiWebsocketHardening:
         assert '@app.post("/api/instances/{job_id}/stream-ticket")' in content
         assert "_shared_validate_ws_origin(" in content
         assert "_shared_check_ws_connect_rate_limit(" in content
-        assert 'allow_query_token=False' in content
+        assert "allow_query_token=False" in content
 
 
 # ===============================================================================

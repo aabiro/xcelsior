@@ -246,6 +246,7 @@ class BillingEngine:
     def _conn(self):
         from db import _get_pg_pool
         from psycopg.rows import dict_row
+
         pool = _get_pg_pool()
         with pool.connection() as conn:
             conn.row_factory = dict_row
@@ -458,6 +459,7 @@ class BillingEngine:
         # Persist
         with self._conn() as conn:
             from psycopg.types.json import Jsonb
+
             conn.execute(
                 """INSERT INTO invoices
                    (invoice_id, customer_id, customer_name, currency,
@@ -714,7 +716,10 @@ class BillingEngine:
             }
 
     def deposit(
-        self, customer_id: str, amount_cad: float, description: str = "Credit deposit",
+        self,
+        customer_id: str,
+        amount_cad: float,
+        description: str = "Credit deposit",
         idempotency_key: str = "",
     ) -> dict:
         """Deposit credits into a customer wallet.
@@ -732,8 +737,16 @@ class BillingEngine:
                     (idempotency_key,),
                 ).fetchone()
                 if existing:
-                    log.info("Idempotent deposit skipped (key=%s, existing tx=%s)", idempotency_key, existing["tx_id"])
-                    return {"tx_id": existing["tx_id"], "balance_cad": existing["balance_after_cad"], "dedup": True}
+                    log.info(
+                        "Idempotent deposit skipped (key=%s, existing tx=%s)",
+                        idempotency_key,
+                        existing["tx_id"],
+                    )
+                    return {
+                        "tx_id": existing["tx_id"],
+                        "balance_cad": existing["balance_after_cad"],
+                        "dedup": True,
+                    }
 
         wallet = self.get_wallet(customer_id)
         tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
@@ -749,14 +762,23 @@ class BillingEngine:
                    RETURNING balance_cad""",
                 (amount_cad, amount_cad, time.time(), customer_id),
             ).fetchone()
-            new_balance = row["balance_cad"] if row else round(wallet["balance_cad"] + amount_cad, 4)
+            new_balance = (
+                row["balance_cad"] if row else round(wallet["balance_cad"] + amount_cad, 4)
+            )
             conn.execute(
                 """INSERT INTO wallet_transactions
                    (tx_id, customer_id, tx_type, amount_cad,
                     balance_after_cad, description, created_at, idempotency_key)
                    VALUES (%s, %s, 'deposit', %s, %s, %s, %s, %s)""",
-                (tx_id, customer_id, amount_cad, new_balance, description, time.time(),
-                 idempotency_key or ""),
+                (
+                    tx_id,
+                    customer_id,
+                    amount_cad,
+                    new_balance,
+                    description,
+                    time.time(),
+                    idempotency_key or "",
+                ),
             )
 
         log.info("DEPOSIT %s +$%.2f CAD balance=$%.2f", customer_id, amount_cad, new_balance)
@@ -799,6 +821,7 @@ class BillingEngine:
                 )
                 try:
                     from db import NotificationStore
+
                     NotificationStore.create(
                         user_email=customer_id,
                         notif_type="billing_grace",
@@ -825,6 +848,7 @@ class BillingEngine:
                 log.warning("WALLET %s grace period expired — account suspended", customer_id)
                 try:
                     from db import NotificationStore
+
                     NotificationStore.create(
                         user_email=customer_id,
                         notif_type="billing_suspended",
@@ -925,10 +949,13 @@ class BillingEngine:
         self.get_wallet(customer_id)
 
         with self._conn() as conn:
-            cleared = conn.execute(
-                "DELETE FROM wallet_transactions WHERE customer_id = %s",
-                (customer_id,),
-            ).rowcount or 0
+            cleared = (
+                conn.execute(
+                    "DELETE FROM wallet_transactions WHERE customer_id = %s",
+                    (customer_id,),
+                ).rowcount
+                or 0
+            )
             conn.execute(
                 """UPDATE wallets
                    SET balance_cad = 0,
@@ -965,7 +992,10 @@ class BillingEngine:
         the volume mount so the user can resume later.
         """
         if reason not in self._VALID_PAUSE_REASONS:
-            return {"paused": False, "reason": f"invalid_reason: must be one of {sorted(self._VALID_PAUSE_REASONS)}"}
+            return {
+                "paused": False,
+                "reason": f"invalid_reason: must be one of {sorted(self._VALID_PAUSE_REASONS)}",
+            }
         from db import _get_pg_pool
         from psycopg.rows import dict_row
 
@@ -1015,6 +1045,7 @@ class BillingEngine:
             try:
                 from scheduler import ssh_exec, list_hosts, _validate_name
                 import shlex
+
                 _validate_name(container_name, "container name")
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
@@ -1028,12 +1059,13 @@ class BillingEngine:
         # Send notification
         try:
             from db import NotificationStore
+
             NotificationStore.create(
                 user_email=owner,
                 notif_type="billing_pause",
                 title=f"Instance paused: {job.get('name', job_id)}",
                 body=f"Your instance was paused due to {reason.replace('_', ' ')}. "
-                     "Add funds to resume.",
+                "Add funds to resume.",
                 data={"job_id": job_id, "reason": reason},
             )
         except Exception:
@@ -1103,11 +1135,13 @@ class BillingEngine:
         if host_id:
             try:
                 from scheduler import list_hosts, run_job
+
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
                 host = hmap.get(host_id)
                 if host:
                     from scheduler import get_job
+
                     full_job = get_job(job_id) or {}
                     run_job(full_job, host, docker_image=job.get("image"))
                     log.info("RESUME container restarted: %s on %s", job_id, host_id)
@@ -1117,6 +1151,7 @@ class BillingEngine:
         # Send notification
         try:
             from db import NotificationStore
+
             NotificationStore.create(
                 user_email=owner,
                 notif_type="billing_resume",
@@ -1142,7 +1177,10 @@ class BillingEngine:
         flush state before exiting. Volumes are NOT removed.
         """
         if reason not in self._VALID_STOP_REASONS:
-            return {"stopped": False, "reason": f"invalid_reason: must be one of {sorted(self._VALID_STOP_REASONS)}"}
+            return {
+                "stopped": False,
+                "reason": f"invalid_reason: must be one of {sorted(self._VALID_STOP_REASONS)}",
+            }
 
         from db import _get_pg_pool
         from psycopg.rows import dict_row
@@ -1183,12 +1221,15 @@ class BillingEngine:
         if host_id:
             try:
                 from scheduler import stop_container_graceful, list_hosts, _validate_name
+
                 _validate_name(container_name, "container name")
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
                 host = hmap.get(host_id)
                 if host:
-                    stop_ok = stop_container_graceful({"job_id": job_id, "container_name": container_name}, host)
+                    stop_ok = stop_container_graceful(
+                        {"job_id": job_id, "container_name": container_name}, host
+                    )
             except Exception as e:
                 log.warning("STOP container stop failed for %s: %s", job_id, e)
 
@@ -1225,6 +1266,7 @@ class BillingEngine:
 
         try:
             from db import NotificationStore
+
             NotificationStore.create(
                 user_email=owner,
                 notif_type="instance_stopped",
@@ -1287,6 +1329,7 @@ class BillingEngine:
         if host_id:
             try:
                 from scheduler import start_stopped_container, list_hosts, _validate_name
+
                 _validate_name(container_name, "container name")
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
@@ -1332,6 +1375,7 @@ class BillingEngine:
 
         try:
             from db import NotificationStore
+
             NotificationStore.create(
                 user_email=owner,
                 notif_type="instance_started",
@@ -1397,7 +1441,13 @@ class BillingEngine:
         restart_ok = False
         if host_id:
             try:
-                from scheduler import stop_container_graceful, start_stopped_container, list_hosts, _validate_name
+                from scheduler import (
+                    stop_container_graceful,
+                    start_stopped_container,
+                    list_hosts,
+                    _validate_name,
+                )
+
                 _validate_name(container_name, "container name")
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
@@ -1430,6 +1480,7 @@ class BillingEngine:
 
         try:
             from db import NotificationStore
+
             NotificationStore.create(
                 user_email=owner,
                 notif_type="instance_restarted",
@@ -1496,6 +1547,7 @@ class BillingEngine:
         # Detach all managed volumes attached to this instance
         try:
             from volumes import get_volume_engine
+
             get_volume_engine().detach_all_for_instance(job_id)
         except Exception as e:
             log.warning("Volume detach failed for %s: %s", job_id, e)
@@ -1505,6 +1557,7 @@ class BillingEngine:
         if host_id:
             try:
                 from scheduler import terminate_job as _terminate_job, list_hosts, _validate_name
+
                 _validate_name(container_name, "container name")
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
@@ -1512,10 +1565,13 @@ class BillingEngine:
                 if host:
                     _terminate_job({"job_id": job_id, "container_name": container_name}, host)
             except Exception as e:
-                log.warning("TERMINATE container removal failed for %s: %s — already gone?", job_id, e)
+                log.warning(
+                    "TERMINATE container removal failed for %s: %s — already gone?", job_id, e
+                )
 
         try:
             from db import NotificationStore
+
             NotificationStore.create(
                 user_email=owner,
                 notif_type="instance_terminated",
@@ -1562,10 +1618,22 @@ class BillingEngine:
                        stripe_payment_method_id = %s,
                        updated_at = %s
                    WHERE customer_id = %s""",
-                (enabled, amount_cad, threshold_cad, stripe_payment_method_id, time.time(), customer_id),
+                (
+                    enabled,
+                    amount_cad,
+                    threshold_cad,
+                    stripe_payment_method_id,
+                    time.time(),
+                    customer_id,
+                ),
             )
-        log.info("Auto-topup configured for %s: enabled=%s amount=$%.2f threshold=$%.2f",
-                 customer_id, enabled, amount_cad, threshold_cad)
+        log.info(
+            "Auto-topup configured for %s: enabled=%s amount=$%.2f threshold=$%.2f",
+            customer_id,
+            enabled,
+            amount_cad,
+            threshold_cad,
+        )
         return {
             "customer_id": customer_id,
             "auto_topup_enabled": enabled,
@@ -1650,10 +1718,13 @@ class BillingEngine:
                         (host_id,),
                     ).fetchone()
 
-                    rate_per_hour = float(host["cost_per_hour"]) if host and host.get("cost_per_hour") else 0.20
+                    rate_per_hour = (
+                        float(host["cost_per_hour"]) if host and host.get("cost_per_hour") else 0.20
+                    )
 
                     # Tier multiplier
                     from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
+
                     try:
                         tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
                         tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
@@ -1667,7 +1738,9 @@ class BillingEngine:
 
                     # Charge the wallet
                     charge_result = self.charge(
-                        customer_id, amount_cad, job_id=job_id,
+                        customer_id,
+                        amount_cad,
+                        job_id=job_id,
                         description=f"Auto-billing: {gpu_model} ({duration_sec/60:.1f}min)",
                     )
 
@@ -1681,9 +1754,22 @@ class BillingEngine:
                             duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                             amount_cad, status, created_at)
                            VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (cycle_id, job_id, customer_id, host_id, period_start, period_end,
-                         duration_sec, rate_per_hour, gpu_model, tier, tier_multiplier,
-                         amount_cad, status, now),
+                        (
+                            cycle_id,
+                            job_id,
+                            customer_id,
+                            host_id,
+                            period_start,
+                            period_end,
+                            duration_sec,
+                            rate_per_hour,
+                            gpu_model,
+                            tier,
+                            tier_multiplier,
+                            amount_cad,
+                            status,
+                            now,
+                        ),
                     )
                     conn.commit()
 
@@ -1695,10 +1781,15 @@ class BillingEngine:
                     new_balance = charge_result.get("balance_cad", 0)
                     # Only notify if the user actually spent money (charged > 0) and balance dropped low
                     # This prevents firing for brand-new $0 wallets that have never run a job
-                    amount_charged = charge_result.get("amount_charged", 0) or charge_result.get("billed_usd", 0) or 0
+                    amount_charged = (
+                        charge_result.get("amount_charged", 0)
+                        or charge_result.get("billed_usd", 0)
+                        or 0
+                    )
                     if new_balance < 2.0 and amount_charged > 0:
                         try:
                             from db import NotificationStore
+
                             # Check if we already sent a low-balance notif in the last 24h
                             recent = pool.connection()
                             with recent as rc:
@@ -1722,6 +1813,7 @@ class BillingEngine:
                                 try:
                                     from scheduler import send_email
                                     import threading
+
                                     threading.Thread(
                                         target=send_email,
                                         args=(
@@ -1740,12 +1832,16 @@ class BillingEngine:
                             pass
 
                 # If charge failed with grace_expired → suspend and STOP the job
-                if not charge_result.get("charged") and charge_result.get("action") == "account_suspended":
+                if (
+                    not charge_result.get("charged")
+                    and charge_result.get("action") == "account_suspended"
+                ):
                     suspended += 1
                     # Actually terminate the running container
                     try:
                         from scheduler import get_job, list_hosts, ssh_exec, _validate_name
                         import shlex as _shlex
+
                         full_job = get_job(job_id)
                         if full_job:
                             cname = full_job.get("container_name") or f"xcl-{job_id}"
@@ -1755,7 +1851,11 @@ class BillingEngine:
                             host = hmap.get(host_id)
                             if host:
                                 ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
-                                log.warning("BILLING: Killed job %s for suspended account %s", job_id, customer_id)
+                                log.warning(
+                                    "BILLING: Killed job %s for suspended account %s",
+                                    job_id,
+                                    customer_id,
+                                )
                             # Mark job stopped in DB
                             with pool.connection() as kconn:
                                 kconn.row_factory = dict_row
@@ -1767,7 +1867,9 @@ class BillingEngine:
                         else:
                             log.warning("BILLING: Job %s not found for kill on suspension", job_id)
                     except Exception as kill_err:
-                        log.error("BILLING: Failed to kill job %s on suspension: %s", job_id, kill_err)
+                        log.error(
+                            "BILLING: Failed to kill job %s on suspension: %s", job_id, kill_err
+                        )
 
             except Exception as e:
                 errors += 1
@@ -1777,6 +1879,7 @@ class BillingEngine:
         volume_billed = 0
         try:
             from volumes import get_volume_engine
+
             ve = get_volume_engine()
 
             # Sweep stale provisioning/deleting volumes before billing
@@ -1804,7 +1907,9 @@ class BillingEngine:
             except Exception as e:
                 # Fail-closed: if we can't check suspended wallets, skip all volume
                 # billing this cycle rather than accidentally charging suspended users.
-                log.error("Suspended wallet lookup failed — skipping volume billing this cycle: %s", e)
+                log.error(
+                    "Suspended wallet lookup failed — skipping volume billing this cycle: %s", e
+                )
                 _skip_volume_billing = True
 
             active_volumes = []
@@ -1845,7 +1950,9 @@ class BillingEngine:
                             (vid,),
                         ).fetchone()
 
-                        vperiod_start = last_vc["period_end"] if last_vc else float(vol["created_at"])
+                        vperiod_start = (
+                            last_vc["period_end"] if last_vc else float(vol["created_at"])
+                        )
                         vperiod_end = now
 
                         if vperiod_end - vperiod_start < 60:
@@ -1854,8 +1961,11 @@ class BillingEngine:
                         vduration_sec = vperiod_end - vperiod_start
 
                         from volumes import VOLUME_PRICE_PER_GB_MONTH_CAD
+
                         HOURS_PER_MONTH = 730  # industry standard (365.25 × 24 / 12)
-                        rate_per_sec = (VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb) / (HOURS_PER_MONTH * 3600)
+                        rate_per_sec = (VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb) / (
+                            HOURS_PER_MONTH * 3600
+                        )
                         vamount = round(rate_per_sec * vduration_sec, 4)
 
                         if vamount <= 0:
@@ -1863,7 +1973,9 @@ class BillingEngine:
 
                         # Charge the wallet
                         vcharge = self.charge(
-                            vol_owner, vamount, job_id=vid,
+                            vol_owner,
+                            vamount,
+                            job_id=vid,
                             description=f"Volume storage: {vol.get('name', vid)} ({size_gb} GB, {vduration_sec/60:.1f}min)",
                         )
 
@@ -1877,9 +1989,22 @@ class BillingEngine:
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                                 amount_cad, status, created_at)
                                VALUES (%s, %s, %s, %s, 'volume', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (vcycle_id, vid, vol_owner, "", vperiod_start, vperiod_end,
-                             vduration_sec, round(VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb / HOURS_PER_MONTH, 6),
-                             "storage", "volume", 1.0, vamount, vstatus, now),
+                            (
+                                vcycle_id,
+                                vid,
+                                vol_owner,
+                                "",
+                                vperiod_start,
+                                vperiod_end,
+                                vduration_sec,
+                                round(VOLUME_PRICE_PER_GB_MONTH_CAD * size_gb / HOURS_PER_MONTH, 6),
+                                "storage",
+                                "volume",
+                                1.0,
+                                vamount,
+                                vstatus,
+                                now,
+                            ),
                         )
                         conn.commit()
 
@@ -1929,6 +2054,7 @@ class BillingEngine:
 
                     # Look up GPU cost per hour
                     from inference import get_inference_engine
+
                     ie = get_inference_engine()
                     cost_per_hour = ie._get_gpu_cost_per_hour(gpu_type, ep.get("region", "ca-east"))
                     if cost_per_hour <= 0:
@@ -1939,7 +2065,9 @@ class BillingEngine:
                         continue
 
                     icharge = self.charge(
-                        ep_owner, iamount, job_id=ep_id,
+                        ep_owner,
+                        iamount,
+                        job_id=ep_id,
                         description=f"Inference compute: {gpu_type} ({iduration_sec/60:.1f}min)",
                     )
 
@@ -1954,9 +2082,22 @@ class BillingEngine:
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                                 amount_cad, status, created_at)
                                VALUES (%s, %s, %s, %s, 'inference', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (icycle_id, ep_id, ep_owner, "", iperiod_start, iperiod_end,
-                             iduration_sec, cost_per_hour, gpu_type, "inference", 1.0,
-                             iamount, istatus, now),
+                            (
+                                icycle_id,
+                                ep_id,
+                                ep_owner,
+                                "",
+                                iperiod_start,
+                                iperiod_end,
+                                iduration_sec,
+                                cost_per_hour,
+                                gpu_type,
+                                "inference",
+                                1.0,
+                                iamount,
+                                istatus,
+                                now,
+                            ),
                         )
                         conn.commit()
 
@@ -2036,7 +2177,11 @@ class BillingEngine:
                         ).fetchone()
 
                     stopped_at = float(sjob["stopped_at"] or 0)
-                    speriod_start = last_sc["period_end"] if last_sc else (stopped_at if stopped_at > 0 else now)
+                    speriod_start = (
+                        last_sc["period_end"]
+                        if last_sc
+                        else (stopped_at if stopped_at > 0 else now)
+                    )
                     speriod_end = now
 
                     if speriod_end - speriod_start < 60:
@@ -2058,7 +2203,9 @@ class BillingEngine:
                             continue
 
                         scharge = self.charge(
-                            sowner, samount, job_id=sjob_id,
+                            sowner,
+                            samount,
+                            job_id=sjob_id,
                             description=f"Storage: {storage_gb:.0f}GB {storage_type} ({sduration_sec/60:.1f}min)",
                         )
                         scycle_id = f"SC-{int(now)}-{os.urandom(3).hex()}"
@@ -2069,10 +2216,22 @@ class BillingEngine:
                                 duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
                                 amount_cad, status, created_at)
                                VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (scycle_id, sjob_id, sowner, sjob.get("host_id", ""),
-                             speriod_start, speriod_end, sduration_sec,
-                             rate * storage_gb, storage_type, "storage", 1.0,
-                             samount, sstatus, now),
+                            (
+                                scycle_id,
+                                sjob_id,
+                                sowner,
+                                sjob.get("host_id", ""),
+                                speriod_start,
+                                speriod_end,
+                                sduration_sec,
+                                rate * storage_gb,
+                                storage_type,
+                                "storage",
+                                1.0,
+                                samount,
+                                sstatus,
+                                now,
+                            ),
                         )
                         conn.commit()
 
@@ -2086,7 +2245,12 @@ class BillingEngine:
         if billed or suspended or errors or volume_billed or inference_billed or storage_billed:
             log.info(
                 "AUTO-BILLING: %d compute, %d storage, %d volumes, %d inference, %d suspended, %d errors",
-                billed, storage_billed, volume_billed, inference_billed, suspended, errors,
+                billed,
+                storage_billed,
+                volume_billed,
+                inference_billed,
+                suspended,
+                errors,
             )
 
         return {
@@ -2143,6 +2307,7 @@ class BillingEngine:
 
             try:
                 from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
                 if not STRIPE_ENABLED or not _stripe_mod:
                     continue
 
@@ -2156,8 +2321,12 @@ class BillingEngine:
                     confirm=True,
                     metadata={"xcelsior_auto_topup": "true", "customer_id": customer_id},
                 )
-                log.info("Auto-topup PaymentIntent created for %s: %s ($%.2f)",
-                         customer_id, pi.id, w["auto_topup_amount_cad"])
+                log.info(
+                    "Auto-topup PaymentIntent created for %s: %s ($%.2f)",
+                    customer_id,
+                    pi.id,
+                    w["auto_topup_amount_cad"],
+                )
                 topped_up += 1
 
                 with pool.connection() as conn:
@@ -2171,7 +2340,9 @@ class BillingEngine:
             except Exception as e:
                 errors += 1
                 new_failures = failures + 1
-                log.error("Auto-topup failed for %s (attempt %d/3): %s", customer_id, new_failures, e)
+                log.error(
+                    "Auto-topup failed for %s (attempt %d/3): %s", customer_id, new_failures, e
+                )
 
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
@@ -2185,7 +2356,10 @@ class BillingEngine:
                                WHERE customer_id = %s""",
                             (new_failures, now, customer_id),
                         )
-                        log.warning("Auto-topup DISABLED for %s after 3 failures — pausing instances", customer_id)
+                        log.warning(
+                            "Auto-topup DISABLED for %s after 3 failures — pausing instances",
+                            customer_id,
+                        )
                         # Pause all running instances for this customer
                         running = conn.execute(
                             """SELECT job_id, host_id,
@@ -2203,6 +2377,7 @@ class BillingEngine:
                         try:
                             from scheduler import ssh_exec, list_hosts, _validate_name
                             import shlex as _shlex
+
                             hosts_list = list_hosts()
                             hmap = {h["host_id"]: h for h in hosts_list}
                             for job in running:
@@ -2233,7 +2408,9 @@ class BillingEngine:
 
     # ── FINTRAC Compliance ────────────────────────────────────────────
 
-    def fintrac_check_transaction(self, customer_id: str, amount_cad: float, currency: str = "CAD") -> Optional[dict]:
+    def fintrac_check_transaction(
+        self, customer_id: str, amount_cad: float, currency: str = "CAD"
+    ) -> Optional[dict]:
         """Check if a transaction triggers FINTRAC reporting requirements.
 
         Per REPORT_FEATURE_FINAL.md:
@@ -2289,17 +2466,33 @@ class BillingEngine:
         report_id = f"FIN-{int(now)}-{os.urandom(3).hex()}"
         with self._conn() as conn:
             from psycopg.types.json import Jsonb
+
             conn.execute(
                 """INSERT INTO fintrac_reports
                    (report_id, customer_id, report_type, trigger_amount_cad,
                     trigger_currency, aggregate_window_start, aggregate_window_end,
                     status, created_at, notes)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)""",
-                (report_id, customer_id, report_type, trigger_amount,
-                 trigger_currency, now - 86400, now, now, notes),
+                (
+                    report_id,
+                    customer_id,
+                    report_type,
+                    trigger_amount,
+                    trigger_currency,
+                    now - 86400,
+                    now,
+                    now,
+                    notes,
+                ),
             )
-        log.warning("FINTRAC %s report created: %s customer=%s amount=$%.2f %s",
-                     report_type, report_id, customer_id, trigger_amount, trigger_currency)
+        log.warning(
+            "FINTRAC %s report created: %s customer=%s amount=$%.2f %s",
+            report_type,
+            report_id,
+            customer_id,
+            trigger_amount,
+            trigger_currency,
+        )
         return {
             "report_id": report_id,
             "report_type": report_type,
@@ -2348,6 +2541,7 @@ class BillingEngine:
             try:
                 from scheduler import ssh_exec, list_hosts, _validate_name
                 import shlex as _shlex
+
                 hosts = list_hosts()
                 hmap = {h["host_id"]: h for h in hosts}
                 for w in suspended:
@@ -2413,11 +2607,13 @@ class BillingEngine:
                 ).fetchone()
             rate = float(host["cost_per_hour"]) if host else 0.20
             burn_per_hour += rate
-            instance_burns.append({
-                "job_id": job["job_id"],
-                "gpu_model": job.get("gpu_model", ""),
-                "rate_per_hour": rate,
-            })
+            instance_burns.append(
+                {
+                    "job_id": job["job_id"],
+                    "gpu_model": job.get("gpu_model", ""),
+                    "rate_per_hour": rate,
+                }
+            )
 
         burn_per_second = burn_per_hour / 3600 if burn_per_hour > 0 else 0
         seconds_to_zero = balance / burn_per_second if burn_per_second > 0 else float("inf")
@@ -2432,7 +2628,9 @@ class BillingEngine:
             "balance_cad": balance,
             "burn_rate_per_hour": round(burn_per_hour, 4),
             "burn_rate_per_second": round(burn_per_second, 6),
-            "seconds_to_zero": round(seconds_to_zero, 1) if seconds_to_zero != float("inf") else None,
+            "seconds_to_zero": (
+                round(seconds_to_zero, 1) if seconds_to_zero != float("inf") else None
+            ),
             "running_instances": len(running),
             "instance_burns": instance_burns,
             "alert_30min": alert_30min,
@@ -2641,7 +2839,9 @@ class BillingEngine:
             if not ts:
                 return "—"
             try:
-                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M UTC"
+                )
             except (TypeError, ValueError, OSError):
                 return "—"
 
@@ -2949,9 +3149,7 @@ class BillingEngine:
             if not ts:
                 return "—"
             try:
-                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime(
-                    "%Y-%m-%d"
-                )
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime("%Y-%m-%d")
             except (TypeError, ValueError, OSError):
                 return "—"
 
@@ -2990,9 +3188,7 @@ class BillingEngine:
             spaceAfter=2,
             alignment=0,
         )
-        h_sub = ParagraphStyle(
-            "CAFSub", parent=styles["Normal"], fontSize=9, textColor=muted
-        )
+        h_sub = ParagraphStyle("CAFSub", parent=styles["Normal"], fontSize=9, textColor=muted)
         h_section = ParagraphStyle(
             "CAFSection",
             parent=styles["Heading3"],
@@ -3002,9 +3198,7 @@ class BillingEngine:
             spaceAfter=4,
             underlineWidth=0.5,
         )
-        h_body = ParagraphStyle(
-            "CAFBody", parent=styles["Normal"], fontSize=9, leading=12
-        )
+        h_body = ParagraphStyle("CAFBody", parent=styles["Normal"], fontSize=9, leading=12)
         h_small = ParagraphStyle(
             "CAFSmall",
             parent=styles["Normal"],
@@ -3062,9 +3256,7 @@ class BillingEngine:
                 ],
                 [
                     Paragraph(customer_name or customer_id, h_body),
-                    Paragraph(
-                        f'<font face="Courier">{customer_id}</font>', h_body
-                    ),
+                    Paragraph(f'<font face="Courier">{customer_id}</font>', h_body),
                 ],
                 [
                     Paragraph("<b>Claim period (UTC)</b>", h_small),
@@ -3106,30 +3298,20 @@ class BillingEngine:
                 Paragraph("Canadian cloud compute", h_body),
                 Paragraph(_fmt_cad(s.get("canadian_compute_cost_cad", 0)), h_body),
                 Paragraph(str(s.get("canadian_reimbursement_rate", "")), h_body),
-                Paragraph(
-                    _fmt_cad(s.get("canadian_eligible_reimbursement_cad", 0)), h_body
-                ),
+                Paragraph(_fmt_cad(s.get("canadian_eligible_reimbursement_cad", 0)), h_body),
             ],
             [
                 Paragraph("Non-Canadian cloud compute", h_body),
-                Paragraph(
-                    _fmt_cad(s.get("non_canadian_compute_cost_cad", 0)), h_body
-                ),
-                Paragraph(
-                    str(s.get("non_canadian_reimbursement_rate", "")), h_body
-                ),
+                Paragraph(_fmt_cad(s.get("non_canadian_compute_cost_cad", 0)), h_body),
+                Paragraph(str(s.get("non_canadian_reimbursement_rate", "")), h_body),
                 Paragraph(
                     _fmt_cad(s.get("non_canadian_eligible_reimbursement_cad", 0)),
                     h_body,
                 ),
             ],
             [
-                Paragraph(
-                    f"<b>Total — {int(s.get('total_jobs', 0))} job(s)</b>", h_body
-                ),
-                Paragraph(
-                    f"<b>{_fmt_cad(s.get('total_cost_cad', 0))}</b>", h_body
-                ),
+                Paragraph(f"<b>Total — {int(s.get('total_jobs', 0))} job(s)</b>", h_body),
+                Paragraph(f"<b>{_fmt_cad(s.get('total_cost_cad', 0))}</b>", h_body),
                 Paragraph("—", h_body),
                 Paragraph(
                     f"<b>{_fmt_cad(s.get('total_eligible_reimbursement_cad', 0))}</b>",
@@ -3137,9 +3319,7 @@ class BillingEngine:
                 ),
             ],
             [
-                Paragraph(
-                    "Effective cost to claimant after fund reimbursement", h_body
-                ),
+                Paragraph("Effective cost to claimant after fund reimbursement", h_body),
                 "",
                 "",
                 Paragraph(
@@ -3148,9 +3328,7 @@ class BillingEngine:
                 ),
             ],
         ]
-        summary_tbl = Table(
-            summary_data, colWidths=[60 * mm, 40 * mm, 40 * mm, 40 * mm]
-        )
+        summary_tbl = Table(summary_data, colWidths=[60 * mm, 40 * mm, 40 * mm, 40 * mm])
         summary_tbl.setStyle(
             TableStyle(
                 [
@@ -3171,9 +3349,7 @@ class BillingEngine:
         story.append(summary_tbl)
 
         # Part C — Itemised Compute Usage
-        story.append(
-            Paragraph("<b>PART C — ITEMISED COMPUTE USAGE</b>", h_section)
-        )
+        story.append(Paragraph("<b>PART C — ITEMISED COMPUTE USAGE</b>", h_section))
         items_header = [
             Paragraph("<b>Job ID</b>", h_small),
             Paragraph("<b>Start</b>", h_small),
@@ -3222,9 +3398,7 @@ class BillingEngine:
                         Paragraph(_fmt_cad(it.get("cost_cad", 0)), h_small),
                         Paragraph(host_loc, h_small),
                         Paragraph(
-                            "Canadian"
-                            if it.get("is_canadian_compute")
-                            else "Non-Canadian",
+                            "Canadian" if it.get("is_canadian_compute") else "Non-Canadian",
                             h_small,
                         ),
                     ]
@@ -3259,11 +3433,7 @@ class BillingEngine:
         story.append(items_tbl)
 
         # Part D — Supplier Attestation
-        story.append(
-            Paragraph(
-                "<b>PART D — SUPPLIER ATTESTATION (Xcelsior Inc.)</b>", h_section
-            )
-        )
+        story.append(Paragraph("<b>PART D — SUPPLIER ATTESTATION (Xcelsior Inc.)</b>", h_section))
 
         def _chk(val) -> str:
             return "[X]" if val else "[ ]"
@@ -3304,11 +3474,7 @@ class BillingEngine:
             story.append(Paragraph(str(report["notes"]), h_small))
 
         # Part E — Declaration & Signatures
-        story.append(
-            Paragraph(
-                "<b>PART E — CLAIMANT DECLARATION &amp; SIGNATURES</b>", h_section
-            )
-        )
+        story.append(Paragraph("<b>PART E — CLAIMANT DECLARATION &amp; SIGNATURES</b>", h_section))
         story.append(
             Paragraph(
                 "I certify that the information in this claim is true, correct, and complete to the "
