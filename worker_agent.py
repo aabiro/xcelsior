@@ -227,6 +227,13 @@ _motd_reinjection_total = _PromCounter(
     ["result"],
 )
 
+# P3/C7 — unknown/rejected commands at the drain-side allowlist gate.
+_agent_commands_rejected_total = _PromCounter(
+    "xcelsior_worker_agent_commands_rejected_total",
+    "Agent commands rejected by worker-side allowlist (defence-in-depth)",
+    ["command"],
+)
+
 # ── Shutdown Coordination ────────────────────────────────────────────
 
 _shutdown = threading.Event()
@@ -935,13 +942,28 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
         return False
 
 
+#: P3/C7 — drain-side allowlist. Defence-in-depth against an API-side
+#: bypass: the worker only executes commands on this list. Must stay in
+#: sync with routes/agent.py::_AGENT_COMMAND_ALLOWED.
+_AGENT_COMMAND_ALLOWED = frozenset({
+    "reinject_shell",
+    "upgrade_agent",
+    "stop_container",
+    "pause_container",
+    "start_container",
+    "snapshot_container",
+})
+
+
 def drain_agent_commands() -> int:
     """Drain admin control-plane commands from the API and dispatch them.
 
     GET /agent/commands/{host_id} returns up to 50 pending commands and
     atomically deletes them. Each command dict has id/command/args/created_by.
-    Unknown commands are logged and ignored (forward-compat — newer API
-    could ship commands older agents don't yet handle).
+    Unknown commands are hard-refused (P3/C7) — no forward-compat dispatch:
+    if a newer API ships a command this agent doesn't recognise, fail
+    loudly rather than silently drop, so operators upgrade agents before
+    relying on new behaviour.
 
     Returns the number of commands successfully dispatched.
     """
@@ -964,6 +986,14 @@ def drain_agent_commands() -> int:
         args = cmd.get("args") or {}
         cmd_id = cmd.get("id")
         by = cmd.get("created_by") or "?"
+        # P3/C7 — enforce allowlist before entering any branch.
+        if name not in _AGENT_COMMAND_ALLOWED:
+            log.warning(
+                "drain_agent_commands refused unknown cmd=%s name=%r by=%s",
+                cmd_id, name, by,
+            )
+            _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
+            continue
         try:
             if name == "reinject_shell":
                 job_id = args.get("job_id") or ""
@@ -1190,8 +1220,9 @@ def drain_agent_commands() -> int:
                         )
                 except requests.RequestException as e:
                     log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
-            else:
-                log.warning("Unknown agent command cmd=%s name=%r — ignoring", cmd_id, name)
+            # P3/C7 — no `else` branch: unknown commands are rejected at
+            # the top of the loop via _AGENT_COMMAND_ALLOWED before we
+            # reach any if/elif block.
         except Exception as e:
             log.warning("agent command cmd=%s name=%s failed: %s", cmd_id, name, e)
             if name == "reinject_shell":
