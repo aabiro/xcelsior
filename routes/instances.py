@@ -157,6 +157,12 @@ class JobIn(BaseModel):
     max_bid: float | None = Field(default=None, gt=0)
     volume_ids: list[str] | None = Field(default=None, max_length=16)
     encrypted_workspace: bool = False
+    # P2.1 — optional provisioning hooks, all run inside the container with a
+    # hard 15 s cap so interactive boot never blocks on them.
+    init_script: str | None = Field(default=None, max_length=4096)
+    git_repo: str | None = Field(default=None, max_length=512)
+    auto_launch: list[str] | None = Field(default=None, max_length=4)
+    exposed_ports: list[int] | None = Field(default=None, max_length=8)
 
     @field_validator("image")
     @classmethod
@@ -166,6 +172,79 @@ class JobIn(BaseModel):
         from security import validate_docker_image
 
         return validate_docker_image(v)
+
+    @field_validator("init_script")
+    @classmethod
+    def validate_init_script(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        # Reject control chars (except \t \n \r) — keeps the script printable
+        # so logs don't break tty and prevents smuggling binary blobs.
+        bad = {c for c in v if ord(c) < 32 and c not in "\t\n\r"}
+        if bad:
+            raise ValueError("init_script contains disallowed control characters")
+        return v
+
+    @field_validator("git_repo")
+    @classmethod
+    def validate_git_repo(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        # Only public https clones — no ssh://, git://, file://, or embedded creds.
+        import re
+
+        if not re.fullmatch(
+            r"https://[A-Za-z0-9._~-]+(?::\d+)?/[A-Za-z0-9._~\-/]+(?:\.git)?", v
+        ):
+            raise ValueError("git_repo must be a plain https:// URL (no creds)")
+        if "@" in v.split("://", 1)[1]:
+            raise ValueError("git_repo must not contain credentials")
+        return v
+
+    @field_validator("auto_launch")
+    @classmethod
+    def validate_auto_launch(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        allowed = {"jupyter", "vscode"}
+        out: list[str] = []
+        for item in v:
+            s = str(item or "").strip().lower()
+            if s and s not in allowed:
+                raise ValueError(f"auto_launch item must be one of {sorted(allowed)}")
+            if s:
+                out.append(s)
+        # Dedup, preserve order
+        seen: set[str] = set()
+        dedup: list[str] = []
+        for s in out:
+            if s not in seen:
+                seen.add(s)
+                dedup.append(s)
+        return dedup
+
+    @field_validator("exposed_ports")
+    @classmethod
+    def validate_exposed_ports(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        out: list[int] = []
+        seen: set[int] = set()
+        for p in v:
+            try:
+                port = int(p)
+            except (TypeError, ValueError):
+                raise ValueError("exposed_ports must contain integers")
+            if port < 1 or port > 65535:
+                raise ValueError("exposed_ports entries must be 1..65535")
+            # Reserve SSH for the platform; users route via the fixed ssh_port.
+            if port == 22:
+                raise ValueError("port 22 is reserved — use ssh_port")
+            if port in seen:
+                continue
+            seen.add(port)
+            out.append(port)
+        return out
 
 
 class StatusUpdate(BaseModel):
@@ -373,6 +452,10 @@ def api_submit_instance(j: JobIn, request: Request):
                 owner=customer_id,
                 volume_ids=validated_volume_ids,
                 encrypted_workspace=j.encrypted_workspace,
+                init_script=j.init_script,
+                git_repo=j.git_repo,
+                auto_launch=j.auto_launch,
+                exposed_ports=j.exposed_ports,
             )
             event_name = "job_submitted"
 

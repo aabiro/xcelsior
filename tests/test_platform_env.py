@@ -75,3 +75,31 @@ def test_instance_name_falls_back_to_job_id():
 def test_public_ssh_host_is_connect_xcelsior_ca():
     env = worker_agent.build_platform_env({"job_id": "abcd1234"}, _gpu())
     assert env["XCELSIOR_PUBLIC_SSH_HOST"] == "connect.xcelsior.ca"
+
+
+# ----- P2.1 additions -------------------------------------------------------
+
+
+def test_tools_path_is_fixed():
+    env = worker_agent.build_platform_env({"job_id": "abcd1234"}, _gpu())
+    assert env["XCELSIOR_TOOLS_PATH"] == "/opt/xcelsior/bin"
+
+
+def test_exposed_ports_serialized_csv():
+    env = worker_agent.build_platform_env(
+        {"job_id": "abcd1234", "exposed_ports": [8888, 8080]}, _gpu()
+    )
+    assert env["XCELSIOR_EXPOSED_PORTS"] == "8888,8080"
+
+
+def test_exposed_ports_empty_when_unset():
+    env = worker_agent.build_platform_env({"job_id": "abcd1234"}, _gpu())
+    assert env["XCELSIOR_EXPOSED_PORTS"] == ""
+    assert env["XCELSIOR_AUTO_LAUNCH"] == ""
+
+
+def test_auto_launch_lowercased_csv():
+    env = worker_agent.build_platform_env(
+        {"job_id": "abcd1234", "auto_launch": ["JUPYTER", "VSCode"]}, _gpu()
+    )
+    assert env["XCELSIOR_AUTO_LAUNCH"] == "jupyter,vscode"

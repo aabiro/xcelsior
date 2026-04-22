@@ -22,6 +22,7 @@ import os
 import re
 import signal
 import subprocess
+import shlex
 import sys
 import threading
 import time
@@ -148,6 +149,9 @@ PLATFORM_ENV_KEYS = (
     "XCELSIOR_INSTANCE_NAME",
     "XCELSIOR_PUBLIC_SSH_HOST",
     "XCELSIOR_PUBLIC_SSH_PORT",
+    "XCELSIOR_TOOLS_PATH",
+    "XCELSIOR_EXPOSED_PORTS",
+    "XCELSIOR_AUTO_LAUNCH",
 )
 
 
@@ -169,6 +173,20 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
     job_id = str(job.get("job_id", "") or "")
     gi = gpu_info or {}
     api_url = os.environ.get("XCELSIOR_API_URL", "https://xcelsior.ca")
+    # P2.1: surface tools path and user-requested exposed ports / auto-launch
+    # services so containers can discover them without a second API round-trip.
+    exposed_ports = job.get("exposed_ports") or []
+    if isinstance(exposed_ports, (list, tuple)):
+        exposed_ports_s = ",".join(str(int(p)) for p in exposed_ports if str(p).strip())
+    else:
+        exposed_ports_s = ""
+    auto_launch = job.get("auto_launch") or []
+    if isinstance(auto_launch, (list, tuple)):
+        auto_launch_s = ",".join(
+            str(s).strip().lower() for s in auto_launch if str(s).strip()
+        )
+    else:
+        auto_launch_s = ""
     return {
         "XCELSIOR_JOB_ID": job_id,
         "XCELSIOR_HOST_ID": str(HOST_ID or ""),
@@ -179,6 +197,9 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
         "XCELSIOR_INSTANCE_NAME": str(job.get("name", "") or job_id),
         "XCELSIOR_PUBLIC_SSH_HOST": "connect.xcelsior.ca",
         "XCELSIOR_PUBLIC_SSH_PORT": str(_compute_public_ssh_port(job_id)),
+        "XCELSIOR_TOOLS_PATH": "/opt/xcelsior/bin",
+        "XCELSIOR_EXPOSED_PORTS": exposed_ports_s,
+        "XCELSIOR_AUTO_LAUNCH": auto_launch_s,
     }
 
 
@@ -2278,6 +2299,40 @@ def run_job(job):
             # Expose SSH port (map to a unique host port based on job_id hash)
             host_port = 10000 + (int(job_id[:4], 16) % 55000)
             extra_docker_args.extend(["-p", f"{host_port}:{ssh_port}"])
+            # P2.1: bind-mount host-side tools dir (rsync, git, etc) read-only
+            # so interactive instances have these on $PATH without paying an
+            # apt-install tax at boot. We skip the mount when the dir doesn't
+            # exist on the host so unprovisioned dev machines still work.
+            host_tools_dir = "/var/lib/xcelsior/tools"
+            try:
+                if os.path.isdir(host_tools_dir):
+                    extra_docker_args.extend(
+                        ["-v", f"{host_tools_dir}:/opt/xcelsior/bin:ro"]
+                    )
+                    log.info("Mounted host tools: %s -> /opt/xcelsior/bin (ro)", host_tools_dir)
+            except Exception as e:
+                log.debug("Tools mount skipped: %s", e)
+            # P2.1: publish user-requested HTTP ports. We allocate each host
+            # port deterministically in the 55000-59999 range so the public
+            # reverse proxy (P2.2) can resolve {job}-{port}.xcelsior.ca without
+            # a lookup. Port 22 is reserved — validated at the API boundary.
+            _user_ports = job.get("exposed_ports") or []
+            if isinstance(_user_ports, (list, tuple)):
+                _seen: set[int] = set()
+                for _p in _user_ports:
+                    try:
+                        cport = int(_p)
+                    except (TypeError, ValueError):
+                        continue
+                    if cport < 1 or cport > 65535 or cport in _seen:
+                        continue
+                    _seen.add(cport)
+                    try:
+                        hport = 55000 + (int(job_id[:4], 16) + cport) % 5000
+                    except (ValueError, TypeError):
+                        continue
+                    extra_docker_args.extend(["-p", f"{hport}:{cport}"])
+                    log.info("Expose port: host:%d -> container:%d", hport, cport)
             # Interactive containers need writable filesystem for SSH
             # Remove --read-only and add writable tmpfs for home/ssh
             extra_docker_args.extend(
@@ -2400,6 +2455,12 @@ def run_job(job):
                     },
                 ],
             )
+
+        # P2.1: user-supplied provisioning hooks. These run AFTER SSH is ready
+        # so the banner timing is not affected, each capped at 15 s via the
+        # `timeout` coreutil so a stuck clone or hanging init can't strand
+        # the instance.
+        _run_provisioning_hooks(job_id, container_name, job)
 
         # 5. Apply egress rules (best-effort)
         try:
@@ -2827,6 +2888,186 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 if job_id not in _active_containers:
                     break  # Requeued — exit sleep, handle at top of loop
             time.sleep(1)
+
+
+def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
+    """P2.1 — apply optional init_script and git_repo, both capped at 15 s.
+
+    Runs via ``docker exec`` against an already-running container. Each hook
+    fails open so a broken hook can never wedge the instance: a timeout just
+    surfaces as a warning in the user's log stream and execution proceeds. The
+    interactive terminal UI v1 banner has already finished by the time we
+    reach here, so these hooks do not affect the "SSH ready" perceived boot
+    time.
+    """
+    if not job.get("interactive"):
+        return
+    init_script = (job.get("init_script") or "").strip()
+    git_repo = (job.get("git_repo") or "").strip()
+    if not init_script and not git_repo:
+        return
+
+    def _exec_capped(tag: str, shell_cmd: str, seconds: int = 15) -> None:
+        # `timeout --kill-after=2 15 bash -c …` — hard-kill after grace so a
+        # runaway process doesn't hold the agent thread. We still honour the
+        # agent's outer timeout as a belt-and-braces measure.
+        started = time.time()
+        cmd = [
+            "docker",
+            "exec",
+            container_name,
+            "sh",
+            "-c",
+            f"timeout --kill-after=2 {seconds} bash -c {shlex.quote(shell_cmd)}"
+            f" 2>&1 | tail -c 4096",
+        ]
+        _push_log_lines(
+            job_id,
+            [{"message": f"[xcelsior] {tag} starting (≤{seconds}s)…", "level": "info", "timestamp": started}],
+        )
+        try:
+            # Outer timeout is slightly larger to let `timeout` emit its own
+            # exit code first, giving us a cleaner message.
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=seconds + 5)
+            out = (proc.stdout or "").strip()
+            if proc.returncode == 124:  # coreutils timeout signal
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] {tag} exceeded {seconds}s — continuing without waiting",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+                return
+            if proc.returncode != 0:
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] {tag} failed (rc={proc.returncode}): {out[-512:]}",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+                return
+            elapsed = int((time.time() - started) * 1000)
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] {tag} ok ({elapsed} ms)",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"[xcelsior] {tag} hung — abandoned",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except Exception as e:
+            log.debug("provisioning %s error: %s", tag, e)
+
+    # Git clone first — users' init scripts often want the repo present.
+    if git_repo:
+        # git_repo has been validated at the API boundary to be a plain
+        # https:// URL with no credentials; we still wrap in quotes.
+        safe_repo = shlex.quote(git_repo)
+        clone_cmd = (
+            "mkdir -p /workspace && cd /workspace && "
+            "if command -v git >/dev/null 2>&1; then "
+            f"git clone --depth 1 {safe_repo} repo 2>&1 | tail -n 10; "
+            "else echo 'git not installed in image'; fi"
+        )
+        _exec_capped("git_repo", clone_cmd, seconds=15)
+
+    if init_script:
+        # Caller's script runs under bash -lc so profile is loaded. We write
+        # it to a file inside the container (via stdin) rather than inlining
+        # to avoid shell-escaping pitfalls with multiline scripts.
+        # docker exec -i streams stdin → temp file → bash -l.
+        try:
+            started = time.time()
+            _push_log_lines(
+                job_id,
+                [{"message": "[xcelsior] init_script starting (≤15s)…", "level": "info", "timestamp": started}],
+            )
+            write_cmd = [
+                "docker",
+                "exec",
+                "-i",
+                container_name,
+                "sh",
+                "-c",
+                "cat > /tmp/xcelsior_init.sh && chmod +x /tmp/xcelsior_init.sh && "
+                "timeout --kill-after=2 15 bash -l /tmp/xcelsior_init.sh 2>&1 | tail -c 4096",
+            ]
+            proc = subprocess.run(
+                write_cmd,
+                input=init_script,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            out = (proc.stdout or "").strip()
+            if proc.returncode == 124:
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": "[xcelsior] init_script exceeded 15s — continuing without waiting",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+            elif proc.returncode != 0:
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] init_script failed (rc={proc.returncode}): {out[-512:]}",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+            else:
+                elapsed = int((time.time() - started) * 1000)
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"[xcelsior] init_script ok ({elapsed} ms)",
+                            "level": "info",
+                            "timestamp": time.time(),
+                        }
+                    ],
+                )
+        except subprocess.TimeoutExpired:
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": "[xcelsior] init_script hung — abandoned",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        except Exception as e:
+            log.debug("provisioning init_script error: %s", e)
 
 
 def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False):
