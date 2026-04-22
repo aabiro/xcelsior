@@ -1690,7 +1690,11 @@ def _owner_slug(owner_id: str) -> str:
     import hashlib
     clean = re.sub(r"[^a-z0-9_-]", "-", (owner_id or "").lower()).strip("-") or "user"
     # Keep registry paths readable but always disambiguated.
-    digest = hashlib.sha256((owner_id or "").encode("utf-8")).hexdigest()[:8]
+    # P3/B5 — 16 hex chars = 64 bits of entropy. An 8-char prefix (32 bits)
+    # is vulnerable to birthday collisions at ~65k users sharing a slug;
+    # at Xcelsior's expected scale that's borderline. 16 chars pushes the
+    # 50% collision point past 2^32 users.
+    digest = hashlib.sha256((owner_id or "").encode("utf-8")).hexdigest()[:16]
     return f"{clean[:32]}-{digest}"
 
 
@@ -1735,6 +1739,17 @@ class SnapshotIn(BaseModel):
         v = (v or "").strip()
         # Strip any control chars other than newlines/tabs.
         v = "".join(c for c in v if ord(c) >= 32 or c in "\n\t")
+        # P3/B9 — strip Unicode bidirectional override characters. These
+        # can be used to mask malicious content in logs / UIs by flipping
+        # display order (CVE-2021-42574, "Trojan Source"). We have no
+        # legitimate use for LRO/RLO/PDF/LRI/RLI/FSI/PDI in an image
+        # description.
+        _BIDI_CHARS = {
+            "\u202A", "\u202B", "\u202C", "\u202D", "\u202E",  # LRE/RLE/PDF/LRO/RLO
+            "\u2066", "\u2067", "\u2068", "\u2069",             # LRI/RLI/FSI/PDI
+        }
+        if any(c in _BIDI_CHARS for c in v):
+            v = "".join(c for c in v if c not in _BIDI_CHARS)
         return v[:512]
 
 
