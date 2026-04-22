@@ -2008,7 +2008,7 @@ def run_job(job):
         report_job_status(job_id, "starting", host_id=HOST_ID,
                           container_id=container_id, container_name=container_name)
 
-        # 4b. Inject user's SSH keys into the container (best-effort, 45s budget).
+        # 4b. Inject user's SSH keys into the container (best-effort, 90s budget).
         #     _inject_ssh_keys is guaranteed to emit a final summary line via
         #     both the log stream AND the container's PID-1 stdout, so the user
         #     never sees "Setting up SSH…" hang indefinitely.
@@ -2477,7 +2477,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             pass
 
     start = time.monotonic()
-    deadline = start + 45.0
+    deadline = start + 90.0
 
     def _remaining(default: float) -> float:
         """Clamp a subprocess timeout to the remaining wall-clock budget.
@@ -2508,6 +2508,10 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             log.warning("SSH key fetch failed for job %s: %s", job_id, e)
 
         if not keys:
+            _note(
+                "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH (root@host:port) into this instance — same as RunPod/Vast. The web terminal works without a key.",
+                level="info",
+            )
             log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
 
         # --- Prepare /root/.ssh (always — sshd needs it even with no keys) ---
@@ -2532,12 +2536,55 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             log.info("Injected %d SSH key(s) into container %s for job %s", len(keys), container_name, job_id)
             _note(f"Injected {len(keys)} SSH key(s)")
 
-        # --- Detect sshd ---
+        # --- Detect sshd, install if missing ---
         sshd_check = subprocess.run(
             ["docker", "exec", container_name, "which", "sshd"],
             capture_output=True, timeout=_remaining(5),
         )
         sshd_present = sshd_check.returncode == 0
+
+        if not sshd_present:
+            # RunPod/Vast-style: install openssh-server on demand so SSH keys
+            # actually work on images that ship without it (pytorch, cuda, etc).
+            # Detect package manager; install quietly; re-check for sshd.
+            _note("Installing OpenSSH server in container (one-time setup)…")
+            install_script = (
+                "set -e; "
+                "if command -v apt-get >/dev/null 2>&1; then "
+                "  export DEBIAN_FRONTEND=noninteractive; "
+                "  apt-get update -qq >/dev/null 2>&1 && "
+                "  apt-get install -y -qq --no-install-recommends openssh-server >/dev/null 2>&1; "
+                "elif command -v dnf >/dev/null 2>&1; then "
+                "  dnf install -y -q openssh-server >/dev/null 2>&1; "
+                "elif command -v yum >/dev/null 2>&1; then "
+                "  yum install -y -q openssh-server >/dev/null 2>&1; "
+                "elif command -v apk >/dev/null 2>&1; then "
+                "  apk add --quiet --no-cache openssh-server >/dev/null 2>&1; "
+                "elif command -v microdnf >/dev/null 2>&1; then "
+                "  microdnf install -y -q openssh-server >/dev/null 2>&1; "
+                "else "
+                "  echo 'no-package-manager' >&2; exit 2; "
+                "fi; "
+                "command -v sshd >/dev/null || "
+                "  [ -x /usr/sbin/sshd ] || "
+                "  { echo 'sshd still missing after install' >&2; exit 3; }"
+            )
+            install = subprocess.run(
+                ["docker", "exec", container_name, "sh", "-c", install_script],
+                capture_output=True, timeout=_remaining(30),
+            )
+            sshd_present = install.returncode == 0
+            if sshd_present:
+                log.info("Installed openssh-server in container %s", container_name)
+                _note("OpenSSH server installed")
+            else:
+                err = (install.stderr.decode(errors="replace").strip() if isinstance(install.stderr, bytes) else (install.stderr or "").strip())[:200]
+                log.warning("sshd install failed in %s: %s", container_name, err)
+                _note(
+                    "Could not install OpenSSH server in this image — web terminal still works. "
+                    "Add SSH keys at Settings → SSH Keys; direct SSH will be enabled on next launch with a compatible image.",
+                    level="warning",
+                )
 
         if sshd_present:
             # Generate host keys if missing
@@ -2660,9 +2707,9 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             final_msg = "[xcelsior] Terminal ready — web terminal only (image has no sshd)"
 
     except subprocess.TimeoutExpired:
-        final_msg = "[xcelsior] SSH setup timed out (45s budget) — web terminal still works"
+        final_msg = "[xcelsior] SSH setup timed out (90s budget) — web terminal still works"
         final_level = "warning"
-        log.warning("SSH inject exceeded 45s budget for job %s", job_id)
+        log.warning("SSH inject exceeded 90s budget for job %s", job_id)
     except Exception as e:
         final_msg = f"[xcelsior] SSH setup failed: {e} — web terminal still works"
         final_level = "warning"
