@@ -133,11 +133,6 @@ async def query_running_instances() -> list[InstanceRoute]:
                     ssh_port = int(ssh_port_str)
                 except (ValueError, TypeError):
                     continue
-                # Skip legacy rows with ssh_port outside the gateway's reserved
-                # range (10000-65000). Ports like 22 can't be bound here (host
-                # sshd owns :22) and cause repeating bind-error log spam.
-                if ssh_port < 10000 or ssh_port > 65000:
-                    continue
                 routes.append(InstanceRoute(
                     job_id=job_id,
                     ssh_port=ssh_port,
