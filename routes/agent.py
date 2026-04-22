@@ -277,15 +277,50 @@ def enqueue_agent_command(
         raise HTTPException(400, f"Unknown agent command: {command}")
     import json as _json
 
+    # P3/C4 — args size cap. Serialised JSON > 16 KB almost certainly
+    # indicates a bug or an abuse attempt (the payload has to cross a
+    # JSONB column and later be rehydrated in the worker). Fail fast
+    # with 413 so callers get a clear signal.
+    _AGENT_ARGS_MAX_BYTES = int(os.environ.get("XCELSIOR_AGENT_ARGS_MAX_BYTES", "16384"))
+    args_json = _json.dumps(args or {})
+    if len(args_json) > _AGENT_ARGS_MAX_BYTES:
+        raise HTTPException(
+            413,
+            f"Agent command args too large: {len(args_json)} bytes "
+            f"(max {_AGENT_ARGS_MAX_BYTES}).",
+        )
+
     pool = _get_pg_pool()
     with pool.connection() as conn, conn.cursor() as cur:
+        # P3/C5 — per-host queue cap. Prevents a buggy caller or
+        # compromised admin token from flooding a single host with more
+        # pending commands than it can reasonably drain (default 50/drain,
+        # so 1000 = ~20 drain cycles of backlog).
+        _AGENT_QUEUE_MAX = int(os.environ.get("XCELSIOR_AGENT_QUEUE_MAX", "1000"))
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM agent_commands
+             WHERE host_id=%s
+               AND status='pending'
+               AND expires_at > EXTRACT(EPOCH FROM NOW())
+            """,
+            (host_id,),
+        )
+        pending_count = int((cur.fetchone() or [0])[0])
+        if pending_count >= _AGENT_QUEUE_MAX:
+            raise HTTPException(
+                503,
+                f"Agent queue full for host {host_id}: "
+                f"{pending_count} pending (max {_AGENT_QUEUE_MAX}). "
+                f"Wait for worker to drain.",
+            )
         cur.execute(
             """
             INSERT INTO agent_commands (host_id, command, args, created_by, expires_at)
             VALUES (%s, %s, %s::jsonb, %s, EXTRACT(EPOCH FROM NOW()) + %s)
             RETURNING id
             """,
-            (host_id, command, _json.dumps(args or {}), created_by, int(ttl_sec)),
+            (host_id, command, args_json, created_by, int(ttl_sec)),
         )
         row = cur.fetchone()
     return int(row[0])
