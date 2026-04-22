@@ -295,7 +295,39 @@ def main():
 
     tasks.append(("user_images_pending_sweeper", _user_images_pending_sweeper, 300))
 
-    # 16. Lightning Network deposit watcher (every 5 seconds)
+    # 16. P3/C2 — user_images hard-delete GC.
+    # Soft-deleted rows (deleted_at > 0) pile up over time. After a
+    # retention window (default 30d) the audit value is exhausted and the
+    # rows bloat the table + its partial unique index. Hard-delete them.
+    def _user_images_hard_delete_gc():
+        import os as _os
+        from db import _get_pg_pool
+
+        retention_days = int(_os.environ.get("XCELSIOR_USER_IMAGES_GC_DAYS", "30"))
+        if retention_days <= 0:
+            return  # disabled
+        cutoff = time.time() - (retention_days * 86400.0)
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM user_images
+                 WHERE deleted_at > 0
+                   AND deleted_at < %s
+                """,
+                (cutoff,),
+            )
+            purged = cur.rowcount
+            conn.commit()
+        if purged:
+            log.info(
+                "user_images GC: hard-deleted %d rows (deleted_at < %d days ago)",
+                purged, retention_days,
+            )
+
+    tasks.append(("user_images_hard_delete_gc", _user_images_hard_delete_gc, 86400))
+
+    # 17. Lightning Network deposit watcher (every 5 seconds)
     try:
         import lightning as _ln
 
