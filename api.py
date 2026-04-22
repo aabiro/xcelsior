@@ -19,6 +19,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 TEMPLATES_DIR = Path(os.path.dirname(__file__)) / "templates"
 
+# P3/C3 — install PII scrubbing on the logger tree before anything else
+# so every subsequent import that emits a log goes through the filter.
+from log_pii_filter import install as _install_pii_scrub  # noqa: E402
+
+_install_pii_scrub()
+
 from db import start_pg_listen, UserStore
 
 from scheduler import (

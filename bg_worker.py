@@ -30,6 +30,13 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-8s [bg-worker] %(message)s",
 )
 
+# P3/C3 — scrub PII from bg-worker logs too.
+try:
+    from log_pii_filter import install as _install_pii_scrub
+    _install_pii_scrub()
+except Exception:  # pragma: no cover
+    pass
+
 _stop = threading.Event()
 
 
