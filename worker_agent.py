@@ -1052,6 +1052,7 @@ def drain_agent_commands() -> int:
                 if not cname:
                     log.warning("start_container cmd=%s missing container_name", cmd_id)
                     continue
+                start_job_id = str(args.get("job_id") or "")
                 log.info("Executing start_container cmd=%s container=%s by=%s", cmd_id, cname, by)
                 try:
                     r = subprocess.run(
@@ -1061,12 +1062,45 @@ def drain_agent_commands() -> int:
                     if r.returncode == 0:
                         dispatched += 1
                     else:
+                        stderr_trim = (r.stderr or "").strip()[:400]
                         log.warning(
                             "start_container cmd=%s rc=%s stderr=%s",
-                            cmd_id, r.returncode, (r.stderr or "")[:200],
+                            cmd_id, r.returncode, stderr_trim,
                         )
+                        # P3/B8 — previous code left the job stuck at status
+                        # 'running' (set optimistically by billing.resume_instance)
+                        # even though the container never started. Revert to
+                        # 'user_paused' with an error message so UI unsticks
+                        # and the user sees a real reason.
+                        if start_job_id:
+                            try:
+                                report_job_status(
+                                    start_job_id,
+                                    "user_paused",
+                                    error_message=f"resume failed: {stderr_trim}" or
+                                                  "resume failed: docker start exited non-zero",
+                                )
+                            except Exception as cb_err:
+                                log.warning(
+                                    "start_container failure-callback cmd=%s "
+                                    "job=%s failed: %s",
+                                    cmd_id, start_job_id, cb_err,
+                                )
                 except subprocess.TimeoutExpired:
                     log.warning("start_container cmd=%s container=%s timed out", cmd_id, cname)
+                    if start_job_id:
+                        try:
+                            report_job_status(
+                                start_job_id,
+                                "user_paused",
+                                error_message="resume failed: docker start timed out",
+                            )
+                        except Exception as cb_err:
+                            log.warning(
+                                "start_container timeout-callback cmd=%s "
+                                "job=%s failed: %s",
+                                cmd_id, start_job_id, cb_err,
+                            )
             elif name == "snapshot_container":
                 # P3.1 — `docker commit` the running container to a user
                 # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL
@@ -1084,14 +1118,19 @@ def drain_agent_commands() -> int:
                 status = "failed"
                 size_bytes = 0
                 err_msg = ""
+                committed_locally = False  # P3/B6 — track so we can rmi on push fail
                 try:
+                    # Step 1: docker commit (local tag created).
                     commit = subprocess.run(
                         ["docker", "commit", cname, image_ref],
                         capture_output=True, text=True, timeout=900,
                     )
                     if commit.returncode != 0:
-                        err_msg = (commit.stderr or "")[:500]
+                        # P3/B7 — distinguish commit vs push failures so the
+                        # UI can surface actionable errors.
+                        err_msg = f"commit failed: {(commit.stderr or '').strip()[:480]}"
                     else:
+                        committed_locally = True
                         # Best-effort size inspection.
                         try:
                             insp = subprocess.run(
@@ -1104,12 +1143,27 @@ def drain_agent_commands() -> int:
                             pass
                         registry_url = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip()
                         if registry_url and image_ref.startswith(registry_url.rstrip("/")):
+                            # Step 2: docker push.
                             push = subprocess.run(
                                 ["docker", "push", image_ref],
                                 capture_output=True, text=True, timeout=900,
                             )
                             if push.returncode != 0:
-                                err_msg = (push.stderr or "")[:500]
+                                err_msg = f"push failed: {(push.stderr or '').strip()[:480]}"
+                                # P3/B6 — clean up local tag so this host's
+                                # disk doesn't fill with orphaned layers from
+                                # retried-and-failed pushes.
+                                try:
+                                    subprocess.run(
+                                        ["docker", "rmi", image_ref],
+                                        capture_output=True, text=True, timeout=30,
+                                    )
+                                    committed_locally = False
+                                except subprocess.TimeoutExpired:
+                                    log.warning(
+                                        "snapshot_container rmi-after-push-fail "
+                                        "cmd=%s ref=%s timed out", cmd_id, image_ref,
+                                    )
                             else:
                                 status = "ready"
                         else:
