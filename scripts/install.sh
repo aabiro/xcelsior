@@ -113,7 +113,7 @@ install_agent() {
     # use rsync/git/curl without paying an apt-install tax at boot (the
     # platform hard-caps provisioning at 15 s). All best-effort — if we can't
     # stage tools, containers fall back to whatever the image ships with.
-    TOOLS_DIR="/var/lib/xcelsior/tools"
+    TOOLS_DIR="${XCELSIOR_TOOLS_DIR:-/var/lib/xcelsior/tools}"
     if sudo mkdir -p "$TOOLS_DIR" 2>/dev/null; then
         _staged=0
         for bin in rsync git curl jq htop less ca-certificates; do

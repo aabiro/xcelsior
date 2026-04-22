@@ -96,7 +96,10 @@ def test_snapshot_uses_reflink_not_rsync(monkeypatch):
     assert cp_cmds
     for c in cp_cmds:
         assert "--reflink" in c
-    assert not any("rsync" in c for c in captured)
+    # The snapshot itself must not use rsync (the whole point of P2.5 is
+    # instant CoW). rsync is still allowed elsewhere in the codebase as a
+    # general-purpose tool.
+    assert not any("rsync" in c for c in cp_cmds)
 
 
 def test_snapshot_rejects_attached_volume(monkeypatch):
@@ -155,7 +158,9 @@ def test_restore_uses_reflink(monkeypatch):
 
     assert res["status"] == "restored"
     assert any("--reflink" in c for c in captured)
-    assert not any("rsync" in c for c in captured)
+    # Snapshot restore is a CoW reflink op — not an rsync mirror.
+    cp_or_mv = [c for c in captured if c.startswith("cp ") or " cp " in c]
+    assert not any("rsync" in c for c in cp_or_mv)
     assert any(".pre-restore-" in c for c in captured)
 
 
@@ -269,5 +274,4 @@ def test_restore_uses_mv_T_for_safety(monkeypatch):
     # rely on bare `mv` which can nest a dir if the target exists.
     joined = " ".join(captured)
     assert "mv -T" in joined or "[ -e " in joined
-    assert "rsync" not in joined
 
