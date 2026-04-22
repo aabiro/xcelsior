@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Xcelsior Worker Agent v2.0.0
+# Xcelsior Worker Agent v2.1.0
 # Pull-based GPU worker agent for distributed GPU scheduling.
 #
 # Architecture change from v1.0.0 (push-based):
@@ -809,6 +809,21 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
         log.warning("upgrade_agent cmd=%s bad args: %r", cmd_id, args)
         return False
 
+    # Refuse plaintext URLs — integrity is enforced by sha256 but we also want
+    # transport confidentiality + to avoid DNS/HTTP MITM feeding us a valid
+    # (attacker-signed) blob alongside a poisoned sha. If your API_URL is
+    # http://localhost for local dev, set XCELSIOR_ALLOW_INSECURE_UPGRADE=1.
+    if not url.startswith("https://") and os.environ.get(
+        "XCELSIOR_ALLOW_INSECURE_UPGRADE"
+    ) != "1":
+        log.error("upgrade_agent refusing non-https url: %s", url)
+        return False
+
+    # Sanity check hex before we do any I/O.
+    if any(c not in "0123456789abcdef" for c in expected_sha):
+        log.warning("upgrade_agent cmd=%s non-hex sha256", cmd_id)
+        return False
+
     # Version gating — compare as tuples of ints where possible.
     def _vtuple(v: str) -> tuple:
         try:
@@ -834,12 +849,25 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
             url,
             expected_sha[:12],
         )
-        resp = requests.get(url, timeout=30)
+        resp = requests.get(url, timeout=30, stream=True)
         if resp.status_code != 200:
             log.warning("upgrade_agent download failed: status=%s", resp.status_code)
             return False
-        data = resp.content
-        actual_sha = hashlib.sha256(data).hexdigest()
+        # Cap download at 10 MB — worker_agent.py is ~160 KB today; anything
+        # an order of magnitude larger is a misconfiguration or attack.
+        MAX_BYTES = 10 * 1024 * 1024
+        hasher = hashlib.sha256()
+        buf = bytearray()
+        for chunk in resp.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            hasher.update(chunk)
+            if len(buf) > MAX_BYTES:
+                log.error("upgrade_agent refusing oversized body (> %d bytes)", MAX_BYTES)
+                return False
+        data = bytes(buf)
+        actual_sha = hasher.hexdigest()
         if actual_sha != expected_sha:
             log.error(
                 "upgrade_agent sha mismatch: expected=%s got=%s — aborting",
