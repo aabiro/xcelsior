@@ -184,7 +184,7 @@ def api_schedule_preemption(host_id: str, job_id: str, request: Request):
 # delivery is at-most-once by design (re-inject is idempotent so a lost
 # command is harmless; admins can re-issue).
 
-_AGENT_COMMAND_ALLOWED = {"reinject_shell"}
+_AGENT_COMMAND_ALLOWED = {"reinject_shell", "upgrade_agent"}
 
 
 @router.get("/agent/commands/{host_id}", tags=["Agent"])

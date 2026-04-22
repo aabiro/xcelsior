@@ -28,6 +28,7 @@ import time
 import uuid
 from contextlib import suppress
 from datetime import datetime
+from pathlib import Path
 
 try:
     import requests
@@ -116,7 +117,24 @@ HEADSCALE_URL = os.environ.get("XCELSIOR_HEADSCALE_URL", "")
 # gVisor preference
 PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1", "true", "yes")
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
+
+
+def _self_sha256() -> str:
+    """Return the sha256 of this worker_agent.py file (best-effort).
+
+    Used for:
+      - Reporting agent_sha256 in /host heartbeats so the control plane
+        knows which bytes are actually running on this host.
+      - Deciding whether an ``upgrade_agent`` directive is a no-op.
+    Returns empty string on any error (the file must exist; this is
+    almost always successful).
+    """
+    try:
+        import hashlib
+        return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    except Exception:
+        return ""
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -626,6 +644,10 @@ def heartbeat(gpu_info, host_ip, compute_score=None):
         "total_vram_gb": gpu_info["total_vram_gb"],
         "free_vram_gb": gpu_info["free_vram_gb"],
         "cost_per_hour": COST_PER_HOUR,
+        # P1.2: report our own version + sha so the control plane knows
+        # which bytes are running and can schedule rolling self-updates.
+        "agent_version": VERSION,
+        "agent_sha256": _self_sha256(),
     }
 
     try:
@@ -708,6 +730,99 @@ def check_preemption():
         return []
 
 
+def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
+    """Handle an ``upgrade_agent`` directive from the control plane (P1.2).
+
+    args: {
+        "url": "https://xcelsior.ca/static/worker_agent.py",
+        "sha256": "<hex>",          # required — we refuse to install unverified bytes
+        "min_version": "2.1.0",      # optional — skip if our VERSION >= this
+    }
+
+    Flow:
+      1. If ``min_version`` <= VERSION, log + skip (we're already at/above target).
+      2. Download ``url`` to ``~/.xcelsior/worker_agent.py.new``.
+      3. Verify sha256 matches ``args["sha256"]``. Abort on mismatch.
+      4. Copy current file to ``~/.xcelsior/worker_agent.py.bak``.
+      5. ``os.replace`` new → current path (atomic on same filesystem).
+      6. Log + ``sys.exit(0)`` — systemd ``Restart=always`` respawns with the
+         new bytes. If the new bytes fail to start, the old VERSION heartbeat
+         will cease and the control plane will see the upgrade stalled (the
+         rolling-upgrade driver can then roll back from .bak).
+
+    Returns True on successful install (won't return if process exits).
+    """
+    import hashlib
+
+    url = (args or {}).get("url") or ""
+    expected_sha = ((args or {}).get("sha256") or "").lower().strip()
+    min_version = (args or {}).get("min_version") or ""
+
+    if not url or not expected_sha or len(expected_sha) != 64:
+        log.warning("upgrade_agent cmd=%s bad args: %r", cmd_id, args)
+        return False
+
+    # Version gating — compare as tuples of ints where possible.
+    def _vtuple(v: str) -> tuple:
+        try:
+            return tuple(int(p) for p in v.split(".") if p.isdigit())
+        except Exception:
+            return ()
+
+    if min_version and _vtuple(VERSION) >= _vtuple(min_version) and _vtuple(min_version):
+        # Already at or beyond target and args also asked for the same sha as us: skip.
+        if expected_sha == _self_sha256():
+            log.info("upgrade_agent cmd=%s already at %s (sha matches) — skipped",
+                     cmd_id, VERSION)
+            return True
+
+    self_path = Path(__file__).resolve()
+    new_path = self_path.with_suffix(".py.new")
+    bak_path = self_path.with_suffix(".py.bak")
+
+    try:
+        log.info("upgrade_agent cmd=%s by=%s downloading %s (expect sha=%s)",
+                 cmd_id, by, url, expected_sha[:12])
+        resp = requests.get(url, timeout=30)
+        if resp.status_code != 200:
+            log.warning("upgrade_agent download failed: status=%s", resp.status_code)
+            return False
+        data = resp.content
+        actual_sha = hashlib.sha256(data).hexdigest()
+        if actual_sha != expected_sha:
+            log.error("upgrade_agent sha mismatch: expected=%s got=%s — aborting",
+                      expected_sha, actual_sha)
+            return False
+        new_path.write_bytes(data)
+        try:
+            os.chmod(new_path, 0o755)
+        except OSError:
+            pass
+
+        # Backup current before replacing. Best effort — if the copy fails we
+        # still proceed (the old bytes exist in the systemd journal + git).
+        try:
+            bak_path.write_bytes(self_path.read_bytes())
+        except OSError as e:
+            log.warning("upgrade_agent backup failed (continuing): %s", e)
+
+        os.replace(new_path, self_path)
+        log.warning("upgrade_agent cmd=%s installed new agent sha=%s — exiting for systemd restart",
+                    cmd_id, actual_sha[:12])
+        # Flush handlers and exit cleanly. systemd Restart=always respawns us.
+        logging.shutdown()
+        os._exit(0)
+    except Exception as e:
+        log.exception("upgrade_agent cmd=%s failed: %s", cmd_id, e)
+        # Clean up partial file
+        try:
+            if new_path.exists():
+                new_path.unlink()
+        except OSError:
+            pass
+        return False
+
+
 def drain_agent_commands() -> int:
     """Drain admin control-plane commands from the API and dispatch them.
 
@@ -760,6 +875,10 @@ def drain_agent_commands() -> int:
                 _inject_ssh_keys(job_id, container_name)
                 _motd_reinjection_total.labels(result="success").inc()
                 dispatched += 1
+            elif name == "upgrade_agent":
+                log.info("Executing admin upgrade_agent cmd=%s by=%s", cmd_id, by)
+                if _handle_upgrade_agent(args, cmd_id=str(cmd_id or ""), by=str(by)):
+                    dispatched += 1
             else:
                 log.warning("Unknown agent command cmd=%s name=%r — ignoring", cmd_id, name)
         except Exception as e:

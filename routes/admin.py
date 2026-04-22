@@ -971,3 +971,76 @@ def api_admin_ai_conversations(
         "per_page": per_page,
     }
 
+
+
+# ── P1.2 — Worker agent rolling self-update ────────────────────────────────
+@router.post("/api/admin/agent/rollout", tags=["Admin"])
+def api_admin_agent_rollout(request: Request, body: dict):
+    """Enqueue an ``upgrade_agent`` directive across fleet (rolling batch).
+
+    Body:
+      version: str            — target version (stored in command args)
+      sha256:  str            — expected sha256 (64 hex chars)
+      url:     str | null     — defaults to https://xcelsior.ca/static/worker_agent.py
+      host_ids: list[str] | null — restrict to specific hosts (default: all admitted)
+      batch_pct: int           — 1–100; percentage of fleet to target this call (default 5)
+      min_version: str | null  — agents at/above this are no-ops
+
+    Returns the list of host_ids we enqueued, plus the generated command ids.
+    This is deliberately stateless: call it repeatedly to roll waves (the
+    dashboard drives pacing + health-checks between waves).
+    """
+    from routes.agent import enqueue_agent_command  # local import avoids cycle
+
+    user = _require_admin(request)
+
+    version = (body or {}).get("version", "").strip()
+    sha256 = (body or {}).get("sha256", "").strip().lower()
+    url = (body or {}).get("url") or "https://xcelsior.ca/static/worker_agent.py"
+    host_ids = (body or {}).get("host_ids") or []
+    batch_pct = int((body or {}).get("batch_pct") or 5)
+    min_version = (body or {}).get("min_version") or version
+
+    if not version or not sha256:
+        raise HTTPException(400, "version and sha256 are required")
+    if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+        raise HTTPException(400, "sha256 must be 64 lowercase hex chars")
+    if batch_pct < 1 or batch_pct > 100:
+        raise HTTPException(400, "batch_pct must be 1..100")
+
+    # Target set: explicit host_ids or all currently-admitted hosts
+    all_hosts = list_hosts()
+    admitted = [h for h in all_hosts if h.get("status") != "decommissioned"]
+    if host_ids:
+        targets = [h for h in admitted if h.get("host_id") in set(host_ids)]
+    else:
+        # Skip hosts already at the target sha to keep rollouts idempotent.
+        targets = [h for h in admitted if (h.get("agent_sha256") or "") != sha256]
+
+    # Rolling: take the first batch_pct% (deterministic ordering by host_id)
+    targets.sort(key=lambda h: h.get("host_id", ""))
+    batch_n = max(1, (len(targets) * batch_pct + 99) // 100)
+    batch = targets[:batch_n]
+
+    enqueued = []
+    args = {"url": url, "sha256": sha256, "min_version": min_version}
+    for h in batch:
+        hid = h.get("host_id")
+        if not hid:
+            continue
+        try:
+            cmd_id = enqueue_agent_command(
+                hid, "upgrade_agent", args=args, created_by=user.get("email", "admin"),
+            )
+            enqueued.append({"host_id": hid, "cmd_id": cmd_id})
+        except Exception as e:
+            log.warning("rollout: enqueue failed for host=%s: %s", hid, e)
+
+    return {
+        "ok": True,
+        "version": version,
+        "sha256": sha256,
+        "batch_pct": batch_pct,
+        "candidates": len(targets),
+        "enqueued": enqueued,
+    }

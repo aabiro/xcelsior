@@ -84,6 +84,10 @@ class HostIn(BaseModel):
     business_number: str = Field(default="", max_length=64)   # CRA Business Number (BN), e.g. 123456789RC0001
     gst_hst_number: str = Field(default="", max_length=64)    # GST/HST registration number
     legal_name: str = Field(default="", max_length=256)       # Legal name of individual or company
+    # Agent self-reporting (P1.2 — worker self-update). Optional so older
+    # agents that haven't been rolled out yet still pass validation.
+    agent_version: str | None = Field(default=None, max_length=32)
+    agent_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$|^$")
 
 
 # ── Model: JobIn ──
@@ -135,6 +139,13 @@ def api_register_host(h: HostIn, request: Request):
     )
     entry["country"] = h.country.upper()
     entry["province"] = h.province.upper() if h.province else ""
+    # P1.2: record what the agent says about itself so rolling-upgrade logic
+    # can target only out-of-date hosts and detect hashes that don't match
+    # anything the control plane has signed off on.
+    if h.agent_version:
+        entry["agent_version"] = h.agent_version
+    if h.agent_sha256:
+        entry["agent_sha256"] = h.agent_sha256
     # Persist Canadian company info if provided
     if h.corporation_name:
         entry["corporation_name"] = h.corporation_name
