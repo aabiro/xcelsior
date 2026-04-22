@@ -25,5 +25,12 @@ else:
     # Fall back to .env if .env.test doesn't exist
     load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=True)
 
+# B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
+# Tests that hit /agent/* endpoints without a bearer token need this flag
+# set regardless of which .env was loaded. Also pin XCELSIOR_ENV=test so
+# helpers that branch on it (e.g. logging) still behave.
+os.environ.setdefault("XCELSIOR_ENV", "test")
+os.environ.setdefault("XCELSIOR_ALLOW_UNAUTH_AGENT", "1")
+
 # Exclude live E2E test scripts from pytest collection
 collect_ignore = ["test_e2e_live.py"]
