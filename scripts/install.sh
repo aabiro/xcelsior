@@ -108,6 +108,32 @@ install_agent() {
     chmod +x "$AGENT_PATH"
     ok "Worker agent downloaded to $AGENT_PATH"
 
+    # P2.1 — stage host-side tools that will be bind-mounted read-only into
+    # every interactive container at /opt/xcelsior/bin. This lets containers
+    # use rsync/git/curl without paying an apt-install tax at boot (the
+    # platform hard-caps provisioning at 15 s). All best-effort — if we can't
+    # stage tools, containers fall back to whatever the image ships with.
+    TOOLS_DIR="/var/lib/xcelsior/tools"
+    if sudo mkdir -p "$TOOLS_DIR" 2>/dev/null; then
+        _staged=0
+        for bin in rsync git curl jq htop less ca-certificates; do
+            src="$(command -v "$bin" 2>/dev/null || true)"
+            if [ -n "$src" ] && [ -f "$src" ]; then
+                if sudo cp -L "$src" "$TOOLS_DIR/" 2>/dev/null; then
+                    _staged=$((_staged + 1))
+                fi
+            fi
+        done
+        if [ "$_staged" -gt 0 ]; then
+            sudo chmod -R a+rx "$TOOLS_DIR" 2>/dev/null || true
+            ok "Staged $_staged host tools at $TOOLS_DIR (bind-mounted into containers)"
+        else
+            warn "No host tools staged at $TOOLS_DIR — install rsync/git on the host for <15s container provisioning"
+        fi
+    else
+        warn "Could not create $TOOLS_DIR (permission?) — containers will rely on image tools"
+    fi
+
     # Prompt for credentials if env file doesn't exist
     if [ ! -f "$ENV_FILE" ]; then
         echo ""

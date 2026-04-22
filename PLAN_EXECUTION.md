@@ -33,31 +33,32 @@ Here's the comprehensive audit + plan. Some of my prior assumptions were wrong a
 
 # Comprehensive Plan (12 work items, staged)
 
-## Phase 1 — Unblock & infrastructure (land same day)
+## Phase 1 — Unblock & infrastructure (land same day) ✅ SHIPPED
+_Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) · 07120fa (hardening) · all deployed to prod via `scripts/deploy.sh --quick`. 28/28 Phase-1 tests green. `curl https://xcelsior.ca/static/worker_agent.py` returns 200 + `X-Xcelsior-Agent-SHA256` header._
 
-### P1.1 — `/static/worker_agent.py` endpoint fix
-- [ ] Add `app.mount("/static", StaticFiles(directory=...))` in api.py serving repo-root Python files (whitelist: worker_agent.py only).
-- [ ] Add nginx `location = /static/worker_agent.py` block in xcelsior.conf with `add_header X-Xcelsior-Agent-SHA256` (so curl-based installers get the hash without a second request).
-- [ ] Update install.sh to verify the hash after download.
-- [ ] [ ] **Test:** `tests/test_static_endpoints.py` — asserts `GET /static/worker_agent.py` returns 200 + non-empty + matching sha256 header.
+### P1.1 — `/static/worker_agent.py` endpoint fix ✅
+- [x] Add `app.mount("/static", StaticFiles(directory=...))` in api.py serving repo-root Python files (whitelist: worker_agent.py only).
+- [x] Add nginx `location = /static/worker_agent.py` block in xcelsior.conf with `add_header X-Xcelsior-Agent-SHA256` (so curl-based installers get the hash without a second request).
+- [x] Update install.sh to verify the hash after download.
+- [x] **Test:** `tests/test_static_endpoints.py` — asserts `GET /static/worker_agent.py` returns 200 + non-empty + matching sha256 header. _(11 tests incl. HEAD, nosniff, traversal, no-auth, no-dup-Cache-Control)_
 
-### P1.2 — Worker self-update (no user commands ever)
-- [ ] **Bump protocol:** `PUT /host` heartbeat payload gains `agent_version` + `agent_sha256` fields. Server stores in `hosts.payload` JSONB.
-- [ ] **Directive:** `/agent/commands/{host_id}` response gains a new command type `{"type":"upgrade_agent", "url":"https://xcelsior.ca/static/worker_agent.py", "sha256":"…", "min_version":"2.1.0"}`.
-- [ ] **Agent logic** (worker_agent.py): on receiving `upgrade_agent`, download to `~/.xcelsior/worker_agent.py.new`, verify sha256, `os.replace` into place, then `os.execv` itself via systemd restart hook (`systemctl restart xcelsior-worker` from the root-granted ExecStartPre, OR emit a marker file + exit — systemd's `Restart=always` respawns with new code).
-- [ ] **Server-side trigger:** admin endpoint `POST /admin/agent/roll-out {version, sha256}` enqueues `upgrade_agent` into every active host's command queue. Also called automatically when a new worker_agent.py lands in the deployed `api` container (compare running file's sha256 to last-announced).
-- [ ] **Safety:** rolling (5% batch) + auto-rollback if post-upgrade heartbeat doesn't arrive within 60s → revert from `.bak`.
-- [ ] [ ] **Tests:** `tests/test_agent_upgrade.py` — mock directive, mock filesystem, verify atomic replace + sha mismatch rejection + rollback path.
+### P1.2 — Worker self-update (no user commands ever) ✅
+- [x] **Bump protocol:** `PUT /host` heartbeat payload gains `agent_version` + `agent_sha256` fields. Server stores in `hosts.payload` JSONB.
+- [x] **Directive:** `/agent/commands/{host_id}` response gains a new command type `{"type":"upgrade_agent", "url":"https://xcelsior.ca/static/worker_agent.py", "sha256":"…", "min_version":"2.1.0"}`.
+- [x] **Agent logic** (worker_agent.py): on receiving `upgrade_agent`, download to `~/.xcelsior/worker_agent.py.new`, verify sha256, `os.replace` into place, then `os._exit(0)` — systemd `Restart=always` respawns with new code. Now streamed with 10 MB cap + https-only (escape hatch `XCELSIOR_ALLOW_INSECURE_UPGRADE=1`).
+- [x] **Server-side trigger:** admin endpoint `POST /api/admin/agent/rollout {version, sha256, batch_pct}` enqueues `upgrade_agent` into a rolling batch (skips hosts already at target sha, rejects non-https urls).
+- [ ] **Safety:** rolling (5% batch default done) + auto-rollback if post-upgrade heartbeat doesn't arrive within 60s → revert from `.bak`. _(.bak is written; automatic rollback driver still TODO — deferred: dashboard can pace waves manually for now.)_
+- [x] **Tests:** `tests/test_agent_upgrade.py` — 10 tests: atomic replace, sha mismatch rejection, non-hex/non-https/oversized body rejection, min_version skip, escape hatch.
 
-### P1.3 — CI hardening
-- [ ] Remove `continue-on-error: true` from black in ci.yml.
-- [ ] Make run-tests.sh the single entrypoint called from CI (fixes the duplication noted in audit).
-- [ ] Add test_terminal_ui_v1.py + all volume tests to the CI matrix (already picked up by `pytest tests/` glob — verify).
-- [ ] Add `.pre-commit-config.yaml` (ruff + black + trailing-whitespace + end-of-file-fixer). Document `pre-commit install` in `CONTRIBUTING.md`.
-- [ ] [ ] Add a GitHub Actions job that executes **`bash deploy.sh --quick`** on push to `main` via SSH to the VPS (so I never have to run it locally again).
+### P1.3 — CI hardening ✅ (auto-deploy deferred)
+- [x] Remove `continue-on-error: true` from black in ci.yml.
+- [ ] Make run-tests.sh the single entrypoint called from CI. _(deferred — current `pytest tests/` glob already covers all suites; consolidation is cosmetic)_
+- [x] Add test_terminal_ui_v1.py + all volume tests to the CI matrix (picked up by `pytest tests/` glob — verified).
+- [x] Add `.pre-commit-config.yaml` (ruff + black + trailing-whitespace + end-of-file-fixer). Documented `pre-commit install` in `CONTRIBUTING.md`.
+- [ ] Add a GitHub Actions job that executes **`bash deploy.sh --quick`** on push to `main` via SSH to the VPS. _(deferred — requires adding SSH key as repo secret; currently run locally via `bash scripts/deploy.sh --quick`)_
 
-### P1.4 — Platform env vars (tiny, unblocks P2.2 + P2.3)
-- [ ] In worker_agent.py `start_job`, merge before `build_secure_docker_args`:
+### P1.4 — Platform env vars (tiny, unblocks P2.2 + P2.3) ✅
+- [x] In worker_agent.py `start_job`, merge `env_vars = {**user_env, **build_platform_env(...)}` so platform keys always win. Injects all 9 `XCELSIOR_*` keys listed below.
   ```
   platform_env = {
       "XCELSIOR_JOB_ID": job_id,
@@ -70,9 +71,9 @@ Here's the comprehensive audit + plan. Some of my prior assumptions were wrong a
       "XCELSIOR_PUBLIC_SSH_HOST": "connect.xcelsior.ca",
       "XCELSIOR_PUBLIC_SSH_PORT": host_port,
   }
-  env_vars = {**platform_env, **user_env}  # user cannot override
+  env_vars = {**user_env, **platform_env}  # platform wins
   ```
-- [ ] [ ] **Test:** `tests/test_platform_env.py` — asserts every platform key is present + not overridable.
+- [x] **Test:** `tests/test_platform_env.py` — 7 tests, asserts every platform key is present + not overridable.
 
 ## Phase 2 — Operational features
 
@@ -85,7 +86,7 @@ Here's the comprehensive audit + plan. Some of my prior assumptions were wrong a
 - [ ] [ ] **Terminal UI:** bumps to **v2** in lockstep (new lines after v1 banner are additions — the v1 lock test gets a new section + `TERMINAL_UI_VERSION="v2"`).
 
 ### P2.2 — HTTP port proxy (subdomain routing)
-- [ ] **DNS:** add `*.xcelsior.ca` → `149.28.121.61`. Let's Encrypt DNS-01 wildcard cert via certbot + DNS plugin (Cloudflare or manual).
+- [ ] **DNS:** done. add. Let's Encrypt DNS-01 wildcard cert via certbot + DNS plugin (Cloudflare or manual).
 - [ ] **Nginx:** new server block with `server_name ~^(?<job>[a-z0-9-]+)\.xcelsior\.ca$` that:
   - Looks up job → host IP + container port from a small Lua/auth_request shim calling `GET /internal/route/{job}/{port}` on the API.
   - Proxies to `<host_ip>:<host_port>` via Tailscale.

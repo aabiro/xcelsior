@@ -1239,6 +1239,10 @@ def submit_job(
     owner="",
     volume_ids=None,
     encrypted_workspace=False,
+    init_script=None,
+    git_repo=None,
+    auto_launch=None,
+    exposed_ports=None,
 ):
     """
     Submit a job to the queue.
@@ -1295,6 +1299,11 @@ def submit_job(
         "ssh_port": int(ssh_port or 22),
         "volume_ids": volume_ids or [],
         "encrypted_workspace": bool(encrypted_workspace),
+        # P2.1 — optional provisioning hooks (all bounded by the agent to 15 s).
+        "init_script": init_script or "",
+        "git_repo": git_repo or "",
+        "auto_launch": list(auto_launch or []),
+        "exposed_ports": list(exposed_ports or []),
     }
 
     # Spot jobs are preemptible and participate in the spot pricing market
