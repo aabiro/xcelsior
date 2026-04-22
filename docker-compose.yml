@@ -224,6 +224,14 @@ services:
       XCELSIOR_SSH_KEY_PATH: /run/secrets/ssh_key
       XCELSIOR_SSH_USER: ${XCELSIOR_SSH_USER:-aaryn}
       XCELSIOR_REGISTRY: ${XCELSIOR_REGISTRY:-}
+      # Phase E — these three are forwarded to every service that
+      # might interact with the container registry (snapshot endpoint,
+      # bg-worker health probe, worker upgrade push step). Kept in
+      # sync with the local .env; docker-compose dereferences ${VAR}
+      # at compose time so setting the value there is sufficient.
+      XCELSIOR_REGISTRY_URL: ${XCELSIOR_REGISTRY_URL:-}
+      XCELSIOR_REGISTRY_USERNAME: ${XCELSIOR_REGISTRY_USERNAME:-}
+      XCELSIOR_REGISTRY_PASSWORD: ${XCELSIOR_REGISTRY_PASSWORD:-}
     volumes:
       - xcelsior-data:/data
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro

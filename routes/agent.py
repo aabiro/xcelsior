@@ -211,6 +211,7 @@ def api_schedule_preemption(host_id: str, job_id: str, request: Request):
 _AGENT_COMMAND_ALLOWED = {
     "reinject_shell",
     "upgrade_agent",
+    "rollback_agent",   # P1.2 — auto-rollback driver
     "stop_container",  # P3.2 — billing/admin-initiated container kill (+ rm)
     "pause_container",  # P3/A3 — state-preserving stop (no rm), resume-able
     "start_container",  # P3.2 — resume paused instance

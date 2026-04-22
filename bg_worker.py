@@ -452,6 +452,106 @@ def main():
 
     tasks.append(("snapshot_queue_retry", _retry_queued_snapshots, 60))
 
+    # 19. P1.2 — agent upgrade rollout watchdog.
+    # After the admin rollout endpoint enqueues ``upgrade_agent`` for a
+    # host it inserts a tracking row (agent_rollouts). Hosts heartbeat
+    # their current ``agent_sha256`` on every PUT /host, which lives in
+    # hosts.payload->>'agent_sha256'. This watchdog:
+    #   * Marks rollouts completed once the heartbeat sha matches target.
+    #   * Enqueues ``rollback_agent`` once enqueued_at is older than
+    #     ROLLBACK_GRACE_SEC AND the host is still reporting the old sha
+    #     (or has gone silent — heartbeat freshness is the caller's
+    #     problem; we only compare what we have).
+    # Runs every 30s. Cheap: one SELECT per tick, bounded by LIMIT 100.
+    ROLLBACK_GRACE_SEC = 300  # 5 min — generous for slow networks + systemd respawn
+    MARK_COMPLETE_MIN_AGE_SEC = 45  # wait one heartbeat cycle before declaring success
+
+    def _agent_rollout_watchdog():
+        from db import _get_pg_pool
+        from routes.agent import enqueue_agent_command
+
+        pool = _get_pg_pool()
+        completed = rolled_back = 0
+        with pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.id, r.host_id, r.target_sha, r.enqueued_at,
+                       EXTRACT(EPOCH FROM NOW()) - r.enqueued_at AS age_sec,
+                       h.payload->>'agent_sha256' AS current_sha
+                  FROM agent_rollouts r
+             LEFT JOIN hosts h ON h.host_id = r.host_id
+                 WHERE r.status = 'pending'
+                 ORDER BY r.enqueued_at ASC
+                 LIMIT 100
+                """,
+            ).fetchall()
+
+        for (rid, host_id, target_sha, enqueued_at, age_sec, current_sha) in rows:
+            age = float(age_sec or 0)
+            # Success path — heartbeat now reports the target sha.
+            if current_sha == target_sha and age >= MARK_COMPLETE_MIN_AGE_SEC:
+                with pool.connection() as conn:
+                    conn.execute(
+                        "UPDATE agent_rollouts SET status='completed', "
+                        "completed_at=EXTRACT(EPOCH FROM NOW()), "
+                        "last_check_at=EXTRACT(EPOCH FROM NOW()) "
+                        "WHERE id=%s AND status='pending'",
+                        (rid,),
+                    )
+                    conn.commit()
+                completed += 1
+                continue
+            # Rollback path — past grace, host has not picked up the
+            # new bytes. Enqueue rollback_agent exactly once (status
+            # flip to 'rolled_back' guarantees this even if the task
+            # re-runs before the worker drains).
+            if age >= ROLLBACK_GRACE_SEC:
+                try:
+                    enqueue_agent_command(
+                        host_id,
+                        "rollback_agent",
+                        {"reason": "upgrade_timeout", "target_sha": target_sha},
+                        created_by="bg_rollout_watchdog",
+                    )
+                    with pool.connection() as conn:
+                        conn.execute(
+                            "UPDATE agent_rollouts SET status='rolled_back', "
+                            "completed_at=EXTRACT(EPOCH FROM NOW()), "
+                            "last_check_at=EXTRACT(EPOCH FROM NOW()), "
+                            "error='heartbeat_stale_or_old_sha' "
+                            "WHERE id=%s AND status='pending'",
+                            (rid,),
+                        )
+                        conn.commit()
+                    rolled_back += 1
+                    log.warning(
+                        "rollout watchdog: auto-rollback host=%s age=%.0fs "
+                        "target=%s current=%s",
+                        host_id, age, target_sha[:8], (current_sha or "none")[:8],
+                    )
+                except Exception as e:
+                    log.warning(
+                        "rollout watchdog: enqueue rollback failed host=%s: %s",
+                        host_id, e,
+                    )
+                continue
+            # Otherwise: still within grace, just touch last_check_at.
+            with pool.connection() as conn:
+                conn.execute(
+                    "UPDATE agent_rollouts SET last_check_at="
+                    "EXTRACT(EPOCH FROM NOW()) WHERE id=%s",
+                    (rid,),
+                )
+                conn.commit()
+
+        if completed or rolled_back:
+            log.info(
+                "rollout watchdog: completed=%d rolled_back=%d",
+                completed, rolled_back,
+            )
+
+    tasks.append(("agent_rollout_watchdog", _agent_rollout_watchdog, 30))
+
     # 19. Lightning Network deposit watcher (every 5 seconds)
     try:
         import lightning as _ln

@@ -597,6 +597,37 @@ def _ensure_pg_tables(conn):
         """
     )
 
+    # ── P1.2 — agent rollout tracking (auto-rollback driver) ──
+    # When the admin rollout endpoint enqueues an upgrade_agent command,
+    # it also inserts a row here. A bg_worker watchdog polls this table
+    # and compares target_sha vs the heartbeat-reported agent_sha256 on
+    # each host; hosts that fail to pick up the new bytes within
+    # ROLLBACK_GRACE_SEC get a rollback_agent directive enqueued
+    # automatically (restores .bak).
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_rollouts (
+            id             BIGSERIAL PRIMARY KEY,
+            host_id        TEXT NOT NULL,
+            from_sha       TEXT,
+            target_sha     TEXT NOT NULL,
+            enqueued_at    DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            completed_at   DOUBLE PRECISION NULL,
+            status         TEXT NOT NULL DEFAULT 'pending',
+            last_check_at  DOUBLE PRECISION NULL,
+            error          TEXT NULL
+        )
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_rollouts_pending "
+        "ON agent_rollouts (enqueued_at) WHERE status = 'pending'"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_rollouts_host "
+        "ON agent_rollouts (host_id, enqueued_at DESC)"
+    )
+
     # ── Users table: per-user concurrency override ──
     # NULL means "use env default MAX_CONCURRENT_INSTANCES". The users table
     # itself is created via alembic migrations elsewhere; this ALTER is

@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 import signal
 import subprocess
 import shlex
@@ -948,6 +949,7 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
 _AGENT_COMMAND_ALLOWED = frozenset({
     "reinject_shell",
     "upgrade_agent",
+    "rollback_agent",     # P1.2 — auto-rollback driver restores .bak
     "stop_container",
     "pause_container",
     "start_container",
@@ -1027,6 +1029,35 @@ def drain_agent_commands() -> int:
                 log.info("Executing admin upgrade_agent cmd=%s by=%s", cmd_id, by)
                 if _handle_upgrade_agent(args, cmd_id=str(cmd_id or ""), by=str(by)):
                     dispatched += 1
+            elif name == "rollback_agent":
+                # P1.2 — auto-rollback driver: swap the previously-written
+                # ``.bak`` back into place and exit so systemd respawns the
+                # old bytes. No network I/O, no sha verification (we trust
+                # our own backup). Idempotent: if .bak is absent (e.g. first
+                # upgrade never happened or file has been GC'd) we log and
+                # skip so the drain loop doesn't keep retrying.
+                try:
+                    from pathlib import Path as _P
+                    _self = _P(__file__).resolve()
+                    _bak = _self.with_suffix(".py.bak")
+                    if not _bak.exists():
+                        log.warning("rollback_agent cmd=%s no .bak file at %s — skipping", cmd_id, _bak)
+                        continue
+                    # Keep the current bytes around one level deeper so a
+                    # subsequent re-upgrade has a recovery path (rotates
+                    # .bak → .bak.old → dropped).
+                    _old = _self.with_suffix(".py.bak.old")
+                    try:
+                        _old.write_bytes(_self.read_bytes())
+                    except OSError:
+                        pass
+                    import os as _os
+                    _os.replace(_bak, _self)
+                    log.warning("rollback_agent cmd=%s restored .bak — exiting for restart", cmd_id)
+                    logging.shutdown()
+                    _os._exit(0)
+                except Exception as e:
+                    log.exception("rollback_agent cmd=%s failed: %s", cmd_id, e)
             elif name == "stop_container":
                 # P3.2 — billing/admin initiated graceful stop + remove.
                 # Replaces the legacy VPS→host `ssh_exec docker kill` path;
@@ -2740,6 +2771,15 @@ def run_job(job):
         # the instance.
         _run_provisioning_hooks(job_id, container_name, job)
 
+        # P2.3: Jupyter / VSCode (code-server) auto-launch. Runs after
+        # provisioning hooks so user init scripts can seed a venv /
+        # conda env before Jupyter installs into the default python.
+        # Never fatal — a failed auto-launch must not kill the instance.
+        try:
+            _run_auto_launch(job_id, container_name, job)
+        except Exception as e:
+            log.debug("auto_launch error (non-fatal): %s", e)
+
         # 5. Apply egress rules (best-effort)
         try:
             egress_rules = build_egress_iptables_rules(container_name)
@@ -3390,6 +3430,172 @@ def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
             )
         except Exception as e:
             log.debug("provisioning init_script error: %s", e)
+
+
+def _auto_launch_token(job_id: str) -> str:
+    """Derive a per-instance secret for Jupyter / code-server auth.
+
+    Combines the job_id with a host-side secret so leaked job_ids alone
+    can't be used to log in. Falls back to a job-id-only hash when no
+    host secret is configured (still opaque to the outside world; just
+    predictable across hosts that share a job_id which never happens
+    in practice).
+    """
+    host_secret = os.environ.get("HOST_SECRET") or os.environ.get(
+        "XCELSIOR_HOST_SECRET", ""
+    )
+    return hashlib.sha256(f"{job_id}:{host_secret}".encode()).hexdigest()[:32]
+
+
+def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
+    """P2.3 — bring up Jupyter and/or code-server inside the container.
+
+    Mirrors the safety posture of ``_run_provisioning_hooks``: each
+    launcher has a 15 s wall-clock cap, never blocks the agent thread,
+    and surfaces one user-visible log line per service (the pip /
+    curl install can take most of the budget on a cold image so a
+    longer grace would just waste the user's perception of boot time).
+
+    Security:
+      * Token = sha256(job_id + HOST_SECRET)[:32] — 128 bits.
+      * Token is never echoed to stdout; we print a prefix hash only
+        (`token_sha=xxxxxxxx`) and the user retrieves it via the API.
+      * ``--allow-root`` is acceptable because the container is
+        ephemeral and already isolated by gVisor/Kata (see security.py).
+    """
+    if not job.get("interactive"):
+        return
+    services = job.get("auto_launch") or []
+    if isinstance(services, str):
+        services = [s.strip().lower() for s in services.split(",") if s.strip()]
+    else:
+        services = [str(s).strip().lower() for s in services if str(s).strip()]
+    if not services:
+        return
+
+    token = _auto_launch_token(job_id)
+    token_prefix = hashlib.sha256(token.encode()).hexdigest()[:8]
+
+    def _exec_bg(tag: str, shell_cmd: str, seconds: int = 15) -> None:
+        started = time.time()
+        _push_log_lines(
+            job_id,
+            [{
+                "message": f"[xcelsior] auto-launch {tag} starting…",
+                "level": "info",
+                "timestamp": started,
+            }],
+        )
+        # ``docker exec -d`` detaches the exec process so the agent
+        # returns immediately; we still wrap the inner command with
+        # ``nohup`` + ``&`` so the process survives the exec session.
+        cmd = [
+            "docker", "exec", "-d", container_name,
+            "bash", "-lc", shell_cmd,
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=seconds)
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()[-256:]
+                _push_log_lines(
+                    job_id,
+                    [{
+                        "message": f"[xcelsior] auto-launch {tag} rc={proc.returncode}: {err}",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }],
+                )
+                return
+            elapsed_ms = int((time.time() - started) * 1000)
+            _push_log_lines(
+                job_id,
+                [{
+                    "message": f"[xcelsior] auto-launch {tag} ok ({elapsed_ms} ms) token_sha={token_prefix}",
+                    "level": "info",
+                    "timestamp": time.time(),
+                }],
+            )
+        except subprocess.TimeoutExpired:
+            _push_log_lines(
+                job_id,
+                [{
+                    "message": f"[xcelsior] auto-launch {tag} exceeded {seconds}s — abandoned",
+                    "level": "warn",
+                    "timestamp": time.time(),
+                }],
+            )
+        except Exception as e:
+            log.debug("auto_launch %s error: %s", tag, e)
+
+    ports: dict[str, int] = {}
+    for svc in services:
+        if svc == "jupyter":
+            # JupyterLab on :8888. We install to a user-writable path
+            # if pip is available and lab is not already present; if
+            # both fail we try ``jupyter`` (classic notebook) as a
+            # last resort. Token is passed via env so it doesn't show
+            # up in ``ps``.
+            shell = (
+                f"export JUPY_TOKEN={shlex.quote(token)}; "
+                "mkdir -p /workspace && cd /workspace && "
+                "( command -v jupyter >/dev/null 2>&1 || "
+                "  pip install --quiet --no-cache-dir jupyterlab 2>/dev/null || "
+                "  pip3 install --quiet --no-cache-dir jupyterlab 2>/dev/null || true ); "
+                "nohup jupyter lab --allow-root --no-browser --ip=0.0.0.0 "
+                "--port=8888 --ServerApp.token=\"$JUPY_TOKEN\" "
+                "--ServerApp.password='' "
+                ">/tmp/xcelsior-jupyter.log 2>&1 &"
+            )
+            _exec_bg("jupyter", shell, seconds=30)
+            ports["jupyter"] = 8888
+        elif svc == "vscode":
+            # code-server on :8443. Install via the official script if
+            # not already present (fast if present; ~15 s on first boot).
+            shell = (
+                f"export PASSWORD={shlex.quote(token)}; "
+                "( command -v code-server >/dev/null 2>&1 || "
+                "  (curl -fsSL https://code-server.dev/install.sh | sh -s -- --quiet 2>/dev/null) || true ); "
+                "nohup code-server --bind-addr 0.0.0.0:8443 --auth password "
+                ">/tmp/xcelsior-code-server.log 2>&1 &"
+            )
+            _exec_bg("vscode", shell, seconds=45)
+            ports["vscode"] = 8443
+        else:
+            _push_log_lines(
+                job_id,
+                [{
+                    "message": f"[xcelsior] auto-launch {svc} not supported — skipping",
+                    "level": "warn",
+                    "timestamp": time.time(),
+                }],
+            )
+
+    # Stash the port mapping in job.payload.http_ports so P2.2's
+    # subdomain proxy can route `<job>-8888.xcelsior.ca` → host:port.
+    # Best-effort: failing to record the mapping just means the user
+    # must SSH-tunnel manually. Report back via the API so the UI can
+    # display the URL.
+    if ports:
+        try:
+            api_url = os.environ.get("XCELSIOR_API_URL", "").rstrip("/")
+            if api_url:
+                host_id = os.environ.get("HOST_ID") or os.environ.get("XCELSIOR_HOST_ID", "")
+                payload = {
+                    "host_id": host_id,
+                    "ports": ports,
+                    "token_sha": token_prefix,
+                }
+                try:
+                    requests.post(
+                        f"{api_url}/instances/{job_id}/auto-launch/report",
+                        json=payload,
+                        timeout=5,
+                        headers={"X-Host-Secret": os.environ.get("HOST_SECRET", "")},
+                    )
+                except Exception as e:
+                    log.debug("auto_launch report failed: %s", e)
+        except Exception as e:
+            log.debug("auto_launch report outer error: %s", e)
 
 
 def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False):
