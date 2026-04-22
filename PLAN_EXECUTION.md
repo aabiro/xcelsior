@@ -142,46 +142,45 @@ Each numbered item lands as its own commit + test + deploy:
 
 Every commit: code + test + green run locally + push + `scripts/deploy.sh --quick` (and, after P1.2, GPU hosts auto-refresh via the new `upgrade_agent` directive — zero manual SSH).
 
-Important Reference & Context (for the AI coder — add this to any ticket/PRD)
-Repo structure (live as of Apr 22 2026)
+---
 
-api.py → FastAPI entrypoint (add mounts here for P1.1)
-worker_agent.py → root file (all P1.2, P2.1, P2.4 changes live here)
-routes/instances.py, routes/volumes.py, routes/agent.py → modular route handlers
-nginx/nginx.conf (or xcelsior.conf at root) → main nginx config (add location/server blocks here)
-scripts/deploy.sh → deployment script (use --quick)
-frontend/ → Next.js 15 (dashboard/telemetry/page.tsx etc.)
-migrations/ + Alembic → any new DB tables (volume_snapshots, user_images)
-.github/workflows/ci.yml → CI hardening target
-tests/ → follow existing pytest style (fixtures for jobs/volumes/NFS, e2e tests)
+**Important Reference & Context (for the AI coder — add this to any ticket/PRD)**
 
-Key Architecture Reminders
+**Repo structure (live as of Apr 22 2026)**
+- `api.py` → FastAPI entrypoint (add mounts here for P1.1)
+- `worker_agent.py` → root file (all P1.2, P2.1, P2.4 changes live here)
+- `routes/instances.py`, `routes/volumes.py`, `routes/agent.py` → modular route handlers
+- `nginx/nginx.conf` (or `xcelsior.conf` at root) → main nginx config (add location/server blocks here)
+- `scripts/deploy.sh` → deployment script (use `--quick`)
+- `frontend/` → Next.js 15 (dashboard/telemetry/page.tsx etc.)
+- `migrations/` + Alembic → any new DB tables (volume_snapshots, user_images)
+- `.github/workflows/ci.yml` → CI hardening target
+- `tests/` → follow existing pytest style (fixtures for jobs/volumes/NFS, e2e tests)
 
-Agent is pull-only via GET /agent/commands/{host_id} (drain-on-read queue) — perfect for upgrade directive.
-Use existing PgEventBus, HostCommand patterns, and build_secure_docker_args.
-All GPU hosts are in Tailscale/Headscale mesh.
-Containers use gVisor/Kata (see security.py).
-Blue-green API on ports 9500/9501 behind nginx.
-Terminal UI is currently locked at v1 (last commit today).
+**Key Architecture Reminders**
+- Agent is **pull-only** via `GET /agent/commands/{host_id}` (drain-on-read queue) — perfect for upgrade directive.
+- Use existing `PgEventBus`, `HostCommand` patterns, and `build_secure_docker_args`.
+- All GPU hosts are in Tailscale/Headscale mesh.
+- Containers use gVisor/Kata (see `security.py`).
+- Blue-green API on ports 9500/9501 behind nginx.
+- Terminal UI is currently locked at **v1** (last commit today).
 
-Security / Validation Standards (always follow)
+**Security / Validation Standards (always follow)**
+- Whitelist + length limits on any user script/git_repo.
+- Platform env vars must **not** be overridable by user.
+- SHA256 verification on every agent download.
+- Never allow user input to reach shell without quoting/sanitizing.
+- Per-user registry namespace for P3.1 (enforce at auth layer).
 
-Whitelist + length limits on any user script/git_repo.
-Platform env vars must not be overridable by user.
-SHA256 verification on every agent download.
-Never allow user input to reach shell without quoting/sanitizing.
-Per-user registry namespace for P3.1 (enforce at auth layer).
+**DB / Migrations**
+- Use Alembic for new tables (`alembic revision --autogenerate` + manual review).
 
-DB / Migrations
+**Test Conventions**
+- New tests: `tests/test_xxx.py` (unit) + `tests/test_xxx_e2e.py` (real fixtures).
+- Follow patterns in `test_volumes.py` and `test_agent_commands_*.py`.
 
-Use Alembic for new tables (alembic revision --autogenerate + manual review).
+**Deployment Flow**
+- After every commit → `scripts/deploy.sh --quick` (VPS).
+- After P1.2 lands → GPU hosts will self-upgrade automatically.
 
-Test Conventions
-
-New tests: tests/test_xxx.py (unit) + tests/test_xxx_e2e.py (real fixtures).
-Follow patterns in test_volumes.py and test_agent_commands_*.py.
-
-Deployment Flow
-
-After every commit → scripts/deploy.sh --quick (VPS).
-After P1.2 lands → GPU hosts will self-upgrade automatically.
+This appendix gives the AI everything it could possibly miss. Ship P1.1–P1.4 today and you’ll already be in a much stronger place. Let me know if you want the expanded specs for P1.2 + P2.2!
