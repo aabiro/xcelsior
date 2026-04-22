@@ -521,10 +521,32 @@ def _ensure_pg_tables(conn):
             size_bytes BIGINT DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at DOUBLE PRECISION NOT NULL,
-            deleted_at DOUBLE PRECISION DEFAULT 0,
-            UNIQUE (owner_id, name, tag)
+            deleted_at DOUBLE PRECISION DEFAULT 0
         )
     """)
+    # Drop legacy plain UNIQUE constraint (migration 024 shape) if present —
+    # it blocks re-creating a template after soft-delete. Migration 025 does
+    # the same for alembic-tracked deployments.
+    cur.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                 WHERE conrelid = 'user_images'::regclass
+                   AND contype = 'u'
+                   AND conname = 'user_images_owner_id_name_tag_key'
+            ) THEN
+                ALTER TABLE user_images
+                    DROP CONSTRAINT user_images_owner_id_name_tag_key;
+            END IF;
+        END$$;
+        """
+    )
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_user_images_live "
+        "ON user_images (owner_id, name, tag) WHERE deleted_at = 0"
+    )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_user_images_owner "
         "ON user_images (owner_id, deleted_at)"
