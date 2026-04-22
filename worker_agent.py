@@ -1098,12 +1098,17 @@ def drain_agent_commands() -> int:
                 # 'pending'. Best-effort — a lost callback is recoverable
                 # by a reconcile sweep that inspects docker images directly.
                 try:
-                    requests.post(
-                        _api_url(f"/api/v2/user-images/{image_id}/complete"),
+                    resp = requests.post(
+                        _api_url(f"/user-images/{image_id}/complete"),
                         headers=_api_headers(),
                         json={"status": status, "size_bytes": size_bytes, "error": err_msg},
                         timeout=10,
                     )
+                    if resp.status_code >= 400:
+                        log.warning(
+                            "snapshot_container callback cmd=%s got HTTP %s: %s",
+                            cmd_id, resp.status_code, (resp.text or "")[:200],
+                        )
                 except requests.RequestException as e:
                     log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
             else:
