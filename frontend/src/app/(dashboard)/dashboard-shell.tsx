@@ -210,7 +210,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             />
             <div
               className={cn(
-                "flex items-center gap-1 transition-all duration-300 ease-in-out",
+                "flex items-center gap-2 transition-all duration-300 ease-in-out",
                 collapsed && !mobile ? "pointer-events-none w-0 overflow-hidden opacity-0 scale-95" : "opacity-100 scale-100"
               )}
             >
