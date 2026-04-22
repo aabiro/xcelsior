@@ -88,8 +88,23 @@ install_agent() {
     mkdir -p "$CONFIG_DIR"
 
     info "Downloading worker agent..."
-    curl -fsSL "$XCELSIOR_API/static/worker_agent.py" -o "$AGENT_PATH" \
+    # Capture response headers so we can verify the sha256 advertised by the server.
+    HEADERS_FILE="$(mktemp)"
+    curl -fsSL -D "$HEADERS_FILE" "$XCELSIOR_API/static/worker_agent.py" -o "$AGENT_PATH" \
         || fail "Failed to download worker agent"
+
+    EXPECTED_SHA=$(awk 'tolower($1)=="x-xcelsior-agent-sha256:"{gsub(/\r/,"",$2); print tolower($2)}' "$HEADERS_FILE" | tail -n1)
+    rm -f "$HEADERS_FILE"
+    if [ -n "$EXPECTED_SHA" ]; then
+        ACTUAL_SHA=$(sha256sum "$AGENT_PATH" | awk '{print $1}')
+        if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            rm -f "$AGENT_PATH"
+            fail "Worker agent hash mismatch (expected $EXPECTED_SHA, got $ACTUAL_SHA)"
+        fi
+        ok "Worker agent sha256 verified: $ACTUAL_SHA"
+    else
+        warn "Server did not advertise X-Xcelsior-Agent-SHA256 — skipping hash verification"
+    fi
     chmod +x "$AGENT_PATH"
     ok "Worker agent downloaded to $AGENT_PATH"
 

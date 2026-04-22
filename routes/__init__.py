@@ -30,6 +30,7 @@ from routes.teams import router as teams_router
 from routes.transparency import router as transparency_router
 from routes.verification import router as verification_router
 from routes.stripe_connect_v2 import router as stripe_connect_v2_router
+from routes.static import router as static_router
 from routes.volumes import router as volumes_router
 
 ALL_ROUTERS = [
@@ -59,6 +60,7 @@ ALL_ROUTERS = [
     sla_router,
     spot_router,
     ssh_router,
+    static_router,
     stripe_connect_v2_router,
     teams_router,
     transparency_router,
