@@ -585,9 +585,11 @@ deploy_docker() {
         log "Frontend build inputs unchanged — skipping frontend image rebuild"
     fi
 
-    # Run Alembic migrations
+    # Run Alembic migrations (P3/C8 — fatal; silent-warn hides broken schema).
+    # If this fails, aborting is far safer than running new code against an
+    # old schema. A failed deploy can be rolled back; a corrupted schema can't.
     log "Running database migrations..."
-    ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration failed — may need manual attention"
+    ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
     success "Migrations applied"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────
@@ -1019,7 +1021,8 @@ main() {
                 deploy_docker
             else
                 log "Image build inputs unchanged — running migrations and container refresh only"
-                ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || warn "Migration check failed"
+                # P3/C8 — fatal on migration failure; see note at deploy_docker().
+                ssh_cmd "cd /opt/xcelsior && docker compose run --rm api alembic upgrade head" || error "Migration failed — aborting deploy. Fix the migration then rerun scripts/deploy.sh."
                 ssh_cmd "cd /opt/xcelsior && docker compose up -d" || error "Docker up failed"
             fi
 

@@ -1224,25 +1224,29 @@ class BillingEngine:
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
 
-        # Perform graceful stop on the host
-        stop_ok = False
+        # P3 post-C — enqueue stop_container via agent queue (CGNAT-safe).
+        # Optimistic: mark status=stopped now; bg reconciler (P3/A4) will
+        # re-mark as running if the container is still alive after drain.
+        stop_queued = False
         if host_id:
             try:
-                from scheduler import stop_container_graceful, list_hosts, _validate_name
+                from routes.agent import enqueue_agent_command
+                from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    stop_ok = stop_container_graceful(
-                        {"job_id": job_id, "container_name": container_name}, host
-                    )
+                enqueue_agent_command(
+                    host_id,
+                    "stop_container",
+                    {"container_name": container_name, "job_id": job_id},
+                    created_by="billing_stop",
+                )
+                stop_queued = True
+                log.info("STOP stop_container queued: %s on %s", container_name, host_id)
             except Exception as e:
-                log.warning("STOP container stop failed for %s: %s", job_id, e)
+                log.warning("STOP container stop enqueue failed for %s: %s", job_id, e)
 
-        # Update final status
-        final_status = "stopped" if stop_ok else "running"
+        # Update final status (optimistic; reconciler catches drift).
+        final_status = "stopped" if stop_queued else "running"
         with pool.connection() as conn:
             conn.row_factory = dict_row
             conn.execute(
@@ -1254,8 +1258,8 @@ class BillingEngine:
                    WHERE job_id = %s""",
                 (final_status, now, json.dumps(final_status), job_id),
             )
-            # Billing anchor: closes the current compute billing period
-            if stop_ok:
+            # Billing anchor: closes the current compute billing period.
+            if stop_queued:
                 owner_id = owner
                 cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
                 conn.execute(
@@ -1268,9 +1272,9 @@ class BillingEngine:
                 )
             conn.commit()
 
-        if not stop_ok:
-            log.error("STOP failed for job=%s — container still running", job_id)
-            return {"stopped": False, "reason": "container_stop_failed", "job_id": job_id}
+        if not stop_queued:
+            log.error("STOP failed for job=%s — could not enqueue stop_container", job_id)
+            return {"stopped": False, "reason": "enqueue_failed", "job_id": job_id}
 
         try:
             from db import NotificationStore
@@ -1333,23 +1337,26 @@ class BillingEngine:
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
 
-        start_ok = False
+        # P3 post-C — enqueue start_container via agent queue (CGNAT-safe).
+        start_queued = False
         if host_id:
             try:
-                from scheduler import start_stopped_container, list_hosts, _validate_name
+                from routes.agent import enqueue_agent_command
+                from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    start_ok = start_stopped_container(
-                        {"job_id": job_id, "container_name": container_name}, host
-                    )
+                enqueue_agent_command(
+                    host_id,
+                    "start_container",
+                    {"container_name": container_name, "job_id": job_id},
+                    created_by="billing_start",
+                )
+                start_queued = True
+                log.info("START start_container queued: %s on %s", container_name, host_id)
             except Exception as e:
-                log.warning("START container start failed for %s: %s", job_id, e)
+                log.warning("START container start enqueue failed for %s: %s", job_id, e)
 
-        final_status = "running" if start_ok else "stopped"
+        final_status = "running" if start_queued else "stopped"
         with pool.connection() as conn:
             conn.row_factory = dict_row
             conn.execute(
@@ -1364,7 +1371,7 @@ class BillingEngine:
                    WHERE job_id = %s""",
                 (final_status, now, json.dumps(final_status), job_id),
             )
-            if start_ok:
+            if start_queued:
                 # Billing anchor: compute billing resumes from now
                 cycle_id = f"BC-start-{int(now)}-{os.urandom(3).hex()}"
                 conn.execute(
@@ -1377,9 +1384,9 @@ class BillingEngine:
                 )
             conn.commit()
 
-        if not start_ok:
-            log.error("START failed for job=%s", job_id)
-            return {"started": False, "reason": "container_start_failed", "job_id": job_id}
+        if not start_queued:
+            log.error("START failed for job=%s — could not enqueue start_container", job_id)
+            return {"started": False, "reason": "enqueue_failed", "job_id": job_id}
 
         try:
             from db import NotificationStore
@@ -1446,29 +1453,35 @@ class BillingEngine:
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
 
-        restart_ok = False
+        # P3 post-C — restart via agent queue (CGNAT-safe). If container was
+        # running, enqueue stop_container first; then enqueue start_container.
+        # Agent executes sequentially per-host (FIFO drain), so ordering holds.
+        restart_queued = False
         if host_id:
             try:
-                from scheduler import (
-                    stop_container_graceful,
-                    start_stopped_container,
-                    list_hosts,
-                    _validate_name,
-                )
+                from routes.agent import enqueue_agent_command
+                from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    job_obj = {"job_id": job_id, "container_name": container_name}
-                    if was_running:
-                        stop_container_graceful(job_obj, host)
-                    restart_ok = start_stopped_container(job_obj, host)
+                if was_running:
+                    enqueue_agent_command(
+                        host_id,
+                        "stop_container",
+                        {"container_name": container_name, "job_id": job_id},
+                        created_by="billing_restart_stop",
+                    )
+                enqueue_agent_command(
+                    host_id,
+                    "start_container",
+                    {"container_name": container_name, "job_id": job_id},
+                    created_by="billing_restart_start",
+                )
+                restart_queued = True
+                log.info("RESTART queued (was_running=%s): %s on %s", was_running, container_name, host_id)
             except Exception as e:
-                log.warning("RESTART container restart failed for %s: %s", job_id, e)
+                log.warning("RESTART enqueue failed for %s: %s", job_id, e)
 
-        final_status = "running" if restart_ok else "stopped"
+        final_status = "running" if restart_queued else "stopped"
         with pool.connection() as conn:
             conn.row_factory = dict_row
             conn.execute(
@@ -1482,9 +1495,9 @@ class BillingEngine:
             )
             conn.commit()
 
-        if not restart_ok:
+        if not restart_queued:
             log.error("RESTART failed for job=%s — marking stopped", job_id)
-            return {"restarted": False, "reason": "container_restart_failed", "job_id": job_id}
+            return {"restarted": False, "reason": "enqueue_failed", "job_id": job_id}
 
         try:
             from db import NotificationStore
