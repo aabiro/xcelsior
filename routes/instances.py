@@ -79,6 +79,45 @@ def _canonical_owner_id(user: dict) -> str:
     return (user.get("user_id") or "").strip()
 
 
+# ---------------------------------------------------------------------------
+# P3/B4 — per-user snapshot rate limit (sliding window, in-memory).
+# Defends against a runaway client or compromised token flooding the
+# worker agent with `docker commit` jobs (which are CPU/IO heavy and can
+# fill disk). In-memory state is fine for a single-process API; if the
+# deployment ever shards across multiple API replicas, move to Redis.
+# ---------------------------------------------------------------------------
+from collections import deque as _deque  # noqa: E402
+
+_SNAPSHOT_RATE_LIMIT = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_LIMIT", "5"))
+_SNAPSHOT_RATE_WINDOW_SEC = int(
+    os.environ.get("XCELSIOR_SNAPSHOT_RATE_WINDOW_SEC", "3600")
+)
+_SNAPSHOT_RATE_BUCKETS: dict[str, "_deque[float]"] = {}
+
+
+def _check_snapshot_rate_limit(owner_id: str) -> None:
+    """Raise 429 if ``owner_id`` exceeds the configured snapshot quota.
+
+    Default: 5 snapshots per rolling 60 minutes per user. Bypass entirely
+    by setting ``XCELSIOR_SNAPSHOT_RATE_LIMIT=0`` (useful for tests and
+    internal admin tooling).
+    """
+    if _SNAPSHOT_RATE_LIMIT <= 0:
+        return
+    now = time.time()
+    bucket = _SNAPSHOT_RATE_BUCKETS.setdefault(owner_id, _deque())
+    while bucket and bucket[0] <= now - _SNAPSHOT_RATE_WINDOW_SEC:
+        bucket.popleft()
+    if len(bucket) >= _SNAPSHOT_RATE_LIMIT:
+        retry_in = int(_SNAPSHOT_RATE_WINDOW_SEC - (now - bucket[0]))
+        raise HTTPException(
+            429,
+            f"Snapshot rate limit exceeded: max {_SNAPSHOT_RATE_LIMIT} per "
+            f"{_SNAPSHOT_RATE_WINDOW_SEC // 60} min. Retry in ~{retry_in}s.",
+        )
+    bucket.append(now)
+
+
 
 def _get_user_concurrency_cap(customer_id: str) -> int:
     """Return the active-instance cap for a user.
@@ -1719,6 +1758,8 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     owner_id = _canonical_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
+    # P3/B4 — throttle before doing any DB / agent work.
+    _check_snapshot_rate_limit(owner_id)
 
     job = get_job(job_id)
     if not job:
