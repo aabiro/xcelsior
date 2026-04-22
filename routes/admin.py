@@ -1098,6 +1098,8 @@ def api_admin_agent_rollout(request: Request, body: dict):
         raise HTTPException(400, "version and sha256 are required")
     if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
         raise HTTPException(400, "sha256 must be 64 lowercase hex chars")
+    if not url.startswith("https://"):
+        raise HTTPException(400, "url must be https://")
     if batch_pct < 1 or batch_pct > 100:
         raise HTTPException(400, "batch_pct must be 1..100")
 

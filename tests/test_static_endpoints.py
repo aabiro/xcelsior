@@ -66,3 +66,32 @@ def test_directory_traversal_rejected():
     ):
         resp = client.get(path)
         assert resp.status_code == 404, f"{path} should 404, got {resp.status_code}"
+
+
+def test_head_request_supported():
+    # Installers + nginx upstream probes may send HEAD.
+    resp = client.head("/static/worker_agent.py")
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Xcelsior-Agent-SHA256")
+    # HEAD must carry no body (Starlette enforces this).
+    assert resp.content == b""
+
+
+def test_response_has_nosniff_header():
+    resp = client.get("/static/worker_agent.py")
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+
+
+def test_route_does_not_set_duplicate_cache_control():
+    # nginx owns Cache-Control (set with `always` directive). The route must
+    # not set its own, otherwise clients see two conflicting values.
+    resp = client.get("/static/worker_agent.py")
+    assert "cache-control" not in {k.lower() for k in resp.headers.keys()}
+
+
+def test_static_path_exempt_from_auth_middleware():
+    # The global auth middleware must allow /static/* unauthenticated. We
+    # detect regressions by asserting no WWW-Authenticate / 401 on a fresh
+    # client with no credentials.
+    resp = client.get("/static/worker_agent.py")
+    assert resp.status_code != 401

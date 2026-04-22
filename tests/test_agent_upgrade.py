@@ -31,11 +31,18 @@ def fake_agent_file(tmp_path, monkeypatch):
     return fake
 
 
-def _fake_response(status_code: int, body: bytes):
+def _fake_response(status_code: int, body: bytes, chunk_size: int = 64 * 1024):
     class R:
         def __init__(self):
             self.status_code = status_code
             self.content = body
+            self._body = body
+            self._chunk_size = chunk_size
+
+        def iter_content(self, chunk_size=None):
+            step = chunk_size or self._chunk_size
+            for i in range(0, len(self._body), step):
+                yield self._body[i : i + step]
 
     return R()
 
@@ -112,3 +119,49 @@ def test_self_sha256_matches_disk():
 def test_version_bumped_to_2_1_0():
     """Lock: P1.2 bumps VERSION to 2.1.0 (self-update protocol support)."""
     assert worker_agent.VERSION == "2.1.0"
+
+
+def test_upgrade_agent_refuses_http_url(fake_agent_file):
+    # Plaintext URLs must be rejected unless the escape hatch env is set.
+    sha = "b" * 64
+    assert (
+        worker_agent._handle_upgrade_agent({"url": "http://x/", "sha256": sha}) is False
+    )
+
+
+def test_upgrade_agent_http_url_allowed_with_escape_hatch(fake_agent_file, monkeypatch):
+    new_bytes = b"# dev-mode agent\n"
+    correct_sha = hashlib.sha256(new_bytes).hexdigest()
+    exits: list[int] = []
+    monkeypatch.setattr(worker_agent.os, "_exit", lambda code: exits.append(code))
+    monkeypatch.setenv("XCELSIOR_ALLOW_INSECURE_UPGRADE", "1")
+
+    with patch.object(
+        worker_agent.requests, "get", return_value=_fake_response(200, new_bytes)
+    ):
+        worker_agent._handle_upgrade_agent(
+            {"url": "http://localhost:9500/static/worker_agent.py", "sha256": correct_sha}
+        )
+    assert fake_agent_file.read_bytes() == new_bytes
+
+
+def test_upgrade_agent_rejects_non_hex_sha(fake_agent_file):
+    bad = "z" * 64  # correct length, not hex
+    assert (
+        worker_agent._handle_upgrade_agent({"url": "https://x/", "sha256": bad}) is False
+    )
+
+
+def test_upgrade_agent_rejects_oversized_body(fake_agent_file):
+    # Build an 11 MB body with a valid sha (not that we'll get that far).
+    huge = b"A" * (11 * 1024 * 1024)
+    sha = hashlib.sha256(huge).hexdigest()
+    with patch.object(
+        worker_agent.requests, "get", return_value=_fake_response(200, huge)
+    ):
+        ok = worker_agent._handle_upgrade_agent(
+            {"url": "https://x/", "sha256": sha}
+        )
+    assert ok is False
+    # File untouched
+    assert b"pretend this is the running agent" in fake_agent_file.read_bytes()

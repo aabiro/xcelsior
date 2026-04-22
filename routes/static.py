@@ -34,8 +34,17 @@ def _read_and_hash(path: Path) -> tuple[bytes, str]:
     return data, sha
 
 
-@router.get("/static/{filename}")
+# GET + HEAD so `curl -I` / health probes / nginx upstream checks work. HEAD
+# returns identical headers with an empty body (Starlette handles this when the
+# route is registered with both methods).
+@router.api_route("/static/{filename}", methods=["GET", "HEAD"])
 def get_static_file(filename: str) -> Response:
+    # Defense-in-depth: reject any separator chars before consulting the map.
+    # FastAPI already strips path traversal, but a belt-and-braces check costs
+    # nothing and makes the whitelist contract explicit.
+    if "/" in filename or "\\" in filename or filename.startswith("."):
+        raise HTTPException(status_code=404, detail="not found")
+
     target = _ALLOWED.get(filename)
     if target is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -43,11 +52,13 @@ def get_static_file(filename: str) -> Response:
         raise HTTPException(status_code=404, detail="not found")
 
     data, sha = _read_and_hash(target)
+    # Cache-Control is set by nginx (`add_header ... always`) so we deliberately
+    # omit it here to avoid duplicate headers on the wire.
     return Response(
         content=data,
         media_type="text/x-python; charset=utf-8",
         headers={
             "X-Xcelsior-Agent-SHA256": sha,
-            "Cache-Control": "no-cache, must-revalidate",
+            "X-Content-Type-Options": "nosniff",
         },
     )
