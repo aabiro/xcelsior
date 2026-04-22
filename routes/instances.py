@@ -538,6 +538,17 @@ def api_update_instance(job_id: str, update: StatusUpdate):
         if update.container_name:
             extras["container_name"] = update.container_name
         if update.ssh_port is not None:
+            # Gateway-mapped ports only. Container-internal ports (22, etc.)
+            # are never valid here — the worker agent must report the mapped
+            # host-side port in the 10000-65000 range.
+            if not (10000 <= update.ssh_port <= 65000):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"ssh_port {update.ssh_port} outside reserved gateway "
+                        "range 10000-65000"
+                    ),
+                )
             extras["ssh_port"] = update.ssh_port
         if update.interactive is not None:
             extras["interactive"] = update.interactive

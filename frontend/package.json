@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "verify:pwa": "node ./scripts/verify-pwa-build.mjs",
     "test:pwa:smoke": "playwright test e2e/pwa-smoke.spec.ts",
-    "test:pwa:push:staging": "playwright test e2e/pwa-push-staging.spec.ts --headed"
+    "test:pwa:push:staging": "playwright test e2e/pwa-push-staging.spec.ts --headed",
+    "test:ui:badge-spacing": "XCELSIOR_PWA_SMOKE_BASE_URL=http://127.0.0.1:3100 playwright test e2e/beta-badge-spacing.spec.ts"
   },
   "keywords": [],
   "author": "",
