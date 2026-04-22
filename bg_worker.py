@@ -190,7 +190,112 @@ def main():
 
     tasks.append(("notification_cleanup", _notification_cleanup, 21600))
 
-    # 13. Lightning Network deposit watcher (every 5 seconds)
+    # 14. P3/A4 — reconcile stopped/paused jobs vs agent queue.
+    # If a job has been in stopped/paused state for > 120s and has no
+    # pending agent_commands row for that host, re-enqueue the
+    # corresponding directive. pause/stop_container are idempotent
+    # (docker stop on already-stopped = noop) so re-delivery is safe.
+    # Bounded at 50 jobs per cycle to keep the queue well-behaved.
+    def _reconcile_paused_stopped():
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+        from routes.agent import enqueue_agent_command
+
+        now = time.time()
+        stale_cutoff = now - 120.0
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            # Pull stale jobs. paused_at lives in payload; completed_at lives
+            # in payload for stopped; fall back to submitted_at if absent.
+            rows = conn.execute(
+                """
+                SELECT j.job_id, j.status, j.host_id,
+                       j.payload->>'container_name' AS container_name,
+                       COALESCE(
+                           (j.payload->>'paused_at')::float,
+                           (j.payload->>'completed_at')::float,
+                           j.submitted_at
+                       ) AS state_age_ts
+                  FROM jobs j
+                 WHERE j.status IN ('stopped', 'paused_low_balance', 'user_paused')
+                   AND j.host_id IS NOT NULL AND j.host_id <> ''
+                 ORDER BY j.submitted_at DESC
+                 LIMIT 200
+                """
+            ).fetchall()
+            enqueued = 0
+            for row in rows:
+                state_ts = row.get("state_age_ts") or 0.0
+                if state_ts > stale_cutoff:
+                    continue  # fresh — agent may still be draining
+                host_id = row["host_id"]
+                job_id = row["job_id"]
+                status = row["status"]
+                cname = row.get("container_name") or f"xcl-{job_id}"
+
+                # Is there already a pending reconcile directive for this job?
+                pending = conn.execute(
+                    """
+                    SELECT 1 FROM agent_commands
+                     WHERE host_id = %s
+                       AND status = 'pending'
+                       AND command IN ('stop_container','pause_container')
+                       AND args->>'job_id' = %s
+                     LIMIT 1
+                    """,
+                    (host_id, job_id),
+                ).fetchone()
+                if pending:
+                    continue
+
+                cmd = "stop_container" if status == "stopped" else "pause_container"
+                try:
+                    enqueue_agent_command(
+                        host_id,
+                        cmd,
+                        {"container_name": cname, "job_id": job_id},
+                        created_by="reconcile_sweep",
+                        ttl_sec=600,
+                    )
+                    enqueued += 1
+                except Exception as e:
+                    log.warning("reconcile enqueue failed job=%s: %s", job_id, e)
+                if enqueued >= 50:
+                    break
+        if enqueued:
+            log.info("Reconcile sweep: re-enqueued %d stop/pause directives", enqueued)
+
+    tasks.append(("reconcile_paused_stopped", _reconcile_paused_stopped, 60))
+
+    # 15. P3/A5 — user_images pending sweeper.
+    # Snapshots that stay 'pending' for > 1h almost certainly mean the
+    # worker crashed mid-commit or the callback never fired. Mark them
+    # failed so the UI stops spinning and the owner can retry.
+    def _user_images_pending_sweeper():
+        from db import _get_pg_pool
+
+        cutoff = time.time() - 3600.0
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE user_images
+                   SET status = 'failed'
+                 WHERE status = 'pending'
+                   AND deleted_at = 0
+                   AND created_at < %s
+                """,
+                (cutoff,),
+            )
+            marked = cur.rowcount
+            conn.commit()
+        if marked:
+            log.info("user_images sweeper: marked %d pending→failed (>1h old)", marked)
+
+    tasks.append(("user_images_pending_sweeper", _user_images_pending_sweeper, 300))
+
+    # 16. Lightning Network deposit watcher (every 5 seconds)
     try:
         import lightning as _ln
 
