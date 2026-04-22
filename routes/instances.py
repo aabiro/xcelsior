@@ -58,6 +58,28 @@ MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES
 _ACTIVE_STATUSES = {"queued", "assigned", "starting", "running"}
 
 
+def _canonical_owner_id(user: dict) -> str:
+    """P3/B3 — single source of truth for per-user ownership strings.
+
+    Prefers the Stripe ``customer_id`` (post-billing identity) but falls
+    back to ``user_id`` for accounts that never finished Stripe signup
+    (customer_id is "" or missing). Returns "" if neither is available,
+    which callers must treat as 401.
+
+    Historically this repo had two patterns — a positional default
+    ``user.get("customer_id", user.get("user_id", ""))`` and a
+    short-circuit ``user.get("customer_id") or user.get("user_id")`` —
+    which diverge when ``customer_id`` is the empty string. The helper
+    uses the short-circuit form because customer_id="" is NOT a valid
+    Stripe identity and ownership checks must fall back to user_id.
+    """
+    cid = (user.get("customer_id") or "").strip()
+    if cid:
+        return cid
+    return (user.get("user_id") or "").strip()
+
+
+
 def _get_user_concurrency_cap(customer_id: str) -> int:
     """Return the active-instance cap for a user.
 
@@ -1694,7 +1716,7 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
-    owner_id = user.get("customer_id") or user.get("user_id") or ""
+    owner_id = _canonical_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
 
@@ -1798,7 +1820,7 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
 def api_list_user_images(request: Request):
     """List the authenticated user's saved pod templates."""
     user = _require_auth(request)
-    owner_id = user.get("customer_id") or user.get("user_id") or ""
+    owner_id = _canonical_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
     pool = _user_images_pool()
@@ -1830,7 +1852,7 @@ def api_list_user_images(request: Request):
 def api_delete_user_image(image_id: str, request: Request):
     """Soft-delete a user image record. (Underlying docker image not removed.)"""
     user = _require_auth(request)
-    owner_id = user.get("customer_id") or user.get("user_id") or ""
+    owner_id = _canonical_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
     is_admin = bool(user.get("is_admin") or user.get("admin"))

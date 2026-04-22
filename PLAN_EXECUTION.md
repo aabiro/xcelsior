@@ -187,3 +187,97 @@ Every commit: code + test + green run locally + push + `scripts/deploy.sh --quic
 - After P1.2 lands → GPU hosts will self-upgrade automatically.
 
 This appendix gives the AI everything it could possibly miss. Ship P1.1–P1.4 today and you’ll already be in a much stronger place. Let me know if you want the expanded specs for P1.2 + P2.2!
+
+Now I'll present the hardening plan:
+
+Plan: Phase 3 Hardening (Post-Audit)
+After auditing P3.1 + P3.2, I found 4 critical, 9 high, 9 medium, 5 low issues. The most urgent: the worker callback URL is wrong — all snapshots hang in pending forever in production. The UNIQUE constraint blocks recreate-after-delete. Resume still uses SSH. No reconcile between DB state and host reality.
+
+Plan saved to phase-3-hardening-plan.md. Three phases below.
+
+Phase A — Critical correctness (ship ASAP)
+A1. Fix worker callback URL — worker posts /api/v2/user-images/{id}/complete but routes mount with no prefix; actual path is /user-images/{id}/complete. Error is swallowed because only RequestException is caught, not HTTP non-2xx. Every snapshot stays pending. worker_agent.py L1102.
+
+A2. Migration 025 — partial unique index — replace plain UNIQUE(owner_id, name, tag) with CREATE UNIQUE INDEX … WHERE deleted_at = 0. Without this, users can't recreate a deleted name:tag; precheck returns 409 clean path but INSERT races still throw UniqueViolation → 500. 024_user_images.py L42, db.py L526.
+
+A3. Split stop_container into stop-only vs stop-and-remove; convert resume_instance to agent queue. Currently stop_container handler does docker stop + docker rm -f (destroys container). This is wrong for PAUSE (user expects resumability). Introduce:
+
+pause_container — docker stop -t 30 only (container survives)
+stop_container — stop + rm (current behaviour, for final stop/suspend/grace-expired)
+start_container — already exists; wire it into resume_instance
+This lets resume_instance drop the SSH run_job path entirely (true CGNAT parity with pause). billing.py L1048 pause → pause_container; L1144 resume → start_container; worker_agent.py L1000-1044.
+
+A4. BG reconcile sweep (new task in bg_worker.py) — every 60s, compare jobs.status IN ('stopped','paused') vs host heartbeat's reported container list. If a "stopped" job's container is still running N seconds after the original enqueue, re-enqueue stop_container. Prevents revenue loss when agents are offline during TTL (900s).
+
+A5. BG pending-image sweeper (new task in bg_worker.py) — every 300s, UPDATE user_images SET status='failed', error='timeout' WHERE status='pending' AND created_at < now()-3600. Pairs with A2 partial index so failed rows can be superseded by new snapshot.
+
+Phase B — Security & correctness hardening
+B1. Remove XCELSIOR_ENV=test / XCELSIOR_ALLOW_UNAUTH_AGENT bypass of host_id binding. Keep auth bypass for dev ergonomics, but always enforce the host_id match when the caller provides one. agent.py L49-57.
+
+B2. Auth-before-SELECT in /user-images/{id}/complete to fix timing oracle. instances.py L1878.
+
+B3. Unify owner-id resolution — single helper _canonical_owner_id(user) used by snapshot, delete, ownership checks, and _owner_slug. Kills customer_id-vs-user_id drift.
+
+B4. Per-user snapshot rate limit — 5 per rolling hour, in-memory sliding window (matches existing check_ai_rate_limit pattern in ai_assistant.py). Prevents disk exhaustion.
+
+B5. Bump _owner_slug sha prefix from 8→16 chars (32→128 bits; collision-free for any realistic user count).
+
+B6. On push failure: docker rmi image_ref locally before reporting failed; prevents dangling GB. worker_agent.py L1081-1088.
+
+B7. Distinguish commit-timeout vs push-timeout in error message + separate try/except blocks — current handler can't tell which subprocess raised.
+
+B8. start_container failure callback — if docker start rc!=0, POST /instances/{job_id}/start-failed (or similar) and flip DB to failed_start; SSE broadcast. Otherwise DB says running, container is dead, clock ticks.
+
+B9. Strip Unicode bidi/zero-width chars from description — U+200B-200F, U+202A-202E, U+2066-2069.
+
+Phase C — Observability, cleanup & coverage
+C1. Prometheus counters — xcelsior_snapshot_total{result}, xcelsior_agent_stop_total{result}, xcelsior_agent_start_total{result}, xcelsior_user_image_sweep_total. Pattern: _motd_reinjection_total in worker_agent.py L224.
+
+C2. Hard-delete old soft-deleted user_images (deleted_at > 30d) in bg_worker job_log_cleanup or new task.
+
+C3. Log PII scrubbing — replace owner=%s with owner_hash=%s (sha256[:8]). Applies to all new P3 log lines.
+
+C4. Validate enqueue_agent_command args size (≤16KB JSON) and per-host pending queue depth (≤100).
+
+C5. Drain-side allowlist re-check in worker_agent.py to defend against raw-SQL-inserted rows.
+
+C6. Document registry auth — XCELSIOR_REGISTRY_USERNAME / _PASSWORD env; run docker login on first push inside snapshot handler. Cross-tenant creds gap. worker_agent.py L1086.
+
+C7. Integration tests (currently only validator unit tests exist):
+
+tests/test_user_images_integration.py — happy path, 400 (not running), 403 (wrong owner), 409 (dup name:tag live + after soft delete), /complete host-binding, idempotent recall, callback URL regression guard
+tests/test_agent_commands_lifecycle.py — subprocess-mocked tests for snapshot/stop/start/pause handlers
+tests/test_billing_stop_enqueue.py — mock enqueue_agent_command, assert contract at all 4 billing sites
+C8. Fix deploy.sh alembic upgrade head || warn → make it fatal; silent-warn hides migration failures.
+
+Relevant files
+
+worker_agent.py:939-1120 — drain_agent_commands handlers
+instances.py:1600-1900 — P3.1 endpoints + helpers
+agent.py L42-76 (_require_agent_auth), L196 (allowlist), L247-275 (enqueue_agent_command)
+024_user_images.py
+db.py:512-540 — startup bootstrap
+billing.py L1048 (pause), L1144 (resume — still SSH!), L1844, L2376, L2540
+bg_worker.py:47-210 — register new sweeper tasks
+api.py:820-830 — router mount (confirm no /api/v2 prefix)
+Verification
+
+A1: curl -X POST $API/user-images/fake/complete returns 401/403 not 404; integration test asserts worker callback hits the route.
+A2: After soft-delete of user:demo:v1, recreate succeeds (no UniqueViolation).
+A3: pause_instance then resume_instance preserves container ID (docker inspect $cname --format '{{.Id}}' unchanged pre/post).
+A4: Stop-container with agent offline → bg_worker re-enqueues; heartbeat after agent back online shows container gone within 2 cycles.
+A5: Insert a pending row with created_at=now()-4000; after sweeper: status='failed'.
+B1/B2: Integration test with XCELSIOR_ENV=test sending wrong host_id → still 403.
+B4: 6th snapshot in 1h → 429.
+All phases: new pytest tests/test_user_images_integration.py tests/test_agent_commands_lifecycle.py tests/test_billing_stop_enqueue.py green.
+Decisions
+
+Phase A is a hotfix stream — ship each item individually on green.
+Keep local-only image_ref fallback (no registry infra yet).
+Rate limit is in-process (no Redis); acceptable for snapshots since disk is host-local anyway.
+Registry auth (C6) is documented only in Phase 3 hardening — actual creds management deferred to a future infra phase.
+Further Considerations (3)
+
+A3 semantics — do you want PAUSE to preserve the exact container (new pause_container handler = docker stop only) or keep current "rm -f + relaunch" behaviour? Option A: preserve container (true pause/resume UX). Option B: keep current teardown (simpler; resume re-runs init_script). Recommended: A — matches RunPod/Vast expectations and is what the audit implies.
+C6 registry auth — single platform-level creds or per-user? Option A: single XCELSIOR_REGISTRY_* env on each host (simple, cross-tenant exposure). Option B: per-user token issued via API + docker config written per-commit (secure, more work). Recommended: A for now, document the limitation; defer B until multi-tenant push is a real use case.
+B8 failure callback — new endpoint or reuse /complete shape? Option A: generic POST /internal/agent/command-result accepting {command_id, status, error}. Option B: endpoint per command type. Recommended: A (fewer routes, easier to add new commands).
