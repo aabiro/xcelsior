@@ -42,15 +42,31 @@ router = APIRouter()
 def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict:
     """Require auth on /agent/* endpoints. Optionally gate by host ownership.
 
-    Rollout escape hatch: if XCELSIOR_ALLOW_UNAUTH_AGENT=true is set, an
-    unauthenticated call is accepted with a WARNING log — for emergency
-    use only while rotating tokens. Remove once stable.
+    Bypass rules (in order, first match wins):
+      1. If XCELSIOR_ENV == 'production': NEVER bypass. A production host
+         accidentally tagged with XCELSIOR_ENV=test (the original audit
+         concern) is impossible because deploy.sh pins XCELSIOR_ENV=production
+         at the unit level; this rule hardens it belt-and-braces.
+      2. If XCELSIOR_ENV == 'test': accept unauth (test suite pattern).
+      3. If unauth and XCELSIOR_ALLOW_UNAUTH_AGENT=1: accept with WARNING
+         (emergency escape hatch during token rotation).
+      4. Otherwise: require an authenticated user.
     """
-    # Test-mode bypass — tests drive /agent/* without bearer tokens.
-    if os.environ.get("XCELSIOR_ENV", "").lower() == "test":
+    env = os.environ.get("XCELSIOR_ENV", "").lower()
+    # 1. Hard refuse in production — escape hatches do NOT apply.
+    if env == "production":
+        user = _get_current_user(request)
+        if not user:
+            raise HTTPException(401, "Authentication required")
+        return user
+
+    # 2. Test-mode bypass — tests drive /agent/* without bearer tokens.
+    if env == "test":
         return {"unauth": True, "test": True}
+
     user = _get_current_user(request)
     if not user:
+        # 3. Explicit escape hatch (non-prod only) — WARN loudly.
         if os.environ.get("XCELSIOR_ALLOW_UNAUTH_AGENT", "").lower() in ("1", "true", "yes"):
             log.warning(
                 "unauthenticated /agent/* request accepted (XCELSIOR_ALLOW_UNAUTH_AGENT=true)",
