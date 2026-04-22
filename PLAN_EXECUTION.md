@@ -77,13 +77,13 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 
 ## Phase 2 — Operational features
 
-### P2.1 — Git clone / `init_script` on launch
-- [ ] Add `init_script: str | None` + `git_repo: str | None` to `JobIn` in instances.py (length ≤ 4 KiB, ASCII-printable, whitelist regex; store in `job.payload`).
-- [ ] In the interactive init_script (v1-locked banner first, then **appended** after `Setting up SSH…`):
-  - If `git_repo` set: `git clone <url> /workspace && cd /workspace` (shell-quoted).
-  - If `init_script` set: run it under `bash -e` with output streamed to the same log channel.
-- [ ] **Test:** `tests/test_init_script.py` — submits job with fake repo URL, asserts clone attempted, rejects invalid scripts (shell metachars, too-long).
-- [ ] [ ] **Terminal UI:** bumps to **v2** in lockstep (new lines after v1 banner are additions — the v1 lock test gets a new section + `TERMINAL_UI_VERSION="v2"`).
+### P2.1 — Git clone / `init_script` on launch ✅ (commit 67035af, deployed)
+- [x] JobIn adds `init_script` / `git_repo` / `auto_launch` / `exposed_ports` with validators.
+- [x] `_run_provisioning_hooks` runs git clone then init_script via docker exec, hard 15s cap (`timeout --kill-after=2 15`) so boot never stalls.
+- [x] Host tools bind-mounted `/var/lib/xcelsior/tools` → `/opt/xcelsior/bin:ro`; install.sh stages rsync/git/curl/jq/htop/less best-effort.
+- [x] PLATFORM_ENV_KEYS gains `XCELSIOR_TOOLS_PATH` / `EXPOSED_PORTS` / `AUTO_LAUNCH`.
+- [x] Per-port `-p` publish for exposed_ports with deterministic host port `55000 + hash%5000`.
+- [x] `tests/test_jobin_validators.py` (16 cases) + `tests/test_platform_env.py` P2.1 additions. Terminal UI v1 banner preserved (regression test green).
 
 ### P2.2 — HTTP port proxy (subdomain routing)
 - [ ] **DNS:** done. add. Let's Encrypt DNS-01 wildcard cert via certbot + DNS plugin (Cloudflare or manual).
@@ -100,11 +100,12 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 - [ ] Combined with P2.2: returns URL `https://<job>-8888.xcelsior.ca?token=…`.
 - [ ] [ ] **Test:** `tests/test_auto_launch.py` — mock launch, assert command generated.
 
-### P2.4 — Bandwidth + disk IO metrics
-- [ ] In worker_agent.py `telemetry_loop`, add `psutil.net_io_counters(pernic=True)` + `psutil.disk_io_counters(perdisk=False)` deltas (bytes/sec since last tick).
-- [ ] Extend telemetry payload: `{net_rx_mbps, net_tx_mbps, disk_read_mbps, disk_write_mbps}`.
-- [ ] Frontend: 2 new gauges in dashboard/telemetry/page.tsx/dashboard/telemetry/page.tsx).
-- [ ] [ ] **Test:** `tests/test_telemetry_bandwidth.py` + `frontend/e2e/telemetry-bandwidth.spec.ts`.
+### P2.4 — Bandwidth + disk IO metrics ✅
+- [x] worker_agent `_sample_io_delta` tracks `psutil.net_io_counters()` + `psutil.disk_io_counters()` deltas across TELEMETRY_INTERVAL ticks.
+- [x] Telemetry payload gains `net_rx_mbps` / `net_tx_mbps` / `disk_read_mb_s` / `disk_write_mb_s`.
+- [x] Graceful fallback when psutil is unavailable (returns zeros, never fails).
+- [x] `tests/test_telemetry_bandwidth.py` covers priming, delta math, counter-rollback clamp, missing psutil.
+- [ ] Frontend gauges — deferred; wire into SSH modal pass.
 
 ### P2.5 — Volume snapshots
 - [ ] New table `volume_snapshots` (id, volume_id, created_at, size_bytes, status).
