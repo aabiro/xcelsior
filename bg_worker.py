@@ -283,6 +283,11 @@ def main():
         from db import _get_pg_pool
 
         cutoff = time.time() - 3600.0
+        # Phase E/E8 — queued_registry_down rows can linger much longer
+        # (by design: we're waiting for the operator to fix the registry)
+        # but 24h is a sensible upper bound. Past that we assume the
+        # user has moved on and the row is dead weight.
+        stale_queued_cutoff = time.time() - 86400.0
         pool = _get_pg_pool()
         with pool.connection() as conn:
             cur = conn.execute(
@@ -296,9 +301,25 @@ def main():
                 (cutoff,),
             )
             marked = cur.rowcount
+            cur2 = conn.execute(
+                """
+                UPDATE user_images
+                   SET status = 'failed', error = 'registry_down_24h'
+                 WHERE status = 'queued_registry_down'
+                   AND deleted_at = 0
+                   AND created_at < %s
+                """,
+                (stale_queued_cutoff,),
+            )
+            stale_queued = cur2.rowcount
             conn.commit()
         if marked:
             log.info("user_images sweeper: marked %d pending→failed (>1h old)", marked)
+        if stale_queued:
+            log.info(
+                "user_images sweeper: marked %d queued_registry_down→failed (>24h old)",
+                stale_queued,
+            )
 
     tasks.append(("user_images_pending_sweeper", _user_images_pending_sweeper, 300))
 
@@ -334,7 +355,104 @@ def main():
 
     tasks.append(("user_images_hard_delete_gc", _user_images_hard_delete_gc, 86400))
 
-    # 17. Lightning Network deposit watcher (every 5 seconds)
+    # 17. Phase E/E7 — registry health probe.
+    # Polls ``{XCELSIOR_REGISTRY_URL}/v2/`` on a fixed interval and
+    # exports three Prometheus gauges (reachable / last_probe_ts /
+    # latency_ms) plus updates the in-process cache used by E8's
+    # queue-on-down path in the snapshot endpoint. The task is cheap
+    # (one HTTP GET with a 5s timeout) and tolerates missing env — if
+    # ``XCELSIOR_REGISTRY_URL`` is unset it no-ops silently.
+    def _registry_health_probe():
+        import registry_health
+
+        registry_health.probe_registry()
+
+    tasks.append((
+        "registry_health_probe",
+        _registry_health_probe,
+        # registry_health.PROBE_INTERVAL_SEC defaults to 300s; read it
+        # lazily so env changes are respected at startup.
+        __import__("registry_health").PROBE_INTERVAL_SEC,
+    ))
+
+    # 18. Phase E/E8 — retry snapshots queued during registry outage.
+    # When the snapshot endpoint runs while the registry is unhealthy
+    # it inserts a ``user_images`` row with ``status='queued_registry_down'``
+    # *without* enqueuing an agent command. This sweeper picks those
+    # rows up as soon as the registry recovers and enqueues the real
+    # ``snapshot_container`` command, flipping status to ``pending``.
+    # Oldest-first, capped per-tick so a huge backlog can't monopolise
+    # a single bg tick.
+    def _retry_queued_snapshots():
+        import registry_health
+        from db import _get_pg_pool
+        from routes.agent import enqueue_agent_command
+
+        if not registry_health.is_registry_healthy():
+            return  # still down — try again next tick
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT image_id, owner_id, source_job_id, host_id,
+                       name, tag, image_ref, description
+                  FROM user_images
+                 WHERE status = 'queued_registry_down'
+                   AND deleted_at = 0
+                 ORDER BY created_at ASC
+                 LIMIT 20
+                """,
+            ).fetchall()
+
+        promoted = 0
+        for (image_id, owner_id, job_id, host_id, name, tag, image_ref, description) in rows:
+            if not host_id:
+                # Host disappeared while we were queued — fail the row
+                # rather than leave it stuck forever.
+                with pool.connection() as conn:
+                    conn.execute(
+                        "UPDATE user_images SET status='failed', "
+                        "error='host_missing' WHERE image_id=%s",
+                        (image_id,),
+                    )
+                    conn.commit()
+                continue
+            try:
+                enqueue_agent_command(
+                    host_id,
+                    "snapshot_container",
+                    {
+                        "job_id": job_id,
+                        "image_id": image_id,
+                        "owner_id": owner_id,
+                        "image_ref": image_ref,
+                        "name": name,
+                        "tag": tag,
+                        "description": description or "",
+                    },
+                    created_by="bg_worker_e8_retry",
+                )
+                with pool.connection() as conn:
+                    conn.execute(
+                        "UPDATE user_images SET status='pending' "
+                        "WHERE image_id=%s AND status='queued_registry_down'",
+                        (image_id,),
+                    )
+                    conn.commit()
+                promoted += 1
+            except Exception as e:
+                log.warning(
+                    "E8 retry enqueue failed image_id=%s err=%s",
+                    image_id, type(e).__name__,
+                )
+
+        if promoted:
+            log.info("E8 retry: promoted %d queued snapshots to pending", promoted)
+
+    tasks.append(("snapshot_queue_retry", _retry_queued_snapshots, 60))
+
+    # 19. Lightning Network deposit watcher (every 5 seconds)
     try:
         import lightning as _ln
 

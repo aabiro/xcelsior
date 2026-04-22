@@ -563,7 +563,8 @@ def _ensure_pg_tables(conn):
         ALTER TABLE user_images
             ADD COLUMN IF NOT EXISTS is_public  boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS labels     jsonb   NOT NULL DEFAULT '[]'::jsonb,
-            ADD COLUMN IF NOT EXISTS starred_at double precision NULL
+            ADD COLUMN IF NOT EXISTS starred_at double precision NULL,
+            ADD COLUMN IF NOT EXISTS error      text    DEFAULT ''
         """
     )
     cur.execute(
