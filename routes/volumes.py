@@ -286,3 +286,95 @@ def api_admin_reopen_encrypted_volumes(request: Request):
         len(results["failed"]),
     )
     return {"ok": True, **results}
+
+
+# ── P2.5 Snapshots ────────────────────────────────────────────────────
+
+
+class SnapshotCreate(BaseModel):
+    label: str = Field(default="", max_length=128)
+
+
+@router.post("/api/v2/volumes/{volume_id}/snapshots", tags=["Volumes"])
+def api_volume_snapshot_create(volume_id: str, body: SnapshotCreate, request: Request):
+    """Take an instant CoW snapshot of a detached volume."""
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
+    owner = user.get("user_id") or user.get("email", "")
+    try:
+        snap = get_volume_engine().create_snapshot(volume_id, owner, body.label)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    broadcast_sse(
+        "volume.snapshot.created",
+        {"volume_id": volume_id, "snapshot_id": snap["snapshot_id"]},
+    )
+    return {"ok": True, "snapshot": snap}
+
+
+@router.get("/api/v2/volumes/{volume_id}/snapshots", tags=["Volumes"])
+def api_volume_snapshot_list(volume_id: str, request: Request):
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:read")
+    owner = user.get("user_id") or user.get("email", "")
+    try:
+        snaps = get_volume_engine().list_snapshots(volume_id, owner)
+    except PermissionError:
+        raise HTTPException(404, "Volume not found")
+    return {"ok": True, "snapshots": snaps}
+
+
+@router.post(
+    "/api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore", tags=["Volumes"]
+)
+def api_volume_snapshot_restore(volume_id: str, snapshot_id: str, request: Request):
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
+    owner = user.get("user_id") or user.get("email", "")
+    try:
+        result = get_volume_engine().restore_snapshot(volume_id, owner, snapshot_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    broadcast_sse(
+        "volume.snapshot.restored",
+        {"volume_id": volume_id, "snapshot_id": snapshot_id},
+    )
+    return {"ok": True, **result}
+
+
+@router.delete(
+    "/api/v2/volumes/{volume_id}/snapshots/{snapshot_id}", tags=["Volumes"]
+)
+def api_volume_snapshot_delete(volume_id: str, snapshot_id: str, request: Request):
+    from routes._deps import _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "volumes:write")
+    owner = user.get("user_id") or user.get("email", "")
+    try:
+        result = get_volume_engine().delete_snapshot(volume_id, owner, snapshot_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    broadcast_sse(
+        "volume.snapshot.deleted",
+        {"volume_id": volume_id, "snapshot_id": snapshot_id},
+    )
+    return {"ok": True, **result}

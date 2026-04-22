@@ -433,6 +433,28 @@ def _ensure_pg_tables(conn):
         "ON volume_attachments (instance_id, detached_at)"
     )
 
+    # ── Volume snapshots (P2.5 — instant CoW copies via reflink) ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS volume_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            volume_id TEXT NOT NULL REFERENCES volumes(volume_id),
+            owner_id TEXT NOT NULL,
+            label TEXT DEFAULT '',
+            size_bytes BIGINT DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'ready',
+            created_at DOUBLE PRECISION NOT NULL,
+            deleted_at DOUBLE PRECISION DEFAULT 0
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_snapshots_volume "
+        "ON volume_snapshots (volume_id, deleted_at)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_snapshots_owner "
+        "ON volume_snapshots (owner_id, deleted_at)"
+    )
+
     # ── GPU Pricing (platform-controlled rates) ──
     cur.execute("""
         CREATE TABLE IF NOT EXISTS gpu_pricing (
