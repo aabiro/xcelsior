@@ -1611,19 +1611,37 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
 # namespace. The user_images table is the system-of-record.
 
 
-_IMAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
-_IMAGE_TAG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
+# Docker reference spec requires lowercase for the repository portion;
+# we auto-lowercase the name in the validator so users aren't surprised
+# by a `invalid reference format` failure at commit time on the host.
+# Tags remain case-sensitive per the Docker distribution spec.
+_IMAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
+_IMAGE_TAG_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,62}$")
+
+
+def _owner_slug(owner_id: str) -> str:
+    """Deterministic, collision-resistant namespace slug for an owner.
+
+    Two different owner_ids can sanitize to the same string
+    (e.g. 'a.b@x' and 'a-b-x'), so we append a short sha256 prefix to
+    guarantee uniqueness in the local-only image tag path.
+    """
+    import hashlib
+    clean = re.sub(r"[^a-z0-9_-]", "-", (owner_id or "").lower()).strip("-") or "user"
+    # Keep registry paths readable but always disambiguated.
+    digest = hashlib.sha256((owner_id or "").encode("utf-8")).hexdigest()[:8]
+    return f"{clean[:32]}-{digest}"
 
 
 def _build_image_ref(owner_id: str, name: str, tag: str) -> str:
     reg = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip().rstrip("/")
-    safe_owner = re.sub(r"[^a-zA-Z0-9_-]", "-", owner_id).lower()
+    slug = _owner_slug(owner_id)
     if reg:
-        return f"{reg}/{safe_owner}/{name}:{tag}"
+        return f"{reg}/{slug}/{name}:{tag}"
     # Local-only fallback when no registry configured. Image lives on
     # the source host and is usable there; cross-host reuse requires a
     # registry. Kept intentionally simple for v1.
-    return f"xcl-{safe_owner}-{name}:{tag}"
+    return f"xcl-{slug}-{name}:{tag}"
 
 
 class SnapshotIn(BaseModel):
@@ -1634,7 +1652,10 @@ class SnapshotIn(BaseModel):
     @field_validator("name")
     @classmethod
     def _v_name(cls, v: str) -> str:
-        v = (v or "").strip()
+        # Docker refuses uppercase in the repository name; enforce early
+        # rather than producing a confusing `invalid reference format`
+        # error from `docker commit` on the host.
+        v = (v or "").strip().lower()
         if not _IMAGE_NAME_RE.match(v):
             raise ValueError("name must match [a-z0-9][a-z0-9._-]* and be <=63 chars")
         return v
@@ -1684,8 +1705,14 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     if job.get("owner") != owner_id and not is_admin:
         raise HTTPException(403, "Not your instance")
     status = str(job.get("status") or "")
-    if status not in ("running", "paused"):
-        raise HTTPException(400, f"Instance must be running or paused to snapshot (got {status!r})")
+    # Only running containers can be snapshotted — billing pause / stop
+    # flows `docker rm -f` the container, after which `docker commit`
+    # has nothing to target.
+    if status != "running":
+        raise HTTPException(
+            400,
+            f"Instance must be running to snapshot (got {status!r})",
+        )
     host_id = str(job.get("host") or job.get("host_id") or "")
     if not host_id:
         raise HTTPException(409, "Instance has no assigned host")
@@ -1850,18 +1877,25 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
     `/agent/commands/{host_id}`. Flips the pending row into ready/failed.
     """
     from routes.agent import _require_agent_auth
-    _require_agent_auth(request)
 
     pool = _user_images_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT owner_id, status FROM user_images WHERE image_id=%s AND deleted_at=0",
+            "SELECT owner_id, status, host_id FROM user_images "
+            "WHERE image_id=%s AND deleted_at=0",
             (image_id,),
         )
         row = cur.fetchone()
         if not row:
+            # Authenticate before revealing existence (timing-equivalent
+            # path below handles the success case).
+            _require_agent_auth(request)
             raise HTTPException(404, "Image not found")
-        owner_id, prev_status = row[0], row[1]
+        owner_id, prev_status, img_host_id = row[0], row[1], row[2]
+        # Bind the callback to the host that was originally asked to
+        # produce the image. Prevents a compromised host from flipping
+        # another host's pending image to ready.
+        _require_agent_auth(request, host_id=img_host_id)
         if prev_status not in ("pending",):
             # Idempotent: callback may arrive twice; accept without re-update.
             return {"ok": True, "status": prev_status}
