@@ -555,6 +555,27 @@ def _ensure_pg_tables(conn):
         "CREATE INDEX IF NOT EXISTS idx_user_images_source_job "
         "ON user_images (source_job_id) WHERE source_job_id IS NOT NULL"
     )
+    # Phase E/E6 — columns for the /dashboard/templates UI. Idempotent
+    # DDL mirrors migration 026 so fresh databases get the same shape
+    # without needing the full alembic history.
+    cur.execute(
+        """
+        ALTER TABLE user_images
+            ADD COLUMN IF NOT EXISTS is_public  boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS labels     jsonb   NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS starred_at double precision NULL
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_images_public_live "
+        "ON user_images (created_at DESC) "
+        "WHERE is_public = true AND deleted_at = 0"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_images_starred_per_owner "
+        "ON user_images (owner_id, starred_at DESC) "
+        "WHERE starred_at IS NOT NULL AND deleted_at = 0"
+    )
 
     # ── Users table: per-user concurrency override ──
     # NULL means "use env default MAX_CONCURRENT_INSTANCES". The users table

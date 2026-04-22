@@ -2507,3 +2507,79 @@ export async function fetchAdminAiConversations(
     per_page: number;
   }>(`/api/admin/ai-conversations?${params}`);
 }
+
+// ── Phase D: User image templates ─────────────────────────────────────
+
+export type UserImage = {
+  image_id: string;
+  owner_id: string;
+  name: string;
+  tag: string;
+  description: string;
+  source_job_id: string | null;
+  host_id: string | null;
+  image_ref: string;
+  size_bytes: number;
+  status: "pending" | "ready" | "failed";
+  created_at: number;
+  is_public: boolean;
+  labels: string[];
+  starred_at: number | null;
+  starred: boolean;
+  is_mine: boolean;
+};
+
+export type UserImageScope = "mine" | "public" | "all";
+
+export async function listUserImages(params: {
+  scope?: UserImageScope;
+  starred?: boolean;
+  label?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const qs = new URLSearchParams();
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.starred) qs.set("starred", "true");
+  if (params.label) qs.set("label", params.label);
+  if (params.q) qs.set("q", params.q);
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return apiFetch<{ images: UserImage[]; limit: number; offset: number }>(
+    `/user-images${suffix}`,
+  );
+}
+
+export async function deleteUserImage(imageId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/user-images/${encodeURIComponent(imageId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function patchUserImage(
+  imageId: string,
+  patch: {
+    description?: string;
+    is_public?: boolean;
+    labels?: string[];
+    starred?: boolean;
+  },
+) {
+  return apiFetch<{ ok: boolean }>(
+    `/user-images/${encodeURIComponent(imageId)}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export async function snapshotInstance(
+  instanceId: string,
+  body: { name: string; tag?: string; description?: string },
+) {
+  return apiFetch<{ ok: boolean; image_id: string; image_ref: string; status: string }>(
+    `/instances/${encodeURIComponent(instanceId)}/snapshot`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}

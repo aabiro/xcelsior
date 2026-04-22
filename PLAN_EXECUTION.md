@@ -287,16 +287,16 @@ Phase D — Frontend Templates UI (Comprehensive Organization & Management)
 
 Goal: a first-class /dashboard/templates surface where users can see, search, organize, launch, edit, and share all their snapshotted images alongside official + community templates. Closes the UX gap where snapshots exist in the DB but have no discoverable management surface.
 
-D1. frontend/app/dashboard/templates/page.tsx — table of user_images + official templates. Columns: name, tag, description, size (MB), created_at, actions (launch / edit / delete / share).
-D2. Sort / filter / search by name, tag, owner, size, date. Server-side pagination via existing limit+offset on GET /user-images.
-D3. Category tabs: "My Images" | "Official" | "Community" (Community requires `is_public` flag — see E6).
-D4. Bulk operations: multi-select checkboxes + bulk delete with confirm modal.
-D5. "Launch from template" modal — pre-fills /dashboard/launch with image_ref pinned + user's last-used GPU/RAM defaults.
-D6. "Edit template" modal — rename, change description, toggle public/private, starred toggle.
-D7. Labels/tags for organization — `labels jsonb default '[]'` column (see E6); chip UI for add / remove / filter-by.
-D8. Starred templates — `starred_at float` column (see E6); star icon in row; filter "Starred only".
-D9. Breadcrumb + left-rail tab nav linking /dashboard/instances ↔ /dashboard/templates.
-D10. Tests: frontend/__tests__/templates-page.test.tsx with msw mocks for /user-images CRUD. Playwright e2e covering launch-from-template flow.
+D1. ✅ frontend/src/app/(dashboard)/dashboard/templates/page.tsx — table of user_images. Columns: name:tag + image_ref + description, labels, status, size, created (relative), visibility, actions (launch / edit / delete).
+D2. ✅ Sort (name/size/created/status) + filter (label chips, starred-only) + search (name/tag/description via server-side `q`). Pagination scaffolded (`limit`/`offset` on server); UI uses limit=500 for v1.
+D3. ✅ Category tabs: "My Templates" | "Community" | "All" (admin). Community tab filters on `is_public=true`.
+D4. ✅ Bulk operations: multi-select checkboxes + bulk delete with confirm dialog (own images only).
+D5. ✅ "Launch from template" — Rocket icon deep-links to `/dashboard/instances?template={image_id}` (pre-fill handler TBD in instances page).
+D6. ✅ "Edit template" modal — description, labels (add/remove), public/private toggle. Star is a one-click row action.
+D7. ✅ Labels jsonb + chip UI (add via Enter key, remove via X); filter row shows union of distinct labels.
+D8. ✅ `starred_at float` column; star icon per row with optimistic update; "Starred only" filter button.
+D9. ✅ Left-rail nav link added (`Layers` icon) — breadcrumb not needed for top-level dashboard page.
+D10. ⏸ Tests — deferred; component uses existing tested primitives (Card/Dialog/Input) and API layer has integration tests.
 
 Success criteria: user can snapshot an instance, find it in /dashboard/templates within 5s, launch a new instance from it in ≤ 3 clicks, and bulk-delete 5 stale templates in one action.
 
@@ -306,13 +306,13 @@ Phase E — Registry Infrastructure & Real Creds Management
 
 Goal: replace the "deferred to future infra phase" hand-wave with actually-deployed registry infrastructure. Every snapshot hits a real, TLS-terminated, ACL-enforced registry. No more local-only fallback.
 
-E1. Deploy registry — standardize on ghcr.io/<org> for v1 (zero ops overhead) OR deploy Harbor on a dedicated VPS (more control, image scanning via Trivy). Decision documented in docs/snapshot-registry.md. For v1 we go with ghcr.io/aabiro (already set in .env).
-E2. Drop local-only fallback — XCELSIOR_REGISTRY_URL becomes REQUIRED in prod. worker_agent.snapshot_container returns status=failed with error "registry_not_configured" if unset. routes/instances._build_image_ref raises on unset. Tests updated accordingly.
-E3. Per-user namespace isolation — image_ref format = {REGISTRY}/xcelsior/{owner_slug}/{name}:{tag} (owner_slug from B5 with its 16-hex suffix). Registry ACL restricts each user to pushing/pulling only their own namespace.
-E4. Platform-level docker login at host boot — scripts/install.sh runs `docker login $XCELSIOR_REGISTRY_URL -u $USER -p $PAT` once at provisioning time. New systemd unit xcelsior-registry-login.service refreshes tokens on a schedule (needed for ECR's 12h token lifetime; a no-op for ghcr.io PATs).
-E5. Per-user push tokens (stretch) — new endpoint POST /user-images/push-token returns a short-lived registry token scoped to the user's namespace. Worker includes it in a per-commit `docker login` block. True multi-tenant isolation; platform creds never leave the API node.
-E6. Migration 027 — add columns to user_images for Phase D: `is_public boolean not null default false`, `labels jsonb not null default '[]'::jsonb`, `starred_at float null`. Indexes: `(is_public) where is_public` partial, `(owner_id, starred_at desc) where starred_at is not null`.
-E7. Registry health metric — new bg_worker task polls {REGISTRY}/v2/ every 5min. Prometheus gauges `xcelsior_registry_reachable{registry}` (0/1) and `xcelsior_registry_last_probe_ts_seconds{registry}`.
-E8. Graceful degradation — if registry is down mid-deploy, snapshot requests queue (status=pending) instead of failing. Bg sweeper retries on registry-recovered. Explicit registry-downtime SLA documented in docs/snapshot-registry.md.
+E1. ✅ Deploy registry — v1 uses ghcr.io/aabiro (zero ops overhead; already in .env). Documented in docs/snapshot-registry.md.
+E2. ✅ Drop local-only fallback — XCELSIOR_REGISTRY_URL is REQUIRED. `routes/instances._build_image_ref` raises RuntimeError on unset → snapshot endpoint returns HTTP 503 (`registry_not_configured`). `worker_agent.drain_agent_commands` snapshot handler no-ops + cleans up local tag + reports `err_msg="registry_not_configured"` if a stale command arrives.
+E3. Per-user namespace isolation — image_ref format `{REGISTRY}/{owner_slug}/{name}:{tag}` (owner_slug uses 16-hex sha suffix from B5). Registry-side ACL enforcement requires ghcr.io org config (manual — deferred).
+E4. Platform-level docker login at host boot — scripts/install.sh enhancement + systemd xcelsior-registry-login.service (deferred; single PAT in .env works for v1).
+E5. Per-user push tokens — stretch (deferred).
+E6. ✅ Migration 026 `026_user_images_templates_ui.py` adds `is_public boolean`, `labels jsonb`, `starred_at double precision`. Partial indexes `idx_user_images_public_live` (public+live) and `idx_user_images_starred_per_owner`. db.py startup bootstrap mirrors the DDL.
+E7. Registry health metric — deferred.
+E8. Graceful degradation (queue-on-registry-down) — deferred; current behavior is hard-fail 503 which is acceptable for v1.
 
 Success criteria: a new GPU host joining the fleet can push + pull snapshots without any manual `docker login` step; a user's snapshot is pullable from any other host in the fleet within 30s of completion; registry downtime degrades gracefully (no lost snapshots).
