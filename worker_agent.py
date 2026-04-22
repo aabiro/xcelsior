@@ -2309,7 +2309,9 @@ def run_job(job):
             # so interactive instances have these on $PATH without paying an
             # apt-install tax at boot. We skip the mount when the dir doesn't
             # exist on the host so unprovisioned dev machines still work.
-            host_tools_dir = "/var/lib/xcelsior/tools"
+            host_tools_dir = os.environ.get(
+                "XCELSIOR_TOOLS_DIR", "/var/lib/xcelsior/tools"
+            )
             try:
                 if os.path.isdir(host_tools_dir):
                     extra_docker_args.extend(
@@ -2335,8 +2337,9 @@ def run_job(job):
                         cport = int(_p)
                     except (TypeError, ValueError):
                         continue
-                    # Defense in depth: API rejects port 22, but skip here too
-                    # so a malformed payload can never expose the SSH path.
+                    # Port 22 is reserved for our SSH gateway path — silently
+                    # skip if a user re-lists it in exposed_ports rather than
+                    # erroring (RunPod / Vast both treat 22 as implicit SSH).
                     if cport < 1 or cport > 65535 or cport == 22 or cport in _seen:
                         continue
                     _seen.add(cport)

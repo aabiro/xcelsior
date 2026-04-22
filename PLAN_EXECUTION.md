@@ -113,7 +113,7 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 - [x] `POST /api/v2/volumes/{id}/snapshots/{snap_id}/restore` — backs up current state as `.pre-restore-{ts}` before reflink-copying snapshot back.
 - [x] `GET /api/v2/volumes/{id}/snapshots` + `DELETE /api/v2/volumes/{id}/snapshots/{snap_id}` (soft-delete + path guard prevents `rm -rf` escape outside `_snapshots/`).
 - [x] All ops require `status=='available'` (detached) for consistency. SSE broadcasts on each event.
-- [x] `tests/test_volume_snapshots.py` — 6 cases including explicit assertion that `rsync` never appears in any emitted command.
+- [x] `tests/test_volume_snapshots.py` — 6 cases asserting the snapshot/restore *cp* commands themselves use reflink (rsync remains available as a general-purpose tool, but is never used to *make* the snapshot).
 
 ## Phase 3 — Advanced
 
