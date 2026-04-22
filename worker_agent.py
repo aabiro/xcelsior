@@ -37,6 +37,12 @@ except ImportError:
     print("Error: 'requests' module not found. Install with: pip install requests")
     sys.exit(1)
 
+try:  # P2.4 — bandwidth / disk IO metrics. Optional: if psutil is missing, we
+    # silently omit the fields rather than failing the agent.
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover
+    psutil = None  # type: ignore
+
 from security import (
     admit_node,
     build_secure_docker_args,
@@ -3515,6 +3521,53 @@ def handle_preemptions(preempt_job_ids):
 TELEMETRY_INTERVAL = int(os.environ.get("XCELSIOR_TELEMETRY_INTERVAL", "10"))
 
 
+def _sample_io_delta(state: dict) -> dict:
+    """Return host-level net/disk throughput in Mbps / MB/s since the previous
+    sample. ``state`` is a mutable dict carrying the previous counters between
+    calls; first call returns zeros and primes the state.
+
+    P2.4 — surfaces bandwidth + disk IO on the host dashboard. We sum across
+    interfaces/disks (renter cares about aggregate throughput, not per-NIC).
+    Falls back to zeros if psutil is unavailable or the counters are missing,
+    so the telemetry pipeline never breaks.
+    """
+    if psutil is None:
+        return {"net_rx_mbps": 0.0, "net_tx_mbps": 0.0, "disk_read_mb_s": 0.0, "disk_write_mb_s": 0.0}
+    now = time.monotonic()
+    out = {"net_rx_mbps": 0.0, "net_tx_mbps": 0.0, "disk_read_mb_s": 0.0, "disk_write_mb_s": 0.0}
+    try:
+        net = psutil.net_io_counters(pernic=False)
+        disk = psutil.disk_io_counters(perdisk=False)
+    except Exception:
+        return out
+    prev_t = state.get("t")
+    prev_net = state.get("net")
+    prev_disk = state.get("disk")
+    state["t"] = now
+    state["net"] = net
+    state["disk"] = disk
+    if prev_t is None or prev_net is None or prev_disk is None:
+        return out
+    dt = max(now - prev_t, 0.001)
+    # Net counters are cumulative bytes. Mbps = megabits per second.
+    try:
+        rx_bytes = max(net.bytes_recv - prev_net.bytes_recv, 0)
+        tx_bytes = max(net.bytes_sent - prev_net.bytes_sent, 0)
+        out["net_rx_mbps"] = round((rx_bytes * 8) / dt / 1_000_000, 2)
+        out["net_tx_mbps"] = round((tx_bytes * 8) / dt / 1_000_000, 2)
+    except Exception:
+        pass
+    if disk is not None and prev_disk is not None:
+        try:
+            r_bytes = max(disk.read_bytes - prev_disk.read_bytes, 0)
+            w_bytes = max(disk.write_bytes - prev_disk.write_bytes, 0)
+            out["disk_read_mb_s"] = round(r_bytes / dt / 1_000_000, 2)
+            out["disk_write_mb_s"] = round(w_bytes / dt / 1_000_000, 2)
+        except Exception:
+            pass
+    return out
+
+
 def telemetry_loop():
     """Background thread: push GPU metrics to scheduler every TELEMETRY_INTERVAL seconds.
 
@@ -3526,6 +3579,8 @@ def telemetry_loop():
     """
     _nfs_probe_counter = 0
     _NFS_PROBE_EVERY = max(1, 60 // max(TELEMETRY_INTERVAL, 1))  # ~60s
+    # P2.4 — prime last-sample state for bandwidth / disk IO delta math.
+    _io_state: dict = {"t": None, "net": None, "disk": None}
     while not _shutdown.is_set():
         try:
             telemetry = get_gpu_telemetry()
@@ -3555,6 +3610,9 @@ def telemetry_loop():
 
                 # ECC memory errors
                 metrics["memory_errors"] = gpu.get("memory_errors", 0)
+
+                # P2.4 — host bandwidth + disk IO deltas (aggregate across NICs/disks)
+                metrics.update(_sample_io_delta(_io_state))
 
                 # Active container count
                 with _active_lock:
