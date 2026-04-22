@@ -169,6 +169,15 @@ class SSHGateway:
             "total_bytes_relayed": 0,
             "started_at": time.time(),
         }
+        # Health-tracking — /health flips to "degraded" when these deviate
+        # from "recently ok". Without this the process can look healthy
+        # (listeners present, accepting connections) while the LISTEN
+        # channel has gone silently stale — which is the exact failure
+        # mode that made the gateway "not work properly".
+        self._last_pg_notify_ok_at = 0.0
+        self._last_db_query_ok_at = 0.0
+        self._pg_reconnects = 0
+        self._failed_binds: dict[int, float] = {}  # port → last-failed-ts
 
     # ── Relay logic ──────────────────────────────────────────────────────
 
@@ -325,6 +334,8 @@ class SSHGateway:
             )
             state.server = server
             self.listeners[port] = state
+            # Clear any prior bind failure — the port is alive again.
+            self._failed_binds.pop(port, None)
             log.info(
                 "Listening on :%d → %s:%d (instance %s %s)",
                 port,
@@ -334,7 +345,18 @@ class SSHGateway:
                 route.instance_name,
             )
         except OSError as e:
-            log.error("Failed to bind port %d for instance %s: %s", port, route.job_id[:8], e)
+            # Record the failure so /health can surface it and the next
+            # sync pass can retry explicitly rather than silently
+            # dropping the port. Most common cause: previous listener
+            # still in TIME_WAIT (fixed by SO_REUSEADDR/SO_REUSEPORT but
+            # some kernels are strict) or another process squatting on
+            # the port.
+            self._failed_binds[port] = time.time()
+            log.error(
+                "Failed to bind port %d for instance %s: %s "
+                "(will retry on next sync)",
+                port, route.job_id[:8], e,
+            )
 
     async def close_listener(self, port: int, drain: bool = True):
         """Stop listening on a port and optionally drain active connections."""
@@ -371,6 +393,7 @@ class SSHGateway:
         """Reconcile active listeners with the current DB state."""
         try:
             routes = await query_running_instances()
+            self._last_db_query_ok_at = time.time()
         except Exception as e:
             log.error("Failed to query instances: %s", e)
             return
@@ -379,7 +402,7 @@ class SSHGateway:
         for r in routes:
             desired_ports[r.ssh_port] = r
 
-        # Open new listeners
+        # Open new listeners (or retry previously-failed binds)
         for port, route in desired_ports.items():
             if port not in self.listeners:
                 await self.open_listener(route)
@@ -418,23 +441,48 @@ class SSHGateway:
         while not self._shutting_down:
             conn = None
             try:
+                # TCP keepalive on the LISTEN connection. Without this
+                # a stateful NAT/firewall between this gateway and the
+                # Postgres VPS can silently drop the idle TCP stream
+                # after ~2h; psycopg's `async for notifies()` then
+                # blocks forever on a half-dead socket. With keepalive
+                # probes every 60s the kernel kills the socket inside
+                # ~3min and we reconnect via the outer retry loop.
                 conn = await psycopg.AsyncConnection.connect(
                     POSTGRES_DSN,
                     autocommit=True,
+                    keepalives=1,
+                    keepalives_idle=60,
+                    keepalives_interval=30,
+                    keepalives_count=3,
                 )
                 await conn.execute("LISTEN xcelsior_events")
+                self._last_pg_notify_ok_at = time.time()
                 log.info("Postgres LISTEN active on 'xcelsior_events'")
 
                 async for notify in conn.notifies():
                     if self._shutting_down:
                         break
+                    self._last_pg_notify_ok_at = time.time()
                     try:
                         payload = json.loads(notify.payload)
                         event_type = payload.get("type", "")
-                        # React to job lifecycle events
+                        # React to every lifecycle transition that
+                        # affects routability. New additions vs. the
+                        # original set: job_starting / job_created so
+                        # a fresh instance gets a listener within ~1s
+                        # instead of waiting up to SYNC_INTERVAL_SEC;
+                        # job_paused so we close the tunnel promptly
+                        # when billing pauses a pod (otherwise an
+                        # attacker holding the pre-pause SSH session
+                        # can keep using the container for 30s).
                         if event_type in (
                             "job_status",
+                            "job_created",
+                            "job_starting",
                             "job_running",
+                            "job_paused",
+                            "job_resumed",
                             "job_stopped",
                             "job_terminated",
                             "job_failed",
@@ -446,7 +494,11 @@ class SSHGateway:
                         pass
 
             except Exception as e:
-                log.warning("Postgres LISTEN connection lost: %s — reconnecting in 5s", e)
+                self._pg_reconnects += 1
+                log.warning(
+                    "Postgres LISTEN connection lost (#%d): %s — reconnecting in 5s",
+                    self._pg_reconnects, e,
+                )
                 if conn:
                     try:
                         await conn.close()
@@ -465,14 +517,44 @@ class SSHGateway:
 
         uptime = int(time.time() - self._stats["started_at"])
         active = sum(s.active_connections for s in self.listeners.values())
+
+        # Degraded criteria — anything that indicates the gateway may
+        # not react correctly to lifecycle events. We keep returning
+        # HTTP 200 (so the TCP listener probes still succeed and k8s
+        # doesn't thrash us) but surface the condition in the body so
+        # alerting / dashboards catch it.
+        now = time.time()
+        issues: list[str] = []
+        # LISTEN connection should see traffic OR be freshly connected;
+        # 10 min of complete silence with no reconnect means the async
+        # loop is likely stuck.
+        if self._last_pg_notify_ok_at and now - self._last_pg_notify_ok_at > 600:
+            issues.append("pg_listen_stale")
+        # DB polling should succeed at least every 2× sync interval.
+        if self._last_db_query_ok_at and now - self._last_db_query_ok_at > max(60, SYNC_INTERVAL_SEC * 3):
+            issues.append("db_query_stale")
+        if self._failed_binds:
+            issues.append(f"failed_binds:{len(self._failed_binds)}")
+
         body = json.dumps(
             {
-                "status": "ok",
+                "status": "ok" if not issues else "degraded",
+                "issues": issues,
                 "listeners": len(self.listeners),
                 "active_connections": active,
                 "total_connections": self._stats["total_connections"],
                 "total_bytes_relayed": self._stats["total_bytes_relayed"],
                 "uptime_sec": uptime,
+                "pg_reconnects": self._pg_reconnects,
+                "last_pg_notify_age_sec": (
+                    int(now - self._last_pg_notify_ok_at)
+                    if self._last_pg_notify_ok_at else None
+                ),
+                "last_db_query_age_sec": (
+                    int(now - self._last_db_query_ok_at)
+                    if self._last_db_query_ok_at else None
+                ),
+                "failed_binds": sorted(self._failed_binds.keys()),
                 "ports": sorted(self.listeners.keys()),
             }
         )

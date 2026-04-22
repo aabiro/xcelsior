@@ -3122,25 +3122,58 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
             status = result.stdout.strip()
 
             if status == "exited":
-                # Interactive container exited unexpectedly
+                # Interactive container has stopped. This happens in three
+                # scenarios, all of which we must handle correctly:
+                #   1. `docker stop` via the agent command queue (billing
+                #      stop/pause, admin kill) — the DB has already been
+                #      flipped to stopped/paused/cancelled/terminated; don't
+                #      overwrite it with "failed".
+                #   2. User cleanly exited their shell (exit_code 0) or the
+                #      process received SIGTERM/SIGINT/SIGKILL from a stop
+                #      (exit codes 130/137/143). Report "stopped", not
+                #      "failed" — the instance is resumable via restart.
+                #   3. Non-zero, non-signal exit (e.g. OOM, segfault in the
+                #      user's entrypoint). This is the only genuine "failed"
+                #      case.
                 exit_result = subprocess.run(
                     ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
                     capture_output=True,
                     text=True,
                     timeout=10,
                 )
-                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
-                log.warning(
-                    "Interactive container %s exited unexpectedly (code %d)",
+                try:
+                    exit_code = int(exit_result.stdout.strip())
+                except (TypeError, ValueError):
+                    exit_code = -1
+
+                # Clean-exit codes: 0 (explicit exit), 130 (SIGINT/Ctrl-C),
+                # 137 (SIGKILL from `docker stop` timeout), 143 (SIGTERM
+                # graceful). Anything else is a real crash.
+                _CLEAN_EXIT_CODES = {0, 130, 137, 143}
+                reported_status = (
+                    "stopped" if exit_code in _CLEAN_EXIT_CODES else "failed"
+                )
+                log.info(
+                    "Interactive container %s exited (code %d) — reporting %s",
                     container_name,
                     exit_code,
+                    reported_status,
                 )
-                report_job_status(job_id, "failed")
-                release_lease(job_id, "failed")
+                report_job_status(job_id, reported_status)
+                release_lease(job_id, reported_status)
                 _remove_container(container_name)
                 return
 
             elif status not in ("running", "created", "restarting"):
+                # Unexpected Docker state (paused, dead, removing). Treat
+                # "paused" as a legitimate user-initiated pause (reported
+                # elsewhere) and exit the monitor without clobbering status;
+                # anything else is a hard failure.
+                if status == "paused":
+                    log.info(
+                        "Interactive container %s is paused — monitor exiting", container_name
+                    )
+                    return
                 log.warning(
                     "Interactive container %s in unexpected state: %s", container_name, status
                 )
@@ -3150,8 +3183,14 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 return
 
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            log.debug("Interactive container inspect failed — may have been removed")
-            report_job_status(job_id, "failed")
+            # `docker inspect` failed — the container was almost certainly
+            # removed by the `stop_container` agent handler in another
+            # drain cycle. That handler already flipped the DB status, so
+            # reporting "failed" here would clobber the correct state.
+            log.debug(
+                "Interactive container %s inspect failed — assuming removed by stop_container",
+                container_name,
+            )
             return
 
         # Sleep in small increments to respond to shutdown/cancel/requeue quickly

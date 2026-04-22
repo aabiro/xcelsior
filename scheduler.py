@@ -1206,6 +1206,15 @@ VALID_STATUSES = (
     "failed",
     "preempted",
     "cancelled",
+    # User-controlled lifecycle states — billing.py writes these via raw SQL
+    # today, but the worker agent's `report_job_status` goes through
+    # `update_job_status` and was getting HTTP 400'd when a clean container
+    # exit produced "stopped" (see _monitor_interactive).
+    "stopping",
+    "stopped",
+    "restarting",
+    "paused",
+    "terminated",
 )
 
 

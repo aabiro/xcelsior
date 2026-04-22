@@ -1224,9 +1224,15 @@ class BillingEngine:
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
 
-        # P3 post-C — enqueue stop_container via agent queue (CGNAT-safe).
-        # Optimistic: mark status=stopped now; bg reconciler (P3/A4) will
-        # re-mark as running if the container is still alive after drain.
+        # P3 post-C — enqueue pause_container via agent queue (CGNAT-safe).
+        # NOTE: we use pause_container (docker stop only) instead of
+        # stop_container (docker stop + rm) because the state machine allows
+        # STOPPED → RESTARTING → RUNNING, which requires the container to
+        # still exist so `docker start` can resume it. The previous use of
+        # stop_container destroyed the container and left restart broken
+        # ("enqueue_failed" on the user side, but really: nothing to start).
+        # Wallet-suspension and grace-expired sweepers keep stop_container
+        # because those paths truly terminate the instance.
         stop_queued = False
         if host_id:
             try:
@@ -1236,12 +1242,12 @@ class BillingEngine:
                 _validate_name(container_name, "container name")
                 enqueue_agent_command(
                     host_id,
-                    "stop_container",
+                    "pause_container",
                     {"container_name": container_name, "job_id": job_id},
                     created_by="billing_stop",
                 )
                 stop_queued = True
-                log.info("STOP stop_container queued: %s on %s", container_name, host_id)
+                log.info("STOP pause_container queued: %s on %s", container_name, host_id)
             except Exception as e:
                 log.warning("STOP container stop enqueue failed for %s: %s", job_id, e)
 
@@ -1457,16 +1463,27 @@ class BillingEngine:
         # running, enqueue stop_container first; then enqueue start_container.
         # Agent executes sequentially per-host (FIFO drain), so ordering holds.
         restart_queued = False
-        if host_id:
+        enqueue_error: str | None = None
+        if not host_id:
+            enqueue_error = "no_host"
+            log.warning(
+                "RESTART failed for job=%s — no host_id on job (instance was never assigned?)",
+                job_id,
+            )
+        else:
             try:
                 from routes.agent import enqueue_agent_command
                 from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
                 if was_running:
+                    # Use pause_container (docker stop only, no rm) so the
+                    # subsequent start_container can actually resume the
+                    # same container. stop_container would delete it and
+                    # start_container would fail with "No such container".
                     enqueue_agent_command(
                         host_id,
-                        "stop_container",
+                        "pause_container",
                         {"container_name": container_name, "job_id": job_id},
                         created_by="billing_restart_stop",
                     )
@@ -1479,7 +1496,8 @@ class BillingEngine:
                 restart_queued = True
                 log.info("RESTART queued (was_running=%s): %s on %s", was_running, container_name, host_id)
             except Exception as e:
-                log.warning("RESTART enqueue failed for %s: %s", job_id, e)
+                enqueue_error = type(e).__name__
+                log.warning("RESTART enqueue failed for %s: %s: %s", job_id, enqueue_error, e)
 
         final_status = "running" if restart_queued else "stopped"
         with pool.connection() as conn:
@@ -1496,8 +1514,12 @@ class BillingEngine:
             conn.commit()
 
         if not restart_queued:
-            log.error("RESTART failed for job=%s — marking stopped", job_id)
-            return {"restarted": False, "reason": "enqueue_failed", "job_id": job_id}
+            log.error("RESTART failed for job=%s — marking stopped (reason=%s)", job_id, enqueue_error or "unknown")
+            return {
+                "restarted": False,
+                "reason": enqueue_error or "enqueue_failed",
+                "job_id": job_id,
+            }
 
         try:
             from db import NotificationStore
