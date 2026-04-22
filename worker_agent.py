@@ -997,6 +997,115 @@ def drain_agent_commands() -> int:
                 log.info("Executing admin upgrade_agent cmd=%s by=%s", cmd_id, by)
                 if _handle_upgrade_agent(args, cmd_id=str(cmd_id or ""), by=str(by)):
                     dispatched += 1
+            elif name == "stop_container":
+                # P3.2 — billing/admin initiated graceful stop + remove.
+                # Replaces the legacy VPS→host `ssh_exec docker kill` path;
+                # works over CGNAT because the agent pulls the directive.
+                _job_id = str(args.get("job_id") or "")
+                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
+                if not cname:
+                    log.warning("stop_container cmd=%s missing container_name", cmd_id)
+                    continue
+                log.info("Executing stop_container cmd=%s container=%s by=%s", cmd_id, cname, by)
+                try:
+                    subprocess.run(
+                        ["docker", "stop", "-t", "30", cname],
+                        capture_output=True, text=True, timeout=45,
+                    )
+                    subprocess.run(
+                        ["docker", "rm", "-f", cname],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    _active_containers.pop(_job_id, None)
+                    dispatched += 1
+                except subprocess.TimeoutExpired:
+                    log.warning("stop_container cmd=%s container=%s timed out", cmd_id, cname)
+            elif name == "start_container":
+                # P3.2 — resume a previously-stopped container. The image +
+                # volumes are preserved so `docker start` is a cheap restart.
+                cname = str(args.get("container_name") or "")
+                if not cname:
+                    log.warning("start_container cmd=%s missing container_name", cmd_id)
+                    continue
+                log.info("Executing start_container cmd=%s container=%s by=%s", cmd_id, cname, by)
+                try:
+                    r = subprocess.run(
+                        ["docker", "start", cname],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    if r.returncode == 0:
+                        dispatched += 1
+                    else:
+                        log.warning(
+                            "start_container cmd=%s rc=%s stderr=%s",
+                            cmd_id, r.returncode, (r.stderr or "")[:200],
+                        )
+                except subprocess.TimeoutExpired:
+                    log.warning("start_container cmd=%s container=%s timed out", cmd_id, cname)
+            elif name == "snapshot_container":
+                # P3.1 — `docker commit` the running container to a user
+                # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL
+                # is set; otherwise the tag remains local to this host.
+                image_id = str(args.get("image_id") or "")
+                cname = str(args.get("container_name") or "")
+                image_ref = str(args.get("image_ref") or "")
+                if not (image_id and cname and image_ref):
+                    log.warning("snapshot_container cmd=%s missing required args", cmd_id)
+                    continue
+                log.info(
+                    "Executing snapshot_container cmd=%s container=%s ref=%s by=%s",
+                    cmd_id, cname, image_ref, by,
+                )
+                status = "failed"
+                size_bytes = 0
+                err_msg = ""
+                try:
+                    commit = subprocess.run(
+                        ["docker", "commit", cname, image_ref],
+                        capture_output=True, text=True, timeout=900,
+                    )
+                    if commit.returncode != 0:
+                        err_msg = (commit.stderr or "")[:500]
+                    else:
+                        # Best-effort size inspection.
+                        try:
+                            insp = subprocess.run(
+                                ["docker", "image", "inspect", "-f", "{{.Size}}", image_ref],
+                                capture_output=True, text=True, timeout=10,
+                            )
+                            if insp.returncode == 0:
+                                size_bytes = int((insp.stdout or "0").strip() or 0)
+                        except (subprocess.TimeoutExpired, ValueError):
+                            pass
+                        registry_url = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip()
+                        if registry_url and image_ref.startswith(registry_url.rstrip("/")):
+                            push = subprocess.run(
+                                ["docker", "push", image_ref],
+                                capture_output=True, text=True, timeout=900,
+                            )
+                            if push.returncode != 0:
+                                err_msg = (push.stderr or "")[:500]
+                            else:
+                                status = "ready"
+                        else:
+                            # Local-only image is fine for v1.
+                            status = "ready"
+                        dispatched += 1
+                except subprocess.TimeoutExpired:
+                    err_msg = "commit/push timeout"
+                    log.warning("snapshot_container cmd=%s container=%s timed out", cmd_id, cname)
+                # Report back to API so the user_images row flips out of
+                # 'pending'. Best-effort — a lost callback is recoverable
+                # by a reconcile sweep that inspects docker images directly.
+                try:
+                    requests.post(
+                        _api_url(f"/api/v2/user-images/{image_id}/complete"),
+                        headers=_api_headers(),
+                        json={"status": status, "size_bytes": size_bytes, "error": err_msg},
+                        timeout=10,
+                    )
+                except requests.RequestException as e:
+                    log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
             else:
                 log.warning("Unknown agent command cmd=%s name=%r — ignoring", cmd_id, name)
         except Exception as e:

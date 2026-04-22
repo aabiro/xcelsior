@@ -503,6 +503,37 @@ def _ensure_pg_tables(conn):
         "ON agent_commands (host_id, status, created_at) WHERE status = 'pending'"
     )
 
+    # ── user_images: P3.1 save-as-template (pod snapshots via docker commit) ──
+    # image_ref is the fully-qualified image tag the worker uses when
+    # starting a container from this template. v1 stores the image locally
+    # on the source host; once XCELSIOR_REGISTRY_URL is wired up, image_ref
+    # will resolve to registry.xcelsior.ca/{owner}/{name}:{tag}.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_images (
+            image_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            tag TEXT NOT NULL DEFAULT 'latest',
+            description TEXT DEFAULT '',
+            source_job_id TEXT,
+            host_id TEXT,
+            image_ref TEXT NOT NULL,
+            size_bytes BIGINT DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at DOUBLE PRECISION NOT NULL,
+            deleted_at DOUBLE PRECISION DEFAULT 0,
+            UNIQUE (owner_id, name, tag)
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_images_owner "
+        "ON user_images (owner_id, deleted_at)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_images_source_job "
+        "ON user_images (source_job_id) WHERE source_job_id IS NOT NULL"
+    )
+
     # ── Users table: per-user concurrency override ──
     # NULL means "use env default MAX_CONCURRENT_INSTANCES". The users table
     # itself is created via alembic migrations elsewhere; this ALTER is

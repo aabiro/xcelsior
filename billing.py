@@ -1037,24 +1037,25 @@ class BillingEngine:
             )
             conn.commit()
 
-        # Kill the container on the host (preserve volumes)
+        # Enqueue stop_container on the host (preserve volumes); async via agent queue
         owner = job.get("owner") or ""
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
         if host_id:
             try:
-                from scheduler import ssh_exec, list_hosts, _validate_name
-                import shlex
+                from routes.agent import enqueue_agent_command
+                from scheduler import _validate_name
 
                 _validate_name(container_name, "container name")
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    ssh_exec(host["ip"], f"docker kill {shlex.quote(container_name)}")
-                    log.info("PAUSE container killed: %s on %s", container_name, host_id)
+                enqueue_agent_command(
+                    host_id,
+                    "stop_container",
+                    {"container_name": container_name, "job_id": job_id},
+                    created_by="billing_pause",
+                )
+                log.info("PAUSE stop_container queued: %s on %s", container_name, host_id)
             except Exception as e:
-                log.warning("PAUSE container kill failed for %s: %s", job_id, e)
+                log.warning("PAUSE container stop enqueue failed for %s: %s", job_id, e)
 
         # Send notification
         try:
@@ -1837,22 +1838,24 @@ class BillingEngine:
                     and charge_result.get("action") == "account_suspended"
                 ):
                     suspended += 1
-                    # Actually terminate the running container
+                    # Actually terminate the running container (via agent queue)
                     try:
-                        from scheduler import get_job, list_hosts, ssh_exec, _validate_name
-                        import shlex as _shlex
+                        from scheduler import get_job, _validate_name
+                        from routes.agent import enqueue_agent_command
 
                         full_job = get_job(job_id)
                         if full_job:
                             cname = full_job.get("container_name") or f"xcl-{job_id}"
                             _validate_name(cname, "container name")
-                            hosts = list_hosts()
-                            hmap = {h["host_id"]: h for h in hosts}
-                            host = hmap.get(host_id)
-                            if host:
-                                ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
+                            if host_id:
+                                enqueue_agent_command(
+                                    host_id,
+                                    "stop_container",
+                                    {"container_name": cname, "job_id": job_id},
+                                    created_by="billing_grace_expired",
+                                )
                                 log.warning(
-                                    "BILLING: Killed job %s for suspended account %s",
+                                    "BILLING: Queued stop_container for job %s (suspended account %s)",
                                     job_id,
                                     customer_id,
                                 )
@@ -2373,22 +2376,26 @@ class BillingEngine:
                                 (now, job["job_id"]),
                             )
                         conn.commit()
-                        # Kill containers (best-effort, after commit)
+                        # Enqueue stop_container for each job (after commit)
                         try:
-                            from scheduler import ssh_exec, list_hosts, _validate_name
-                            import shlex as _shlex
+                            from scheduler import _validate_name
+                            from routes.agent import enqueue_agent_command
 
-                            hosts_list = list_hosts()
-                            hmap = {h["host_id"]: h for h in hosts_list}
                             for job in running:
-                                host = hmap.get(job.get("host_id"))
-                                if host:
-                                    cname = job.get("container_name") or f"xcl-{job['job_id']}"
-                                    try:
-                                        _validate_name(cname, "container name")
-                                        ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
-                                    except Exception:
-                                        pass
+                                hid = job.get("host_id")
+                                if not hid:
+                                    continue
+                                cname = job.get("container_name") or f"xcl-{job['job_id']}"
+                                try:
+                                    _validate_name(cname, "container name")
+                                    enqueue_agent_command(
+                                        hid,
+                                        "stop_container",
+                                        {"container_name": cname, "job_id": job["job_id"]},
+                                        created_by="billing_autotopup_failed",
+                                    )
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                     else:
@@ -2536,14 +2543,12 @@ class BillingEngine:
                     log.warning("Stopped job %s for suspended wallet %s", job["job_id"], cid)
             conn.commit()
 
-        # Kill containers after releasing the connection (best-effort)
+        # Enqueue stop_container for each stopped job (after releasing the connection)
         if stopped:
             try:
-                from scheduler import ssh_exec, list_hosts, _validate_name
-                import shlex as _shlex
+                from scheduler import _validate_name
+                from routes.agent import enqueue_agent_command
 
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
                 for w in suspended:
                     cid = w["customer_id"]
                     with pool.connection() as kconn:
@@ -2556,16 +2561,22 @@ class BillingEngine:
                             (cid, time.time() - 30),
                         ).fetchall()
                     for job in just_stopped:
-                        host = hmap.get(job.get("host_id"))
-                        if host:
-                            cname = job.get("container_name") or f"xcl-{job['job_id']}"
-                            try:
-                                _validate_name(cname, "container name")
-                                ssh_exec(host["ip"], f"docker kill {_shlex.quote(cname)}")
-                            except Exception as ke:
-                                log.warning("Container kill failed for %s: %s", job["job_id"], ke)
+                        hid = job.get("host_id")
+                        if not hid:
+                            continue
+                        cname = job.get("container_name") or f"xcl-{job['job_id']}"
+                        try:
+                            _validate_name(cname, "container name")
+                            enqueue_agent_command(
+                                hid,
+                                "stop_container",
+                                {"container_name": cname, "job_id": job["job_id"]},
+                                created_by="billing_wallet_suspended",
+                            )
+                        except Exception as ke:
+                            log.warning("stop_container enqueue failed for %s: %s", job["job_id"], ke)
             except Exception as e:
-                log.warning("Container cleanup failed: %s", e)
+                log.warning("Container cleanup enqueue failed: %s", e)
 
         if stopped:
             log.info("ENFORCEMENT: Stopped %d jobs for suspended wallets", stopped)
