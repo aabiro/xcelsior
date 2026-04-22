@@ -2325,18 +2325,35 @@ def run_job(job):
             _user_ports = job.get("exposed_ports") or []
             if isinstance(_user_ports, (list, tuple)):
                 _seen: set[int] = set()
+                _hports_used: set[int] = set()
+                try:
+                    _base = int(job_id[:4], 16)
+                except (ValueError, TypeError):
+                    _base = 0
                 for _p in _user_ports:
                     try:
                         cport = int(_p)
                     except (TypeError, ValueError):
                         continue
-                    if cport < 1 or cport > 65535 or cport in _seen:
+                    # Defense in depth: API rejects port 22, but skip here too
+                    # so a malformed payload can never expose the SSH path.
+                    if cport < 1 or cport > 65535 or cport == 22 or cport in _seen:
                         continue
                     _seen.add(cport)
-                    try:
-                        hport = 55000 + (int(job_id[:4], 16) + cport) % 5000
-                    except (ValueError, TypeError):
+                    # Linear-probe to avoid host-port collisions when two
+                    # different cports hash to the same hport (rare but real
+                    # — without this, the second -p silently shadows the
+                    # first and the user sees a confusing "port already
+                    # bound" error from dockerd).
+                    hport = 55000 + (_base + cport) % 5000
+                    for _attempt in range(5000):
+                        if hport not in _hports_used:
+                            break
+                        hport = 55000 + (hport - 55000 + 1) % 5000
+                    else:
+                        log.warning("No free host port for cport=%d; skipping", cport)
                         continue
+                    _hports_used.add(hport)
                     extra_docker_args.extend(["-p", f"{hport}:{cport}"])
                     log.info("Expose port: host:%d -> container:%d", hport, cport)
             # Interactive containers need writable filesystem for SSH
@@ -2992,6 +3009,11 @@ def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
         safe_repo = shlex.quote(git_repo)
         clone_cmd = (
             "mkdir -p /workspace && cd /workspace && "
+            # Idempotency: a relaunch with the same persistent volume will
+            # already have /workspace/repo. Remove it so the user always
+            # gets a fresh clone of the requested URL (matches `git clone`
+            # semantics on a clean dir).
+            "rm -rf /workspace/repo && "
             "if command -v git >/dev/null 2>&1; then "
             f"git clone --depth 1 {safe_repo} repo 2>&1 | tail -n 10; "
             "else echo 'git not installed in image'; fi"

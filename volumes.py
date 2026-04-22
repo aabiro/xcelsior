@@ -703,6 +703,29 @@ class VolumeEngine:
             self._transition_status(conn, volume_id, "deleted", current="deleting")
             if vol.get("encrypted"):
                 self._destroy_key(conn, volume_id)
+            # Cascade: soft-delete snapshot rows so they don't appear in
+            # listings or get restored to a non-existent volume.
+            conn.execute(
+                "UPDATE volume_snapshots SET deleted_at = %s "
+                "WHERE volume_id = %s AND deleted_at = 0",
+                (time.time(), volume_id),
+            )
+
+        # Best-effort: remove the snapshot dir on NFS too. Ignored on failure
+        # because the rows are already soft-deleted and the next storage
+        # janitor pass can sweep orphans.
+        if NFS_SERVER:
+            snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
+            try:
+                self._ssh_exec_with_retry(
+                    NFS_SERVER,
+                    f"case {shlex.quote(snap_dir)} in "
+                    f"{shlex.quote(NFS_EXPORT_BASE)}/_snapshots/*) "
+                    f"rm -rf --one-file-system {shlex.quote(snap_dir)};; "
+                    f"esac",
+                )
+            except Exception as e:
+                log.warning("Snapshot dir cleanup failed for %s: %s", volume_id, e)
 
         log.info("Volume deleted: %s", volume_id)
         self._emit_event("volume.deleted", volume_id, actor=owner_id)
@@ -815,6 +838,10 @@ class VolumeEngine:
         self, volume_id: str, owner_id: str, label: str = ""
     ) -> dict:
         """Create an instant CoW snapshot. Volume must be detached."""
+        # Soft cap: prevents runaway snapshot growth (each one consumes a
+        # row + a server-side reflink that may diverge over time). Matches
+        # RunPod's per-volume snapshot ceiling.
+        MAX_SNAPSHOTS_PER_VOLUME = 50
         label = (label or "").strip()[:128]
         with self._conn() as conn:
             vol = conn.execute(
@@ -827,6 +854,15 @@ class VolumeEngine:
             if vol["status"] != "available":
                 raise ValueError(
                     f"Volume must be detached to snapshot (current status: {vol['status']})"
+                )
+            count_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM volume_snapshots "
+                "WHERE volume_id=%s AND deleted_at=0",
+                (volume_id,),
+            ).fetchone()
+            if count_row and count_row["n"] >= MAX_SNAPSHOTS_PER_VOLUME:
+                raise ValueError(
+                    f"Snapshot limit reached ({MAX_SNAPSHOTS_PER_VOLUME}); delete old snapshots first"
                 )
 
         snap_id = f"snap-{uuid.uuid4().hex[:16]}"
@@ -944,8 +980,12 @@ class VolumeEngine:
                 src = f"{snap_dir}/{snapshot_id}"
                 dst = f"{NFS_EXPORT_BASE}/{volume_id}"
                 backup = f"{dst}.pre-restore-{ts}"
+                # `mv -T` (no-target-dir) avoids the trap where if `backup`
+                # exists as a dir, mv would nest inside it. If `dst` is
+                # missing for any reason, fall through to the cp-only path.
                 cmd = (
-                    f"mv {shlex.quote(dst)} {shlex.quote(backup)} && "
+                    f"if [ -e {shlex.quote(dst)} ]; then "
+                    f"mv -T {shlex.quote(dst)} {shlex.quote(backup)}; fi && "
                     f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)}"
                 )
             rc, _, err = self._ssh_exec_with_retry(NFS_SERVER, cmd, timeout=600)

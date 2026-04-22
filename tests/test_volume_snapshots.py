@@ -78,7 +78,10 @@ def test_snapshot_uses_reflink_not_rsync(monkeypatch):
         return (0, "", "")
 
     blocks = [
-        [[{"volume_id": "vol1", "owner_id": "u1", "status": "available", "encrypted": True}]],
+        [
+            [{"volume_id": "vol1", "owner_id": "u1", "status": "available", "encrypted": True}],
+            [{"n": 0}],
+        ],
         [[]],
     ]
     with _patch_conn(engine, blocks), patch.object(
@@ -212,3 +215,59 @@ def test_list_snapshots_returns_rows(monkeypatch):
         out = engine.list_snapshots("vol1", "u1")
     assert len(out) == 2
     assert out[0]["snapshot_id"] == "snap-2"
+
+
+# ---------------------------------------------------------------------------
+# P2 hardening pass
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_quota_enforced(monkeypatch):
+    """Per-volume snapshot count is capped at 50 to prevent runaway growth."""
+    monkeypatch.setattr(volumes_mod, "NFS_SERVER", "nfs.example")
+    engine = volumes_mod.VolumeEngine()
+
+    blocks = [
+        [
+            [{"volume_id": "vol1", "owner_id": "u1", "status": "available", "encrypted": True}],
+            [{"n": 50}],  # already at the cap
+        ],
+    ]
+    with _patch_conn(engine, blocks):
+        try:
+            engine.create_snapshot("vol1", "u1", label="overflow")
+        except ValueError as e:
+            assert "limit" in str(e).lower()
+            return
+    raise AssertionError("Expected ValueError when snapshot quota reached")
+
+
+def test_restore_uses_mv_T_for_safety(monkeypatch):
+    """mv -T avoids the dst-as-dir nesting trap during pre-restore backup."""
+    monkeypatch.setattr(volumes_mod, "NFS_SERVER", "nfs.example")
+    monkeypatch.setattr(volumes_mod, "NFS_EXPORT_BASE", "/exports/volumes")
+    engine = volumes_mod.VolumeEngine()
+
+    captured: list[str] = []
+
+    def fake_ssh(ip, cmd, **_):
+        captured.append(cmd)
+        return (0, "", "")
+
+    blocks = [
+        [
+            [{"volume_id": "vol1", "owner_id": "u1", "status": "available", "encrypted": False}],
+            [{"snapshot_id": "snap-abc"}],
+        ],
+    ]
+    with _patch_conn(engine, blocks), patch.object(
+        engine, "_ssh_exec_with_retry", side_effect=fake_ssh
+    ), patch.object(engine, "_emit_event"):
+        engine.restore_snapshot("vol1", "u1", "snap-abc")
+
+    # Unencrypted path should use the safer mv -T (or guarded mv) and never
+    # rely on bare `mv` which can nest a dir if the target exists.
+    joined = " ".join(captured)
+    assert "mv -T" in joined or "[ -e " in joined
+    assert "rsync" not in joined
+
