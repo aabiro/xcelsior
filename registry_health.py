@@ -207,6 +207,13 @@ def probe_registry(url: Optional[str] = None) -> dict:
     """
     registry = (url if url is not None else _configured_registry())
     if not registry:
+        # Make the misconfiguration visible — without this log line
+        # the probe runs silently and operators have no trail to
+        # explain why /metrics shows no gauges for minutes on end.
+        log.warning(
+            "registry probe SKIPPED — XCELSIOR_REGISTRY_URL is not set; "
+            "snapshot endpoint will return 503 (registry_not_configured)."
+        )
         with _lock:
             _state.update(
                 registry="",

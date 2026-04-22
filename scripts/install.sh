@@ -216,6 +216,72 @@ EOF
     info "View logs: journalctl -u xcelsior-worker -f"
 }
 
+# ── E4 — container registry login on host boot ─────────────────────
+# Every GPU host that participates in snapshot push/pull needs to be
+# logged into the platform registry before `docker push` can succeed.
+# We ship a oneshot systemd unit that runs on boot (and reloads of the
+# worker) to do the equivalent of:
+#   docker login <registry> -u <username> -p <password>
+# The credentials are read from the worker env file, which is the only
+# place we persist secrets (mode 600).
+install_registry_login() {
+    if ! grep -qE '^(XCELSIOR_REGISTRY_URL|XCELSIOR_REGISTRY_USERNAME)=' "$ENV_FILE" 2>/dev/null; then
+        warn "No registry credentials in $ENV_FILE — skipping docker login service."
+        warn "Snapshots (docker commit + push) will fail until XCELSIOR_REGISTRY_URL + _USERNAME + _PASSWORD are added."
+        return 0
+    fi
+
+    info "Installing registry login systemd service..."
+
+    sudo tee /usr/local/bin/xcelsior-registry-login.sh >/dev/null <<'SHELL'
+#!/usr/bin/env bash
+# Oneshot registry login for the Xcelsior worker agent.
+# Sourced env: XCELSIOR_REGISTRY_URL, XCELSIOR_REGISTRY_USERNAME, XCELSIOR_REGISTRY_PASSWORD.
+set -eu
+: "${XCELSIOR_REGISTRY_URL:?missing}"
+: "${XCELSIOR_REGISTRY_USERNAME:?missing}"
+: "${XCELSIOR_REGISTRY_PASSWORD:?missing}"
+# Strip scheme — `docker login` takes bare host.
+host="${XCELSIOR_REGISTRY_URL#https://}"
+host="${host#http://}"
+host="${host%%/*}"
+printf '%s' "$XCELSIOR_REGISTRY_PASSWORD" | docker login "$host" \
+    --username "$XCELSIOR_REGISTRY_USERNAME" --password-stdin >/dev/null
+SHELL
+    sudo chmod 755 /usr/local/bin/xcelsior-registry-login.sh
+
+    sudo tee /etc/systemd/system/xcelsior-registry-login.service >/dev/null <<EOF
+[Unit]
+Description=Xcelsior Registry Login (docker login on boot)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+Before=xcelsior-worker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=$ENV_FILE
+ExecStart=/usr/local/bin/xcelsior-registry-login.sh
+# If credentials are missing or wrong, don't block the worker from
+# coming up — snapshots just won't push until creds are fixed.
+SuccessExitStatus=0 1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable xcelsior-registry-login
+    if sudo systemctl start xcelsior-registry-login; then
+        ok "Registry login service active"
+    else
+        warn "Registry login failed — check: journalctl -u xcelsior-registry-login"
+    fi
+}
+
 # ── Wizard mode ──────────────────────────────────────────────────────
 
 run_wizard() {
@@ -226,6 +292,7 @@ run_wizard() {
     else
         warn "Node.js not found — using direct agent install instead"
         install_agent
+        install_registry_login
         install_systemd
     fi
 }
@@ -251,6 +318,7 @@ main() {
             ;;
         --agent-only|-a)
             install_agent
+            install_registry_login
             install_systemd
             ;;
         *)

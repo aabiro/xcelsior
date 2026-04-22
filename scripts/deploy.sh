@@ -785,8 +785,11 @@ deploy_test_local() {
         export XCELSIOR_POSTGRES_DSN
         XCELSIOR_POSTGRES_DSN=$(grep '^XCELSIOR_POSTGRES_DSN=' "$ENV_FILE" | cut -d= -f2-)
         source venv/bin/activate 2>/dev/null || true
-        alembic upgrade head
-    )
+        # C8 — fatal on migration failure. Silent-warn hides real bugs;
+        # aborting here forces the operator to fix the migration before
+        # any downstream test run looks deceptively green.
+        alembic upgrade head || { echo "ERROR: alembic upgrade head failed"; exit 1; }
+    ) || error "Test database migration failed — aborting."
     success "Test database migrated"
 
     # Start with docker compose using the test env file

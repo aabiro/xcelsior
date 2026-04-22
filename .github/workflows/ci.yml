@@ -60,7 +60,12 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-timeout
       - name: Run tests
-        run: python -m pytest tests/ -v --tb=short -q
+        # P1.3 — single entrypoint. run-tests.sh centralises target
+        # mappings (quick / ai / billing / security / e2e / live) and
+        # keeps local + CI in sync. Passing no target runs the full
+        # suite (excluding live e2e), same as invoking pytest tests/
+        # but via the canonical script.
+        run: bash run-tests.sh --verbose
       - name: Coverage report
         if: success()
         run: |

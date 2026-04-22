@@ -2260,3 +2260,82 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
         log.debug("broadcast_sse(user_image_complete) failed: %s", e)
     log.info("User image %s completed status=%s size=%d", image_id, body.status, body.size_bytes)
     return {"ok": True}
+
+
+# ───────────────────────────────────────────────────────────────────────
+# P2.3 — Jupyter / VSCode auto-launch report callback
+# ───────────────────────────────────────────────────────────────────────
+class _AutoLaunchReport(BaseModel):
+    host_id: str = Field(..., min_length=1, max_length=128)
+    # Map of service_name -> container port, e.g. {"jupyter": 8888, "vscode": 8443}
+    ports: dict[str, int] = Field(default_factory=dict)
+    # First 8 hex chars of sha256(token); token itself is never sent
+    # over the wire. Clients fetch the real token via a separate
+    # authenticated endpoint (GET /instances/{id}/auto-launch/token).
+    token_sha: str = Field(default="", max_length=16)
+
+    @field_validator("ports")
+    @classmethod
+    def _v_ports(cls, v: dict[str, int]) -> dict[str, int]:
+        allowed = {"jupyter", "vscode"}
+        clean: dict[str, int] = {}
+        for k, p in v.items():
+            key = str(k).strip().lower()
+            if key not in allowed:
+                continue
+            pi = int(p)
+            if not (1024 <= pi <= 65535):
+                raise ValueError(f"port {pi} out of range")
+            clean[key] = pi
+        return clean
+
+
+@router.post("/instances/{job_id}/auto-launch/report", tags=["Instances"])
+def api_instances_auto_launch_report(
+    job_id: str, body: _AutoLaunchReport, request: Request
+):
+    """Internal: worker agent reports that auto-launch finished.
+
+    Authenticated by the same shared agent secret used for
+    `/agent/commands/{host_id}`, AND bound to the host_id reported in
+    the payload — prevents a compromised host from reporting ports
+    for a job it doesn't own.
+
+    Stores ``{token_sha, ports, reported_at}`` into
+    ``jobs.payload.auto_launch_ports``. The reported port mapping is
+    used by the P2.2 subdomain proxy to route ``<slug>-8888.xcelsior.ca``
+    to the correct host:container_port.
+    """
+    from routes.agent import _require_agent_auth
+
+    _require_agent_auth(request, host_id=body.host_id)
+
+    pool = _user_images_pool()
+    import json as _json
+
+    payload_value = _json.dumps({
+        "host_id": body.host_id,
+        "ports": body.ports,
+        "token_sha": body.token_sha,
+        "reported_at": time.time(),
+    })
+
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET payload = jsonb_set(payload, "
+            "'{auto_launch_ports}', %s::jsonb, true) "
+            "WHERE job_id = %s AND payload->>'host_id' = %s",
+            (payload_value, job_id, body.host_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "job not found or host_id mismatch")
+
+    try:
+        broadcast_sse(
+            "auto_launch_ready",
+            {"job_id": job_id, "ports": body.ports, "token_sha": body.token_sha},
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(auto_launch_ready) failed: %s", e)
+    return {"ok": True}
+

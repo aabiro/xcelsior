@@ -1131,6 +1131,23 @@ def api_admin_agent_rollout(request: Request, body: dict):
                 created_by=user.get("email", "admin"),
             )
             enqueued.append({"host_id": hid, "cmd_id": cmd_id})
+            # P1.2 — record the rollout so the watchdog bg task can
+            # compare heartbeat agent_sha256 against ``target_sha`` and
+            # auto-enqueue a rollback if the host fails to pick up the
+            # new bytes within the grace window.
+            try:
+                from db import pg_transaction as _pg_txn
+                with _pg_txn() as _conn:
+                    _cur = _conn.cursor()
+                    _cur.execute(
+                        "INSERT INTO agent_rollouts "
+                        "(host_id, from_sha, target_sha) VALUES (%s, %s, %s)",
+                        (hid, (h.get("agent_sha256") or None), sha256),
+                    )
+            except Exception as _e:
+                # Tracking failure must not block the rollout itself —
+                # worst case we lose auto-rollback for this host.
+                log.warning("rollout: tracking insert failed host=%s: %s", hid, _e)
         except Exception as e:
             log.warning("rollout: enqueue failed for host=%s: %s", hid, e)
 
