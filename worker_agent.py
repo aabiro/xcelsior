@@ -2008,7 +2008,8 @@ def run_job(job):
         report_job_status(job_id, "starting", host_id=HOST_ID,
                           container_id=container_id, container_name=container_name)
 
-        # 4b. Inject user's SSH keys into the container (best-effort, 90s budget).
+        # 4b. Inject user's SSH keys into the container (best-effort, 45s base
+        #     budget, extended by 45s when openssh-server must be installed).
         #     _inject_ssh_keys is guaranteed to emit a final summary line via
         #     both the log stream AND the container's PID-1 stdout, so the user
         #     never sees "Setting up SSH…" hang indefinitely.
@@ -2477,7 +2478,12 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             pass
 
     start = time.monotonic()
-    deadline = start + 90.0
+    # Base budget 45s; extended by 45s if we have to install sshd on-demand.
+    deadline = start + 45.0
+
+    def _extend_budget(seconds: float) -> None:
+        nonlocal deadline
+        deadline += seconds
 
     def _remaining(default: float) -> float:
         """Clamp a subprocess timeout to the remaining wall-clock budget.
@@ -2509,7 +2515,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
 
         if not keys:
             _note(
-                "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH (root@host:port) into this instance — same as RunPod/Vast. The web terminal works without a key.",
+                "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH (root@host:port) into this instance. The web terminal works without a key.",
                 level="info",
             )
             log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
@@ -2544,9 +2550,11 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
         sshd_present = sshd_check.returncode == 0
 
         if not sshd_present:
-            # RunPod/Vast-style: install openssh-server on demand so SSH keys
-            # actually work on images that ship without it (pytorch, cuda, etc).
-            # Detect package manager; install quietly; re-check for sshd.
+            # Install openssh-server on demand so SSH keys actually work on
+            # images that ship without it (pytorch, cuda, etc). Detect package
+            # manager; install quietly; re-check for sshd. Extends the budget
+            # by 45s only when we actually have to install.
+            _extend_budget(45.0)
             _note("Installing OpenSSH server in container (one-time setup)…")
             install_script = (
                 "set -e; "
@@ -2707,9 +2715,9 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             final_msg = "[xcelsior] Terminal ready — web terminal only (image has no sshd)"
 
     except subprocess.TimeoutExpired:
-        final_msg = "[xcelsior] SSH setup timed out (90s budget) — web terminal still works"
+        final_msg = "[xcelsior] SSH setup timed out — web terminal still works"
         final_level = "warning"
-        log.warning("SSH inject exceeded 90s budget for job %s", job_id)
+        log.warning("SSH inject exceeded wall-clock budget for job %s", job_id)
     except Exception as e:
         final_msg = f"[xcelsior] SSH setup failed: {e} — web terminal still works"
         final_level = "warning"
