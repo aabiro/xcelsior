@@ -195,7 +195,8 @@ def api_schedule_preemption(host_id: str, job_id: str, request: Request):
 _AGENT_COMMAND_ALLOWED = {
     "reinject_shell",
     "upgrade_agent",
-    "stop_container",  # P3.2 — billing/admin-initiated container kill
+    "stop_container",  # P3.2 — billing/admin-initiated container kill (+ rm)
+    "pause_container",  # P3/A3 — state-preserving stop (no rm), resume-able
     "start_container",  # P3.2 — resume paused instance
     "snapshot_container",  # P3.1 — docker commit → user_images
 }

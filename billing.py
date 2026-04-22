@@ -1037,7 +1037,9 @@ class BillingEngine:
             )
             conn.commit()
 
-        # Enqueue stop_container on the host (preserve volumes); async via agent queue
+        # Enqueue pause_container on the host (preserve volumes AND container
+        # state) via agent queue. pause_container = docker stop only (no rm),
+        # so resume can `docker start` the same container cheaply.
         owner = job.get("owner") or ""
         host_id = job.get("host_id") or ""
         container_name = job.get("container_name") or f"xcl-{job_id}"
@@ -1049,11 +1051,11 @@ class BillingEngine:
                 _validate_name(container_name, "container name")
                 enqueue_agent_command(
                     host_id,
-                    "stop_container",
+                    "pause_container",
                     {"container_name": container_name, "job_id": job_id},
                     created_by="billing_pause",
                 )
-                log.info("PAUSE stop_container queued: %s on %s", container_name, host_id)
+                log.info("PAUSE pause_container queued: %s on %s", container_name, host_id)
             except Exception as e:
                 log.warning("PAUSE container stop enqueue failed for %s: %s", job_id, e)
 
@@ -1131,23 +1133,28 @@ class BillingEngine:
             )
             conn.commit()
 
-        # Restart the container on the host
+        # Restart the container on the host via agent queue (CGNAT-safe).
+        # Previously used scheduler.run_job (SSH-over-Tailscale), which was
+        # asymmetric with the pause path and would fail on hosts with no
+        # reachable SSH. start_container just issues `docker start` on the
+        # preserved paused container.
         host_id = job.get("host_id") or ""
+        container_name = job.get("container_name") or f"xcl-{job_id}"
         if host_id:
             try:
-                from scheduler import list_hosts, run_job
+                from routes.agent import enqueue_agent_command
+                from scheduler import _validate_name
 
-                hosts = list_hosts()
-                hmap = {h["host_id"]: h for h in hosts}
-                host = hmap.get(host_id)
-                if host:
-                    from scheduler import get_job
-
-                    full_job = get_job(job_id) or {}
-                    run_job(full_job, host, docker_image=job.get("image"))
-                    log.info("RESUME container restarted: %s on %s", job_id, host_id)
+                _validate_name(container_name, "container name")
+                enqueue_agent_command(
+                    host_id,
+                    "start_container",
+                    {"container_name": container_name, "job_id": job_id},
+                    created_by="billing_resume",
+                )
+                log.info("RESUME start_container queued: %s on %s", container_name, host_id)
             except Exception as e:
-                log.warning("RESUME container restart failed for %s: %s", job_id, e)
+                log.warning("RESUME container start enqueue failed for %s: %s", job_id, e)
 
         # Send notification
         try:

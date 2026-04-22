@@ -1020,6 +1020,31 @@ def drain_agent_commands() -> int:
                     dispatched += 1
                 except subprocess.TimeoutExpired:
                     log.warning("stop_container cmd=%s container=%s timed out", cmd_id, cname)
+            elif name == "pause_container":
+                # P3/A3 — billing-initiated PAUSE (state-preserving).
+                # Unlike stop_container, does NOT `docker rm`, so the container
+                # can later be restarted cheaply with `docker start`. Used for
+                # wallet-low-balance pauses where we expect the user to resume.
+                _job_id = str(args.get("job_id") or "")
+                cname = str(args.get("container_name") or (f"xcl-{_job_id}" if _job_id else ""))
+                if not cname:
+                    log.warning("pause_container cmd=%s missing container_name", cmd_id)
+                    continue
+                log.info("Executing pause_container cmd=%s container=%s by=%s", cmd_id, cname, by)
+                try:
+                    r = subprocess.run(
+                        ["docker", "stop", "-t", "30", cname],
+                        capture_output=True, text=True, timeout=45,
+                    )
+                    if r.returncode == 0:
+                        dispatched += 1
+                    else:
+                        log.warning(
+                            "pause_container cmd=%s rc=%s stderr=%s",
+                            cmd_id, r.returncode, (r.stderr or "")[:200],
+                        )
+                except subprocess.TimeoutExpired:
+                    log.warning("pause_container cmd=%s container=%s timed out", cmd_id, cname)
             elif name == "start_container":
                 # P3.2 — resume a previously-stopped container. The image +
                 # volumes are preserved so `docker start` is a cheap restart.
