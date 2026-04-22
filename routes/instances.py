@@ -1857,6 +1857,17 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     container_name = f"xcl-{job_id}"
     now = time.time()
 
+    # Phase E/E8 — graceful degradation when the configured registry is
+    # unreachable. Instead of rejecting the snapshot (which would make
+    # the user lose context and force a retry), we persist the row with
+    # ``status='queued_registry_down'`` and rely on the bg_worker
+    # ``snapshot_queue_retry`` task to enqueue the agent command once
+    # the registry recovers. The caller still gets a 202-ish payload so
+    # they can poll ``/user-images`` and see the state transition.
+    import registry_health as _registry_health
+
+    registry_down = not _registry_health.is_registry_healthy()
+
     from routes.agent import enqueue_agent_command
 
     pool = _user_images_pool()
@@ -1875,36 +1886,45 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
                 409,
                 f"Image {body.name}:{body.tag} already exists (delete it first to overwrite)",
             )
+        initial_status = "queued_registry_down" if registry_down else "pending"
         cur.execute(
             """
             INSERT INTO user_images (
                 image_id, owner_id, name, tag, description,
                 source_job_id, host_id, image_ref, size_bytes,
                 status, created_at, deleted_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,'pending',%s,0)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,0)
             """,
             (
                 image_id, owner_id, body.name, body.tag, body.description,
-                job_id, host_id, image_ref, now,
+                job_id, host_id, image_ref, initial_status, now,
             ),
         )
 
-    cmd_id = enqueue_agent_command(
-        host_id,
-        "snapshot_container",
-        {
-            "image_id": image_id,
-            "container_name": container_name,
-            "image_ref": image_ref,
-            "job_id": job_id,
-        },
-        created_by=owner_id,
-        ttl_sec=3600,
-    )
+    cmd_id: str | None = None
+    if registry_down:
+        _snapshot_requests_total.labels(outcome="queued_registry_down").inc()
+        log.warning(
+            "snapshot queued (registry down) image=%s job=%s host=%s owner=%s",
+            image_id, job_id, host_id, owner_id,
+        )
+    else:
+        cmd_id = enqueue_agent_command(
+            host_id,
+            "snapshot_container",
+            {
+                "image_id": image_id,
+                "container_name": container_name,
+                "image_ref": image_ref,
+                "job_id": job_id,
+            },
+            created_by=owner_id,
+            ttl_sec=3600,
+        )
 
     try:
         broadcast_sse(
-            "user_image_pending",
+            "user_image_queued" if registry_down else "user_image_pending",
             {
                 "image_id": image_id,
                 "owner_id": owner_id,
@@ -1912,22 +1932,24 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
                 "tag": body.tag,
                 "image_ref": image_ref,
                 "source_job_id": job_id,
+                "status": initial_status,
             },
         )
     except Exception as e:
         log.debug("broadcast_sse(user_image_pending) failed: %s", e)
 
-    _snapshot_requests_total.labels(outcome="enqueued").inc()
-    log.info(
-        "User image snapshot queued image=%s job=%s host=%s owner=%s",
-        image_id, job_id, host_id, owner_id,
-    )
+    if not registry_down:
+        _snapshot_requests_total.labels(outcome="enqueued").inc()
+        log.info(
+            "User image snapshot queued image=%s job=%s host=%s owner=%s",
+            image_id, job_id, host_id, owner_id,
+        )
     return {
         "ok": True,
         "image_id": image_id,
         "image_ref": image_ref,
         "command_id": cmd_id,
-        "status": "pending",
+        "status": initial_status,
     }
 
 
