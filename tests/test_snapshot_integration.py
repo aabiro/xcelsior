@@ -7,23 +7,18 @@ Exercises the full pipeline against a real Docker daemon:
     4. verify image exists
     5. docker rmi cleanup
 
-Skipped by default. Set ``XCELSIOR_RUN_INTEGRATION=1`` to execute.
-Requires ``docker`` on PATH and permission to run containers.
+Runs automatically whenever a reachable Docker daemon is present.
+Skipped (with a clear message) only when the daemon is unreachable —
+so CI runners without docker won't fail, but dev machines + any CI
+with docker-in-docker will exercise the real pipeline.
 """
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 import uuid
 
 import pytest
-
-
-pytestmark = pytest.mark.skipif(
-    os.environ.get("XCELSIOR_RUN_INTEGRATION") != "1",
-    reason="integration test — set XCELSIOR_RUN_INTEGRATION=1 to run",
-)
 
 
 def _docker_available() -> bool:

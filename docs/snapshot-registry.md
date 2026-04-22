@@ -127,37 +127,53 @@ sudo systemctl show xcelsior-worker --property=Environment | tr ' ' '\n' | grep 
 
 ## 4. TLS Requirements
 
-Docker **rejects unencrypted registry endpoints by default**. Two paths:
+**The registry MUST be reached over HTTPS with a valid, publicly-trusted
+certificate.** No exceptions: `insecure-registries` and self-signed
+workarounds are unsupported by Xcelsior and will fail review.
 
-### 4a. Valid public cert (recommended)
+Terminate TLS with a certificate from one of:
 
-Terminate TLS on the registry with a certificate from Let's Encrypt,
-your internal PKI, or your cloud provider. Docker will trust it
-automatically.
+- **Let's Encrypt** (via cert-manager on k8s, or certbot on a plain VM)
+- **Your cloud provider's managed cert** (ACM / GCP Managed / Azure)
+- **Your organization's internal PKI**, provided its root CA is already
+  pre-installed on every GPU host you enroll. If it isn't, you have the
+  wrong PKI — use a real public CA instead.
 
-### 4b. Self-signed / internal CA
+### Why this is mandatory
 
-Either install the CA bundle system-wide:
+1. **`docker push` layers are sensitive** — they contain user workload
+   artefacts including model weights, code, and sometimes secrets. MITM
+   on an unencrypted push = full workload exfiltration.
+2. **Pull-side impersonation is catastrophic** — an attacker swapping
+   the image during pull swaps *the code that runs on the user's GPU
+   pod with root*. Anything less than HTTPS-with-trusted-cert defeats
+   the entire snapshot isolation model.
+3. **Revocation + rotation only work through real PKI** — `insecure-
+   registries` gives you zero certificate lifecycle management. When
+   (not if) you need to rotate credentials, you'll discover your hosts
+   are pinned to nothing.
+
+### Let's Encrypt quickstart (Harbor on a VM)
 
 ```bash
-sudo cp internal-ca.pem /usr/local/share/ca-certificates/xcelsior-ca.crt
-sudo update-ca-certificates
-sudo systemctl restart docker
+# On the registry host (DNS registry.xcelsior.ca → this host):
+sudo apt install -y certbot
+sudo certbot certonly --standalone -d registry.xcelsior.ca \
+    --agree-tos -m ops@xcelsior.ca --non-interactive
+
+# Point harbor.yml at the issued files:
+#   certificate: /etc/letsencrypt/live/registry.xcelsior.ca/fullchain.pem
+#   private_key: /etc/letsencrypt/live/registry.xcelsior.ca/privkey.pem
+sudo ./install.sh --with-trivy
+
+# Auto-renew hook to reload Harbor:
+echo 'deploy_hook = "docker compose -f /opt/harbor/docker-compose.yml restart proxy"' \
+    | sudo tee /etc/letsencrypt/renewal-hooks/deploy/harbor.sh
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/harbor.sh
 ```
 
-or, as a last resort, mark the registry insecure:
-
-```bash
-# /etc/docker/daemon.json on each host
-{
-  "insecure-registries": ["registry.internal:5000"]
-}
-sudo systemctl restart docker
-```
-
-> **Security note:** `insecure-registries` disables TLS verification.
-> Only use for isolated networks (e.g., Tailnet-only registry); never
-> over the public internet.
+That's it. Every GPU host's Docker daemon will accept the cert with
+zero further configuration.
 
 ---
 
