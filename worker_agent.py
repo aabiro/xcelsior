@@ -136,6 +136,52 @@ def _self_sha256() -> str:
         return ""
 
 
+# Reserved env-var keys the platform always injects into every container.
+# User-supplied `environment` values for these keys are always overridden.
+PLATFORM_ENV_KEYS = (
+    "XCELSIOR_JOB_ID",
+    "XCELSIOR_HOST_ID",
+    "XCELSIOR_OWNER",
+    "XCELSIOR_API_URL",
+    "XCELSIOR_GPU_MODEL",
+    "XCELSIOR_GPU_VRAM_GB",
+    "XCELSIOR_INSTANCE_NAME",
+    "XCELSIOR_PUBLIC_SSH_HOST",
+    "XCELSIOR_PUBLIC_SSH_PORT",
+)
+
+
+def _compute_public_ssh_port(job_id: str) -> int:
+    """Deterministic public SSH port for a job (mirrors SSH gateway mapping)."""
+    try:
+        return 10000 + (int(str(job_id)[:4], 16) % 55000)
+    except (ValueError, TypeError):
+        return 0
+
+
+def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
+    """Return the reserved platform env-var dict for ``job``.
+
+    These keys are injected *after* user-supplied env so users cannot override
+    them. Always returns strings (docker env requires string values).
+    """
+    job = job or {}
+    job_id = str(job.get("job_id", "") or "")
+    gi = gpu_info or {}
+    api_url = os.environ.get("XCELSIOR_API_URL", "https://xcelsior.ca")
+    return {
+        "XCELSIOR_JOB_ID": job_id,
+        "XCELSIOR_HOST_ID": str(HOST_ID or ""),
+        "XCELSIOR_OWNER": str(job.get("owner", "") or ""),
+        "XCELSIOR_API_URL": str(api_url),
+        "XCELSIOR_GPU_MODEL": str(gi.get("gpu_model", "") or ""),
+        "XCELSIOR_GPU_VRAM_GB": str(gi.get("total_vram_gb", "") or ""),
+        "XCELSIOR_INSTANCE_NAME": str(job.get("name", "") or job_id),
+        "XCELSIOR_PUBLIC_SSH_HOST": "connect.xcelsior.ca",
+        "XCELSIOR_PUBLIC_SSH_PORT": str(_compute_public_ssh_port(job_id)),
+    }
+
+
 # ── Logging ───────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -1903,7 +1949,14 @@ def run_job(job):
     job_name = job.get("name", "unnamed")
     image = job.get("image", job.get("docker_image", ""))
     command = job.get("command")
-    env_vars = job.get("environment", {})
+    env_vars = job.get("environment", {}) or {}
+    # P1.4: inject platform env AFTER user env so the reserved XCELSIOR_* keys
+    # always win (user containers cannot spoof job id / owner / api url).
+    try:
+        _gpu_info_for_env = get_gpu_info()
+    except Exception:
+        _gpu_info_for_env = {}
+    env_vars = {**env_vars, **build_platform_env(job, _gpu_info_for_env)}
     volumes = job.get("volumes", [])
 
     # NFS configuration — from job dict or env vars
