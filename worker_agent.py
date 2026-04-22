@@ -1937,6 +1937,13 @@ def run_job(job):
         effective_command = command
         if is_interactive:
             log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
+            # --- Interactive terminal UI (stdout banner + status notes) ---
+            # This whole section is LOCKED at TERMINAL_UI_VERSION = "v1" per
+            # user approval on 2026-04-22. Do not edit the echo lines, the
+            # final 'Terminal ready …' summary lines, or the 'Tip:'/'SSH
+            # daemon …'/'OpenSSH server …' notes without bumping the version
+            # marker AND updating tests/test_terminal_ui_v1.py in lockstep.
+            TERMINAL_UI_VERSION = "v1"  # noqa: F841 — referenced by tests via regex
             # Override entrypoint with an init script that prints startup info
             # (forwarded to UI via LogForwarder) then keeps the container alive.
             init_script = (
