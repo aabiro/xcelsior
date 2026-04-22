@@ -578,6 +578,25 @@ def _ensure_pg_tables(conn):
         "WHERE starred_at IS NOT NULL AND deleted_at = 0"
     )
 
+    # ── Phase E/E7 — registry health probe cache ──
+    # Small key-value table so bg_worker (probe) and the API process
+    # (is_registry_healthy + /metrics/prometheus) see the same truth.
+    # Each process has its own prometheus_client REGISTRY and module
+    # state, so we need a cross-process channel. One row per distinct
+    # registry URL; current deploys only use one.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS registry_health_cache (
+            registry      TEXT PRIMARY KEY,
+            reachable     BOOLEAN NOT NULL DEFAULT FALSE,
+            last_probe_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+            latency_ms    DOUBLE PRECISION NOT NULL DEFAULT 0,
+            status_code   INTEGER NULL,
+            error         TEXT NULL
+        )
+        """
+    )
+
     # ── Users table: per-user concurrency override ──
     # NULL means "use env default MAX_CONCURRENT_INSTANCES". The users table
     # itself is created via alembic migrations elsewhere; this ALTER is
