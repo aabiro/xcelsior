@@ -1172,7 +1172,21 @@ def drain_agent_commands() -> int:
                         except (subprocess.TimeoutExpired, ValueError):
                             pass
                         registry_url = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip()
-                        if registry_url and image_ref.startswith(registry_url.rstrip("/")):
+                        if not registry_url:
+                            # Phase E/E2 — no fallback. API-side now refuses
+                            # new snapshots when registry is unset, but a
+                            # stale queued command could still arrive here.
+                            # Clean up the local commit + report failure.
+                            err_msg = "registry_not_configured"
+                            try:
+                                subprocess.run(
+                                    ["docker", "rmi", image_ref],
+                                    capture_output=True, text=True, timeout=30,
+                                )
+                                committed_locally = False
+                            except subprocess.TimeoutExpired:
+                                pass
+                        elif image_ref.startswith(registry_url.rstrip("/")):
                             # Step 2: docker push.
                             push = subprocess.run(
                                 ["docker", "push", image_ref],
@@ -1197,8 +1211,22 @@ def drain_agent_commands() -> int:
                             else:
                                 status = "ready"
                         else:
-                            # Local-only image is fine for v1.
-                            status = "ready"
+                            # Phase E/E2 — image_ref doesn't match registry
+                            # prefix. Shouldn't happen (API builds the ref
+                            # from the same env), but fail loudly rather
+                            # than silently keeping an unpushable tag.
+                            err_msg = (
+                                f"image_ref {image_ref!r} does not match "
+                                f"registry {registry_url!r}"
+                            )
+                            try:
+                                subprocess.run(
+                                    ["docker", "rmi", image_ref],
+                                    capture_output=True, text=True, timeout=30,
+                                )
+                                committed_locally = False
+                            except subprocess.TimeoutExpired:
+                                pass
                         dispatched += 1
                 except subprocess.TimeoutExpired:
                     err_msg = "commit/push timeout"

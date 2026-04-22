@@ -1730,14 +1730,28 @@ def _owner_slug(owner_id: str) -> str:
 
 
 def _build_image_ref(owner_id: str, name: str, tag: str) -> str:
+    """Build a fully-qualified OCI image reference.
+
+    Phase E/E2 — ``XCELSIOR_REGISTRY_URL`` is REQUIRED in production.
+    When it is unset we intentionally raise rather than silently falling
+    back to a host-local tag; the old fallback made snapshots look
+    healthy (status=ready) while being completely unusable from any
+    other host, violating the "snapshot = portable template" contract
+    Phase D relies on.
+
+    Callers at HTTP request time catch this and return 503 with a clear
+    operator-facing error, so users retrying later (after the operator
+    sets the env var + rolls the deployment) get a working snapshot.
+    """
     reg = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip().rstrip("/")
+    if not reg:
+        raise RuntimeError(
+            "registry_not_configured: set XCELSIOR_REGISTRY_URL to a "
+            "fully-qualified registry host (ghcr.io/<org>, "
+            "registry.xcelsior.ca, etc.) on the API + every worker"
+        )
     slug = _owner_slug(owner_id)
-    if reg:
-        return f"{reg}/{slug}/{name}:{tag}"
-    # Local-only fallback when no registry configured. Image lives on
-    # the source host and is usable there; cross-host reuse requires a
-    # registry. Kept intentionally simple for v1.
-    return f"xcl-{slug}-{name}:{tag}"
+    return f"{reg}/{slug}/{name}:{tag}"
 
 
 class SnapshotIn(BaseModel):
@@ -1831,7 +1845,15 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
         raise HTTPException(409, "Instance has no assigned host")
 
     image_id = f"img-{uuid.uuid4().hex[:12]}"
-    image_ref = _build_image_ref(owner_id, body.name, body.tag)
+    try:
+        image_ref = _build_image_ref(owner_id, body.name, body.tag)
+    except RuntimeError as e:
+        # Phase E/E2 — registry not configured. 503 (service unavailable,
+        # retry after operator fix) is the honest status; 500 would
+        # imply a bug. Include the hint from the raiser for ops.
+        _snapshot_requests_total.labels(outcome="registry_unconfigured").inc()
+        log.error("snapshot refused — registry_not_configured: %s", e)
+        raise HTTPException(503, str(e))
     container_name = f"xcl-{job_id}"
     now = time.time()
 
@@ -1910,35 +1932,215 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
 
 
 @router.get("/user-images", tags=["Instances"])
-def api_list_user_images(request: Request):
-    """List the authenticated user's saved pod templates."""
+def api_list_user_images(
+    request: Request,
+    scope: str = "mine",
+    starred: bool = False,
+    label: str = "",
+    q: str = "",
+    limit: int = 500,
+    offset: int = 0,
+):
+    """List saved pod templates.
+
+    Phase D — serves the /dashboard/templates surface. ``scope`` controls
+    the tab:
+
+    * ``mine``      — authenticated user's own images (default)
+    * ``public``    — every public image across users (Community tab)
+    * ``all``       — admin-only union
+
+    Filters compose: ``starred=true`` / ``label=<chip>`` / ``q=<search>``
+    apply on top of the base scope. Pagination is simple limit/offset —
+    the partial indexes keep all three scopes O(page) without a seq scan.
+    """
     user = _require_auth(request)
     owner_id = _canonical_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+    # Clamp pagination — defensive; the SQL driver handles large numbers
+    # fine but we'd rather cap the response size than emit 50k JSON rows.
+    try:
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "limit/offset must be integers")
+
+    scope = (scope or "mine").lower()
+    if scope not in ("mine", "public", "all"):
+        raise HTTPException(400, "scope must be one of: mine, public, all")
+    if scope == "all" and not is_admin:
+        raise HTTPException(403, "scope=all requires admin")
+
+    where = ["deleted_at=0"]
+    params: list = []
+    if scope == "mine":
+        where.append("owner_id=%s")
+        params.append(owner_id)
+    elif scope == "public":
+        where.append("is_public=true")
+    # scope == "all" adds no owner filter (admin-only above).
+    if starred:
+        where.append("starred_at IS NOT NULL")
+        if scope == "mine":
+            # Only surface the current user's stars — stars are private.
+            pass
+    if label:
+        # jsonb array containment — index-friendly when we add a GIN
+        # later; fine without one at current volume.
+        where.append("labels @> %s::jsonb")
+        params.append(json.dumps([label]))
+    if q:
+        q_like = f"%{q}%"
+        where.append("(name ILIKE %s OR tag ILIKE %s OR description ILIKE %s)")
+        params.extend([q_like, q_like, q_like])
+
+    sql = (
+        "SELECT image_id, owner_id, name, tag, description, source_job_id, "
+        "host_id, image_ref, size_bytes, status, created_at, is_public, "
+        "labels, starred_at "
+        f"FROM user_images WHERE {' AND '.join(where)} "
+        "ORDER BY starred_at DESC NULLS LAST, created_at DESC "
+        "LIMIT %s OFFSET %s"
+    )
+    params.extend([limit, offset])
+
     pool = _user_images_pool()
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT image_id, name, tag, description, source_job_id, host_id,
-                   image_ref, size_bytes, status, created_at
-            FROM user_images
-            WHERE owner_id=%s AND deleted_at=0
-            ORDER BY created_at DESC
-            LIMIT 500
-            """,
-            (owner_id,),
-        )
+        cur.execute(sql, params)
         rows = cur.fetchall() or []
     items = [
         {
-            "image_id": r[0], "name": r[1], "tag": r[2], "description": r[3],
-            "source_job_id": r[4], "host_id": r[5], "image_ref": r[6],
-            "size_bytes": int(r[7] or 0), "status": r[8], "created_at": float(r[9]),
+            "image_id": r[0],
+            "owner_id": r[1],
+            "name": r[2],
+            "tag": r[3],
+            "description": r[4],
+            "source_job_id": r[5],
+            "host_id": r[6],
+            "image_ref": r[7],
+            "size_bytes": int(r[8] or 0),
+            "status": r[9],
+            "created_at": float(r[10]),
+            "is_public": bool(r[11]),
+            "labels": r[12] or [],
+            "starred_at": float(r[13]) if r[13] is not None else None,
+            "starred": r[13] is not None,
+            "is_mine": r[1] == owner_id,
         }
         for r in rows
     ]
-    return {"images": items}
+    return {"images": items, "limit": limit, "offset": offset}
+
+
+class _UserImagePatchIn(BaseModel):
+    """Phase D — partial update for a template's UI-facing metadata.
+
+    Every field is optional; only provided fields are updated. Image
+    data itself (``image_ref``, ``size_bytes``, ``status``) is NEVER
+    patched via this endpoint — those are managed by the worker.
+    """
+    description: str | None = Field(default=None, max_length=512)
+    is_public: bool | None = None
+    labels: list[str] | None = None
+    starred: bool | None = None
+
+    @field_validator("description")
+    @classmethod
+    def _v_desc(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        # Mirror SnapshotIn — strip control chars + bidi overrides.
+        cleaned = "".join(
+            c for c in v
+            if c.isprintable() or c in ("\n", "\t")
+        )
+        for bad in ("\u202a", "\u202b", "\u202c", "\u202d", "\u202e",
+                    "\u2066", "\u2067", "\u2068", "\u2069",
+                    "\u200b", "\u200c", "\u200d", "\u200e", "\u200f"):
+            cleaned = cleaned.replace(bad, "")
+        return cleaned.strip()
+
+    @field_validator("labels")
+    @classmethod
+    def _v_labels(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("at most 20 labels per template")
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in v:
+            if not isinstance(raw, str):
+                raise ValueError("labels must be strings")
+            s = raw.strip().lower()
+            if not s:
+                continue
+            if len(s) > 32:
+                raise ValueError("each label <=32 chars")
+            if not all(c.isalnum() or c in "-_." for c in s):
+                raise ValueError("labels must be [a-z0-9._-]")
+            if s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+        return out
+
+
+@router.patch("/user-images/{image_id}", tags=["Instances"])
+def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Request):
+    """Phase D — update description/labels/visibility/star on a template."""
+    user = _require_auth(request)
+    owner_id = _canonical_owner_id(user)
+    if not owner_id:
+        raise HTTPException(401, "Authentication required")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+
+    sets: list[str] = []
+    params: list = []
+    if body.description is not None:
+        sets.append("description=%s")
+        params.append(body.description)
+    if body.is_public is not None:
+        sets.append("is_public=%s")
+        params.append(bool(body.is_public))
+    if body.labels is not None:
+        sets.append("labels=%s::jsonb")
+        params.append(json.dumps(body.labels))
+    if body.starred is not None:
+        if body.starred:
+            sets.append("starred_at=%s")
+            params.append(time.time())
+        else:
+            sets.append("starred_at=NULL")
+    if not sets:
+        raise HTTPException(400, "no fields to update")
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT owner_id FROM user_images WHERE image_id=%s AND deleted_at=0",
+            (image_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Image not found")
+        if row[0] != owner_id and not is_admin:
+            raise HTTPException(403, "Not your image")
+        params.append(image_id)
+        cur.execute(
+            f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s",
+            params,
+        )
+    try:
+        broadcast_sse(
+            "user_image_updated",
+            {"image_id": image_id, "owner_id": owner_id},
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_updated) failed: %s", e)
+    return {"ok": True}
 
 
 @router.delete("/user-images/{image_id}", tags=["Instances"])

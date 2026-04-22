@@ -9,7 +9,7 @@ import {
   BarChart3, Package, Calendar, Settings, Users, ChevronLeft,
   ChevronRight, LogOut, Shield, Cpu, Menu, X, Key, ChevronDown,
   Zap, HardDrive, TrendingUp, BookOpen, Rocket, CheckCircle2, Circle,
-  ExternalLink, HelpCircle, Sparkles, Clock, MessageCircle,
+  ExternalLink, HelpCircle, Sparkles, Clock, MessageCircle, Layers,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -34,6 +34,7 @@ const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
   { href: "/dashboard/hosts", key: "dash.hosts", icon: Server },
   { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
+  { href: "/dashboard/templates", key: "dash.templates", icon: Layers },
   { href: "/dashboard/telemetry", key: "dash.telemetry", icon: Activity },
   { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard },
   { href: "/dashboard/marketplace", key: "dash.marketplace", icon: Store },

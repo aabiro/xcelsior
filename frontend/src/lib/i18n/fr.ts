@@ -560,6 +560,7 @@ const fr: Record<string, string> = {
   "dash.spot_pricing": "Prix spot",
   "dash.inference": "Serverless",
   "dash.volumes": "Volumes",
+  "dash.templates": "Modèles",
   "dash.earnings": "Revenus",
   "dash.reputation": "Réputation",
   "dash.compliance": "Conformité",
