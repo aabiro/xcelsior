@@ -83,6 +83,116 @@ _state: dict = {
     "error": None,
 }
 
+# How long the API process is willing to trust its in-process cache
+# before re-reading the probe result from the DB. 10s is short enough
+# that a registry transition is picked up quickly, long enough that a
+# burst of /metrics scrapes or snapshot requests doesn't hammer PG.
+_DB_CACHE_TTL_SEC = 10.0
+_last_db_read_at = 0.0
+
+
+def _write_probe_to_db(snap: dict) -> None:
+    """Persist the last probe result so sibling processes can read it.
+
+    bg_worker runs the probes, but the API process is the one that
+    evaluates ``is_registry_healthy()`` in the snapshot endpoint and
+    serves ``/metrics/prometheus``. Since each process has its own
+    module-level state, we mirror the probe result through a tiny
+    postgres row so every process sees the same truth.
+    """
+    try:
+        from db import _get_pg_pool
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO registry_health_cache
+                    (registry, reachable, last_probe_at, latency_ms, status_code, error)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (registry) DO UPDATE SET
+                    reachable      = EXCLUDED.reachable,
+                    last_probe_at  = EXCLUDED.last_probe_at,
+                    latency_ms     = EXCLUDED.latency_ms,
+                    status_code    = EXCLUDED.status_code,
+                    error          = EXCLUDED.error
+                """,
+                (
+                    snap["registry"] or "",
+                    bool(snap["reachable"]),
+                    float(snap["last_probe_at"]),
+                    float(snap["latency_ms"]),
+                    snap["status_code"],
+                    snap["error"],
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        log.warning("registry_health db write failed: %s", e)
+
+
+def _load_probe_from_db() -> None:
+    """Refresh the in-process cache from the DB if it's been >TTL since last read."""
+    global _last_db_read_at
+    now = time.time()
+    if now - _last_db_read_at < _DB_CACHE_TTL_SEC:
+        return
+    registry = _configured_registry()
+    if not registry:
+        return
+    try:
+        from db import _get_pg_pool
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            row = conn.execute(
+                "SELECT registry, reachable, last_probe_at, latency_ms, "
+                "status_code, error FROM registry_health_cache "
+                "WHERE registry=%s",
+                (registry,),
+            ).fetchone()
+    except Exception as e:
+        log.debug("registry_health db read failed: %s", e)
+        _last_db_read_at = now  # still advance so we don't retry in a tight loop
+        return
+
+    if row:
+        with _lock:
+            _state.update(
+                registry=row[0],
+                configured=True,
+                reachable=bool(row[1]),
+                last_probe_at=float(row[2] or 0.0),
+                latency_ms=float(row[3] or 0.0),
+                status_code=row[4],
+                error=row[5],
+            )
+    _last_db_read_at = now
+
+
+def refresh_prometheus_gauges() -> None:
+    """Populate the module-level Prometheus gauges from the cached state.
+
+    Called by the /metrics endpoint just before serialisation so the
+    API process emits the probe result that ``bg_worker`` measured.
+    Without this, each process's gauges would only reflect probes it
+    ran itself (i.e. API's gauges would stay at 0 forever).
+    """
+    _load_probe_from_db()
+    with _lock:
+        registry = _state["registry"]
+        reachable = _state["reachable"]
+        last_at = _state["last_probe_at"]
+        latency = _state["latency_ms"]
+    if not registry:
+        return
+    try:
+        _reachable_gauge.labels(registry=registry).set(1 if reachable else 0)
+        _last_probe_gauge.labels(registry=registry).set(last_at)
+        _probe_latency_gauge.labels(registry=registry).set(latency)
+    except Exception:  # pragma: no cover
+        pass
+
 
 def _configured_registry() -> str:
     return os.environ.get("XCELSIOR_REGISTRY_URL", "").strip().rstrip("/")
@@ -164,6 +274,9 @@ def probe_registry(url: Optional[str] = None) -> dict:
     except Exception:  # pragma: no cover
         pass
 
+    # Persist to DB so sibling processes (API) see the same truth.
+    _write_probe_to_db(snapshot)
+
     if reachable:
         log.info(
             "registry probe OK registry=%s status=%s latency_ms=%.1f",
@@ -189,6 +302,9 @@ def is_registry_healthy() -> bool:
     Callers that want up-to-the-moment truth should call
     ``probe_registry()`` directly; that blocks on network I/O.
     """
+    # Refresh from DB first so processes that don't run the probe
+    # task (e.g. the API) see the bg_worker's latest measurement.
+    _load_probe_from_db()
     with _lock:
         if not _state["configured"] or not _state["reachable"]:
             return False

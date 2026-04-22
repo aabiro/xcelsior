@@ -874,6 +874,18 @@ def metrics_prometheus():
     try:
         from prometheus_client import generate_latest, REGISTRY
 
+        # Phase E/E7 — refresh registry-health gauges from the shared
+        # DB cache before serialising. The bg_worker process runs the
+        # actual probes; without this refresh the API process's gauges
+        # would stay at 0 because each process has its own in-module
+        # state.
+        try:
+            import registry_health
+
+            registry_health.refresh_prometheus_gauges()
+        except Exception as e:
+            log.debug("registry_health gauge refresh failed: %s", e)
+
         prom_bytes = generate_latest(REGISTRY)
         if prom_bytes:
             lines.append("")
