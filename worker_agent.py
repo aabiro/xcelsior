@@ -2509,8 +2509,8 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
 
         if not keys:
             _note(
-                "No SSH public keys on file — web terminal still works. Add keys at https://xcelsior.ca/dashboard/settings#api-keys to enable direct SSH.",
-                level="warning",
+                "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH into this instance. The web terminal works without a key.",
+                level="info",
             )
             log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
 

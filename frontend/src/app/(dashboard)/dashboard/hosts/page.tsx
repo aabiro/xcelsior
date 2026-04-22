@@ -848,7 +848,7 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
       {/* Image — fully transparent background, theme-aware */}
       <div className="relative hidden min-h-[360px] overflow-hidden rounded-2xl xl:block">
         <img
-          src="/xcelsior-hosts-setup-transparent.svg?v=3"
+          src="/xcelsior-hosts-setup-transparent.svg?v=4"
           alt=""
           aria-hidden
           width={1200}
@@ -859,7 +859,7 @@ function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
           className="hidden h-full w-full object-cover dark:block"
         />
         <img
-          src="/xcelsior-hosts-setup-transparent-light.svg?v=3"
+          src="/xcelsior-hosts-setup-transparent-light.svg?v=4"
           alt=""
           aria-hidden
           width={1200}
