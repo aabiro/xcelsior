@@ -219,13 +219,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <img
                 src="/xcelsior-logo-wordmark-iconbg.svg"
                 alt="Xcelsior"
-                className="hidden h-[52px] w-auto shrink-0 dark:block"
+                className="hidden h-[47px] w-auto shrink-0 dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/xcelsior-logo-wordmark-iconbg-light.svg"
                 alt="Xcelsior"
-                className="block h-[52px] w-auto shrink-0 dark:hidden"
+                className="block h-[47px] w-auto shrink-0 dark:hidden"
               />
               <span className="shrink-0 rounded-full bg-accent-cyan/8 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-accent-cyan/70">Beta</span>
             </div>

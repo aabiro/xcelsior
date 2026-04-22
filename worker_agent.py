@@ -2508,10 +2508,6 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             log.warning("SSH key fetch failed for job %s: %s", job_id, e)
 
         if not keys:
-            _note(
-                "Tip: add an SSH public key at Settings → SSH Keys to enable direct SSH into this instance. The web terminal works without a key.",
-                level="info",
-            )
             log.info("No SSH keys for job %s — skipping authorized_keys setup; sshd will still start for future key injection", job_id)
 
         # --- Prepare /root/.ssh (always — sshd needs it even with no keys) ---
@@ -2650,20 +2646,18 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 _note(f"SSH daemon failed to start: {err[:200]}", level="warning")
         else:
             log.info("sshd not found in image — web terminal only (container %s)", container_name)
-            _note("Image has no sshd — use the web terminal above for shell access")
 
         # --- Compose final summary based on observed state ---
+        # When sshd isn't in the image, SSH keys do nothing — don't mention them.
         if sshd_started and keys:
-            final_msg = f"[xcelsior] SSH ready ({len(keys)} key(s), sshd running)"
+            final_msg = f"[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s))"
         elif sshd_started and not keys:
-            final_msg = "[xcelsior] sshd running, no keys on file — add at xcelsior.ca/dashboard/settings"
+            final_msg = "[xcelsior] Terminal ready — add SSH keys at xcelsior.ca/dashboard/settings to enable direct SSH"
         elif sshd_present and not sshd_started:
-            final_msg = "[xcelsior] SSH keys stored; sshd failed to start — use web terminal"
+            final_msg = "[xcelsior] Terminal ready — web terminal only (sshd failed to start)"
             final_level = "warning"
-        elif (not sshd_present) and keys:
-            final_msg = "[xcelsior] SSH keys stored; image has no sshd — use web terminal"
         else:
-            final_msg = "[xcelsior] Web terminal only (no sshd in image)"
+            final_msg = "[xcelsior] Terminal ready — web terminal only (image has no sshd)"
 
     except subprocess.TimeoutExpired:
         final_msg = "[xcelsior] SSH setup timed out (45s budget) — web terminal still works"
