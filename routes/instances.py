@@ -95,6 +95,36 @@ _SNAPSHOT_RATE_WINDOW_SEC = int(
 _SNAPSHOT_RATE_BUCKETS: dict[str, "_deque[float]"] = {}
 
 
+# ---------------------------------------------------------------------------
+# P3/C1 — Prometheus counters for snapshot pipeline observability.
+# `outcome` label: enqueued | rate_limited | forbidden | not_found |
+# bad_state | duplicate_name | ready | failed.
+# ---------------------------------------------------------------------------
+try:
+    from prometheus_client import Counter as _PromCounter  # type: ignore
+
+    _snapshot_requests_total = _PromCounter(
+        "xcelsior_snapshot_requests_total",
+        "Snapshot endpoint outcomes (pre-worker).",
+        ["outcome"],
+    )
+    _snapshot_completions_total = _PromCounter(
+        "xcelsior_snapshot_completions_total",
+        "Snapshot worker-callback outcomes.",
+        ["status"],
+    )
+except Exception:  # pragma: no cover — prom lib not installed
+    class _NoopCounter:
+        def labels(self, *a, **kw):
+            return self
+
+        def inc(self, *a, **kw):
+            return None
+
+    _snapshot_requests_total = _NoopCounter()  # type: ignore
+    _snapshot_completions_total = _NoopCounter()  # type: ignore
+
+
 def _check_snapshot_rate_limit(owner_id: str) -> None:
     """Raise 429 if ``owner_id`` exceeds the configured snapshot quota.
 
@@ -110,6 +140,7 @@ def _check_snapshot_rate_limit(owner_id: str) -> None:
         bucket.popleft()
     if len(bucket) >= _SNAPSHOT_RATE_LIMIT:
         retry_in = int(_SNAPSHOT_RATE_WINDOW_SEC - (now - bucket[0]))
+        _snapshot_requests_total.labels(outcome="rate_limited").inc()
         raise HTTPException(
             429,
             f"Snapshot rate limit exceeded: max {_SNAPSHOT_RATE_LIMIT} per "
@@ -1778,21 +1809,25 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
 
     job = get_job(job_id)
     if not job:
+        _snapshot_requests_total.labels(outcome="not_found").inc()
         raise HTTPException(404, "Instance not found")
     is_admin = bool(user.get("is_admin") or user.get("admin"))
     if job.get("owner") != owner_id and not is_admin:
+        _snapshot_requests_total.labels(outcome="forbidden").inc()
         raise HTTPException(403, "Not your instance")
     status = str(job.get("status") or "")
     # Only running containers can be snapshotted — billing pause / stop
     # flows `docker rm -f` the container, after which `docker commit`
     # has nothing to target.
     if status != "running":
+        _snapshot_requests_total.labels(outcome="bad_state").inc()
         raise HTTPException(
             400,
             f"Instance must be running to snapshot (got {status!r})",
         )
     host_id = str(job.get("host") or job.get("host_id") or "")
     if not host_id:
+        _snapshot_requests_total.labels(outcome="no_host").inc()
         raise HTTPException(409, "Instance has no assigned host")
 
     image_id = f"img-{uuid.uuid4().hex[:12]}"
@@ -1813,6 +1848,7 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
         )
         existing = cur.fetchone()
         if existing:
+            _snapshot_requests_total.labels(outcome="duplicate_name").inc()
             raise HTTPException(
                 409,
                 f"Image {body.name}:{body.tag} already exists (delete it first to overwrite)",
@@ -1859,6 +1895,7 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     except Exception as e:
         log.debug("broadcast_sse(user_image_pending) failed: %s", e)
 
+    _snapshot_requests_total.labels(outcome="enqueued").inc()
     log.info(
         "User image snapshot queued image=%s job=%s host=%s owner=%s",
         image_id, job_id, host_id, owner_id,
@@ -1981,6 +2018,8 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
             "UPDATE user_images SET status=%s, size_bytes=%s WHERE image_id=%s",
             (body.status, max(0, int(body.size_bytes)), image_id),
         )
+    # P3/C1 — record worker-side outcome for dashboards + alerting.
+    _snapshot_completions_total.labels(status=body.status).inc()
 
     try:
         broadcast_sse(
