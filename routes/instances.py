@@ -4,7 +4,9 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -1596,3 +1598,290 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
             await websocket.close()
         except Exception as e:
             log.debug("WS close error: %s", e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3.1 — Pod save-as-template (user_images)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A running interactive instance can be turned into a reusable image by
+# enqueuing a `snapshot_container` agent command which runs `docker commit`
+# on the host. v1 keeps the image local to the host; once
+# XCELSIOR_REGISTRY_URL is configured the worker pushes it to a per-user
+# namespace. The user_images table is the system-of-record.
+
+
+_IMAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
+_IMAGE_TAG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
+
+
+def _build_image_ref(owner_id: str, name: str, tag: str) -> str:
+    reg = os.environ.get("XCELSIOR_REGISTRY_URL", "").strip().rstrip("/")
+    safe_owner = re.sub(r"[^a-zA-Z0-9_-]", "-", owner_id).lower()
+    if reg:
+        return f"{reg}/{safe_owner}/{name}:{tag}"
+    # Local-only fallback when no registry configured. Image lives on
+    # the source host and is usable there; cross-host reuse requires a
+    # registry. Kept intentionally simple for v1.
+    return f"xcl-{safe_owner}-{name}:{tag}"
+
+
+class SnapshotIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=63)
+    tag: str = Field(default="latest", max_length=63)
+    description: str = Field(default="", max_length=512)
+
+    @field_validator("name")
+    @classmethod
+    def _v_name(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not _IMAGE_NAME_RE.match(v):
+            raise ValueError("name must match [a-z0-9][a-z0-9._-]* and be <=63 chars")
+        return v
+
+    @field_validator("tag")
+    @classmethod
+    def _v_tag(cls, v: str) -> str:
+        v = (v or "latest").strip() or "latest"
+        if not _IMAGE_TAG_RE.match(v):
+            raise ValueError("tag must match [a-z0-9][a-z0-9._-]*")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _v_desc(cls, v: str) -> str:
+        v = (v or "").strip()
+        # Strip any control chars other than newlines/tabs.
+        v = "".join(c for c in v if ord(c) >= 32 or c in "\n\t")
+        return v[:512]
+
+
+def _user_images_pool():
+    """Lazy import; keeps pg_pool import out of module-load order."""
+    from db import _get_pg_pool  # type: ignore
+    return _get_pg_pool()
+
+
+@router.post("/instances/{job_id}/snapshot", tags=["Instances"])
+def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
+    """Create a user image from a running container (`docker commit`).
+
+    The real work is performed asynchronously by the worker agent on the
+    host the job is currently assigned to. This endpoint validates the
+    request, inserts a `user_images` row in `pending`, and enqueues a
+    `snapshot_container` directive.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    owner_id = user.get("customer_id") or user.get("user_id") or ""
+    if not owner_id:
+        raise HTTPException(401, "Authentication required")
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+    if job.get("owner") != owner_id and not is_admin:
+        raise HTTPException(403, "Not your instance")
+    status = str(job.get("status") or "")
+    if status not in ("running", "paused"):
+        raise HTTPException(400, f"Instance must be running or paused to snapshot (got {status!r})")
+    host_id = str(job.get("host") or job.get("host_id") or "")
+    if not host_id:
+        raise HTTPException(409, "Instance has no assigned host")
+
+    image_id = f"img-{uuid.uuid4().hex[:12]}"
+    image_ref = _build_image_ref(owner_id, body.name, body.tag)
+    container_name = f"xcl-{job_id}"
+    now = time.time()
+
+    from routes.agent import enqueue_agent_command
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        # Enforce uniqueness at the app layer so we can return a clean
+        # 409 before booking the agent command.
+        cur.execute(
+            "SELECT image_id FROM user_images "
+            "WHERE owner_id=%s AND name=%s AND tag=%s AND deleted_at=0",
+            (owner_id, body.name, body.tag),
+        )
+        existing = cur.fetchone()
+        if existing:
+            raise HTTPException(
+                409,
+                f"Image {body.name}:{body.tag} already exists (delete it first to overwrite)",
+            )
+        cur.execute(
+            """
+            INSERT INTO user_images (
+                image_id, owner_id, name, tag, description,
+                source_job_id, host_id, image_ref, size_bytes,
+                status, created_at, deleted_at
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,'pending',%s,0)
+            """,
+            (
+                image_id, owner_id, body.name, body.tag, body.description,
+                job_id, host_id, image_ref, now,
+            ),
+        )
+
+    cmd_id = enqueue_agent_command(
+        host_id,
+        "snapshot_container",
+        {
+            "image_id": image_id,
+            "container_name": container_name,
+            "image_ref": image_ref,
+            "job_id": job_id,
+        },
+        created_by=owner_id,
+        ttl_sec=3600,
+    )
+
+    try:
+        broadcast_sse(
+            "user_image_pending",
+            {
+                "image_id": image_id,
+                "owner_id": owner_id,
+                "name": body.name,
+                "tag": body.tag,
+                "image_ref": image_ref,
+                "source_job_id": job_id,
+            },
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_pending) failed: %s", e)
+
+    log.info(
+        "User image snapshot queued image=%s job=%s host=%s owner=%s",
+        image_id, job_id, host_id, owner_id,
+    )
+    return {
+        "ok": True,
+        "image_id": image_id,
+        "image_ref": image_ref,
+        "command_id": cmd_id,
+        "status": "pending",
+    }
+
+
+@router.get("/user-images", tags=["Instances"])
+def api_list_user_images(request: Request):
+    """List the authenticated user's saved pod templates."""
+    user = _require_auth(request)
+    owner_id = user.get("customer_id") or user.get("user_id") or ""
+    if not owner_id:
+        raise HTTPException(401, "Authentication required")
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT image_id, name, tag, description, source_job_id, host_id,
+                   image_ref, size_bytes, status, created_at
+            FROM user_images
+            WHERE owner_id=%s AND deleted_at=0
+            ORDER BY created_at DESC
+            LIMIT 500
+            """,
+            (owner_id,),
+        )
+        rows = cur.fetchall() or []
+    items = [
+        {
+            "image_id": r[0], "name": r[1], "tag": r[2], "description": r[3],
+            "source_job_id": r[4], "host_id": r[5], "image_ref": r[6],
+            "size_bytes": int(r[7] or 0), "status": r[8], "created_at": float(r[9]),
+        }
+        for r in rows
+    ]
+    return {"images": items}
+
+
+@router.delete("/user-images/{image_id}", tags=["Instances"])
+def api_delete_user_image(image_id: str, request: Request):
+    """Soft-delete a user image record. (Underlying docker image not removed.)"""
+    user = _require_auth(request)
+    owner_id = user.get("customer_id") or user.get("user_id") or ""
+    if not owner_id:
+        raise HTTPException(401, "Authentication required")
+    is_admin = bool(user.get("is_admin") or user.get("admin"))
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT owner_id FROM user_images WHERE image_id=%s AND deleted_at=0",
+            (image_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Image not found")
+        if row[0] != owner_id and not is_admin:
+            raise HTTPException(403, "Not your image")
+        cur.execute(
+            "UPDATE user_images SET deleted_at=%s WHERE image_id=%s",
+            (time.time(), image_id),
+        )
+    try:
+        broadcast_sse("user_image_deleted", {"image_id": image_id, "owner_id": owner_id})
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_deleted) failed: %s", e)
+    return {"ok": True}
+
+
+class _UserImageCompleteIn(BaseModel):
+    status: str
+    size_bytes: int = 0
+    error: str = ""
+
+    @field_validator("status")
+    @classmethod
+    def _v_status(cls, v: str) -> str:
+        if v not in ("ready", "failed"):
+            raise ValueError("status must be 'ready' or 'failed'")
+        return v
+
+
+@router.post("/user-images/{image_id}/complete", tags=["Instances"])
+def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: Request):
+    """Internal: worker agent callback after `docker commit` finishes.
+
+    Authenticated with the same shared agent secret used for
+    `/agent/commands/{host_id}`. Flips the pending row into ready/failed.
+    """
+    from routes.agent import _require_agent_auth
+    _require_agent_auth(request)
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT owner_id, status FROM user_images WHERE image_id=%s AND deleted_at=0",
+            (image_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Image not found")
+        owner_id, prev_status = row[0], row[1]
+        if prev_status not in ("pending",):
+            # Idempotent: callback may arrive twice; accept without re-update.
+            return {"ok": True, "status": prev_status}
+        cur.execute(
+            "UPDATE user_images SET status=%s, size_bytes=%s WHERE image_id=%s",
+            (body.status, max(0, int(body.size_bytes)), image_id),
+        )
+
+    try:
+        broadcast_sse(
+            "user_image_complete",
+            {
+                "image_id": image_id,
+                "owner_id": owner_id,
+                "status": body.status,
+                "size_bytes": body.size_bytes,
+                "error": (body.error or "")[:500],
+            },
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(user_image_complete) failed: %s", e)
+    log.info("User image %s completed status=%s size=%d", image_id, body.status, body.size_bytes)
+    return {"ok": True}

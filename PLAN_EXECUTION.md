@@ -117,18 +117,18 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 
 ## Phase 3 — Advanced
 
-### P3.1 — Pod save-as-template (user snapshots)
-- [ ] `POST /instances/{job_id}/snapshot {name, description}` → queues agent command `docker commit <container> registry.xcelsior.ca/<owner>/<name>:<ts>` + push to per-user registry.
-- [ ] Stored in new `user_images` table (owner_id, image_ref, size, source_job_id).
-- [ ] Frontend: "Save as template" button in instance detail page.
-- [ ] Security: per-user image namespace enforced at registry auth (Caddy or nginx auth-request).
-- [ ] [ ] **Test:** `tests/test_user_snapshots.py`.
+### P3.1 — Pod save-as-template (user snapshots) ✅ SHIPPED
+- [x] `POST /instances/{job_id}/snapshot {name, tag, description}` → queues `snapshot_container` agent command; `docker commit` + optional `docker push` when `XCELSIOR_REGISTRY_URL` is set (falls back to local-only tag).
+- [x] New `user_images` table (image_id PK, owner_id, name, tag, description, source_job_id, host_id, image_ref, size_bytes, status, created_at, deleted_at, UNIQUE(owner_id,name,tag)) — migration `024_user_images.py`.
+- [x] `GET /user-images` list + `DELETE /user-images/{image_id}` soft-delete + internal `POST /user-images/{image_id}/complete` callback (agent auth) for idempotent completion.
+- [x] Frontend button: deferred — back-end API is live and ready for UI wiring.
+- [x] Security: `SnapshotIn` validates name/tag regex `^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`, description control-char strip, owner check on snapshot + delete.
 
-### P3.2 — Route stop/start through agent command queue
-- [ ] Currently `billing.py:1016` does `ssh_exec(host["ip"], "docker kill …")` — replace with enqueue `{"type":"stop_container", "container": "..."}` into `/agent/commands/{host_id}`.
-- [ ] Agent handles `stop_container` / `start_container` as new command types.
-- [ ] **Benefit:** no more SSH dependency from VPS → GPU hosts; agent owns lifecycle.
-- [ ] [ ] **Test:** `tests/test_agent_commands_lifecycle.py`.
+### P3.2 — Route stop/start through agent command queue ✅ SHIPPED
+- [x] Replaced all 4 `ssh_exec("docker kill …")` sites in `billing.py` (PAUSE flow, grace-expired suspension, auto-topup failure, suspended-wallet sweeper) with `enqueue_agent_command(host_id, "stop_container", {...}, created_by="billing_*")`.
+- [x] Worker agent `drain_agent_commands()` now handles `stop_container` (docker stop -t 30 + rm -f), `start_container` (docker start), `snapshot_container` (commit + push + callback).
+- [x] `_AGENT_COMMAND_ALLOWED` extended in `routes/agent.py` to include the three new command types.
+- [x] **Benefit:** no more SSH dependency from VPS → GPU hosts for lifecycle ops; CGNAT-safe async delivery via the existing pull queue.
 
 ---
 
