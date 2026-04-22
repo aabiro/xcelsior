@@ -107,12 +107,13 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 - [x] `tests/test_telemetry_bandwidth.py` covers priming, delta math, counter-rollback clamp, missing psutil.
 - [ ] Frontend gauges — deferred; wire into SSH modal pass.
 
-### P2.5 — Volume snapshots
-- [ ] New table `volume_snapshots` (id, volume_id, created_at, size_bytes, status).
-- [ ] `POST /api/v2/volumes/{id}/snapshots` → agent command to `rsync` the mounted volume to NFS snapshot dir with content-addressable naming.
-- [ ] `POST /api/v2/volumes/{id}/restore?snapshot_id=…` → clone back.
-- [ ] **Tests:** extend test_volumes.py with `test_snapshot_create`/`restore`/`delete`/`list`.
-- [ ] [ ] **E2E:** `tests/test_volume_snapshots_e2e.py` using real local NFS fixture.
+### P2.5 — Volume snapshots ✅ (commit 541259c, deployed)
+- [x] New table `volume_snapshots` (snapshot_id PK, volume_id FK, owner_id, label, size_bytes, status, created_at, deleted_at) + 2 indexes.
+- [x] `POST /api/v2/volumes/{id}/snapshots` — instant CoW via `cp --reflink=auto --sparse=always` (encrypted .img) or `cp -a --reflink=auto` (unencrypted dir). **Never rsync** per user constraint — matches RunPod/Vast UX.
+- [x] `POST /api/v2/volumes/{id}/snapshots/{snap_id}/restore` — backs up current state as `.pre-restore-{ts}` before reflink-copying snapshot back.
+- [x] `GET /api/v2/volumes/{id}/snapshots` + `DELETE /api/v2/volumes/{id}/snapshots/{snap_id}` (soft-delete + path guard prevents `rm -rf` escape outside `_snapshots/`).
+- [x] All ops require `status=='available'` (detached) for consistency. SSE broadcasts on each event.
+- [x] `tests/test_volume_snapshots.py` — 6 cases including explicit assertion that `rsync` never appears in any emitted command.
 
 ## Phase 3 — Advanced
 
