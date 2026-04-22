@@ -674,6 +674,14 @@ deploy_docker() {
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
     success "bg-worker restarted"
 
+    # ssh-gateway shares the same codebase (ssh_gateway.py) and is
+    # rebuilt from the same Dockerfile, so it must be restarted whenever
+    # we ship new code. `--no-deps` keeps docker-compose from touching
+    # unrelated services. `--build` ensures the image picks up the new
+    # ssh_gateway.py (the main api build above doesn't target this image).
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps --build ssh-gateway" || error "ssh-gateway restart failed"
+    success "ssh-gateway restarted"
+
     ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
     success "Frontend restarted"
 
