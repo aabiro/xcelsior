@@ -120,7 +120,7 @@ PUBLIC_PATHS = {
     "/api/billing/lightning/enabled",
     "/api/billing/lightning/rate",
 }
-PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/")
+PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
 
 
