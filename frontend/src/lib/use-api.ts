@@ -16,6 +16,7 @@ export function useApi() {
     fetchInstances: api.fetchInstances,
     submitInstance: api.submitInstance,
     cancelInstance: api.cancelInstance,
+    requeueInstance: api.requeueInstance,
     fetchBilling: api.fetchBilling,
     fetchWallet: api.fetchWallet,
     fetchMarketplace: api.fetchMarketplace,

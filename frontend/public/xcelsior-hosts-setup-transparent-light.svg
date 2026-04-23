@@ -136,17 +136,11 @@
   <!-- Everything under edge fade mask — transparent background -->
   <g mask="url(#edgeFadeMask)">
 
-    <!-- Grid removed for light theme prominence -->
+    <!-- All grid lines removed for light theme prominence -->
     <g>
 
-      <!-- Branded accent lines -->
-      <g opacity="1.0">
-        <path d="M60 96H1140" stroke="url(#brandH)" stroke-width="1.3"/>
-        <path d="M60 192H1140" stroke="url(#brandH)" stroke-width="1.3"/>
-        <path d="M60 256H1140" stroke="url(#brandH)" stroke-width="1.7"/>
-        <path d="M60 352H1140" stroke="url(#brandH)" stroke-width="1.3"/>
-        <path d="M60 416H1140" stroke="url(#brandH)" stroke-width="1.3"/>
-        <path d="M60 512H1140" stroke="url(#brandH)" stroke-width="1.1"/>
+      <!-- Branded accent lines (horizontal grid removed) -->
+      <g opacity="0">
       </g>
       <g opacity="0.85">
         <path d="M160 0V760" stroke="url(#brandV)" stroke-width="1.3"/>
