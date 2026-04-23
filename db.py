@@ -203,84 +203,88 @@ def _get_pg_pool():
 
 _GPU_PRICING_SEED = [
     # (gpu_model, vram_gb, tier, pricing_mode, base_rate_cad, priority_mult, sovereignty_prem, spot_disc, mg4_disc, mg8_disc)
-    # ── RTX 3090 24GB ──
-    ("RTX 3090", 24, "standard", "on_demand", 0.30, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "standard", "spot", 0.12, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "standard", "reserved_1mo", 0.24, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "standard", "reserved_1yr", 0.17, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "premium", "on_demand", 0.39, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "premium", "spot", 0.156, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "premium", "reserved_1mo", 0.312, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "premium", "reserved_1yr", 0.221, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "sovereign", "on_demand", 0.429, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "sovereign", "spot", 0.172, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "sovereign", "reserved_1mo", 0.343, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("RTX 3090", 24, "sovereign", "reserved_1yr", 0.243, 1.0, 0.10, 0.0, 0.05, 0.10),
-    # ── RTX 4090 24GB ──
-    ("RTX 4090", 24, "standard", "on_demand", 0.55, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "standard", "spot", 0.22, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "standard", "reserved_1mo", 0.44, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "standard", "reserved_1yr", 0.30, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "premium", "on_demand", 0.715, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "premium", "spot", 0.286, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "premium", "reserved_1mo", 0.572, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "premium", "reserved_1yr", 0.39, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "sovereign", "on_demand", 0.787, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "sovereign", "spot", 0.315, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "sovereign", "reserved_1mo", 0.629, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("RTX 4090", 24, "sovereign", "reserved_1yr", 0.429, 1.0, 0.10, 0.0, 0.05, 0.10),
-    # ── A100 40GB ──
-    ("A100 40GB", 40, "standard", "on_demand", 1.50, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "standard", "spot", 0.60, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "standard", "reserved_1mo", 1.20, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "standard", "reserved_1yr", 0.83, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "premium", "on_demand", 1.95, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "premium", "spot", 0.78, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "premium", "reserved_1mo", 1.56, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "premium", "reserved_1yr", 1.079, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "on_demand", 2.145, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "spot", 0.858, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "reserved_1mo", 1.716, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("A100 40GB", 40, "sovereign", "reserved_1yr", 1.187, 1.0, 0.10, 0.0, 0.05, 0.10),
-    # ── A100 80GB ──
-    ("A100 80GB", 80, "standard", "on_demand", 2.20, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "standard", "spot", 0.88, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "standard", "reserved_1mo", 1.76, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "standard", "reserved_1yr", 1.21, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "premium", "on_demand", 2.86, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "premium", "spot", 1.144, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "premium", "reserved_1mo", 2.288, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "premium", "reserved_1yr", 1.573, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "on_demand", 3.146, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "spot", 1.258, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "reserved_1mo", 2.517, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("A100 80GB", 80, "sovereign", "reserved_1yr", 1.730, 1.0, 0.10, 0.0, 0.05, 0.10),
-    # ── H100 80GB ──
-    ("H100 80GB", 80, "standard", "on_demand", 3.50, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "standard", "spot", 1.40, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "standard", "reserved_1mo", 2.80, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "standard", "reserved_1yr", 1.93, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "premium", "on_demand", 4.55, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "premium", "spot", 1.82, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "premium", "reserved_1mo", 3.64, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "premium", "reserved_1yr", 2.509, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "on_demand", 5.005, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "spot", 2.002, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "reserved_1mo", 4.004, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("H100 80GB", 80, "sovereign", "reserved_1yr", 2.760, 1.0, 0.10, 0.0, 0.05, 0.10),
+    # ── NVIDIA GeForce RTX 3090 24GB ──
+    ("NVIDIA GeForce RTX 3090", 24, "standard", "on_demand", 0.30, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "standard", "spot", 0.12, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "standard", "reserved_1mo", 0.24, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "standard", "reserved_1yr", 0.17, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "premium", "on_demand", 0.39, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "premium", "spot", 0.156, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "premium", "reserved_1mo", 0.312, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "premium", "reserved_1yr", 0.221, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "sovereign", "on_demand", 0.429, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "sovereign", "spot", 0.172, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "sovereign", "reserved_1mo", 0.343, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 3090", 24, "sovereign", "reserved_1yr", 0.243, 1.0, 0.10, 0.0, 0.05, 0.10),
+    # ── NVIDIA GeForce RTX 4090 24GB ──
+    ("NVIDIA GeForce RTX 4090", 24, "standard", "on_demand", 0.55, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "standard", "spot", 0.22, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "standard", "reserved_1mo", 0.44, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "standard", "reserved_1yr", 0.30, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "premium", "on_demand", 0.715, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "premium", "spot", 0.286, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "premium", "reserved_1mo", 0.572, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "premium", "reserved_1yr", 0.39, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "sovereign", "on_demand", 0.787, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "sovereign", "spot", 0.315, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "sovereign", "reserved_1mo", 0.629, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA GeForce RTX 4090", 24, "sovereign", "reserved_1yr", 0.429, 1.0, 0.10, 0.0, 0.05, 0.10),
+    # ── NVIDIA A100 40GB ──
+    ("NVIDIA A100 40GB", 40, "standard", "on_demand", 1.50, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "standard", "spot", 0.60, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "standard", "reserved_1mo", 1.20, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "standard", "reserved_1yr", 0.83, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "premium", "on_demand", 1.95, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "premium", "spot", 0.78, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "premium", "reserved_1mo", 1.56, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "premium", "reserved_1yr", 1.079, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "sovereign", "on_demand", 2.145, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "sovereign", "spot", 0.858, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "sovereign", "reserved_1mo", 1.716, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 40GB", 40, "sovereign", "reserved_1yr", 1.187, 1.0, 0.10, 0.0, 0.05, 0.10),
+    # ── NVIDIA A100 80GB ──
+    ("NVIDIA A100 80GB", 80, "standard", "on_demand", 2.20, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "standard", "spot", 0.88, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "standard", "reserved_1mo", 1.76, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "standard", "reserved_1yr", 1.21, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "premium", "on_demand", 2.86, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "premium", "spot", 1.144, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "premium", "reserved_1mo", 2.288, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "premium", "reserved_1yr", 1.573, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "sovereign", "on_demand", 3.146, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "sovereign", "spot", 1.258, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "sovereign", "reserved_1mo", 2.517, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA A100 80GB", 80, "sovereign", "reserved_1yr", 1.730, 1.0, 0.10, 0.0, 0.05, 0.10),
+    # ── NVIDIA H100 80GB ──
+    ("NVIDIA H100 80GB", 80, "standard", "on_demand", 3.50, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "standard", "spot", 1.40, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "standard", "reserved_1mo", 2.80, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "standard", "reserved_1yr", 1.93, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "premium", "on_demand", 4.55, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "premium", "spot", 1.82, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "premium", "reserved_1mo", 3.64, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "premium", "reserved_1yr", 2.509, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "sovereign", "on_demand", 5.005, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "sovereign", "spot", 2.002, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "sovereign", "reserved_1mo", 4.004, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA H100 80GB", 80, "sovereign", "reserved_1yr", 2.760, 1.0, 0.10, 0.0, 0.05, 0.10),
     # ── L40S 48GB ──
-    ("L40S 48GB", 48, "standard", "on_demand", 1.80, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "standard", "spot", 0.72, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "standard", "reserved_1mo", 1.44, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "standard", "reserved_1yr", 0.99, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "premium", "on_demand", 2.34, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "premium", "spot", 0.936, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "premium", "reserved_1mo", 1.872, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "premium", "reserved_1yr", 1.287, 1.0, 0.0, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "on_demand", 2.574, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "spot", 1.030, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "reserved_1mo", 2.059, 1.0, 0.10, 0.0, 0.05, 0.10),
-    ("L40S 48GB", 48, "sovereign", "reserved_1yr", 1.416, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "standard", "on_demand", 1.80, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "standard", "spot", 0.72, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "standard", "reserved_1mo", 1.44, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "standard", "reserved_1yr", 0.99, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "premium", "on_demand", 2.34, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "premium", "spot", 0.936, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "premium", "reserved_1mo", 1.872, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "premium", "reserved_1yr", 1.287, 1.0, 0.0, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "sovereign", "on_demand", 2.574, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "sovereign", "spot", 1.030, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "sovereign", "reserved_1mo", 2.059, 1.0, 0.10, 0.0, 0.05, 0.10),
+    ("NVIDIA L40S 48GB", 48, "sovereign", "reserved_1yr", 1.416, 1.0, 0.10, 0.0, 0.05, 0.10),
+
+    # ── NVIDIA GeForce RTX 2060 6GB ── (entry-level consumer, dev/test tier)
+    ("NVIDIA GeForce RTX 2060", 6, "standard", "on_demand", 0.18, 1.0, 0.0, 0.0, 0.0, 0.0),
+    ("NVIDIA GeForce RTX 2060", 6, "standard", "spot",      0.11, 1.0, 0.0, 0.40, 0.0, 0.0),
 ]
 
 # Priority multipliers applied at query time, not stored per-row
@@ -294,9 +298,37 @@ GPU_PRIORITY_MULTIPLIERS = {
 
 def _seed_gpu_pricing(cur):
     """Insert seed pricing rows if table is empty."""
+    # One-time migration: rename any legacy short names to full nvidia-smi names
+    # so queries using the telemetry-reported gpu_model match.
+    _NAME_MIGRATIONS = [
+        ("RTX 3090", "NVIDIA GeForce RTX 3090"),
+        ("RTX 4090", "NVIDIA GeForce RTX 4090"),
+        ("A100 40GB", "NVIDIA A100 40GB"),
+        ("A100 80GB", "NVIDIA A100 80GB"),
+        ("H100 80GB", "NVIDIA H100 80GB"),
+        ("L40S 48GB", "NVIDIA L40S 48GB"),
+    ]
+    for old, new in _NAME_MIGRATIONS:
+        cur.execute(
+            "UPDATE gpu_pricing SET gpu_model = %s WHERE gpu_model = %s",
+            (new, old),
+        )
+
     cur.execute("SELECT COUNT(*) FROM gpu_pricing")
     count = cur.fetchone()[0]
     if count > 0:
+        # Table already populated; ensure any newly added seed rows are inserted
+        # (idempotent via ON CONFLICT DO NOTHING).
+        for row in _GPU_PRICING_SEED:
+            cur.execute(
+                """INSERT INTO gpu_pricing
+                   (gpu_model, vram_gb, tier, pricing_mode, base_rate_cad,
+                    priority_multiplier, sovereignty_premium, spot_discount,
+                    multi_gpu_discount_4, multi_gpu_discount_8)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (gpu_model, tier, pricing_mode) DO NOTHING""",
+                row,
+            )
         return
     for row in _GPU_PRICING_SEED:
         cur.execute(

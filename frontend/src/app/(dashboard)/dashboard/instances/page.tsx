@@ -143,7 +143,7 @@ function RowActions({
         </Button>
       </div>
       {open && (
-        <div className={`absolute right-0 ${flipUp ? "bottom-full mb-1" : "top-full mt-1"} z-50 w-36 rounded-lg border border-border bg-surface shadow-xl`}>
+        <div className={`absolute right-0 ${flipUp ? "bottom-full mb-1" : "top-full mt-1"} z-50 w-48 rounded-lg border border-border bg-surface shadow-xl`}>
           {actions.map((a) => (
             <button
               key={a.action + a.label}
@@ -152,7 +152,7 @@ function RowActions({
                 if (a.action === "snapshot") onSnapshot(inst);
                 else onAction(inst.job_id, a.action);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-surface-hover transition-colors ${a.className ?? "text-text-secondary"}`}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm whitespace-nowrap hover:bg-surface-hover transition-colors ${a.className ?? "text-text-secondary"}`}
             >
               {a.icon} {a.label}
             </button>

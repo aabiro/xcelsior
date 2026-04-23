@@ -693,28 +693,28 @@ input[type="number"]:focus {
 [data-sonner-toast] [data-close-button].xcelsior-toast-dismiss {
   position: absolute !important;
   top: auto !important;
-  bottom: 6px !important;
-  right: 10px !important;
+  bottom: 12px !important;
+  right: 16px !important;
   left: auto !important;
   width: auto !important;
   height: auto !important;
-  padding: 2px 6px !important;
+  padding: 0 !important;
   border-radius: 4px !important;
   background: transparent !important;
   border: none !important;
   color: rgba(248, 250, 252, 0.45) !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 500 !important;
   letter-spacing: 0.02em !important;
   line-height: 1 !important;
   cursor: pointer !important;
   transform: none !important;
   opacity: 1 !important;
-  transition: color 120ms ease, background-color 120ms ease;
+  transition: color 120ms ease;
 }
 [data-sonner-toast] .xcelsior-toast-dismiss:hover {
   color: rgba(248, 250, 252, 0.95) !important;
-  background: rgba(255, 255, 255, 0.06) !important;
+  background: transparent !important;
 }
 [data-sonner-toast] .xcelsior-toast-dismiss svg { display: none !important; }
 [data-sonner-toast] .xcelsior-toast-dismiss::after {
