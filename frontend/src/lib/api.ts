@@ -1964,6 +1964,20 @@ export interface Instance {
   interactive?: boolean;
   ssh_port?: number;
   command?: string;
+  // SSH setup state reported by the worker after _inject_ssh_keys.
+  // Surfaced as a customer-facing notice on the instance detail page
+  // when something didn't work (no sshd, daemon failed to start, no
+  // keys uploaded, etc).
+  ssh_status?: {
+    ok: boolean;
+    sshd_present: boolean;
+    sshd_started: boolean;
+    key_count: number;
+    summary: string;
+    level: "info" | "warning" | "error";
+    elapsed_sec: number;
+    ts: number;
+  };
   // Volume attachment
   attached_volumes?: {
     volume_id: string;

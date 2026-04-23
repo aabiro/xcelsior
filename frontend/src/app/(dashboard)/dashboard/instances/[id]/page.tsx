@@ -783,6 +783,52 @@ export default function InstanceDetailPage() {
 
             {instance.host_ip ? (
               <div className="space-y-4">
+                {/* SSH setup notice — surfaced when the worker reports a problem
+                    so customers see "why can't I SSH in?" without digging through logs. */}
+                {instance.ssh_status && !instance.ssh_status.ok && (
+                  <div
+                    className={`rounded-lg p-3 border text-xs ${
+                      instance.ssh_status.level === "error"
+                        ? "bg-red-500/10 border-red-500/30 text-red-200"
+                        : "bg-amber-500/10 border-amber-500/30 text-amber-200"
+                    }`}
+                    role="status"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div className="space-y-1">
+                        <p className="font-medium">
+                          {instance.ssh_status.key_count === 0
+                            ? "No SSH keys uploaded"
+                            : !instance.ssh_status.sshd_present
+                            ? "SSH daemon unavailable in this image"
+                            : !instance.ssh_status.sshd_started
+                            ? "SSH daemon failed to start"
+                            : "SSH setup incomplete"}
+                        </p>
+                        <p className="opacity-80">
+                          {instance.ssh_status.key_count === 0 ? (
+                            <>
+                              Add a public key at{" "}
+                              <Link href="/dashboard/settings?tab=api-keys" className="underline">
+                                Settings → SSH Keys
+                              </Link>
+                              . The web terminal below works without a key.
+                            </>
+                          ) : !instance.ssh_status.sshd_present ? (
+                            <>
+                              This image doesn&apos;t ship OpenSSH server and one couldn&apos;t be installed.
+                              The web terminal still works. To get direct SSH, relaunch with a compatible image
+                              (Ubuntu, Debian, NVIDIA CUDA, PyTorch, etc.).
+                            </>
+                          ) : (
+                            <>{instance.ssh_status.summary || "Use the web terminal below."}</>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="rounded-lg p-3 border bg-ice-blue/5 border-ice-blue/30">
                   <div className="flex items-center gap-1.5 mb-1.5">
                     <p className="text-xs font-medium text-text-secondary">SSH Connect</p>

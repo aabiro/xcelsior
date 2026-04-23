@@ -4159,6 +4159,29 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
         # the log stream and the container's PID-1 stdout (for already-attached WS).
         _note(summary, level=final_level)
         _mirror_to_container(summary)
+        # Report final SSH state back to the control plane so the dashboard
+        # can surface a customer-facing notice when something went wrong
+        # (no sshd installable, daemon failed to start, key fetch failed,
+        # etc). Best-effort — never blocks or raises.
+        try:
+            ssh_ok = bool(sshd_started) and (len(keys) > 0)
+            requests.post(
+                _api_url(f"/agent/ssh-status/{job_id}"),
+                headers=_api_headers(),
+                json={
+                    "ok": ssh_ok,
+                    "sshd_present": bool(sshd_present),
+                    "sshd_started": bool(sshd_started),
+                    "key_count": len(keys),
+                    "summary": final_msg,
+                    "level": final_level,
+                    "elapsed_sec": round(elapsed, 2),
+                    "ts": time.time(),
+                },
+                timeout=5,
+            )
+        except Exception as e:
+            log.debug("ssh-status report failed for job %s: %s", job_id, e)
 
 
 def _shell_quote(s: str) -> str:
