@@ -190,7 +190,8 @@ class TestGetGpuInfo:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         info = worker_agent.get_gpu_info()
-        assert info["gpu_model"] == "NVIDIA GeForce RTX 4090"
+        # Raw nvidia-smi name is canonicalized to the short title.
+        assert info["gpu_model"] == "RTX 4090"
         assert abs(info["total_vram_gb"] - 23.99) < 0.1
         assert abs(info["free_vram_gb"] - 21.48) < 0.1
 

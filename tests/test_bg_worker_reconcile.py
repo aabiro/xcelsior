@@ -125,7 +125,7 @@ def test_user_images_sweeper_registered_with_300s_interval():
     assert interval == 300
 
 
-def test_reconcile_reenqueues_stale_paused_jobs():
+def test_reconcile_reenqueues_stale_stopped_jobs():
     closures = _extract_closures()
     func, _ = closures["reconcile_paused_stopped"]
 
@@ -133,7 +133,7 @@ def test_reconcile_reenqueues_stale_paused_jobs():
     rows = [
         {
             "job_id": "job-A",
-            "status": "paused_low_balance",
+            "status": "stopped",
             "host_id": "host-1",
             "container_name": "xcl-job-A",
             "state_age_ts": stale_ts,
@@ -160,7 +160,7 @@ def test_reconcile_reenqueues_stale_paused_jobs():
         func()
 
     names = {(h, c) for h, c, _ in enqueued}
-    assert ("host-1", "pause_container") in names
+    assert ("host-1", "stop_container") in names
     assert ("host-2", "stop_container") in names
 
 
@@ -171,7 +171,7 @@ def test_reconcile_skips_fresh_jobs():
     fresh_ts = time.time() - 30.0  # < 120s
     rows = [{
         "job_id": "job-fresh",
-        "status": "paused_low_balance",
+        "status": "stopped",
         "host_id": "host-1",
         "container_name": "xcl-job-fresh",
         "state_age_ts": fresh_ts,
@@ -194,7 +194,7 @@ def test_reconcile_skips_when_pending_command_exists():
     stale_ts = time.time() - 300.0
     rows = [{
         "job_id": "job-pending",
-        "status": "paused_low_balance",
+        "status": "stopped",
         "host_id": "host-1",
         "container_name": "xcl-job-pending",
         "state_age_ts": stale_ts,

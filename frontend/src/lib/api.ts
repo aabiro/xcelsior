@@ -487,6 +487,32 @@ export async function renameInstance(instanceId: string, name: string) {
   );
 }
 
+// ── Lock / Unlock / Reset (Phase 2 RunPod-style lifecycle) ───────────
+// Lock sets ``payload.locked = true`` so every mutating endpoint on the
+// instance returns 423 until unlock. Reset restarts the container with a
+// fresh /workspace while preserving named volumes.
+
+export async function lockInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; locked: boolean }>(
+    `/instances/${encodeURIComponent(instanceId)}/lock`,
+    { method: "POST" },
+  );
+}
+
+export async function unlockInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; locked: boolean }>(
+    `/instances/${encodeURIComponent(instanceId)}/unlock`,
+    { method: "POST" },
+  );
+}
+
+export async function resetInstance(instanceId: string) {
+  return apiFetch<{ ok: boolean; job_id: string; command_id: string }>(
+    `/instances/${encodeURIComponent(instanceId)}/reset`,
+    { method: "POST" },
+  );
+}
+
 export async function createTerminalTicket(instanceId: string) {
   return apiFetch<{ ok: boolean; ticket: string; expires_in: number }>(
     "/api/terminal/ticket",

@@ -239,8 +239,9 @@ _AGENT_COMMAND_ALLOWED = {
     "upgrade_agent",
     "rollback_agent",   # P1.2 — auto-rollback driver
     "stop_container",  # P3.2 — billing/admin-initiated container kill (+ rm)
-    "pause_container",  # P3/A3 — state-preserving stop (no rm), resume-able
-    "start_container",  # P3.2 — resume paused instance
+    "pause_container",  # internal: state-preserving stop primitive used by /stop
+    "start_container",  # P3.2 — (re)start a stopped container
+    "reset_container",  # P2 — restart with fresh /workspace, preserve volumes
     "snapshot_container",  # P3.1 — docker commit → user_images
 }
 

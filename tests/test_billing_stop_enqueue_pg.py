@@ -138,88 +138,6 @@ def captured_enqueue(monkeypatch):
 # ── Tests ────────────────────────────────────────────────────────────
 
 
-def test_pause_instance_enqueues_pause_container(cleanup_ids, captured_enqueue):
-    """BillingService.pause_instance MUST enqueue pause_container (NOT
-    stop_container, NOT SSH). Container must be preserved for resume."""
-    _mkhost(cleanup_ids, "h-pause")
-    job_id = _mkjob(
-        cleanup_ids,
-        owner="alice@test",
-        host_id="h-pause",
-        status="running",
-        container_name="xcl-alice-1",
-    )
-
-    from billing import BillingEngine
-
-    svc = BillingEngine()
-    result = svc.pause_instance(job_id, "user_paused")
-
-    assert result.get("paused") is True, f"expected paused=True, got {result!r}"
-    assert len(captured_enqueue) == 1, f"expected 1 enqueue, got {captured_enqueue!r}"
-    call = captured_enqueue[0]
-    assert call["host_id"] == "h-pause"
-    assert call["command"] == "pause_container", (
-        "PAUSE must use pause_container (preserves container) NOT stop_container"
-    )
-    assert call["args"]["container_name"] == "xcl-alice-1"
-    assert call["args"]["job_id"] == job_id
-    assert call["created_by"] == "billing_pause"
-
-
-def test_resume_instance_enqueues_start_container(cleanup_ids, captured_enqueue):
-    """BillingService.resume_instance MUST enqueue start_container via the
-    agent queue (NOT scheduler.run_job / SSH). CGNAT-safe parity with pause."""
-    _mkhost(cleanup_ids, "h-resume")
-    _mkwallet(cleanup_ids, "bob@test", balance_cad=25.0)
-    job_id = _mkjob(
-        cleanup_ids,
-        owner="bob@test",
-        host_id="h-resume",
-        status="user_paused",
-        container_name="xcl-bob-1",
-    )
-
-    from billing import BillingEngine
-
-    svc = BillingEngine()
-    result = svc.resume_instance(job_id)
-
-    assert result.get("resumed") is True, f"expected resumed=True, got {result!r}"
-    assert len(captured_enqueue) == 1, f"expected 1 enqueue, got {captured_enqueue!r}"
-    call = captured_enqueue[0]
-    assert call["host_id"] == "h-resume"
-    assert call["command"] == "start_container", (
-        "RESUME must use start_container (docker start on preserved container) "
-        "NOT scheduler.run_job / SSH"
-    )
-    assert call["args"]["container_name"] == "xcl-bob-1"
-    assert call["args"]["job_id"] == job_id
-    assert call["created_by"] == "billing_resume"
-
-
-def test_resume_blocked_when_wallet_empty(cleanup_ids, captured_enqueue):
-    """Resume must refuse and skip enqueue when wallet balance is zero."""
-    _mkhost(cleanup_ids, "h-empty")
-    _mkwallet(cleanup_ids, "carol@test", balance_cad=0.0)
-    job_id = _mkjob(
-        cleanup_ids,
-        owner="carol@test",
-        host_id="h-empty",
-        status="user_paused",
-        container_name="xcl-carol-1",
-    )
-
-    from billing import BillingEngine
-
-    svc = BillingEngine()
-    result = svc.resume_instance(job_id)
-
-    assert result.get("resumed") is False
-    assert result.get("reason") == "insufficient_balance"
-    assert captured_enqueue == [], "must NOT enqueue anything when wallet empty"
-
-
 def test_stop_instance_enqueues_pause_container_with_billing_stop_tag(
     cleanup_ids, captured_enqueue
 ):
@@ -263,8 +181,8 @@ def test_stop_instance_rejects_invalid_reason(cleanup_ids, captured_enqueue):
     assert captured_enqueue == [], "must not enqueue on invalid reason"
 
 
-def test_pause_skips_enqueue_when_job_not_running(cleanup_ids, captured_enqueue):
-    """If job is already paused/stopped/never-running, pause must no-op
+def test_stop_skips_enqueue_when_job_not_running(cleanup_ids, captured_enqueue):
+    """If job is already stopped/completed/never-running, stop must no-op
     cleanly without enqueueing a duplicate command."""
     _mkhost(cleanup_ids, "h-skip")
     job_id = _mkjob(
@@ -278,14 +196,14 @@ def test_pause_skips_enqueue_when_job_not_running(cleanup_ids, captured_enqueue)
     from billing import BillingEngine
 
     svc = BillingEngine()
-    result = svc.pause_instance(job_id, "user_paused")
+    result = svc.stop_instance(job_id, "user_stopped")
 
-    assert result.get("paused") is False
+    assert result.get("stopped") is False
     assert result.get("reason") == "not_running"
     assert captured_enqueue == []
 
 
-def test_billing_pause_args_shape_complete(cleanup_ids, captured_enqueue):
+def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
     """Contract guard: every billing-originated lifecycle command MUST carry
     container_name AND job_id in args. Missing either breaks the worker handler."""
     _mkhost(cleanup_ids, "h-shape")
@@ -300,7 +218,7 @@ def test_billing_pause_args_shape_complete(cleanup_ids, captured_enqueue):
     from billing import BillingEngine
 
     svc = BillingEngine()
-    svc.pause_instance(job_id, "user_paused")
+    svc.stop_instance(job_id, "user_stopped")
 
     assert len(captured_enqueue) == 1
     args = captured_enqueue[0]["args"]

@@ -260,6 +260,100 @@ signal.signal(signal.SIGINT, _signal_handler)
 # ── GPU Queries ──────────────────────────────────────────────────────
 
 
+# Explicit 1:1 map from raw ``nvidia-smi --query-gpu=name`` output to the
+# canonical short title used everywhere else in the platform (matches
+# db.py _GPU_PRICING_BASE and frontend/src/lib/gpu-models.ts). This map
+# is the ONLY place raw vendor names are translated — no fuzzy matching,
+# no regex normalizer. Unknown names cause the host to quarantine.
+_NVIDIA_SMI_NAME_MAP: dict[str, str] = {
+    # ── NVIDIA Data Center ──
+    "NVIDIA H200": "H200",
+    "NVIDIA H100 80GB HBM3": "H100",
+    "NVIDIA H100 PCIe": "H100",
+    "NVIDIA H100": "H100",
+    "NVIDIA H100 NVL": "H100 NVL",
+    "NVIDIA A100-SXM4-80GB": "A100",
+    "NVIDIA A100-SXM4-40GB": "A100",
+    "NVIDIA A100-PCIE-40GB": "A100",
+    "NVIDIA A100 80GB PCIe": "A100",
+    "NVIDIA A40": "A40",
+    "NVIDIA A30": "A30",
+    "NVIDIA A10": "A10",
+    "NVIDIA A16": "A16",
+    "NVIDIA L40S": "L40S",
+    "NVIDIA L40": "L40",
+    "NVIDIA L4": "L4",
+    "Tesla T4": "T4",
+    "Tesla V100-SXM2-32GB": "V100",
+    "Tesla V100-PCIE-32GB": "V100",
+    "Tesla V100-SXM2-16GB": "V100",
+    "Tesla V100-PCIE-16GB": "V100",
+    # ── NVIDIA RTX 50 Series ──
+    "NVIDIA GeForce RTX 5090": "RTX 5090",
+    "NVIDIA GeForce RTX 5080": "RTX 5080",
+    "NVIDIA GeForce RTX 5070 Ti": "RTX 5070 Ti",
+    "NVIDIA GeForce RTX 5070": "RTX 5070",
+    "NVIDIA GeForce RTX 5060 Ti": "RTX 5060 Ti",
+    "NVIDIA GeForce RTX 5060": "RTX 5060",
+    # ── NVIDIA RTX 40 Series ──
+    "NVIDIA GeForce RTX 4090": "RTX 4090",
+    "NVIDIA GeForce RTX 4080 SUPER": "RTX 4080 Super",
+    "NVIDIA GeForce RTX 4080": "RTX 4080",
+    "NVIDIA GeForce RTX 4070 Ti SUPER": "RTX 4070 Ti Super",
+    "NVIDIA GeForce RTX 4070 Ti": "RTX 4070 Ti",
+    "NVIDIA GeForce RTX 4070 SUPER": "RTX 4070 Super",
+    "NVIDIA GeForce RTX 4070": "RTX 4070",
+    "NVIDIA GeForce RTX 4060 Ti": "RTX 4060 Ti",
+    "NVIDIA GeForce RTX 4060": "RTX 4060",
+    # ── NVIDIA RTX 30 Series ──
+    "NVIDIA GeForce RTX 3090 Ti": "RTX 3090 Ti",
+    "NVIDIA GeForce RTX 3090": "RTX 3090",
+    "NVIDIA GeForce RTX 3080 Ti": "RTX 3080 Ti",
+    "NVIDIA GeForce RTX 3080": "RTX 3080",
+    "NVIDIA GeForce RTX 3070 Ti": "RTX 3070 Ti",
+    "NVIDIA GeForce RTX 3070": "RTX 3070",
+    "NVIDIA GeForce RTX 3060 Ti": "RTX 3060 Ti",
+    "NVIDIA GeForce RTX 3060": "RTX 3060",
+    # ── NVIDIA RTX 20 Series ──
+    "NVIDIA GeForce RTX 2080 Ti": "RTX 2080 Ti",
+    "NVIDIA GeForce RTX 2080 SUPER": "RTX 2080 Super",
+    "NVIDIA GeForce RTX 2080": "RTX 2080",
+    "NVIDIA GeForce RTX 2070 SUPER": "RTX 2070 Super",
+    "NVIDIA GeForce RTX 2070": "RTX 2070",
+    "NVIDIA GeForce RTX 2060 SUPER": "RTX 2060 Super",
+    "NVIDIA GeForce RTX 2060": "RTX 2060",
+    # ── NVIDIA Workstation ──
+    "NVIDIA RTX 6000 Ada Generation": "RTX 6000 Ada",
+    "NVIDIA RTX 5000 Ada Generation": "RTX 5000 Ada",
+    "NVIDIA RTX 4000 Ada Generation": "RTX 4000 Ada",
+    "NVIDIA RTX A6000": "RTX A6000",
+    "NVIDIA RTX A5000": "RTX A5000",
+    "NVIDIA RTX A4000": "RTX A4000",
+}
+
+
+def _canonicalize_gpu_model(raw_name: str) -> str:
+    """Translate a raw nvidia-smi GPU name to its canonical short title.
+
+    Returns the canonical short title (e.g. ``RTX 4090``) if known, or
+    the raw name as a last-resort fallback so the scheduler can still
+    see the host. Unknown names should be added to
+    ``_NVIDIA_SMI_NAME_MAP`` and the corresponding pricing row added to
+    ``db.py _GPU_PRICING_BASE``.
+    """
+    name = (raw_name or "").strip()
+    if not name:
+        return ""
+    mapped = _NVIDIA_SMI_NAME_MAP.get(name)
+    if mapped:
+        return mapped
+    log.warning(
+        "Unknown nvidia-smi GPU name %r — add to _NVIDIA_SMI_NAME_MAP",
+        name,
+    )
+    return name
+
+
 def get_gpu_info():
     """Query GPU name, total VRAM, free VRAM.
 
@@ -275,6 +369,7 @@ def get_gpu_info():
     if is_nvml_available():
         info = get_gpu_info_nvml()
         if info:
+            info["gpu_model"] = _canonicalize_gpu_model(info.get("gpu_model", ""))
             return info
 
     # Fallback: nvidia-smi subprocess
@@ -299,7 +394,7 @@ def get_gpu_info():
             raise RuntimeError(f"Unexpected nvidia-smi format: {lines[0]}")
 
         return {
-            "gpu_model": parts[0],
+            "gpu_model": _canonicalize_gpu_model(parts[0]),
             "total_vram_gb": round(float(parts[1]) / 1024, 2),
             "free_vram_gb": round(float(parts[2]) / 1024, 2),
         }
@@ -1129,17 +1224,19 @@ def drain_agent_commands() -> int:
                             cmd_id, r.returncode, stderr_trim,
                         )
                         # P3/B8 — previous code left the job stuck at status
-                        # 'running' (set optimistically by billing.resume_instance)
-                        # even though the container never started. Revert to
-                        # 'user_paused' with an error message so UI unsticks
-                        # and the user sees a real reason.
+                        # 'running' (set optimistically by the start path) even
+                        # though the container never started. Revert to
+                        # 'stopped' with an error message so the UI unsticks
+                        # and the user sees a real reason. (Pre-phase-2 this
+                        # used 'user_paused'; pause/resume were collapsed into
+                        # stop/start.)
                         if start_job_id:
                             try:
                                 report_job_status(
                                     start_job_id,
-                                    "user_paused",
-                                    error_message=f"resume failed: {stderr_trim}" or
-                                                  "resume failed: docker start exited non-zero",
+                                    "stopped",
+                                    error_message=f"start failed: {stderr_trim}" or
+                                                  "start failed: docker start exited non-zero",
                                 )
                             except Exception as cb_err:
                                 log.warning(
@@ -1153,8 +1250,8 @@ def drain_agent_commands() -> int:
                         try:
                             report_job_status(
                                 start_job_id,
-                                "user_paused",
-                                error_message="resume failed: docker start timed out",
+                                "stopped",
+                                error_message="start failed: docker start timed out",
                             )
                         except Exception as cb_err:
                             log.warning(
@@ -1162,6 +1259,51 @@ def drain_agent_commands() -> int:
                                 "job=%s failed: %s",
                                 cmd_id, start_job_id, cb_err,
                             )
+            elif name == "reset_container":
+                # P2 — restart the container with a fresh /workspace scratch
+                # dir. Named/bind-mount volumes are untouched; only the
+                # container's own ephemeral /workspace gets wiped so the
+                # user gets a clean slate without losing mounted data.
+                cname = str(args.get("container_name") or "")
+                if not cname:
+                    log.warning("reset_container cmd=%s missing container_name", cmd_id)
+                else:
+                    try:
+                        # `docker exec <cname> sh -c 'rm -rf /workspace/* /workspace/.[!.]*'`
+                        # wipes /workspace in-place, then restart the container
+                        # so tmp/log state resets as well.
+                        subprocess.run(
+                            [
+                                "docker",
+                                "exec",
+                                cname,
+                                "sh",
+                                "-c",
+                                "rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
+                        r = subprocess.run(
+                            ["docker", "restart", cname],
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
+                        if r.returncode == 0:
+                            dispatched += 1
+                        else:
+                            log.warning(
+                                "reset_container cmd=%s rc=%s stderr=%s",
+                                cmd_id,
+                                r.returncode,
+                                (r.stderr or "").strip()[:400],
+                            )
+                    except subprocess.TimeoutExpired:
+                        log.warning(
+                            "reset_container cmd=%s container=%s timed out", cmd_id, cname
+                        )
             elif name == "snapshot_container":
                 # P3.1 — `docker commit` the running container to a user
                 # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL

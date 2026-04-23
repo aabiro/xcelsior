@@ -225,7 +225,7 @@ def main():
                            j.submitted_at
                        ) AS state_age_ts
                   FROM jobs j
-                 WHERE j.status IN ('stopped', 'paused_low_balance', 'user_paused')
+                 WHERE j.status = 'stopped'
                    AND j.host_id IS NOT NULL AND j.host_id <> ''
                  ORDER BY j.submitted_at DESC
                  LIMIT 200
@@ -256,7 +256,12 @@ def main():
                 if pending:
                     continue
 
-                cmd = "stop_container" if status == "stopped" else "pause_container"
+                # Reconcile path: for a stopped job whose container might still
+                # be alive (agent missed the original stop/terminate), enqueue a
+                # fresh stop_container. Low-balance stops were previously routed
+                # to pause_container, but after Phase 2 we always use
+                # stop_container for reconciliation sweeps.
+                cmd = "stop_container"
                 try:
                     enqueue_agent_command(
                         host_id,

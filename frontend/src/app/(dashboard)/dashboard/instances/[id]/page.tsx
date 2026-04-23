@@ -295,7 +295,7 @@ export default function InstanceDetailPage() {
 
   const status = instance.status;
   const isRunning = status === "running";
-  const isStopped = status === "stopped" || status === "user_paused" || status === "paused_low_balance";
+  const isStopped = status === "stopped";
   const isQueued = status === "queued" || status === "assigned" || status === "leased";
   const isTransitional = status === "stopping" || status === "restarting" || status === "starting";
   const isFailed = status === "failed";
