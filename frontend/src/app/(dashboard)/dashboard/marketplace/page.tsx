@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
-import { Store, Search, RefreshCw, Cpu, MapPin, Zap } from "lucide-react";
+import { Store, Search, RefreshCw, Cpu, MapPin, Zap, X } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { MarketplaceListing } from "@/lib/api";
@@ -23,6 +24,16 @@ export default function MarketplacePage() {
   const [page, setPage] = useState(1);
   const api = useApi();
   const { t } = useLocale();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const templateId = searchParams.get("template");
+
+  const clearTemplate = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("template");
+    router.replace(`/dashboard/marketplace${params.size > 0 ? `?${params}` : ""}`);
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -75,6 +86,20 @@ export default function MarketplacePage() {
         </Button>
       </div>
 
+      {/* Template banner */}
+      {templateId && (
+        <div className="flex items-center gap-3 rounded-lg border border-ice-blue/30 bg-ice-blue/5 px-4 py-3 text-sm">
+          <Zap className="h-4 w-4 text-ice-blue shrink-0" />
+          <span className="flex-1">
+            Launching from template <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs">{templateId}</code>
+            {" "}— pick a GPU to continue.
+          </span>
+          <button onClick={clearTemplate} className="text-text-muted hover:text-text-primary transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
@@ -109,7 +134,11 @@ export default function MarketplacePage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {pageItems.map((listing) => (
-            <Card key={listing.host_id} className="p-5 card-hover">
+            <button
+              key={listing.host_id}
+              className="text-left w-full rounded-xl border border-border bg-surface p-5 card-hover cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue"
+              onClick={() => setRentListing(listing)}
+            >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Cpu className="h-5 w-5 text-ice-blue" />
@@ -134,18 +163,15 @@ export default function MarketplacePage() {
                   </div>
                 )}
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-lg font-bold font-mono">
-                    ${(listing.price_per_hour_cad || listing.price_per_hour)?.toFixed(2) || "—"}<span className="text-xs text-text-muted">{t("dash.market.per_hr")}</span>
-                  </span>
-                  <p className="text-xs text-emerald font-mono">
-                    ~${((listing.price_per_hour_cad || listing.price_per_hour || 0) * 0.7).toFixed(2)}/hr spot
-                  </p>
-                </div>
-                <Button size="sm" onClick={() => setRentListing(listing)}>{t("dash.market.rent")}</Button>
+              <div>
+                <span className="text-lg font-bold font-mono">
+                  ${(listing.price_per_hour_cad || listing.price_per_hour)?.toFixed(2) || "—"}<span className="text-xs text-text-muted">{t("dash.market.per_hr")}</span>
+                </span>
+                <p className="text-xs text-emerald font-mono">
+                  ~${((listing.price_per_hour_cad || listing.price_per_hour || 0) * 0.7).toFixed(2)}/hr spot
+                </p>
               </div>
-            </Card>
+            </button>
           ))}
         </div>
       )}
@@ -159,6 +185,7 @@ export default function MarketplacePage() {
         open={!!rentListing}
         onClose={() => setRentListing(null)}
         listing={rentListing ?? undefined}
+        templateId={templateId ?? undefined}
         onLaunched={() => setRentListing(null)}
       />
     </div>
