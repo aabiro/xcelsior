@@ -11,13 +11,16 @@ import { Pagination, usePagination } from "@/components/ui/pagination";
 import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
 import {
   Briefcase, Plus, Search, RefreshCw, XCircle, ArrowUpDown, ArrowUp, ArrowDown,
-  MoreVertical, Square, Play, RotateCcw, Zap, Camera,
+  Square, Play, RotateCcw, Zap, Camera, Lock, Unlock, Pencil, RotateCw,
 } from "lucide-react";
 import { RefreshCw as Restart } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import type { Instance } from "@/lib/api";
-import { stopInstance, startInstance, restartInstance, terminateInstance } from "@/lib/api";
+import {
+  stopInstance, startInstance, restartInstance, terminateInstance,
+  lockInstance, unlockInstance, resetInstance, renameInstance,
+} from "@/lib/api";
 import { toast } from "sonner";
 import { useEventStream } from "@/hooks/useEventStream";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -25,32 +28,41 @@ import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-di
 
 type SortKey = "name" | "gpu_type" | "status" | "created_at";
 type SortDir = "asc" | "desc";
-type ActionPending = { id: string; action: "stop" | "start" | "restart" | "terminate" | "cancel" | "requeue" } | null;
+type InstanceAction =
+  | "stop" | "start" | "restart" | "reset" | "terminate"
+  | "cancel" | "requeue" | "lock" | "unlock";
+type ActionPending = { id: string; action: InstanceAction } | null;
 
-const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
+const ACTION_CONFIRM: Record<InstanceAction, {
   title: string; description: string; confirmLabel: string; variant: "danger" | "default";
 }> = {
   stop: {
-    title: "Stop instance?",
-    description: "The container is gracefully stopped. Data and volumes are preserved. Storage billing continues.",
+    title: "Stop this instance?",
+    description: "You won't be charged for GPU time while it's stopped, but storage keeps running. Start it again whenever you're ready.",
     confirmLabel: "Stop",
     variant: "default",
   },
   start: {
-    title: "Start instance?",
+    title: "Start this instance?",
     description: "The container is restored from its stopped state. Compute billing resumes immediately.",
     confirmLabel: "Start",
     variant: "default",
   },
   restart: {
-    title: "Restart instance?",
-    description: "The container is stopped and restarted. All data is preserved. Billing is continuous — no gap.",
+    title: "Restart this instance?",
+    description: "The container is stopped and restarted. Data is preserved and billing is continuous.",
     confirmLabel: "Restart",
     variant: "default",
   },
+  reset: {
+    title: "Reset the container?",
+    description: "Restarts your pod with a fresh /workspace. Mounted volumes are preserved; ephemeral scratch data is wiped.",
+    confirmLabel: "Reset",
+    variant: "default",
+  },
   terminate: {
-    title: "Terminate instance?",
-    description: "Permanently shuts down and removes the container. Named volumes are preserved, but all other container data is lost. This cannot be undone.",
+    title: "Terminate this instance permanently?",
+    description: "All data in /workspace will be deleted and can't be recovered. Named volumes are preserved.",
     confirmLabel: "Terminate",
     variant: "danger",
   },
@@ -62,102 +74,186 @@ const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
   },
   requeue: {
     title: "Requeue instance?",
-    description: "The instance is returned to the queue and reassigned to a fresh host. Job definition and volumes are preserved; container state is reset.",
+    description: "Returns to the queue and is reassigned to a fresh host. Job definition and volumes are preserved; container state is reset.",
     confirmLabel: "Requeue",
     variant: "default",
   },
+  lock: {
+    title: "Lock this instance?",
+    description: "While locked, every lifecycle action (stop / start / restart / reset / terminate / rename) is blocked. Useful when you've configured something you don't want to wipe by accident.",
+    confirmLabel: "Lock",
+    variant: "default",
+  },
+  unlock: {
+    title: "Unlock this instance?",
+    description: "Re-enables all lifecycle actions.",
+    confirmLabel: "Unlock",
+    variant: "default",
+  },
 };
+
+function IconButton({
+  title,
+  onClick,
+  disabled,
+  tone = "default",
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: "default" | "danger" | "warn" | "success" | "accent";
+  children: React.ReactNode;
+}) {
+  const toneClass = {
+    default: "text-text-secondary hover:text-text-primary hover:bg-surface-hover",
+    danger: "text-accent-red/80 hover:text-accent-red hover:bg-accent-red/10",
+    warn: "text-accent-gold/80 hover:text-accent-gold hover:bg-accent-gold/10",
+    success: "text-emerald/80 hover:text-emerald hover:bg-emerald/10",
+    accent: "text-ice-blue/80 hover:text-ice-blue hover:bg-ice-blue/10",
+  }[tone];
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent ${disabled ? "text-text-tertiary" : toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 function RowActions({
   inst,
   onAction,
   onSnapshot,
+  onRename,
 }: {
   inst: Instance;
-  onAction: (id: string, action: NonNullable<ActionPending>["action"]) => void;
+  onAction: (id: string, action: InstanceAction) => void;
   onSnapshot: (inst: Instance) => void;
+  onRename: (inst: Instance) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [flipUp, setFlipUp] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const btnRef = useRef<HTMLDivElement>(null);
   const { status } = inst;
+  const isLocked = (inst as unknown as { locked?: boolean; payload?: { locked?: boolean } }).locked === true
+    || (inst as unknown as { payload?: { locked?: boolean } }).payload?.locked === true;
   const isRunning = status === "running";
-  const isStopped = ["stopped", "user_paused", "paused_low_balance"].includes(status);
+  const isStopped = status === "stopped";
   const isQueued = ["queued", "assigned", "leased"].includes(status);
-  const isFailed = status === "failed";
   const isTerminal = ["completed", "failed", "cancelled", "terminated", "preempted"].includes(status);
 
-  useEffect(() => {
-    if (!open) return;
-    function close(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
-
-  type ActionItem = {
-    label: string;
-    action: NonNullable<ActionPending>["action"] | "snapshot";
-    icon: React.ReactNode;
-    className?: string;
-  };
-  const actions: ActionItem[] = [
-    ...(isRunning
-      ? [
-          { label: "Stop", action: "stop" as const, icon: <Square className="h-3.5 w-3.5" />, className: "text-accent-gold" },
-          { label: "Restart", action: "restart" as const, icon: <Restart className="h-3.5 w-3.5" />, className: "text-ice-blue" },
-          { label: "Save as Template", action: "snapshot" as const, icon: <Camera className="h-3.5 w-3.5" />, className: "text-accent-cyan" },
-        ]
-      : []),
-    ...(isStopped
-      ? [
-          { label: "Start", action: "start" as const, icon: <Play className="h-3.5 w-3.5" />, className: "text-emerald" },
-          { label: "Restart", action: "restart" as const, icon: <Restart className="h-3.5 w-3.5" />, className: "text-ice-blue" },
-        ]
-      : []),
-    ...(isTerminal ? [{ label: "Requeue", action: "requeue" as const, icon: <RotateCcw className="h-3.5 w-3.5" /> }] : []),
-    ...(isQueued ? [{ label: "Cancel", action: "cancel" as const, icon: <XCircle className="h-3.5 w-3.5" />, className: "text-accent-red" }] : []),
-    ...(!isTerminal ? [{ label: "Terminate", action: "terminate" as const, icon: <Zap className="h-3.5 w-3.5" />, className: "text-accent-red" }] : []),
-  ];
-
-  if (actions.length === 0) return null;
-
-  const toggleOpen = () => {
-    if (!open && btnRef.current) {
-      // Decide whether to flip upward. Each menu item is ~36px tall + 2px border.
-      const estHeight = actions.length * 36 + 4;
-      const rect = btnRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      setFlipUp(spaceBelow < estHeight + 12);
-    }
-    setOpen(!open);
-  };
-
-  return (
-    <div className="relative" ref={ref}>
-      <div ref={btnRef as React.RefObject<HTMLDivElement>} className="inline-flex">
-        <Button variant="ghost" size="sm" onClick={toggleOpen}>
-          <MoreVertical className="h-3.5 w-3.5" />
-        </Button>
+  // Locked: only Unlock works. Everything else is visibly disabled so the
+  // user understands *why* actions are ghosted rather than silently failing.
+  if (isLocked) {
+    return (
+      <div className="inline-flex items-center gap-0.5">
+        <IconButton
+          title="Unlock instance"
+          tone="warn"
+          onClick={() => onAction(inst.job_id, "unlock")}
+        >
+          <Unlock className="h-3.5 w-3.5" />
+        </IconButton>
+        <IconButton title="Locked — unlock to edit" onClick={() => {}} disabled>
+          <Pencil className="h-3.5 w-3.5" />
+        </IconButton>
+        <IconButton title="Locked — unlock to restart" onClick={() => {}} disabled>
+          <Restart className="h-3.5 w-3.5" />
+        </IconButton>
+        <IconButton title="Locked — unlock to stop/terminate" onClick={() => {}} disabled>
+          <Square className="h-3.5 w-3.5" />
+        </IconButton>
       </div>
-      {open && (
-        <div className={`absolute right-0 ${flipUp ? "bottom-full mb-1" : "top-full mt-1"} z-50 w-48 rounded-lg border border-border bg-surface shadow-xl`}>
-          {actions.map((a) => (
-            <button
-              key={a.action + a.label}
-              onClick={() => {
-                setOpen(false);
-                if (a.action === "snapshot") onSnapshot(inst);
-                else onAction(inst.job_id, a.action);
-              }}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm whitespace-nowrap hover:bg-surface-hover transition-colors ${a.className ?? "text-text-secondary"}`}
-            >
-              {a.icon} {a.label}
-            </button>
-          ))}
-        </div>
+    );
+  }
+
+  // Compose the inline row. The intent is RunPod-style: see all actions at a
+  // glance, click directly without opening a dropdown. Unlike the old
+  // ⋮-menu layout, this lets users build muscle-memory around icon positions.
+  return (
+    <div className="inline-flex items-center gap-0.5">
+      {(isRunning || isStopped) && (
+        <IconButton
+          title="Lock instance"
+          onClick={() => onAction(inst.job_id, "lock")}
+        >
+          <Lock className="h-3.5 w-3.5" />
+        </IconButton>
+      )}
+      {(isRunning || isStopped) && (
+        <IconButton title="Rename" onClick={() => onRename(inst)}>
+          <Pencil className="h-3.5 w-3.5" />
+        </IconButton>
+      )}
+      {isRunning && (
+        <>
+          <IconButton
+            title="Restart container"
+            tone="accent"
+            onClick={() => onAction(inst.job_id, "restart")}
+          >
+            <RotateCw className="h-3.5 w-3.5" />
+          </IconButton>
+          <IconButton
+            title="Reset /workspace (preserves volumes)"
+            tone="accent"
+            onClick={() => onAction(inst.job_id, "reset")}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </IconButton>
+          <IconButton
+            title="Save as template"
+            tone="accent"
+            onClick={() => onSnapshot(inst)}
+          >
+            <Camera className="h-3.5 w-3.5" />
+          </IconButton>
+          <IconButton
+            title="Stop instance"
+            tone="warn"
+            onClick={() => onAction(inst.job_id, "stop")}
+          >
+            <Square className="h-3.5 w-3.5" />
+          </IconButton>
+        </>
+      )}
+      {isStopped && (
+        <>
+          <IconButton
+            title="Start instance"
+            tone="success"
+            onClick={() => onAction(inst.job_id, "start")}
+          >
+            <Play className="h-3.5 w-3.5" />
+          </IconButton>
+          <IconButton
+            title="Terminate instance"
+            tone="danger"
+            onClick={() => onAction(inst.job_id, "terminate")}
+          >
+            <Zap className="h-3.5 w-3.5" />
+          </IconButton>
+        </>
+      )}
+      {isQueued && (
+        <IconButton
+          title="Cancel queued instance"
+          tone="danger"
+          onClick={() => onAction(inst.job_id, "cancel")}
+        >
+          <XCircle className="h-3.5 w-3.5" />
+        </IconButton>
+      )}
+      {isTerminal && (
+        <IconButton
+          title="Requeue"
+          onClick={() => onAction(inst.job_id, "requeue")}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </IconButton>
       )}
     </div>
   );
@@ -224,28 +320,35 @@ export default function InstancesPage() {
     // the server round-trip (the terminate endpoint is 202 accepted + async
     // SSH kill, so ground truth can lag several seconds). If the API call
     // fails, `load()` in the catch path corrects the optimistic state.
-    const optimisticStatus: Record<typeof action, string> = {
+    const optimisticStatus: Partial<Record<InstanceAction, string>> = {
       stop: "stopping",
       start: "starting",
       restart: "starting",
       terminate: "terminated",
       cancel: "cancelled",
       requeue: "queued",
+      // reset/lock/unlock don't change status — omit so the row stays put
     };
     const prevInstances = instances;
-    setInstances((curr) =>
-      curr.map((inst) =>
-        inst.job_id === id ? { ...inst, status: optimisticStatus[action] } : inst,
-      ),
-    );
+    const target = optimisticStatus[action];
+    if (target) {
+      setInstances((curr) =>
+        curr.map((inst) =>
+          inst.job_id === id ? { ...inst, status: target } : inst,
+        ),
+      );
+    }
     try {
       switch (action) {
         case "stop":      await stopInstance(id);        toast.success("Instance stopping…"); break;
         case "start":     await startInstance(id);       toast.success("Instance starting…"); break;
         case "restart":   await restartInstance(id);     toast.success("Instance restarting…"); break;
+        case "reset":     await resetInstance(id);       toast.success("Container resetting…"); break;
         case "terminate": await terminateInstance(id);   toast.success("Instance terminating…"); break;
         case "cancel":    await api.cancelInstance(id);  toast.success("Instance cancelled"); break;
         case "requeue":   await api.requeueInstance(id); toast.success("Instance requeued"); break;
+        case "lock":      await lockInstance(id);        toast.success("Instance locked"); break;
+        case "unlock":    await unlockInstance(id);      toast.success("Instance unlocked"); break;
       }
       load();
     } catch (err) {
@@ -417,7 +520,22 @@ export default function InstancesPage() {
                       <Link href={`/dashboard/instances/${inst.job_id}`}>
                         <Button variant="ghost" size="sm">View</Button>
                       </Link>
-                      <RowActions inst={inst} onAction={requestAction} onSnapshot={setSnapshotTarget} />
+                      <RowActions
+                        inst={inst}
+                        onAction={requestAction}
+                        onSnapshot={setSnapshotTarget}
+                        onRename={async (i) => {
+                          const next = window.prompt("Rename instance:", i.name || "");
+                          if (!next || next.trim() === i.name) return;
+                          try {
+                            await renameInstance(i.job_id, next.trim());
+                            toast.success("Renamed");
+                            load();
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : "Rename failed");
+                          }
+                        }}
+                      />
                     </div>
                   </td>
                 </tr>

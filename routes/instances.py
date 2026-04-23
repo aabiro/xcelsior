@@ -826,6 +826,7 @@ def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Reque
     caller = user.get("customer_id", user.get("user_id", ""))
     if not is_admin and owner != caller:
         raise HTTPException(403, "Not authorized")
+    _check_not_locked(job)
     _set_job_fields(job_id, name=body.name.strip())
     broadcast_sse("job_update", {"job_id": job_id, "name": body.name.strip()})
     return {"ok": True, "job_id": job_id, "name": body.name.strip()}
@@ -920,14 +921,31 @@ def api_requeue_instance(job_id: str, request: Request):
     return {"ok": True, "instance": result}
 
 
-# ── Pause / Resume ───────────────────────────────────────────────────
+# ── Lock / Unlock / Reset ────────────────────────────────────────────
+#
+# Lock: a user-set safety flag stored at ``payload.locked = true``. While
+# locked, every mutating endpoint on this instance (stop/start/restart/
+# reset/terminate/rename) returns 423 Locked. Only /unlock can flip it
+# back off. No backend plumbing beyond the payload flag — it's purely an
+# "are you sure you mean to do this" foot-gun guard.
 
 
-@router.post("/instances/{job_id}/pause", tags=["Instances"])
-def api_pause_instance(job_id: str, request: Request):
-    """Pause a running instance. Stops the container but preserves volumes.
+def _check_not_locked(job: dict) -> None:
+    """Raise HTTP 423 if the instance is user-locked."""
+    if job.get("locked") is True or (job.get("payload") or {}).get("locked") is True:
+        raise HTTPException(
+            status_code=423,
+            detail="Instance is locked. Unlock it first to make changes.",
+        )
 
-    Requires authentication. Only the instance owner or an admin can pause.
+
+def _authorize_instance_mutation(
+    request: Request, job_id: str, action: str
+) -> tuple[dict, dict]:
+    """Shared owner/admin + existence + lock guard for mutating endpoints.
+
+    Returns (user, job). Raises 404/403 as appropriate. Does NOT check
+    status — callers enforce status constraints themselves.
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
@@ -940,70 +958,73 @@ def api_pause_instance(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
-    # Owner check (admins can pause any instance)
     job_owner = job.get("owner", "")
     if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to pause this instance")
+        raise HTTPException(
+            status_code=403, detail=f"Not authorized to {action} this instance"
+        )
+    return user, job
+
+
+@router.post("/instances/{job_id}/lock", tags=["Instances"])
+def api_lock_instance(job_id: str, request: Request):
+    """Lock the instance against accidental modification.
+
+    Sets ``payload.locked = true``. Subsequent stop/start/restart/reset/
+    terminate/rename requests will return 423 until /unlock is called.
+    """
+    _user, _job = _authorize_instance_mutation(request, job_id, "lock")
+    from scheduler import _set_job_fields
+
+    _set_job_fields(job_id, locked=True)
+    broadcast_sse("instance_locked", {"job_id": job_id})
+    return {"ok": True, "job_id": job_id, "locked": True}
+
+
+@router.post("/instances/{job_id}/unlock", tags=["Instances"])
+def api_unlock_instance(job_id: str, request: Request):
+    """Remove the lock flag."""
+    _user, _job = _authorize_instance_mutation(request, job_id, "unlock")
+    from scheduler import _set_job_fields
+
+    _set_job_fields(job_id, locked=False)
+    broadcast_sse("instance_unlocked", {"job_id": job_id})
+    return {"ok": True, "job_id": job_id, "locked": False}
+
+
+@router.post("/instances/{job_id}/reset", tags=["Instances"])
+def api_reset_instance(job_id: str, request: Request):
+    """Reset the container (running instance only).
+
+    Restarts the container with a fresh ``/workspace`` scratch space,
+    preserving mounted named volumes and the container config. Compute
+    billing is continuous. Requires a positive wallet balance.
+    """
+    _user, job = _authorize_instance_mutation(request, job_id, "reset")
+    _check_not_locked(job)
 
     if job.get("status") != "running":
-        raise HTTPException(status_code=400, detail=f"Instance is {job.get('status')}, not running")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Instance is '{job.get('status')}', must be running to reset",
+        )
 
-    from billing import get_billing_engine
+    host_id = job.get("host_id") or ""
+    if not host_id:
+        raise HTTPException(status_code=400, detail="Instance has no host assigned")
 
-    be = get_billing_engine()
-    result = be.pause_instance(job_id, reason="user_paused")
-    if not result.get("paused"):
-        raise HTTPException(status_code=400, detail=result.get("reason", "pause failed"))
+    container_name = job.get("container_name") or f"xcl-{job_id}"
 
-    broadcast_sse("instance_paused", {"job_id": job_id})
-    return {"ok": True, "instance": result}
+    from routes.agent import enqueue_agent_command
 
-
-@router.post("/instances/{job_id}/resume", tags=["Instances"])
-def api_resume_instance(job_id: str, request: Request):
-    """Resume a paused instance. Restarts the container from preserved state.
-
-    Requires authentication. Only the instance owner or an admin can resume.
-    Returns 402 if wallet has insufficient funds.
-    """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    # Owner check (admins can resume any instance)
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to resume this instance")
-
-    status = job.get("status", "")
-    if status not in ("paused_low_balance", "user_paused"):
-        raise HTTPException(status_code=400, detail=f"Instance is {status}, not paused")
-
-    # Wallet pre-flight — must have funds to resume
-    from billing import get_billing_engine
-
-    be = get_billing_engine()
-    wallet = be.get_wallet(job_owner or customer_id)
-    if wallet.get("status") == "suspended":
-        raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
-    if wallet["balance_cad"] <= 0:
-        raise HTTPException(status_code=402, detail="Insufficient wallet balance to resume")
-
-    result = be.resume_instance(job_id)
-    if not result.get("resumed"):
-        detail = result.get("reason", "resume failed")
-        code = 402 if detail == "insufficient_balance" else 400
-        raise HTTPException(status_code=code, detail=detail)
-
-    broadcast_sse("instance_resumed", {"job_id": job_id})
-    return {"ok": True, "instance": result}
+    cmd_id = enqueue_agent_command(
+        host_id=host_id,
+        command="reset_container",
+        args={"job_id": job_id, "container_name": container_name},
+        created_by=_user.get("customer_id", _user.get("user_id", "")),
+    )
+    broadcast_sse("instance_reset", {"job_id": job_id})
+    return {"ok": True, "command_id": cmd_id, "job_id": job_id}
 
 
 # ── Stop / Start / Restart / Terminate ──────────────────────────────
@@ -1031,6 +1052,8 @@ def api_stop_instance(job_id: str, request: Request):
     job_owner = job.get("owner", "")
     if role != "admin" and job_owner != customer_id:
         raise HTTPException(status_code=403, detail="Not authorized to stop this instance")
+
+    _check_not_locked(job)
 
     if job.get("status") != "running":
         raise HTTPException(
@@ -1071,8 +1094,9 @@ def api_start_instance(job_id: str, request: Request):
     if role != "admin" and job_owner != customer_id:
         raise HTTPException(status_code=403, detail="Not authorized to start this instance")
 
-    allowed_statuses = {"stopped", "user_paused", "paused_low_balance"}
-    if job.get("status") not in allowed_statuses:
+    _check_not_locked(job)
+
+    if job.get("status") != "stopped":
         raise HTTPException(
             status_code=400, detail=f"Instance is '{job.get('status')}', must be stopped to start"
         )
@@ -1120,6 +1144,8 @@ def api_restart_instance(job_id: str, request: Request):
     job_owner = job.get("owner", "")
     if role != "admin" and job_owner != customer_id:
         raise HTTPException(status_code=403, detail="Not authorized to restart this instance")
+
+    _check_not_locked(job)
 
     if job.get("status") not in ("running", "stopped"):
         raise HTTPException(
@@ -1216,6 +1242,8 @@ def api_terminate_instance(job_id: str, request: Request):
     job_owner = job.get("owner", "")
     if role != "admin" and job_owner != customer_id:
         raise HTTPException(status_code=403, detail="Not authorized to terminate this instance")
+
+    _check_not_locked(job)
 
     terminal_statuses = {"terminated", "completed", "failed", "preempted", "cancelled"}
     if job.get("status") in terminal_statuses:

@@ -15,8 +15,6 @@ We use a static-source check rather than full integration because:
      what we want to detect.
 
 Sites covered:
-- BillingService.pause_instance       → "pause_container"  (preserves container)
-- BillingService.resume_instance      → "start_container"
 - BillingService.stop_instance        → "pause_container"  (state-machine: STOPPED→RESTARTING needs container)
 - suspended-wallet sweep / grace expired → "stop_container"
 """
@@ -50,23 +48,6 @@ def _enqueue_calls(src: str) -> list[tuple[str, str]]:
         re.MULTILINE | re.DOTALL,
     )
     return [(m.group("by"), m.group("cmd")) for m in pat.finditer(src)]
-
-
-def test_pause_instance_uses_pause_container(billing_src: str) -> None:
-    pairs = _enqueue_calls(billing_src)
-    assert ("billing_pause", "pause_container") in pairs, (
-        "pause_instance must enqueue pause_container (docker stop only "
-        "— container survives so resume can docker start it). Found: " + repr(pairs)
-    )
-
-
-def test_resume_instance_uses_start_container(billing_src: str) -> None:
-    pairs = _enqueue_calls(billing_src)
-    assert ("billing_resume", "start_container") in pairs, (
-        "resume_instance must enqueue start_container via agent queue "
-        "(NOT scheduler.run_job — that uses SSH which fails on CGNAT hosts). "
-        "Found: " + repr(pairs)
-    )
 
 
 def test_stop_instance_preserves_container(billing_src: str) -> None:

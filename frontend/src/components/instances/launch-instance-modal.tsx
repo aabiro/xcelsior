@@ -28,6 +28,7 @@ import type {
   Volume,
 } from "@/lib/api";
 import { cn, generateFunName } from "@/lib/utils";
+import { getVramOptions } from "@/lib/gpu-models";
 import { markInstanceLaunched } from "@/components/InstallBanner";
 import {
   Activity,
@@ -210,12 +211,9 @@ export function LaunchInstanceModal({
   const gpuModelOptions = gpuInventoryOptions;
   const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
 
-  // VRAM options per selected GPU model — derived from inventory
-  const FALLBACK_VRAM: Record<string, number[]> = {
-    "RTX 2060": [6], "RTX 3090": [24], "RTX 4080": [16], "RTX 4090": [24], "RTX 5090": [32],
-    "A100 40GB": [40], "A100 80GB": [80], "A100": [40, 80],
-    "L40": [48], "L40S": [48], "H100": [80], "H200": [141],
-  };
+  // VRAM options per selected GPU model — derived from live inventory
+  // when available, otherwise from the canonical catalog in
+  // frontend/src/lib/gpu-models.ts.
   const vramOptionsForGpu: number[] = (() => {
     if (!resolvedGpu) return [];
     // Collect unique VRAM values from live inventory for this model
@@ -225,7 +223,7 @@ export function LaunchInstanceModal({
         .map((g) => g.vram_gb),
     )].sort((a, b) => a - b);
     if (fromInventory.length > 0) return fromInventory;
-    return FALLBACK_VRAM[resolvedGpu] ?? [];
+    return getVramOptions(resolvedGpu);
   })();
   const resolvedVramGb = vramGb || (vramOptionsForGpu.length === 1 ? vramOptionsForGpu[0] : undefined);
 

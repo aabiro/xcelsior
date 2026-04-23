@@ -64,10 +64,10 @@ def test_b8_start_container_reports_failure_to_api():
     assert idx >= 0
     end = src.find('elif name ==', idx + 1)
     body = src[idx: end if end > 0 else idx + 4000]
-    # Must revert to user_paused on failure (not leave at 'running')
+    # Must revert to stopped on failure (not leave at 'running')
     assert 'report_job_status' in body, "B8 missing report_job_status callback"
-    assert '"user_paused"' in body, "B8 must revert to user_paused on failure"
-    assert 'resume failed' in body.lower()
+    assert '"stopped"' in body, "B8 must revert to stopped on failure"
+    assert 'start failed' in body.lower()
 
 
 def test_b8_start_container_handles_timeout():

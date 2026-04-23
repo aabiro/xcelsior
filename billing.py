@@ -981,201 +981,27 @@ class BillingEngine:
             "promo_available": True,
         }
 
-    # ── Instance Pause / Resume ───────────────────────────────────────
+    # ── Instance Pause / Resume (REMOVED) ─────────────────────────────
+    #
+    # User-facing pause/resume was removed in favour of a RunPod-style
+    # stop/start lifecycle: stopped instances preserve their container
+    # (via the internal pause_container docker primitive) and can be
+    # started again by the owner at any time. Low-balance auto-stops now
+    # set ``payload.stop_reason = 'low_balance'`` instead of a distinct
+    # ``paused_low_balance`` status, so the UI has one consistent
+    # "stopped" surface. See alembic migration 031_drop_pause_resume_state.
 
-    _VALID_PAUSE_REASONS = frozenset({"paused_low_balance", "user_paused"})
-
-    def pause_instance(self, job_id: str, reason: str = "paused_low_balance") -> dict:
-        """Pause a running instance: stop container, preserve volume, stop billing.
-
-        Per Phase 1.3: pause_instance() stops the container but preserves
-        the volume mount so the user can resume later.
-        """
-        if reason not in self._VALID_PAUSE_REASONS:
-            return {
-                "paused": False,
-                "reason": f"invalid_reason: must be one of {sorted(self._VALID_PAUSE_REASONS)}",
-            }
-        from db import _get_pg_pool
-        from psycopg.rows import dict_row
-
-        now = time.time()
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            job = conn.execute(
-                """SELECT job_id, status, host_id,
-                          payload->>'owner' AS owner,
-                          payload->>'name' AS name,
-                          payload->>'container_name' AS container_name
-                   FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
-                (job_id,),
-            ).fetchone()
-            if not job:
-                return {"paused": False, "reason": "not_running"}
-
-            conn.execute(
-                """UPDATE jobs SET status = %s,
-                   payload = jsonb_set(
-                       jsonb_set(payload, '{paused_at}', to_jsonb(%s::float)),
-                       '{status}', %s::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (reason, now, json.dumps(reason), job_id),
-            )
-            # Insert a zero-amount billing cycle to anchor the billing period.
-            # Without this, resume would bill for the entire paused duration.
-            owner = job.get("owner") or ""
-            cycle_id = f"BC-pause-{int(now)}-{os.urandom(3).hex()}"
-            conn.execute(
-                """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_cad, status, created_at)
-                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'paused', %s)""",
-                (cycle_id, job_id, owner, job.get("host_id", ""), now, now, now),
-            )
-            conn.commit()
-
-        # Enqueue pause_container on the host (preserve volumes AND container
-        # state) via agent queue. pause_container = docker stop only (no rm),
-        # so resume can `docker start` the same container cheaply.
-        owner = job.get("owner") or ""
-        host_id = job.get("host_id") or ""
-        container_name = job.get("container_name") or f"xcl-{job_id}"
-        if host_id:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "pause_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_pause",
-                )
-                log.info("PAUSE pause_container queued: %s on %s", container_name, host_id)
-            except Exception as e:
-                log.warning("PAUSE container stop enqueue failed for %s: %s", job_id, e)
-
-        # Send notification
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="billing_pause",
-                title=f"Instance paused: {job.get('name', job_id)}",
-                body=f"Your instance was paused due to {reason.replace('_', ' ')}. "
-                "Add funds to resume.",
-                data={"job_id": job_id, "reason": reason},
-            )
-        except Exception:
-            pass  # non-critical
-
-        log.warning("PAUSE job=%s reason=%s owner=%s", job_id, reason, owner)
-        return {"paused": True, "job_id": job_id, "reason": reason}
-
-    def resume_instance(self, job_id: str) -> dict:
-        """Resume a paused instance: restart container from preserved state.
-
-        Per Phase 1.3: wallet top-up triggers resume_instance() to restart
-        the container from its preserved state.
-        """
-        from db import _get_pg_pool
-        from psycopg.rows import dict_row
-
-        now = time.time()
-        pool = _get_pg_pool()
-        with pool.connection() as conn:
-            conn.row_factory = dict_row
-            job = conn.execute(
-                """SELECT job_id, status, host_id,
-                          payload->>'owner' AS owner,
-                          payload->>'name' AS name,
-                          payload->>'image' AS image,
-                          payload->>'container_name' AS container_name
-                   FROM jobs
-                   WHERE job_id = %s AND status IN ('paused_low_balance', 'user_paused') FOR UPDATE""",
-                (job_id,),
-            ).fetchone()
-            if not job:
-                return {"resumed": False, "reason": "not_paused"}
-
-            # Verify wallet has funds
-            owner = job.get("owner") or ""
-            wallet = self.get_wallet(owner)
-            if wallet["balance_cad"] <= 0:
-                return {"resumed": False, "reason": "insufficient_balance"}
-
-            conn.execute(
-                """UPDATE jobs SET status = 'running',
-                   payload = jsonb_set(
-                       jsonb_set(
-                           jsonb_set(payload, '{paused_at}', '0'::jsonb),
-                           '{resumed_at}', to_jsonb(%s::float)
-                       ),
-                       '{status}', %s::jsonb
-                   )
-                   WHERE job_id = %s""",
-                (now, json.dumps("running"), job_id),
-            )
-            # Insert a billing anchor at resume time so billing starts fresh
-            cycle_id = f"BC-resume-{int(now)}-{os.urandom(3).hex()}"
-            conn.execute(
-                """INSERT INTO billing_cycles
-                   (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                    duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                    amount_cad, status, created_at)
-                   VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 0, 0, '', '', 1.0, 0, 'resumed', %s)""",
-                (cycle_id, job_id, owner, job.get("host_id", ""), now, now, now),
-            )
-            conn.commit()
-
-        # Restart the container on the host via agent queue (CGNAT-safe).
-        # Previously used scheduler.run_job (SSH-over-Tailscale), which was
-        # asymmetric with the pause path and would fail on hosts with no
-        # reachable SSH. start_container just issues `docker start` on the
-        # preserved paused container.
-        host_id = job.get("host_id") or ""
-        container_name = job.get("container_name") or f"xcl-{job_id}"
-        if host_id:
-            try:
-                from routes.agent import enqueue_agent_command
-                from scheduler import _validate_name
-
-                _validate_name(container_name, "container name")
-                enqueue_agent_command(
-                    host_id,
-                    "start_container",
-                    {"container_name": container_name, "job_id": job_id},
-                    created_by="billing_resume",
-                )
-                log.info("RESUME start_container queued: %s on %s", container_name, host_id)
-            except Exception as e:
-                log.warning("RESUME container start enqueue failed for %s: %s", job_id, e)
-
-        # Send notification
-        try:
-            from db import NotificationStore
-
-            NotificationStore.create(
-                user_email=owner,
-                notif_type="billing_resume",
-                title=f"Instance resumed: {job.get('name', job_id)}",
-                body="Your instance has been resumed after funds were added.",
-                data={"job_id": job_id},
-            )
-        except Exception:
-            pass  # non-critical
-
-        log.info("RESUME job=%s owner=%s", job_id, owner)
-        return {"resumed": True, "job_id": job_id, "status": "running"}
+    def _removed_pause_resume_stub(self, job_id: str, *args, **kwargs) -> dict:
+        """Placeholder — pause/resume removed; callers must use stop/start."""
+        raise RuntimeError(
+            "pause_instance/resume_instance were removed; use stop_instance/start_instance"
+        )
 
     # ── Instance Lifecycle: Stop / Start / Restart / Terminate ───────
 
-    _VALID_STOP_REASONS = frozenset({"user_stopped", "paused_low_balance", "billing_suspended"})
+    _VALID_STOP_REASONS = frozenset(
+        {"user_stopped", "low_balance", "billing_suspended", "paused_low_balance"}
+    )
 
     def stop_instance(self, job_id: str, reason: str = "user_stopped") -> dict:
         """Gracefully stop a running instance. Container is preserved for restart.
@@ -1253,16 +1079,34 @@ class BillingEngine:
 
         # Update final status (optimistic; reconciler catches drift).
         final_status = "stopped" if stop_queued else "running"
+        # Normalize caller reason into the user-facing stop_reason tag
+        # persisted on payload.stop_reason (stays consistent with the
+        # alembic 031 migration values: "user" or "low_balance").
+        if reason in ("paused_low_balance", "low_balance"):
+            stop_reason_tag = "low_balance"
+        elif reason == "billing_suspended":
+            stop_reason_tag = "billing_suspended"
+        else:
+            stop_reason_tag = "user"
         with pool.connection() as conn:
             conn.row_factory = dict_row
             conn.execute(
                 """UPDATE jobs SET status = %s,
                    payload = jsonb_set(
-                       jsonb_set(payload, '{stopped_at}', to_jsonb(%s::float)),
-                       '{status}', %s::jsonb
+                       jsonb_set(
+                           jsonb_set(payload, '{stopped_at}', to_jsonb(%s::float)),
+                           '{status}', %s::jsonb
+                       ),
+                       '{stop_reason}', %s::jsonb
                    )
                    WHERE job_id = %s""",
-                (final_status, now, json.dumps(final_status), job_id),
+                (
+                    final_status,
+                    now,
+                    json.dumps(final_status),
+                    json.dumps(stop_reason_tag),
+                    job_id,
+                ),
             )
             # Billing anchor: closes the current compute billing period.
             if stop_queued:
@@ -1317,7 +1161,7 @@ class BillingEngine:
                           payload->>'name' AS name,
                           payload->>'container_name' AS container_name
                    FROM jobs
-                   WHERE job_id = %s AND status IN ('stopped', 'user_paused', 'paused_low_balance') FOR UPDATE""",
+                   WHERE job_id = %s AND status = 'stopped' FOR UPDATE""",
                 (job_id,),
             ).fetchone()
             if not job:
@@ -2402,10 +2246,13 @@ class BillingEngine:
                             (new_failures, now, customer_id),
                         )
                         log.warning(
-                            "Auto-topup DISABLED for %s after 3 failures — pausing instances",
+                            "Auto-topup DISABLED for %s after 3 failures — stopping instances",
                             customer_id,
                         )
-                        # Pause all running instances for this customer
+                        # Stop all running instances for this customer with
+                        # stop_reason=low_balance. The container is preserved
+                        # (pause_container = docker stop only); the user can
+                        # start it again after topping up.
                         running = conn.execute(
                             """SELECT job_id, host_id,
                                       payload->>'container_name' AS container_name
@@ -2414,7 +2261,12 @@ class BillingEngine:
                         ).fetchall()
                         for job in running:
                             conn.execute(
-                                "UPDATE jobs SET status = 'paused_low_balance', payload = jsonb_set(payload, '{paused_at}', to_jsonb(%s::float)) WHERE job_id = %s",
+                                """UPDATE jobs SET status = 'stopped',
+                                   payload = jsonb_set(
+                                       jsonb_set(payload, '{paused_at}', to_jsonb(%s::float)),
+                                       '{stop_reason}', '\"low_balance\"'::jsonb
+                                   )
+                                   WHERE job_id = %s""",
                                 (now, job["job_id"]),
                             )
                         conn.commit()

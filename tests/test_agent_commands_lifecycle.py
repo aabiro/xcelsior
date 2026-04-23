@@ -176,12 +176,12 @@ def test_start_container_runs_docker_start(monkeypatch):
     assert calls == [["docker", "start", "xcl-ddd"]]
 
 
-def test_start_container_failure_reports_user_paused(monkeypatch):
-    """B8 regression: docker start rc!=0 must flip job back to user_paused."""
+def test_start_container_failure_reports_stopped(monkeypatch):
+    """B8 regression: docker start rc!=0 must flip job back to stopped."""
     cmds = [{
         "id": 302, "command": "start_container",
         "args": {"job_id": "job-eee", "container_name": "xcl-eee"},
-        "created_by": "billing_resume",
+        "created_by": "billing_start",
     }]
     monkeypatch.setattr(worker_agent, "requests",
                         SimpleNamespace(get=_mock_requests_get(cmds),
@@ -203,8 +203,8 @@ def test_start_container_failure_reports_user_paused(monkeypatch):
     assert len(reports) == 1
     job_id, status, err = reports[0]
     assert job_id == "job-eee"
-    assert status == "user_paused"
-    assert err and "resume failed" in err
+    assert status == "stopped"
+    assert err and "start failed" in err
 
 
 # ---------------------------------------------------------------------------
