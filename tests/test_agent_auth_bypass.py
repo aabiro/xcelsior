@@ -99,3 +99,68 @@ class TestAgentAuthBypass:
              patch("routes.agent._get_current_user", return_value=None):
             result = _require_agent_auth(_fake_request())
             assert result.get("unauth") is True
+
+
+# ---------------------------------------------------------------------------
+# B1 — optional strict host-binding when auth is bypassed
+# ---------------------------------------------------------------------------
+
+def _env_strict(env: str = "test", allow: str | None = None, strict: str = "1"):
+    new = {k: v for k, v in os.environ.items()
+           if k not in ("XCELSIOR_ENV", "XCELSIOR_ALLOW_UNAUTH_AGENT",
+                        "XCELSIOR_AGENT_STRICT_HOST_BINDING")}
+    new["XCELSIOR_ENV"] = env
+    if allow is not None:
+        new["XCELSIOR_ALLOW_UNAUTH_AGENT"] = allow
+    new["XCELSIOR_AGENT_STRICT_HOST_BINDING"] = strict
+    return new
+
+
+class TestStrictHostBinding:
+    """B1: when strict flag is ON, bypass rules must still reject unknown host_ids."""
+
+    def test_strict_test_mode_rejects_unknown_host(self):
+        from routes.agent import _require_agent_auth
+        with patch.dict(os.environ, _env_strict(env="test", strict="1"), clear=True), \
+             patch("routes.agent.list_hosts", return_value=[{"host_id": "known-host"}]):
+            with pytest.raises(HTTPException) as ei:
+                _require_agent_auth(_fake_request(), host_id="rogue-host")
+            assert ei.value.status_code == 403
+
+    def test_strict_test_mode_allows_known_host(self):
+        from routes.agent import _require_agent_auth
+        with patch.dict(os.environ, _env_strict(env="test", strict="1"), clear=True), \
+             patch("routes.agent.list_hosts", return_value=[{"host_id": "known-host"}]):
+            result = _require_agent_auth(_fake_request(), host_id="known-host")
+            assert result.get("unauth") is True
+
+    def test_strict_test_mode_no_host_id_passes(self):
+        """Endpoints that don't supply host_id (e.g. generic diagnostics) still work."""
+        from routes.agent import _require_agent_auth
+        with patch.dict(os.environ, _env_strict(env="test", strict="1"), clear=True):
+            result = _require_agent_auth(_fake_request(), host_id=None)
+            assert result.get("unauth") is True
+
+    def test_strict_off_allows_unknown_host_backcompat(self):
+        from routes.agent import _require_agent_auth
+        with patch.dict(os.environ, _env_strict(env="test", strict="0"), clear=True):
+            result = _require_agent_auth(_fake_request(), host_id="rogue-host")
+            assert result.get("unauth") is True
+
+    def test_strict_allow_unauth_mode_rejects_unknown_host(self):
+        from routes.agent import _require_agent_auth
+        env = _env_strict(env="staging", allow="1", strict="1")
+        with patch.dict(os.environ, env, clear=True), \
+             patch("routes.agent._get_current_user", return_value=None), \
+             patch("routes.agent.list_hosts", return_value=[{"host_id": "known-host"}]):
+            with pytest.raises(HTTPException) as ei:
+                _require_agent_auth(_fake_request(), host_id="rogue-host")
+            assert ei.value.status_code == 403
+
+    def test_strict_mode_fails_open_on_db_error(self):
+        """DB incident must not lock out the whole fleet."""
+        from routes.agent import _require_agent_auth
+        with patch.dict(os.environ, _env_strict(env="test", strict="1"), clear=True), \
+             patch("routes.agent.list_hosts", side_effect=RuntimeError("db down")):
+            result = _require_agent_auth(_fake_request(), host_id="any-host")
+            assert result.get("unauth") is True
