@@ -100,6 +100,8 @@ export interface LaunchInstanceModalProps {
   listing?: MarketplaceListing;
   /** Pre-select volumes to attach (e.g. launched from volumes page) */
   preSelectedVolumeIds?: string[];
+  /** Pre-select a user template image */
+  templateId?: string;
 }
 
 /* ───────────────────────── Component ───────────────────────── */
@@ -110,6 +112,7 @@ export function LaunchInstanceModal({
   onLaunched,
   listing,
   preSelectedVolumeIds,
+  templateId,
 }: LaunchInstanceModalProps) {
   const router = useRouter();
   const [step, setStep] = useState<"configure" | "confirm" | "success">("configure");
@@ -129,6 +132,9 @@ export function LaunchInstanceModal({
   // Volume picker state
   const [availableVolumes, setAvailableVolumes] = useState<Volume[]>([]);
   const [selectedVolumeIds, setSelectedVolumeIds] = useState<string[]>([]);
+
+  // Template image
+  const [templateImageId, setTemplateImageId] = useState<string>(templateId ?? "");
 
   // Encrypted workspace
   const [encryptedWorkspace, setEncryptedWorkspace] = useState(false);
@@ -301,6 +307,8 @@ export function LaunchInstanceModal({
     listAvailableVolumes()
       .then((r) => setAvailableVolumes(r.volumes || []))
       .catch(() => {});
+    // Sync templateId prop into state on open
+    setTemplateImageId(templateId ?? "");
     // Auto-detect province
     if (!province) {
       detectProvince()
@@ -385,6 +393,7 @@ export function LaunchInstanceModal({
         gpu_model: resolvedGpu || undefined,
         volume_ids: selectedVolumeIds.length > 0 ? selectedVolumeIds : undefined,
         encrypted_workspace: encryptedWorkspace || undefined,
+        template_image_id: templateImageId || undefined,
       };
       if (listing?.host_id) params.host_id = listing.host_id;
       if (pricingMode === "spot") {
@@ -811,6 +820,19 @@ export function LaunchInstanceModal({
                     </div>
                   )}
                   <p className="text-[10px] text-text-muted/60">Volumes mount at <code className="text-ice-blue/70">/workspace</code> inside your container.</p>
+                </div>
+
+                {/* Template image */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-text-secondary">Template Image <span className="text-text-muted">(optional)</span></label>
+                  <input
+                    type="text"
+                    className="w-full rounded-md border border-border/60 bg-surface-hover/40 px-3 py-2 text-sm placeholder:text-text-muted focus:border-ice-blue/50 focus:outline-none focus:ring-1 focus:ring-ice-blue/30"
+                    placeholder="Image ID or leave blank to use standard image"
+                    value={templateImageId}
+                    onChange={(e) => setTemplateImageId(e.target.value)}
+                  />
+                  <p className="text-[10px] text-text-muted/60">Paste a template image ID from your Templates page to launch with a saved environment.</p>
                 </div>
 
                 {/* Encrypted Workspace toggle */}

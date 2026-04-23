@@ -257,6 +257,7 @@ class JobIn(BaseModel):
     git_repo: str | None = Field(default=None, max_length=512)
     auto_launch: list[str] | None = Field(default=None, max_length=4)
     exposed_ports: list[int] | None = Field(default=None, max_length=8)
+    template_image_id: str | None = None
 
     @field_validator("image")
     @classmethod
@@ -471,6 +472,31 @@ def api_submit_instance(j: JobIn, request: Request):
     else:
         vram_needed = max(float(j.vram_needed_gb or 0.0), 0.0)
 
+    # ── Resolve template_image_id → concrete image ───────────────────
+    source_template_id: str | None = None
+    if j.template_image_id:
+        owner_id = user.get("user_id", user.get("email", ""))
+        pool = _user_images_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT image_ref FROM user_images
+                WHERE image_id = %s
+                  AND (owner_id = %s OR is_public = true)
+                  AND status = 'ready'
+                  AND deleted_at = 0
+                """,
+                (j.template_image_id, owner_id),
+            )
+            trow = cur.fetchone()
+        if not trow:
+            raise HTTPException(
+                status_code=404,
+                detail="Template image not found or not yet ready",
+            )
+        j = j.model_copy(update={"image": trow[0]})
+        source_template_id = j.template_image_id
+
     # ── Marketplace flow requires a Docker image ──────────────────────
     if target_host_id and not j.image:
         raise HTTPException(
@@ -575,6 +601,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 git_repo=j.git_repo,
                 auto_launch=j.auto_launch,
                 exposed_ports=j.exposed_ports,
+                source_template_id=source_template_id,
             )
             event_name = "job_submitted"
 

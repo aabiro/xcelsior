@@ -1252,6 +1252,7 @@ def submit_job(
     git_repo=None,
     auto_launch=None,
     exposed_ports=None,
+    source_template_id=None,
 ):
     """
     Submit a job to the queue.
@@ -1313,6 +1314,7 @@ def submit_job(
         "git_repo": git_repo or "",
         "auto_launch": list(auto_launch or []),
         "exposed_ports": list(exposed_ports or []),
+        "source_template_id": source_template_id or "",
     }
 
     # Spot jobs are preemptible and participate in the spot pricing market

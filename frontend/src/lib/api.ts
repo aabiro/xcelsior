@@ -422,6 +422,7 @@ export interface LaunchInstanceParams {
   ssh_port?: number;
   volume_ids?: string[];
   encrypted_workspace?: boolean;
+  template_image_id?: string;
 }
 
 /** Single entry-point for launching instances — marketplace, new-instance page, spot, on-demand.
@@ -1978,6 +1979,13 @@ export interface Instance {
   // Queue diagnostics
   queue_reason?: string;
   queue_reason_detail?: string;
+  // Provenance: launched from a saved template
+  source_template_id?: string;
+  // Raw payload from backend (some fields not promoted to top-level)
+  payload?: {
+    source_template_id?: string;
+    [key: string]: unknown;
+  };
 }
 
 /** @deprecated Use Instance instead */

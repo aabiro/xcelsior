@@ -379,6 +379,16 @@ export default function InstanceDetailPage() {
                 <Copy className="h-3 w-3" />
               </button>
             </p>
+            {(instance.source_template_id || instance.payload?.source_template_id) && (
+              <Link
+                href={`/dashboard/templates`}
+                className="inline-flex items-center gap-1.5 mt-1.5 rounded-md border border-ice-blue/30 bg-ice-blue/5 px-2 py-0.5 text-[11px] text-ice-blue hover:bg-ice-blue/10 transition-colors"
+                title="Launched from template"
+              >
+                <Zap className="h-3 w-3" />
+                from template <code className="font-mono">{instance.source_template_id || instance.payload?.source_template_id}</code>
+              </Link>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
