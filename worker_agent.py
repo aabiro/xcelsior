@@ -1343,6 +1343,38 @@ def _push_log_lines(job_id, lines):
         pass  # best-effort — don't block job execution
 
 
+def _report_http_ports(job_id, port_map):
+    """Report the final {container_port: host_port} mapping to the API.
+
+    Used by the P2.2 subdomain router to resolve
+    ``{slug}-{cport}.xcelsior.ca`` without having to re-derive the
+    deterministic-with-linear-probe allocation. Best-effort — a failed
+    call leaves the public URL unresolved; users can simply retry
+    ``POST /instances/{id}/expose`` once the next report lands.
+    """
+    if not port_map:
+        return False
+    try:
+        resp = requests.post(
+            _api_url(f"/instances/{job_id}/http-ports/report"),
+            json={"host_id": HOST_ID, "ports": {str(k): int(v) for k, v in port_map.items()}},
+            headers=_api_headers(),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            log.info("Reported http_ports for job %s: %s", job_id, port_map)
+            return True
+        log.warning(
+            "http_ports report for job %s returned %d: %s",
+            job_id,
+            resp.status_code,
+            (resp.text or "")[:200],
+        )
+    except requests.RequestException as e:
+        log.error("http_ports report failed for job %s: %s", job_id, e)
+    return False
+
+
 # ── Lease Protocol ────────────────────────────────────────────────────
 # Per REPORT_FEATURE_FINAL.md: clean "lease/claim" protocol instead of
 # conflating "assigned" with "running."
@@ -2608,6 +2640,12 @@ def run_job(job):
             # reverse proxy (P2.2) can resolve {job}-{port}.xcelsior.ca without
             # a lookup. Port 22 is reserved — validated at the API boundary.
             _user_ports = job.get("exposed_ports") or []
+            # P2.2: capture the final {container_port: host_port} mapping so
+            # we can report it back after docker run succeeds. The API uses
+            # this to serve `/instances/{id}/expose` and the nginx internal
+            # route lookup — without this, collisions from the linear probe
+            # are invisible to the control plane.
+            port_map: dict[str, int] = {}
             if isinstance(_user_ports, (list, tuple)):
                 _seen: set[int] = set()
                 _hports_used: set[int] = set()
@@ -2641,6 +2679,7 @@ def run_job(job):
                         continue
                     _hports_used.add(hport)
                     extra_docker_args.extend(["-p", f"{hport}:{cport}"])
+                    port_map[str(cport)] = hport
                     log.info("Expose port: host:%d -> container:%d", hport, cport)
             # Interactive containers need writable filesystem for SSH
             # Remove --read-only and add writable tmpfs for home/ssh
@@ -2749,6 +2788,14 @@ def run_job(job):
             container_id=container_id,
             container_name=container_name,
         )
+
+        # P2.2: report the final HTTP port mapping to the API so
+        # `/instances/{id}/expose` and the nginx subdomain router can
+        # resolve public URLs. Best-effort — a failed report just means
+        # the public URL won't resolve yet; the next heartbeat cycle
+        # will retry via _report_http_ports_with_retry.
+        if is_interactive and port_map:
+            _report_http_ports(job_id, port_map)
 
         # For interactive jobs, report SSH connection info
         if is_interactive:
