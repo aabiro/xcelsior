@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Server, Cpu, MapPin, Gauge, ShieldCheck, Star, Zap, Thermometer, HardDrive,
+  ArrowDownToLine, ArrowUpFromLine, Database,
 } from "lucide-react";
 import {
   fetchHost, fetchComputeScore, fetchSlaStatus, fetchVerificationStatus,
@@ -257,6 +258,47 @@ export default function HostDetailPage() {
               max={400}
               color="bg-accent-red"
             />
+            {/* P2.4: network + disk bandwidth — only render if the agent reports them. */}
+            {telemetry.net_rx_mbps !== undefined && (
+              <TelemetryGauge
+                icon={<ArrowDownToLine className="h-4 w-4 text-ice-blue" />}
+                label={t("dash.hosts.net_rx")}
+                value={telemetry.net_rx_mbps}
+                unit=" Mbps"
+                max={1000}
+                color="bg-ice-blue"
+              />
+            )}
+            {telemetry.net_tx_mbps !== undefined && (
+              <TelemetryGauge
+                icon={<ArrowUpFromLine className="h-4 w-4 text-ice-blue" />}
+                label={t("dash.hosts.net_tx")}
+                value={telemetry.net_tx_mbps}
+                unit=" Mbps"
+                max={1000}
+                color="bg-ice-blue"
+              />
+            )}
+            {telemetry.disk_read_mb_s !== undefined && (
+              <TelemetryGauge
+                icon={<Database className="h-4 w-4 text-emerald" />}
+                label={t("dash.hosts.disk_read")}
+                value={telemetry.disk_read_mb_s}
+                unit=" MB/s"
+                max={1000}
+                color="bg-emerald"
+              />
+            )}
+            {telemetry.disk_write_mb_s !== undefined && (
+              <TelemetryGauge
+                icon={<Database className="h-4 w-4 text-accent-gold" />}
+                label={t("dash.hosts.disk_write")}
+                value={telemetry.disk_write_mb_s}
+                unit=" MB/s"
+                max={1000}
+                color="bg-accent-gold"
+              />
+            )}
           </div>
         ) : (
           <p className="text-sm text-text-muted">{t("dash.hosts.no_telemetry")}</p>

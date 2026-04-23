@@ -2006,6 +2006,11 @@ export interface TelemetryData {
   power_draw_w?: number;
   ecc_errors: number;
   timestamp: string;
+  // P2.4: network + disk bandwidth (optional — older agents won't ship these)
+  net_rx_mbps?: number;
+  net_tx_mbps?: number;
+  disk_read_mb_s?: number;
+  disk_write_mb_s?: number;
 }
 
 export interface PricingReference {
