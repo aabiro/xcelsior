@@ -636,6 +636,10 @@ const en: Record<string, string> = {
   "dash.hosts.temperature": "Temperature",
   "dash.hosts.mem_used": "Memory Used",
   "dash.hosts.power_draw": "Power Draw",
+  "dash.hosts.net_rx": "Network RX",
+  "dash.hosts.net_tx": "Network TX",
+  "dash.hosts.disk_read": "Disk Read",
+  "dash.hosts.disk_write": "Disk Write",
   "dash.hosts.no_telemetry": "No telemetry data available for this host.",
 
   /* ── Dashboard — Instances ──────────────────────────────────────────── */
