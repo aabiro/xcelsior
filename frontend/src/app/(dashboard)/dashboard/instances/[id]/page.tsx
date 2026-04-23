@@ -11,7 +11,7 @@ import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, HardDrive, Lock, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
   Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
-  Play, RefreshCw, Zap, MoreVertical, Link2, Pencil, Check, X,
+  Play, RefreshCw, Zap, MoreVertical, Link2, Pencil, Check, X, Camera,
 } from "lucide-react";
 import {
   fetchInstance, cancelInstance, requeueInstance,
@@ -21,6 +21,7 @@ import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-dialog";
 import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
 
 const WebTerminal = dynamic(
@@ -140,6 +141,7 @@ export default function InstanceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -641,6 +643,9 @@ export default function InstanceDetailPage() {
                   <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
                     <RefreshCw className="h-3 w-3" /> Restart
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSnapshotOpen(true)} disabled={actionPending} className="h-7 text-xs text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/10">
+                    <Camera className="h-3 w-3" /> Save as Template
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => setConfirmAction("stop")} disabled={actionPending} className="h-7 text-xs text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10">
                     <Square className="h-3 w-3" /> Stop
                   </Button>
@@ -847,6 +852,14 @@ export default function InstanceDetailPage() {
           onCancel={() => setConfirmAction(null)}
         />
       )}
+
+      {/* Save as Template dialog */}
+      <SaveAsTemplateDialog
+        open={snapshotOpen}
+        instanceId={instance?.job_id ?? ""}
+        defaultName={instance?.name || undefined}
+        onClose={() => setSnapshotOpen(false)}
+      />
     </div>
   );
 }

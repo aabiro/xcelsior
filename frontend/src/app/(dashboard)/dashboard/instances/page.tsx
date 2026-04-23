@@ -11,7 +11,7 @@ import { Pagination, usePagination } from "@/components/ui/pagination";
 import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
 import {
   Briefcase, Plus, Search, RefreshCw, XCircle, ArrowUpDown, ArrowUp, ArrowDown,
-  MoreVertical, Square, Play, RotateCcw, Zap,
+  MoreVertical, Square, Play, RotateCcw, Zap, Camera,
 } from "lucide-react";
 import { RefreshCw as Restart } from "lucide-react";
 import { useApi } from "@/lib/use-api";
@@ -21,6 +21,7 @@ import { stopInstance, startInstance, restartInstance, terminateInstance } from 
 import { toast } from "sonner";
 import { useEventStream } from "@/hooks/useEventStream";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-dialog";
 
 type SortKey = "name" | "gpu_type" | "status" | "created_at";
 type SortDir = "asc" | "desc";
@@ -70,9 +71,11 @@ const ACTION_CONFIRM: Record<NonNullable<ActionPending>["action"], {
 function RowActions({
   inst,
   onAction,
+  onSnapshot,
 }: {
   inst: Instance;
   onAction: (id: string, action: NonNullable<ActionPending>["action"]) => void;
+  onSnapshot: (inst: Instance) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -96,7 +99,7 @@ function RowActions({
 
   type ActionItem = {
     label: string;
-    action: NonNullable<ActionPending>["action"];
+    action: NonNullable<ActionPending>["action"] | "snapshot";
     icon: React.ReactNode;
     className?: string;
   };
@@ -105,6 +108,7 @@ function RowActions({
       ? [
           { label: "Stop", action: "stop" as const, icon: <Square className="h-3.5 w-3.5" />, className: "text-accent-gold" },
           { label: "Restart", action: "restart" as const, icon: <Restart className="h-3.5 w-3.5" />, className: "text-ice-blue" },
+          { label: "Save as Template", action: "snapshot" as const, icon: <Camera className="h-3.5 w-3.5" />, className: "text-accent-cyan" },
         ]
       : []),
     ...(isStopped
@@ -143,7 +147,11 @@ function RowActions({
           {actions.map((a) => (
             <button
               key={a.action + a.label}
-              onClick={() => { setOpen(false); onAction(inst.job_id, a.action); }}
+              onClick={() => {
+                setOpen(false);
+                if (a.action === "snapshot") onSnapshot(inst);
+                else onAction(inst.job_id, a.action);
+              }}
               className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-surface-hover transition-colors ${a.className ?? "text-text-secondary"}`}
             >
               {a.icon} {a.label}
@@ -164,6 +172,7 @@ export default function InstancesPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
   const [pendingAction, setPendingAction] = useState<ActionPending>(null);
+  const [snapshotTarget, setSnapshotTarget] = useState<Instance | null>(null);
   const api = useApi();
   const { t } = useLocale();
   const router = useRouter();
@@ -408,7 +417,7 @@ export default function InstancesPage() {
                       <Link href={`/dashboard/instances/${inst.job_id}`}>
                         <Button variant="ghost" size="sm">View</Button>
                       </Link>
-                      <RowActions inst={inst} onAction={requestAction} />
+                      <RowActions inst={inst} onAction={requestAction} onSnapshot={setSnapshotTarget} />
                     </div>
                   </td>
                 </tr>
@@ -421,6 +430,13 @@ export default function InstancesPage() {
           </div>
         </div>
       )}
+
+      <SaveAsTemplateDialog
+        open={snapshotTarget !== null}
+        instanceId={snapshotTarget?.job_id ?? ""}
+        defaultName={snapshotTarget?.name || undefined}
+        onClose={() => setSnapshotTarget(null)}
+      />
 
       {pendingAction && (
         <ConfirmDialog

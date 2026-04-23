@@ -162,10 +162,14 @@ export default function RootLayout({
           theme="dark"
           closeButton
           toastOptions={{
+            duration: 5000,
             style: {
               background: "#1e293b",
               border: "1px solid #334155",
               color: "#f8fafc",
+            },
+            classNames: {
+              closeButton: "xcelsior-toast-dismiss",
             },
           }}
         />

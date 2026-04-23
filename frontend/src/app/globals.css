@@ -687,3 +687,36 @@ input[type="number"]:focus {
   border-color: var(--color-accent-cyan) !important;
   box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.15);
 }
+
+/* ── Sonner toast: replace × icon with faint clickable "Dismiss" text */
+[data-sonner-toast] .xcelsior-toast-dismiss,
+[data-sonner-toast] [data-close-button].xcelsior-toast-dismiss {
+  position: absolute !important;
+  top: auto !important;
+  bottom: 6px !important;
+  right: 10px !important;
+  left: auto !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  border: none !important;
+  color: rgba(248, 250, 252, 0.45) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  transform: none !important;
+  opacity: 1 !important;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+[data-sonner-toast] .xcelsior-toast-dismiss:hover {
+  color: rgba(248, 250, 252, 0.95) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+[data-sonner-toast] .xcelsior-toast-dismiss svg { display: none !important; }
+[data-sonner-toast] .xcelsior-toast-dismiss::after {
+  content: "Dismiss";
+}
