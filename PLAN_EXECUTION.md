@@ -211,7 +211,7 @@ A4. BG reconcile sweep (new task in bg_worker.py) — every 60s, compare jobs.st
 A5. BG pending-image sweeper (new task in bg_worker.py) — every 300s, UPDATE user_images SET status='failed', error='timeout' WHERE status='pending' AND created_at < now()-3600. Pairs with A2 partial index so failed rows can be superseded by new snapshot.
 
 Phase B — Security & correctness hardening
-B1. Remove XCELSIOR_ENV=test / XCELSIOR_ALLOW_UNAUTH_AGENT bypass of host_id binding. Keep auth bypass for dev ergonomics, but always enforce the host_id match when the caller provides one. agent.py L49-57.
+B1. ✅ Optional strict host binding — `XCELSIOR_AGENT_STRICT_HOST_BINDING=1` now causes bypass rules (2 test-env, 3 ALLOW_UNAUTH escape hatch) to still verify any supplied `host_id` exists in the hosts table. Default OFF for backward compat; fail-open on DB errors so a DB incident can't lock out the fleet. Prod rule (1) unchanged — already hard-refuses bypass. 6 new `TestStrictHostBinding` tests in `tests/test_agent_auth_bypass.py` (12/12 suite green). routes/agent.py L42-110.
 
 B2. Auth-before-SELECT in /user-images/{id}/complete to fix timing oracle. instances.py L1878.
 

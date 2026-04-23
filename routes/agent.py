@@ -51,6 +51,11 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
       3. If unauth and XCELSIOR_ALLOW_UNAUTH_AGENT=1: accept with WARNING
          (emergency escape hatch during token rotation).
       4. Otherwise: require an authenticated user.
+
+    B1: when XCELSIOR_AGENT_STRICT_HOST_BINDING=1 AND a bypass rule (2 or 3)
+    would otherwise grant access, any supplied `host_id` must still resolve
+    to a registered row in the hosts table. Fail-open if the DB lookup
+    raises (avoids locking out the whole fleet during a DB incident).
     """
     env = os.environ.get("XCELSIOR_ENV", "").lower()
     # 1. Hard refuse in production — escape hatches do NOT apply.
@@ -60,8 +65,28 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
             raise HTTPException(401, "Authentication required")
         return user
 
+    # B1 defense-in-depth: when bypass is active AND strict binding is enabled,
+    # still require any supplied host_id to be registered. Prevents a rogue/
+    # misconfigured caller in dev/test/staging from claiming an arbitrary
+    # host_id. Default OFF for backward compat; production already hard-fails
+    # above so this flag is a no-op there.
+    strict = os.environ.get("XCELSIOR_AGENT_STRICT_HOST_BINDING", "").lower() in (
+        "1", "true", "yes",
+    )
+
+    def _enforce_host_registered() -> None:
+        if not strict or not host_id:
+            return
+        try:
+            all_hosts = list_hosts(active_only=False)
+        except Exception:
+            return  # DB unavailable — fail-open rather than lock out fleet
+        if not any(h.get("host_id") == host_id for h in all_hosts):
+            raise HTTPException(403, "Unknown host_id")
+
     # 2. Test-mode bypass — tests drive /agent/* without bearer tokens.
     if env == "test":
+        _enforce_host_registered()
         return {"unauth": True, "test": True}
 
     user = _get_current_user(request)
@@ -71,6 +96,7 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
             log.warning(
                 "unauthenticated /agent/* request accepted (XCELSIOR_ALLOW_UNAUTH_AGENT=true)",
             )
+            _enforce_host_registered()
             return {"unauth": True}
         raise HTTPException(401, "Authentication required")
 
