@@ -788,6 +788,21 @@ body{{margin:0;background:#0a0a0a;color:#e0e0e0;font-family:'Courier New',monosp
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(_: Request, exc: RequestValidationError):
+    # Pydantic v2 stores the original ValueError instance in
+    # ``ctx.error`` when a field_validator raises; that object is not
+    # JSON serializable, so ``exc.errors()`` -> JSONResponse blows up
+    # with TypeError. Stringify any ctx.error before returning.
+    raw_errors = exc.errors()
+    safe_errors = []
+    for err in raw_errors:
+        if isinstance(err, dict):
+            err = dict(err)
+            ctx = err.get("ctx")
+            if isinstance(ctx, dict) and "error" in ctx and not isinstance(ctx["error"], (str, int, float, bool, type(None))):
+                ctx = dict(ctx)
+                ctx["error"] = str(ctx["error"])
+                err["ctx"] = ctx
+        safe_errors.append(err)
     return JSONResponse(
         status_code=422,
         content={
@@ -795,7 +810,7 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
             "error": {
                 "code": "validation_error",
                 "message": "Request validation failed",
-                "details": exc.errors(),
+                "details": safe_errors,
             },
         },
     )

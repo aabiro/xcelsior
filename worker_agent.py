@@ -3631,6 +3631,7 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
                     "host_id": host_id,
                     "ports": ports,
                     "token_sha": token_prefix,
+                    "token": token,
                 }
                 try:
                     requests.post(

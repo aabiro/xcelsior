@@ -10,7 +10,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -339,6 +339,31 @@ class JobIn(BaseModel):
             seen.add(port)
             out.append(port)
         return out
+
+    # P2.3 — auto-inject the container ports required by each requested
+    # auto-launch service so the docker `-p` publish loop in the worker
+    # creates the host→container mapping that P2.2 needs for subdomain
+    # routing. Users can still declare extra ports via `exposed_ports`.
+    _AUTO_LAUNCH_PORTS = {"jupyter": 8888, "vscode": 8443}
+
+    @model_validator(mode="after")
+    def _merge_auto_launch_ports(self) -> "JobIn":
+        if not self.auto_launch:
+            return self
+        existing: list[int] = list(self.exposed_ports or [])
+        existing_set = set(existing)
+        for svc in self.auto_launch:
+            p = self._AUTO_LAUNCH_PORTS.get(svc)
+            if p is not None and p not in existing_set:
+                existing.append(p)
+                existing_set.add(p)
+        # Cap at the same max_length (8) as the field; extra user ports
+        # beyond that bound surface as a validation error by re-running
+        # the field validator's length constraint.
+        if len(existing) > 8:
+            raise ValueError("exposed_ports (incl. auto_launch) exceeds max 8 entries")
+        self.exposed_ports = existing
+        return self
 
 
 class StatusUpdate(BaseModel):
@@ -2282,10 +2307,26 @@ class _AutoLaunchReport(BaseModel):
     host_id: str = Field(..., min_length=1, max_length=128)
     # Map of service_name -> container port, e.g. {"jupyter": 8888, "vscode": 8443}
     ports: dict[str, int] = Field(default_factory=dict)
-    # First 8 hex chars of sha256(token); token itself is never sent
-    # over the wire. Clients fetch the real token via a separate
-    # authenticated endpoint (GET /instances/{id}/auto-launch/token).
+    # First 8 hex chars of sha256(token) — cheap integrity check so the
+    # GET endpoint can verify the token it returns matches what the
+    # agent configured without trusting a single field.
     token_sha: str = Field(default="", max_length=16)
+    # P2.3 — the actual service token. Jupyter uses this as
+    # ``--ServerApp.token``; code-server uses it as the PASSWORD env.
+    # Stored in ``jobs.payload.auto_launch_ports.token``; returned only
+    # to the job owner via ``GET /instances/{id}/auto-launch``. Hex,
+    # up to 64 chars (worker currently emits 32). Optional to stay
+    # backward-compatible with agents that haven't been upgraded yet.
+    token: str | None = Field(default=None, max_length=64)
+
+    @field_validator("token")
+    @classmethod
+    def _v_token(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        if not re.fullmatch(r"[0-9a-f]{16,64}", v):
+            raise ValueError("token must be 16–64 hex chars")
+        return v
 
     @field_validator("ports")
     @classmethod
@@ -2330,6 +2371,7 @@ def api_instances_auto_launch_report(
         "host_id": body.host_id,
         "ports": body.ports,
         "token_sha": body.token_sha,
+        "token": body.token or "",
         "reported_at": time.time(),
     })
 
@@ -2351,6 +2393,100 @@ def api_instances_auto_launch_report(
     except Exception as e:
         log.debug("broadcast_sse(auto_launch_ready) failed: %s", e)
     return {"ok": True}
+
+
+@router.get("/instances/{job_id}/auto-launch", tags=["Instances"])
+def api_instances_auto_launch_get(job_id: str, request: Request):
+    """Return the public URL + service credentials for each auto-launch service.
+
+    Owner-only. Requires:
+      * The job has ``auto_launch`` set (else 404 — nothing to show).
+      * The agent has reported via ``/auto-launch/report`` (else 409
+        ``ready:false``; UI should poll for a few seconds after start).
+      * The P2.2 subdomain proxy has the host→container port mapping
+        (``job.payload.http_ports``); else 409 with ``ready:false``.
+
+    Response shape:
+
+        {
+          "ready": true,
+          "services": {
+            "jupyter": {
+              "url": "https://<slug>-8888.xcelsior.ca/?token=<token>",
+              "container_port": 8888,
+              "host_port": 55123,
+              "token": "<hex token>"
+            },
+            "vscode": {
+              "url": "https://<slug>-8443.xcelsior.ca/",
+              "container_port": 8443,
+              "host_port": 55456,
+              "password": "<hex token>"
+            }
+          }
+        }
+    """
+    user = _require_auth(request)
+    owner_id = _canonical_owner_id(user)
+    is_admin = bool(user.get("is_admin"))
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    if (job.get("owner") or "") != owner_id and not is_admin:
+        raise HTTPException(403, "Not your instance")
+
+    requested = job.get("auto_launch") or []
+    if not requested:
+        raise HTTPException(404, "auto_launch not configured for this instance")
+
+    auto = job.get("auto_launch_ports") or {}
+    if isinstance(auto, str):
+        try:
+            auto = json.loads(auto)
+        except Exception:
+            auto = {}
+    reported_ports = (auto.get("ports") or {}) if isinstance(auto, dict) else {}
+    token = (auto.get("token") or "") if isinstance(auto, dict) else ""
+
+    http_ports = job.get("http_ports") or {}
+    if isinstance(http_ports, str):
+        try:
+            http_ports = json.loads(http_ports)
+        except Exception:
+            http_ports = {}
+
+    # Both the container-port map (from agent's auto-launch report) and
+    # the host-port map (from P2.2's http-ports report) need to be present
+    # before we can emit a usable URL.
+    if not reported_ports or not http_ports:
+        return {"ready": False, "services": {}}
+
+    base = _public_base_host()
+    slug = _job_slug(job_id)
+    services: dict[str, dict] = {}
+    for svc in requested:
+        cport = reported_ports.get(svc)
+        if not cport:
+            continue
+        hport = http_ports.get(str(cport)) if isinstance(http_ports, dict) else None
+        if not hport:
+            continue
+        entry: dict = {
+            "container_port": int(cport),
+            "host_port": int(hport),
+        }
+        if svc == "jupyter":
+            entry["url"] = f"https://{slug}-{cport}.{base}/?token={token}" if token else f"https://{slug}-{cport}.{base}/"
+            entry["token"] = token
+        elif svc == "vscode":
+            entry["url"] = f"https://{slug}-{cport}.{base}/"
+            entry["password"] = token
+        else:
+            entry["url"] = f"https://{slug}-{cport}.{base}/"
+        services[svc] = entry
+
+    return {"ready": bool(services), "services": services}
 
 
 # ───────────────────────────────────────────────────────────────────────
