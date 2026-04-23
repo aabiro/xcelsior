@@ -131,67 +131,90 @@ def _write_probe_to_db(snap: dict) -> None:
         log.warning("registry_health db write failed: %s", e)
 
 
-def _load_probe_from_db() -> None:
-    """Refresh the in-process cache from the DB if it's been >TTL since last read."""
-    global _last_db_read_at
-    now = time.time()
-    if now - _last_db_read_at < _DB_CACHE_TTL_SEC:
-        return
-    registry = _configured_registry()
-    if not registry:
-        return
+def _read_all_probes_from_db() -> list[tuple]:
+    """Return every row in ``registry_health_cache``.
+
+    The Prometheus gauge refresh path uses this directly instead of the
+    in-process state cache. Rationale: gunicorn runs the API under N
+    workers, each with its own Python interpreter and therefore its
+    own copy of ``_state``. The probe runs in ``bg_worker`` (a
+    separate container), so no API worker can ever populate its own
+    state — the only consistent source of truth is the DB row.
+    Reading once per scrape (~15s) is cheap.
+    """
     try:
         from db import _get_pg_pool
 
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 "SELECT registry, reachable, last_probe_at, latency_ms, "
-                "status_code, error FROM registry_health_cache "
-                "WHERE registry=%s",
-                (registry,),
-            ).fetchone()
+                "status_code, error FROM registry_health_cache"
+            ).fetchall()
+        return list(rows)
     except Exception as e:
         log.debug("registry_health db read failed: %s", e)
-        _last_db_read_at = now  # still advance so we don't retry in a tight loop
-        return
+        return []
 
-    if row:
-        with _lock:
-            _state.update(
-                registry=row[0],
-                configured=True,
-                reachable=bool(row[1]),
-                last_probe_at=float(row[2] or 0.0),
-                latency_ms=float(row[3] or 0.0),
-                status_code=row[4],
-                error=row[5],
-            )
+
+def _load_probe_from_db() -> None:
+    """Refresh the in-process cache from the DB.
+
+    Used by ``is_registry_healthy()`` (snapshot endpoint hot path).
+    Honours a 10s TTL so a burst of snapshot requests doesn't hammer PG.
+    Unlike the previous version, this no longer requires the local env
+    var to be set — we read whatever row matches a configured registry,
+    falling back to "any single row" so a misconfigured API process
+    still sees the bg_worker's truth.
+    """
+    global _last_db_read_at
+    now = time.time()
+    if now - _last_db_read_at < _DB_CACHE_TTL_SEC:
+        return
+    rows = _read_all_probes_from_db()
     _last_db_read_at = now
+    if not rows:
+        return
+    # Prefer the row matching our configured registry; fall back to first row.
+    target = _configured_registry()
+    row = next((r for r in rows if r[0] == target), rows[0])
+    with _lock:
+        _state.update(
+            registry=row[0],
+            configured=True,
+            reachable=bool(row[1]),
+            last_probe_at=float(row[2] or 0.0),
+            latency_ms=float(row[3] or 0.0),
+            status_code=row[4],
+            error=row[5],
+        )
 
 
 def refresh_prometheus_gauges() -> None:
-    """Populate the module-level Prometheus gauges from the cached state.
+    """Populate the module-level Prometheus gauges from the DB.
 
-    Called by the /metrics endpoint just before serialisation so the
-    API process emits the probe result that ``bg_worker`` measured.
-    Without this, each process's gauges would only reflect probes it
-    ran itself (i.e. API's gauges would stay at 0 forever).
+    Called by the /metrics endpoint just before serialisation. Reads
+    DIRECTLY from ``registry_health_cache`` (not the in-process state
+    cache) because:
+
+    1. Gunicorn workers each have separate ``_state`` dicts.
+    2. The probe runs in ``bg_worker``, never in API workers.
+    3. Without this read, API workers would emit gauges with no
+       sample value (HELP/TYPE only), exactly the bug observed.
+
+    A single scrape every 15s reading one tiny row is negligible load.
     """
-    _load_probe_from_db()
-    with _lock:
-        registry = _state["registry"]
-        reachable = _state["reachable"]
-        last_at = _state["last_probe_at"]
-        latency = _state["latency_ms"]
-    if not registry:
-        return
-    try:
-        _reachable_gauge.labels(registry=registry).set(1 if reachable else 0)
-        _last_probe_gauge.labels(registry=registry).set(last_at)
-        _probe_latency_gauge.labels(registry=registry).set(latency)
-    except Exception:  # pragma: no cover
-        pass
+    rows = _read_all_probes_from_db()
+    for row in rows:
+        registry = row[0] or ""
+        if not registry:
+            continue
+        try:
+            _reachable_gauge.labels(registry=registry).set(1 if row[1] else 0)
+            _last_probe_gauge.labels(registry=registry).set(float(row[2] or 0.0))
+            _probe_latency_gauge.labels(registry=registry).set(float(row[3] or 0.0))
+        except Exception:  # pragma: no cover
+            pass
 
 
 def _configured_registry() -> str:
