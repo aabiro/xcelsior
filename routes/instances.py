@@ -697,13 +697,16 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
 
             pool = _get_pg_pool()
             with pool.connection() as conn:
-                conn.row_factory = dict_row
-                row = conn.execute(
-                    """SELECT COALESCE(SUM(amount_cad), 0) AS total
-                       FROM billing_cycles
-                       WHERE job_id = ANY(%s) AND gpu_model = 'storage' AND tier = 'volume'""",
-                    (volume_ids,),
-                ).fetchone()
+                # Cursor-scoped row_factory — avoids tainting the pooled
+                # connection for subsequent callers.
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute(
+                        """SELECT COALESCE(SUM(amount_cad), 0) AS total
+                           FROM billing_cycles
+                           WHERE job_id = ANY(%s) AND gpu_model = 'storage' AND tier = 'volume'""",
+                        (volume_ids,),
+                    )
+                    row = cur.fetchone()
             j["storage_cost_cad"] = round(float(row["total"]), 4) if row else 0
         except Exception:
             j.setdefault("storage_cost_cad", 0)
@@ -2182,7 +2185,10 @@ def api_delete_user_image(image_id: str, request: Request):
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Image not found")
-        if row[0] != owner_id and not is_admin:
+        # Named access defends against the shared pool's row_factory
+        # possibly being mutated to dict_row by another caller.
+        row_owner = row["owner_id"] if isinstance(row, dict) else row[0]
+        if row_owner != owner_id and not is_admin:
             raise HTTPException(403, "Not your image")
         cur.execute(
             "UPDATE user_images SET deleted_at=%s WHERE image_id=%s",
@@ -2230,7 +2236,14 @@ def api_user_image_complete(image_id: str, body: _UserImageCompleteIn, request: 
             # path below handles the success case).
             _require_agent_auth(request)
             raise HTTPException(404, "Image not found")
-        owner_id, prev_status, img_host_id = row[0], row[1], row[2]
+        # Named access defends against the shared pool's row_factory
+        # being mutated to dict_row by another caller.
+        if isinstance(row, dict):
+            owner_id = row["owner_id"]
+            prev_status = row["status"]
+            img_host_id = row["host_id"]
+        else:
+            owner_id, prev_status, img_host_id = row[0], row[1], row[2]
         # Bind the callback to the host that was originally asked to
         # produce the image. Prevents a compromised host from flipping
         # another host's pending image to ready.

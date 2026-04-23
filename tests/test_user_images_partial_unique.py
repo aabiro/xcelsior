@@ -21,11 +21,12 @@ def _img_id() -> str:
 @pytest.fixture
 def pool():
     try:
-        from db import _get_pg_pool, ensure_tables
+        from db import _get_pg_pool
     except Exception:
         pytest.skip("db module not importable")
     try:
-        ensure_tables()  # bootstrap partial index if fresh
+        # _get_pg_pool() auto-bootstraps schema (incl. partial unique index)
+        # via _ensure_pg_tables() on first connection.
         p = _get_pg_pool()
     except Exception as e:
         pytest.skip(f"no pg pool available: {e}")
