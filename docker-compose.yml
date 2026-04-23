@@ -137,6 +137,15 @@ x-api-environment: &api-env
   XCELSIOR_BURST_BUDGET_CAD: ${XCELSIOR_BURST_BUDGET_CAD:-500.0}
   XCELSIOR_BURST_MAX_INSTANCES: ${XCELSIOR_BURST_MAX_INSTANCES:-10}
   XCELSIOR_BURST_PROVIDER_PRIORITY: ${XCELSIOR_BURST_PROVIDER_PRIORITY:-hetzner,oci,gcp,aws}
+  # Container Registry — forwarded to every service that interacts with
+  # the registry (snapshot endpoint in api, health probe in bg-worker,
+  # worker-upgrade push step). docker compose interpolates ${VAR} from
+  # the .env file at compose time. Without _URL the bg-worker probe
+  # silently skips and the snapshot endpoint returns 503.
+  XCELSIOR_REGISTRY: ${XCELSIOR_REGISTRY:-}
+  XCELSIOR_REGISTRY_URL: ${XCELSIOR_REGISTRY_URL:-}
+  XCELSIOR_REGISTRY_USERNAME: ${XCELSIOR_REGISTRY_USERNAME:-}
+  XCELSIOR_REGISTRY_PASSWORD: ${XCELSIOR_REGISTRY_PASSWORD:-}
 
 # ── Shared API volumes ───────────────────────────────────────────────
 x-api-volumes: &api-volumes
