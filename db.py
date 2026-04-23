@@ -142,6 +142,20 @@ def _get_pg_pool():
             raise
 
         max_attempts = 5
+        # Reset hook — runs when a connection is RETURNED to the pool.
+        # Many call sites mutate ``conn.row_factory = dict_row`` directly
+        # (legacy pattern used in 20+ places). Without a reset hook, the
+        # next caller to check out that same connection inherits
+        # ``dict_row`` silently and code that expects ``row[0]`` crashes
+        # with ``KeyError: 0``. This reset restores the default tuple
+        # factory so every checkout starts clean.
+        def _reset_conn(_conn):
+            try:
+                from psycopg.rows import tuple_row
+                _conn.row_factory = tuple_row
+            except Exception:
+                pass
+
         for attempt in range(1, max_attempts + 1):
             try:
                 pool = ConnectionPool(
@@ -150,6 +164,7 @@ def _get_pg_pool():
                     max_size=PG_POOL_SIZE,
                     max_idle=PG_MAX_OVERFLOW,
                     kwargs={"autocommit": False},
+                    reset=_reset_conn,
                 )
                 # Verify the pool can actually connect
                 with pool.connection() as conn:
@@ -1207,6 +1222,10 @@ def auth_connection():
 
     pool = _get_pg_pool()
     with pool.connection() as conn:
+        # NOTE: Don't mutate conn.row_factory — the connection is returned
+        # to the shared pool and the next caller would silently inherit
+        # dict_row. Instead, save/restore it so the leak is contained.
+        _prev_rf = conn.row_factory
         conn.row_factory = dict_row
         try:
             _ensure_auth_schema(conn)
@@ -1215,6 +1234,8 @@ def auth_connection():
         except Exception:
             conn.rollback()
             raise
+        finally:
+            conn.row_factory = _prev_rf
 
 
 class UserStore:
