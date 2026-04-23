@@ -47,7 +47,7 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 - [x] **Directive:** `/agent/commands/{host_id}` response gains a new command type `{"type":"upgrade_agent", "url":"https://xcelsior.ca/static/worker_agent.py", "sha256":"…", "min_version":"2.1.0"}`.
 - [x] **Agent logic** (worker_agent.py): on receiving `upgrade_agent`, download to `~/.xcelsior/worker_agent.py.new`, verify sha256, `os.replace` into place, then `os._exit(0)` — systemd `Restart=always` respawns with new code. Now streamed with 10 MB cap + https-only (escape hatch `XCELSIOR_ALLOW_INSECURE_UPGRADE=1`).
 - [x] **Server-side trigger:** admin endpoint `POST /api/admin/agent/rollout {version, sha256, batch_pct}` enqueues `upgrade_agent` into a rolling batch (skips hosts already at target sha, rejects non-https urls).
-- [ ] **Safety:** rolling (5% batch default done) + auto-rollback if post-upgrade heartbeat doesn't arrive within 60s → revert from `.bak`. _(.bak is written; automatic rollback driver still TODO — deferred: dashboard can pace waves manually for now.)_
+- [x] **Safety:** rolling (5% batch default done) + auto-rollback if post-upgrade heartbeat doesn't arrive within ROLLBACK_GRACE_SEC (300s) → revert from `.bak`. Driver lives in `bg_worker.py:456-534`; enqueues `rollback_agent` exactly once per stale rollout row and marks it `rolled_back` to prevent re-fire.
 - [x] **Tests:** `tests/test_agent_upgrade.py` — 10 tests: atomic replace, sha mismatch rejection, non-hex/non-https/oversized body rejection, min_version skip, escape hatch.
 
 ### P1.3 — CI hardening ✅ (auto-deploy deferred)
@@ -85,20 +85,19 @@ _Commits: d326b75 (P1.1) · ae71521 (P1.2) · 1ccb9ae (P1.3) · 55c683f (P1.4) �
 - [x] Per-port `-p` publish for exposed_ports with deterministic host port `55000 + hash%5000`.
 - [x] `tests/test_jobin_validators.py` (16 cases) + `tests/test_platform_env.py` P2.1 additions. Terminal UI v1 banner preserved (regression test green).
 
-### P2.2 — HTTP port proxy (subdomain routing)
-- [ ] **DNS:** done. add. Let's Encrypt DNS-01 wildcard cert via certbot + DNS plugin (Cloudflare or manual).
-- [ ] **Nginx:** new server block with `server_name ~^(?<job>[a-z0-9-]+)\.xcelsior\.ca$` that:
-  - Looks up job → host IP + container port from a small Lua/auth_request shim calling `GET /internal/route/{job}/{port}` on the API.
-  - Proxies to `<host_ip>:<host_port>` via Tailscale.
-- [ ] **Agent:** on interactive job start, pick a port pool range (55000–59999) for HTTP; record mappings in `job.payload.http_ports`.
-- [ ] **API endpoint:** `POST /instances/{job_id}/expose {container_port: 8888}` returns `{url: "https://<job>-8888.xcelsior.ca"}`.
-- [ ] [ ] **Test:** `tests/test_port_proxy.py` — HTTP integration against a mock backend.
+### P2.2 — HTTP port proxy (subdomain routing) ✅ SHIPPED (commits 036e5af + DNS)
+- [x] **DNS:** wildcard `*.xcelsior.ca` A-record in place. TLS via Let's Encrypt DNS-01 wildcard cert.
+- [x] **Nginx:** wildcard server block with `server_name ~^(?<slug>[a-z0-9-]+)\.xcelsior\.ca$` → `auth_request /internal/route/...` → `proxy_pass http://<host_ip>:<host_port>` over Tailscale.
+- [x] **Agent:** worker records `{container_port: host_port}` mappings in `job.payload.http_ports` during start_job via `_report_http_ports`; deterministic host port `55000 + hash(job_id:cport) % 5000`.
+- [x] **API endpoint:** `POST /instances/{job_id}/expose {container_port}` → `{url: "https://{slug}-{cport}.xcelsior.ca"}` where `slug = job_id[:12]`. Owner-gated; loopback-only alt path `_LOOPBACK_OK`.
+- [x] **Test:** `tests/test_port_proxy.py` — 13 tests covering slug derivation, expose endpoint, auth_request shim, URL synthesis, owner checks.
 
-### P2.3 — Jupyter / VSCode auto-start
-- [ ] Add `auto_launch: str | None` field to `JobIn` (`"jupyter"` | `"vscode"` | `null`).
-- [ ] Agent-side: if set, install + run in container (uses P1.4 env vars for token = sha256(JOB_ID + host secret)).
-- [ ] Combined with P2.2: returns URL `https://<job>-8888.xcelsior.ca?token=…`.
-- [ ] [ ] **Test:** `tests/test_auto_launch.py` — mock launch, assert command generated.
+### P2.3 — Jupyter / VSCode auto-start ✅ SHIPPED (commit 53837a3)
+- [x] `JobIn.auto_launch: list[str] | None` accepts `["jupyter"]` / `["vscode"]` / both. `@model_validator(mode="after")` auto-adds 8888/8443 to `exposed_ports` so the `-p` publish loop creates the host-port mappings P2.2 needs.
+- [x] Worker `_run_auto_launch` exec's `jupyter lab --ServerApp.token=<sha256(job:HOST_SECRET)[:32]>` on 8888 / code-server with `PASSWORD=<token>` on 8443 inside the running container, then POSTs `{host_id, ports, token_sha, token}` to `/auto-launch/report`.
+- [x] `GET /instances/{id}/auto-launch` — owner-gated, returns `{ready, services: {jupyter: {url: "https://{slug}-8888.xcelsior.ca", token, container_port, host_port}, vscode: {url, password, ...}}}`. 404 when auto_launch unset, 403 wrong owner, `ready:false` until worker reports.
+- [x] `api.py` `request_validation_exception_handler` stringifies `ctx.error` so Pydantic v2 `ValueError` re-raises don't hit `TypeError` in JSON serialization (bonus bug fix affecting all `field_validator`-raising endpoints).
+- [x] **Test:** `tests/test_auto_launch.py` — 25 tests: 10 worker dispatcher units, 8 JobIn model-validator units, 7 endpoint integration tests (report persists token, rejects bad host, rejects bad token format, GET returns URLs+token+password, ready:false before report, 404 when not configured, 403 when not owner).
 
 ### P2.4 — Bandwidth + disk IO metrics ✅
 - [x] worker_agent `_sample_io_delta` tracks `psutil.net_io_counters()` + `psutil.disk_io_counters()` deltas across TELEMETRY_INTERVAL ticks.
