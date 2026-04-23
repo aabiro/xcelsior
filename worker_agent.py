@@ -3953,6 +3953,17 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 timeout=_remaining(15),
             )
 
+            # Ensure runtime dirs exist — Debian/Ubuntu sshd refuses to start
+            # without /run/sshd ("Missing privilege separation directory").
+            subprocess.run(
+                [
+                    "docker", "exec", container_name, "sh", "-c",
+                    "mkdir -p /run/sshd /var/run/sshd && chmod 0755 /run/sshd /var/run/sshd",
+                ],
+                capture_output=True,
+                timeout=_remaining(5),
+            )
+
             # Start sshd
             sshd_start = subprocess.run(
                 ["docker", "exec", container_name, "/usr/sbin/sshd"],
