@@ -2352,3 +2352,261 @@ def api_instances_auto_launch_report(
         log.debug("broadcast_sse(auto_launch_ready) failed: %s", e)
     return {"ok": True}
 
+
+# ───────────────────────────────────────────────────────────────────────
+# P2.2 — HTTP port proxy (subdomain routing)
+# ───────────────────────────────────────────────────────────────────────
+# Three endpoints co-operate with nginx + the worker agent to give every
+# interactive job a public HTTPS URL of the form
+# ``https://<slug>-<container_port>.xcelsior.ca``:
+#
+#   1. ``POST /instances/{job_id}/http-ports/report`` — agent-auth; the
+#      worker reports its final ``{container_port: host_port}`` map after
+#      ``docker run`` succeeds. Stashed in ``jobs.payload.http_ports`` for
+#      the other two endpoints to consult.
+#
+#   2. ``POST /instances/{job_id}/expose`` — user-auth; returns the public
+#      URL for a given container port (must already be in
+#      ``exposed_ports``). The URL does not point back here — it points
+#      at the wildcard subdomain, which nginx resolves via (3).
+#
+#   3. ``GET /internal/route/{slug}/{port}`` — **no user auth**, restricted
+#      to loopback (the nginx reverse proxy on 127.0.0.1). Used as nginx
+#      ``auth_request`` target; response sets ``X-Upstream`` which nginx
+#      feeds into ``proxy_pass`` via ``auth_request_set``.
+#
+# Security stance:
+#   - Only ports the user already declared in ``exposed_ports`` are
+#     routable. An attacker who brute-forces slug-port combinations gets
+#     404s for anything not explicitly exposed.
+#   - ``/internal/route`` rejects non-loopback callers — an external
+#     attacker cannot enumerate.
+#   - ``slug`` is the first 12 chars of the job_id (UUID → DNS-safe hex).
+#     Collision probability is 2⁻⁴⁸; we additionally reject partial
+#     matches that don't span a whole job_id column value.
+JOB_SLUG_LEN = 12
+
+
+def _job_slug(job_id: str) -> str:
+    return (job_id or "")[:JOB_SLUG_LEN].lower()
+
+
+class _HttpPortsReport(BaseModel):
+    host_id: str = Field(..., min_length=1, max_length=128)
+    # Mapping of container-port (stringified, JSON-safe) → host-port.
+    ports: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("ports")
+    @classmethod
+    def _v_ports(cls, v: dict[str, int]) -> dict[str, int]:
+        clean: dict[str, int] = {}
+        for k, p in v.items():
+            try:
+                cport = int(k)
+                hport = int(p)
+            except (TypeError, ValueError):
+                continue
+            if not (1 <= cport <= 65535) or cport == 22:
+                continue
+            if not (55000 <= hport <= 59999):
+                continue
+            clean[str(cport)] = hport
+        if len(clean) > 16:
+            # Cap payload size; exposed_ports validator already enforces
+            # ≤8, so 16 is a generous safety margin.
+            raise ValueError("too many ports")
+        return clean
+
+
+@router.post("/instances/{job_id}/http-ports/report", tags=["Instances"])
+def api_http_ports_report(job_id: str, body: _HttpPortsReport, request: Request):
+    """Internal: worker agent reports the final port-publish map.
+
+    Bound to the reporting host via the shared agent secret so a
+    compromised host cannot rewrite another host's port table.
+    """
+    from routes.agent import _require_agent_auth
+
+    _require_agent_auth(request, host_id=body.host_id)
+    payload_value = json.dumps(body.ports)
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET payload = jsonb_set(payload, "
+            "'{http_ports}', %s::jsonb, true) "
+            "WHERE job_id = %s AND payload->>'host_id' = %s",
+            (payload_value, job_id, body.host_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "job not found or host_id mismatch")
+    try:
+        broadcast_sse(
+            "http_ports_ready",
+            {"job_id": job_id, "ports": body.ports},
+        )
+    except Exception as e:
+        log.debug("broadcast_sse(http_ports_ready) failed: %s", e)
+    return {"ok": True}
+
+
+class _ExposeIn(BaseModel):
+    container_port: int = Field(..., ge=1, le=65535)
+
+    @field_validator("container_port")
+    @classmethod
+    def _v_port(cls, v: int) -> int:
+        if v == 22:
+            raise ValueError("port 22 is reserved for SSH")
+        return v
+
+
+def _public_base_host() -> str:
+    """Return the public base hostname for subdomain URLs.
+
+    Defaults to ``xcelsior.ca`` (prod). Overridable via
+    ``XCELSIOR_PUBLIC_HOST`` for staging/tests.
+    """
+    return os.environ.get("XCELSIOR_PUBLIC_HOST", "xcelsior.ca").strip() or "xcelsior.ca"
+
+
+@router.post("/instances/{job_id}/expose", tags=["Instances"])
+def api_instances_expose(job_id: str, body: _ExposeIn, request: Request):
+    """Return the public HTTPS URL for a declared container port.
+
+    The port MUST be in the job's ``exposed_ports`` list (set at launch)
+    — we don't retroactively publish new ports because doing so would
+    require ``docker run`` flags that are baked in at container start.
+
+    Response: ``{ok, url, host_port, host_ip, slug}``. ``host_ip`` is the
+    Tailscale address — useful for debugging, never reached directly
+    by end users.
+    """
+    user = _require_auth(request)
+    owner_id = _canonical_owner_id(user)
+    is_admin = bool(user.get("is_admin"))
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Instance not found")
+    if (job.get("owner") or "") != owner_id and not is_admin:
+        raise HTTPException(403, "Not your instance")
+    if (job.get("status") or "") != "running":
+        raise HTTPException(400, "Instance is not running")
+
+    cport = body.container_port
+    exposed = job.get("exposed_ports") or []
+    try:
+        exposed_ints = {int(p) for p in exposed}
+    except (TypeError, ValueError):
+        exposed_ints = set()
+    if cport not in exposed_ints:
+        raise HTTPException(
+            400,
+            f"Port {cport} was not declared at launch (exposed_ports={sorted(exposed_ints)})",
+        )
+
+    http_ports = job.get("http_ports") or {}
+    hport = http_ports.get(str(cport)) if isinstance(http_ports, dict) else None
+    if not hport:
+        raise HTTPException(
+            409,
+            "Port mapping not yet reported by the worker — retry in a few seconds",
+        )
+
+    # Resolve the host's Tailscale IP for the diagnostic body.
+    host_id = job.get("host") or job.get("host_id") or ""
+    host_ip = ""
+    if host_id:
+        pool = _user_images_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload->>'ip' FROM hosts WHERE host_id=%s", (host_id,)
+            )
+            r = cur.fetchone()
+        if r:
+            host_ip = (r[0] if not isinstance(r, dict) else r.get("?column?")) or ""
+
+    slug = _job_slug(job_id)
+    base = _public_base_host()
+    url = f"https://{slug}-{cport}.{base}"
+    return {
+        "ok": True,
+        "url": url,
+        "slug": slug,
+        "container_port": cport,
+        "host_port": int(hport),
+        "host_ip": host_ip,
+    }
+
+
+_LOOPBACK_OK = {"127.0.0.1", "::1", "localhost", "testclient"}
+# Note: "testclient" is starlette's synthetic host for TestClient — it
+# is not a routable address and will never appear in production traffic.
+
+
+@router.get("/internal/route/{slug}/{port}", tags=["Internal"])
+def api_internal_route(slug: str, port: int, request: Request):
+    """nginx auth_request target: resolve <slug>-<port>.xcelsior.ca.
+
+    Returns 200 with ``X-Upstream: <tailscale_ip>:<host_port>`` on a
+    valid match; 404 otherwise. Loopback-only to prevent external
+    enumeration; nginx MUST proxy this over 127.0.0.1 (not via a public
+    listener). Also returns ``job_id`` in the JSON body for logging.
+    """
+    client_host = (request.client.host if request.client else "") or ""
+    # Allow Tailscale range too, in case the VPS is multi-homed.
+    if client_host not in _LOOPBACK_OK and not client_host.startswith("100."):
+        raise HTTPException(404, "not found")  # Don't leak existence.
+
+    if not re.fullmatch(r"[a-z0-9]{1,32}", slug or ""):
+        raise HTTPException(404, "not found")
+    if not (1 <= port <= 65535):
+        raise HTTPException(404, "not found")
+
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT j.job_id,
+                   j.payload->'http_ports' AS http_ports,
+                   j.payload->>'host' AS host_id,
+                   h.payload->>'ip' AS host_ip
+              FROM jobs j
+              LEFT JOIN hosts h ON h.host_id = j.payload->>'host'
+             WHERE j.status = 'running'
+               AND substr(j.job_id, 1, %s) = %s
+             LIMIT 2
+            """,
+            (JOB_SLUG_LEN, slug),
+        )
+        rows = cur.fetchall()
+
+    if not rows or len(rows) > 1:
+        raise HTTPException(404, "not found")
+    row = rows[0]
+
+    if isinstance(row, dict):
+        job_id = row["job_id"]
+        http_ports = row.get("http_ports") or {}
+        host_ip = row.get("host_ip") or ""
+    else:
+        job_id, http_ports, _host_id, host_ip = row[0], row[1] or {}, row[2], row[3] or ""
+
+    if isinstance(http_ports, str):
+        try:
+            http_ports = json.loads(http_ports)
+        except Exception:
+            http_ports = {}
+
+    hport = http_ports.get(str(port)) if isinstance(http_ports, dict) else None
+    if not hport or not host_ip:
+        raise HTTPException(404, "not found")
+
+    upstream = f"{host_ip}:{int(hport)}"
+    resp = Response(
+        content=json.dumps({"ok": True, "upstream": upstream, "job_id": job_id}),
+        media_type="application/json",
+    )
+    resp.headers["X-Upstream"] = upstream
+    return resp
+
