@@ -967,3 +967,58 @@ def api_agent_ssh_keys(job_id: str, request: Request):
         "ok": True,
         "keys": [k["public_key"] for k in keys],
     }
+
+
+@router.post("/agent/ssh-status/{job_id}", tags=["Agent"])
+async def api_agent_ssh_status(job_id: str, request: Request):
+    """Worker reports the final state of SSH setup for a job.
+
+    The dashboard reads ``jobs.payload.ssh_status`` to surface a
+    customer-facing notice when SSH setup didn't fully succeed (sshd
+    couldn't be installed, daemon failed to start, no keys uploaded,
+    etc.). This is fire-and-forget from the worker — failures here
+    must not break the worker's run loop.
+    """
+    _require_agent_auth(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+
+    # Defensive validation — worker is trusted but we still bound the data.
+    summary = str(body.get("summary") or "")[:500]
+    level = str(body.get("level") or "info")
+    if level not in ("info", "warning", "error"):
+        level = "info"
+    status = {
+        "ok": bool(body.get("ok")),
+        "sshd_present": bool(body.get("sshd_present")),
+        "sshd_started": bool(body.get("sshd_started")),
+        "key_count": int(body.get("key_count") or 0),
+        "summary": summary,
+        "level": level,
+        "elapsed_sec": float(body.get("elapsed_sec") or 0),
+        "ts": float(body.get("ts") or time.time()),
+    }
+    import json as _json
+
+    try:
+        pool = _get_pg_pool()
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE jobs
+                   SET payload = jsonb_set(
+                       COALESCE(payload, '{}'::jsonb),
+                       '{ssh_status}',
+                       %s::jsonb,
+                       true
+                   )
+                 WHERE job_id = %s
+                """,
+                (_json.dumps(status), job_id),
+            )
+    except Exception as e:
+        log.warning("ssh-status persist failed for job %s: %s", job_id, e)
+        raise HTTPException(500, "Failed to persist ssh status")
+    return {"ok": True}
