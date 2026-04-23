@@ -8,11 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Select, Label } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
 import {
-  Layers, RefreshCw, Trash2, Loader2, Search, Star, StarOff,
-  Globe, Lock, Rocket, Pencil, X, Check, Copy, Filter, Tag,
-  ChevronDown, ChevronUp, ArrowUpDown,
+  Layers, RefreshCw, Trash2, Loader2, Search, Star,
+  Globe, Lock, Rocket, Pencil, X, Check, Copy, Tag,
+  ArrowUpDown,
 } from "lucide-react";
 import { FadeIn } from "@/components/ui/motion";
+import { Pagination, usePagination } from "@/components/ui/pagination";
+import { BulkActionsDropdown, type BulkAction } from "@/components/templates/bulk-actions-dropdown";
 import { useAuth } from "@/lib/auth";
 import * as api from "@/lib/api";
 import type { UserImage, UserImageScope } from "@/lib/api";
@@ -24,11 +26,9 @@ import { cn } from "@/lib/utils";
 //
 // Single-page surface to organize + manage every saved pod template
 // (user_images rows). Three tabs: Mine / Community / All (admin).
-// Every action (star, edit metadata, delete, launch) is one click.
-//
-// Data model: see `UserImage` in lib/api.ts. Templates come from
-// `docker commit` of a running instance (POST /instances/{id}/snapshot);
-// this page is the downstream organization layer on top of that.
+// Gmail-style bulk dropdown (select + per-page actions) lives in the
+// table header. Starring is a row-action only. Row list is paginated
+// client-side at 25 per page.
 
 type SortKey = "name" | "size_bytes" | "created_at" | "status";
 type SortDir = "asc" | "desc";
@@ -38,6 +38,8 @@ const STATUS_BADGES: Record<UserImage["status"], { label: string; variant: "defa
   ready: { label: "Ready", variant: "running" },
   failed: { label: "Failed", variant: "failed" },
 };
+
+const PAGE_SIZE = 25;
 
 function formatBytes(n: number): string {
   if (!n) return "—";
@@ -61,7 +63,6 @@ export default function TemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scope, setScope] = useState<UserImageScope>("mine");
-  const [starredOnly, setStarredOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -69,13 +70,13 @@ export default function TemplatesPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [editing, setEditing] = useState<UserImage | null>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [page, setPage] = useState(1);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
       const res = await api.listUserImages({
         scope,
-        starred: starredOnly,
         label: labelFilter || undefined,
         q: query || undefined,
         limit: 500,
@@ -87,11 +88,16 @@ export default function TemplatesPage() {
       setRefreshing(false);
       setLoading(false);
     }
-  }, [scope, starredOnly, labelFilter, query]);
+  }, [scope, labelFilter, query]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Reset page whenever the visible result set fundamentally changes.
+  useEffect(() => {
+    setPage(1);
+  }, [scope, query, labelFilter, sortKey, sortDir]);
 
   // Live updates — SSE invalidates the list on create/update/delete.
   useEventStream({
@@ -137,6 +143,10 @@ export default function TemplatesPage() {
     return copy;
   }, [images, sortKey, sortDir, scope]);
 
+  const { paginate, totalPages } = usePagination(sorted, PAGE_SIZE);
+  const pageItems = paginate(page);
+  const pageMine = useMemo(() => pageItems.filter(i => i.is_mine), [pageItems]);
+
   function toggleSort(k: SortKey) {
     if (sortKey === k) setSortDir(d => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(k); setSortDir("desc"); }
@@ -155,6 +165,42 @@ export default function TemplatesPage() {
     [sorted, selected],
   );
 
+  const pageAllSelected = pageMine.length > 0 && pageMine.every(i => selected.has(i.image_id));
+  const pageSomeSelected = pageMine.some(i => selected.has(i.image_id)) && !pageAllSelected;
+
+  function togglePageAll() {
+    setSelected(prev => {
+      if (pageAllSelected) {
+        const n = new Set(prev);
+        for (const i of pageMine) n.delete(i.image_id);
+        return n;
+      }
+      const n = new Set(prev);
+      for (const i of pageMine) n.add(i.image_id);
+      return n;
+    });
+  }
+
+  function selectHelper(helper: "all-page" | "none" | "starred" | "unstarred") {
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (helper === "none") {
+        for (const i of pageMine) n.delete(i.image_id);
+        return n;
+      }
+      const pick = (img: UserImage) => {
+        if (helper === "all-page") return true;
+        if (helper === "starred") return !!img.starred;
+        if (helper === "unstarred") return !img.starred;
+        return false;
+      };
+      for (const i of pageMine) {
+        if (pick(i)) n.add(i.image_id); else n.delete(i.image_id);
+      }
+      return n;
+    });
+  }
+
   async function bulkDelete() {
     if (selectedMine.length === 0) return;
     setConfirmBulkDelete(false);
@@ -172,11 +218,38 @@ export default function TemplatesPage() {
     }
   }
 
+  async function bulkSetVisibility(isPublic: boolean) {
+    if (selectedMine.length === 0) return;
+    const count = selectedMine.length;
+    try {
+      await Promise.all(
+        selectedMine.map(img => api.patchUserImage(img.image_id, { is_public: isPublic })),
+      );
+      toast.success(`${count} template${count === 1 ? "" : "s"} set to ${isPublic ? "public" : "private"}`);
+      refresh();
+    } catch (e) {
+      toast.error(`Bulk update failed: ${(e as Error).message}`);
+      refresh();
+    }
+  }
+
+  function onBulkAction(actionId: string) {
+    switch (actionId) {
+      case "delete":       setConfirmBulkDelete(true); break;
+      case "make-public":  bulkSetVisibility(true); break;
+      case "make-private": bulkSetVisibility(false); break;
+    }
+  }
+
+  const bulkActions: BulkAction[] = [
+    { id: "delete", label: "Delete selected", icon: <Trash2 className="h-3.5 w-3.5" />, danger: true, disabled: selectedMine.length === 0 },
+    { id: "make-public", label: "Make public", icon: <Globe className="h-3.5 w-3.5" />, disabled: selectedMine.length === 0 },
+    { id: "make-private", label: "Make private", icon: <Lock className="h-3.5 w-3.5" />, disabled: selectedMine.length === 0 },
+  ];
+
   async function toggleStar(img: UserImage) {
     try {
       await api.patchUserImage(img.image_id, { starred: !img.starred });
-      // Optimistic update — the SSE invalidation will repaint anyway,
-      // but this avoids the 100-300 ms flash of un-toggled state.
       setImages(prev =>
         prev.map(i =>
           i.image_id === img.image_id
@@ -211,13 +284,18 @@ export default function TemplatesPage() {
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Layers className="h-6 w-6 text-ice-blue" />
               Templates
+              {selectedMine.length > 0 && (
+                <span className="ml-2 text-sm font-normal text-text-muted">
+                  · {selectedMine.length} selected
+                </span>
+              )}
             </h1>
             <p className="text-sm text-text-secondary mt-1">
               Save, organize, and launch from your pod snapshots. Snapshots are created from the
               {" "}<NextLink href="/dashboard/instances" className="text-ice-blue hover:underline">
                 instances page
               </NextLink>{" "}
-              via the "Save as template" action.
+              via the &ldquo;Save as template&rdquo; action.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -280,16 +358,6 @@ export default function TemplatesPage() {
               className="pl-9"
             />
           </div>
-          {scope === "mine" && (
-            <Button
-              variant={starredOnly ? "default" : "outline"}
-              size="sm"
-              onClick={() => setStarredOnly(s => !s)}
-            >
-              <Star className={cn("h-4 w-4 mr-1", starredOnly && "fill-yellow-400 text-yellow-400")} />
-              Starred only
-            </Button>
-          )}
           {allLabels.length > 0 && (
             <div className="flex items-center gap-1 flex-wrap">
               <Tag className="h-4 w-4 text-text-muted" />
@@ -322,28 +390,6 @@ export default function TemplatesPage() {
           )}
         </div>
 
-        {/* Bulk action bar */}
-        {selectedMine.length > 0 && (
-          <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-ice-blue/5 border border-ice-blue/30">
-            <span className="text-sm">
-              {selectedMine.length} selected
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                className="bg-accent-red text-white hover:bg-accent-red-hover"
-                onClick={() => setConfirmBulkDelete(true)}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Delete selected
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* Table */}
         <Card>
           <CardContent className="p-0">
@@ -373,29 +419,24 @@ export default function TemplatesPage() {
                 <table className="w-full text-sm">
                   <thead className="text-xs text-text-muted border-b border-border">
                     <tr>
-                      <th className="w-10 px-3 py-3">
-                        {scope === "mine" && (
-                          <input
-                            type="checkbox"
-                            checked={
-                              selectedMine.length > 0 &&
-                              selectedMine.length === sorted.filter(i => i.is_mine).length
-                            }
-                            onChange={e => {
-                              if (e.target.checked) {
-                                setSelected(new Set(sorted.filter(i => i.is_mine).map(i => i.image_id)));
-                              } else {
-                                setSelected(new Set());
-                              }
-                            }}
-                          />
-                        )}
+                      <th className="w-20 px-3 py-3 text-left">
+                        <BulkActionsDropdown
+                          allSelected={pageAllSelected}
+                          someSelected={pageSomeSelected}
+                          onToggleAll={togglePageAll}
+                          onSelectHelper={selectHelper}
+                          actions={bulkActions}
+                          onAction={onBulkAction}
+                          disabled={scope !== "mine"}
+                        />
                       </th>
                       <th className="w-8 px-2 py-3" />
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("name")}>
                         Name <ArrowUpDown className="inline h-3 w-3 ml-1" />
                       </th>
+                      <th className="text-left px-3 py-3 font-medium">Description</th>
                       <th className="text-left px-3 py-3 font-medium">Labels</th>
+                      <th className="text-left px-3 py-3 font-medium">Visibility</th>
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("status")}>
                         Status
                       </th>
@@ -405,27 +446,29 @@ export default function TemplatesPage() {
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("created_at")}>
                         Created
                       </th>
-                      <th className="text-left px-3 py-3 font-medium">Visibility</th>
-                      <th className="text-right px-3 py-3 font-medium">Actions</th>
+                      <th className="text-right px-3 py-3 font-medium sticky right-0 bg-surface z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)]">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sorted.map(img => {
+                    {pageItems.map(img => {
                       const isMine = img.is_mine;
                       const statusBadge = STATUS_BADGES[img.status];
+                      const rowSelected = selected.has(img.image_id);
                       return (
                         <tr
                           key={img.image_id}
                           className={cn(
-                            "border-b border-border/50 hover:bg-surface-hover/50 transition-colors",
-                            selected.has(img.image_id) && "bg-ice-blue/5",
+                            "group border-b border-border/50 transition-colors",
+                            rowSelected ? "bg-ice-blue/5" : "hover:bg-surface-hover/50",
                           )}
                         >
                           <td className="px-3 py-3">
                             {isMine && (
                               <input
                                 type="checkbox"
-                                checked={selected.has(img.image_id)}
+                                checked={rowSelected}
                                 onChange={() => toggleSelect(img.image_id)}
                               />
                             )}
@@ -448,13 +491,13 @@ export default function TemplatesPage() {
                           </td>
                           <td className="px-3 py-3">
                             <div className="font-medium">{img.name}<span className="text-text-muted">:{img.tag}</span></div>
-                            {img.description && (
-                              <div className="text-xs text-text-muted mt-0.5 line-clamp-1 max-w-md">
-                                {img.description}
-                              </div>
-                            )}
                             <div className="text-[10px] font-mono text-text-muted/70 mt-0.5 truncate max-w-md">
                               {img.image_ref}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-text-secondary max-w-xs">
+                            <div className="line-clamp-2 text-xs">
+                              {img.description || <span className="text-text-muted/50">—</span>}
                             </div>
                           </td>
                           <td className="px-3 py-3">
@@ -475,15 +518,6 @@ export default function TemplatesPage() {
                             </div>
                           </td>
                           <td className="px-3 py-3">
-                            <Badge variant={statusBadge.variant as any}>{statusBadge.label}</Badge>
-                          </td>
-                          <td className="px-3 py-3 text-right tabular-nums">
-                            {formatBytes(img.size_bytes)}
-                          </td>
-                          <td className="px-3 py-3 text-text-muted whitespace-nowrap">
-                            {formatRelative(img.created_at)}
-                          </td>
-                          <td className="px-3 py-3">
                             {img.is_public ? (
                               <span className="inline-flex items-center gap-1 text-xs text-green-500">
                                 <Globe className="h-3 w-3" /> Public
@@ -495,9 +529,21 @@ export default function TemplatesPage() {
                             )}
                           </td>
                           <td className="px-3 py-3">
+                            <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+                          </td>
+                          <td className="px-3 py-3 text-right tabular-nums">
+                            {formatBytes(img.size_bytes)}
+                          </td>
+                          <td className="px-3 py-3 text-text-muted whitespace-nowrap">
+                            {formatRelative(img.created_at)}
+                          </td>
+                          <td className={cn(
+                            "px-3 py-3 sticky right-0 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.3)] transition-colors",
+                            rowSelected ? "bg-[color:var(--surface)]" : "bg-surface group-hover:bg-surface-hover",
+                          )}>
                             <div className="flex items-center justify-end gap-1">
                               <NextLink
-                                href={`/dashboard/instances?template=${encodeURIComponent(img.image_id)}`}
+                                href={`/dashboard/marketplace?template=${encodeURIComponent(img.image_id)}`}
                                 className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-ice-blue transition-colors"
                                 title="Launch from template"
                               >
@@ -532,6 +578,16 @@ export default function TemplatesPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Pagination */}
+        {!loading && sorted.length > PAGE_SIZE && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            className="mt-2"
+          />
+        )}
 
         {/* Edit modal */}
         {editing && (
