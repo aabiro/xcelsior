@@ -113,16 +113,22 @@ async def query_running_instances() -> list[InstanceRoute]:
     """Query DB for all instances that should have SSH access."""
     conn = await _get_pg_conn()
     try:
+        # Prefer `public_ssh_port` (gateway-side public port written by the
+        # control plane when the worker reports its host-side mapping). Fall
+        # back to legacy `ssh_port` for rows predating the split (see the
+        # self-poisoning incident notes in routes/instances.py).
         query = """
             SELECT j.job_id, j.status,
-                   j.payload->>'ssh_port'   AS ssh_port,
-                   j.payload->>'host_id'    AS host_id,
-                   j.payload->>'name'       AS instance_name,
-                   h.payload->>'ip'         AS host_ip
+                   COALESCE(j.payload->>'public_ssh_port',
+                            j.payload->>'ssh_port')    AS ssh_port,
+                   j.payload->>'host_id'               AS host_id,
+                   j.payload->>'name'                  AS instance_name,
+                   h.payload->>'ip'                    AS host_ip
             FROM jobs j
             LEFT JOIN hosts h ON j.payload->>'host_id' = h.host_id
             WHERE j.status IN ('running', 'starting')
-              AND j.payload->>'ssh_port' IS NOT NULL
+              AND COALESCE(j.payload->>'public_ssh_port',
+                           j.payload->>'ssh_port') IS NOT NULL
               AND j.payload->>'host_id'  IS NOT NULL
         """
         async with conn.cursor() as cur:
