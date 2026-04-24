@@ -430,7 +430,6 @@ export default function TemplatesPage() {
                           disabled={scope !== "mine"}
                         />
                       </th>
-                      <th className="w-8 px-2 py-3" />
                       <th className="text-left px-3 py-3 font-medium cursor-pointer" onClick={() => toggleSort("name")}>
                         Name <ArrowUpDown className="inline h-3 w-3 ml-1" />
                       </th>
@@ -472,22 +471,6 @@ export default function TemplatesPage() {
                                 onChange={() => toggleSelect(img.image_id)}
                               />
                             )}
-                          </td>
-                          <td className="px-2 py-3">
-                            {isMine ? (
-                              <button
-                                onClick={() => toggleStar(img)}
-                                title={img.starred ? "Unstar" : "Star"}
-                                className="text-text-muted hover:text-yellow-400 transition-colors"
-                              >
-                                <Star
-                                  className={cn(
-                                    "h-4 w-4",
-                                    img.starred && "fill-yellow-400 text-yellow-400",
-                                  )}
-                                />
-                              </button>
-                            ) : null}
                           </td>
                           <td className="px-3 py-3">
                             <div className="font-medium">{img.name}<span className="text-text-muted">:{img.tag}</span></div>
@@ -542,6 +525,20 @@ export default function TemplatesPage() {
                             rowSelected ? "bg-[color:var(--surface)]" : "bg-surface group-hover:bg-surface-hover",
                           )}>
                             <div className="flex items-center justify-end gap-1">
+                              {isMine && (
+                                <button
+                                  onClick={() => toggleStar(img)}
+                                  title={img.starred ? "Unstar" : "Star"}
+                                  className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-yellow-400 transition-colors"
+                                >
+                                  <Star
+                                    className={cn(
+                                      "h-4 w-4",
+                                      img.starred && "fill-yellow-400 text-yellow-400",
+                                    )}
+                                  />
+                                </button>
+                              )}
                               <NextLink
                                 href={`/dashboard/marketplace?template=${encodeURIComponent(img.image_id)}`}
                                 className="p-1.5 rounded hover:bg-surface-hover text-text-muted hover:text-ice-blue transition-colors"
