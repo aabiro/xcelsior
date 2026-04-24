@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import hashlib
+import secrets
 import signal
 import subprocess
 import shlex
@@ -3865,6 +3866,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
     keys: list[str] = []
     sshd_present: bool = False
     sshd_started: bool = False
+    root_password: str = ""
     final_msg: str = "[xcelsior] SSH setup complete"
     final_level: str = "info"
 
@@ -4010,19 +4012,46 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     container_name,
                     "sh",
                     "-c",
-                    "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true; "
-                    # Disable password + keyboard-interactive auth so users without a
-                    # key get an immediate 'Permission denied (publickey)' instead of
-                    # a password prompt they can never satisfy (root has no password).
-                    "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    # Allow root login via either SSH key or password. We generate
+                    # a strong random password per instance (see below) so users
+                    # can still connect even if they haven't uploaded a public key.
+                    "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true; "
                     "sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
                     "sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
                     "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
-                    "printf '\\nPasswordAuthentication no\\nKbdInteractiveAuthentication no\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config",
+                    "printf '\\nPermitRootLogin yes\\nPasswordAuthentication yes\\nKbdInteractiveAuthentication no\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config",
                 ],
                 capture_output=True,
                 timeout=_remaining(5),
             )
+
+            # Generate a strong random root password per instance so users can
+            # connect even without an uploaded SSH key. This matches the UX of
+            # Lambda / RunPod / Paperspace — the dashboard surfaces it in the
+            # connection panel, and it's unique-per-job so compromise is scoped.
+            # 20 chars, URL/terminal-safe alphabet (no ambiguous 0/O/1/l/I).
+            _pw_alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+            root_password = "".join(
+                secrets.choice(_pw_alphabet) for _ in range(20)
+            )
+            try:
+                pw_set = subprocess.run(
+                    [
+                        "docker", "exec", "-i", container_name,
+                        "chpasswd",
+                    ],
+                    input=f"root:{root_password}\n".encode(),
+                    capture_output=True,
+                    timeout=_remaining(5),
+                )
+                if pw_set.returncode != 0:
+                    err = pw_set.stderr.decode(errors="replace").strip()
+                    log.warning("chpasswd failed in %s: %s", container_name, err)
+                    root_password = ""  # don't surface a password that wasn't set
+            except Exception as e:
+                log.warning("chpasswd exception in %s: %s", container_name, e)
+                root_password = ""
 
             # Set up MOTD + custom shell prompt for the interactive instance.
             short = job_id[:8]
@@ -4128,7 +4157,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 _note(
                     "SSH daemon ready — connections accepted"
                     if keys
-                    else "SSH daemon started (add keys to connect)"
+                    else "SSH daemon started — password available on dashboard"
                 )
             else:
                 err = (
@@ -4144,9 +4173,12 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
         # --- Compose final summary based on observed state ---
         # When sshd isn't in the image, SSH keys do nothing — don't mention them.
         if sshd_started and keys:
-            final_msg = f"[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s))"
-        elif sshd_started and not keys:
-            final_msg = "[xcelsior] Terminal ready — add SSH keys at xcelsior.ca/dashboard/settings to enable direct SSH"
+            final_msg = f"[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s) + password)"
+        elif sshd_started and root_password:
+            final_msg = "[xcelsior] Terminal ready — SSH enabled (password on dashboard; add a key at Settings → SSH Keys for passwordless login)"
+        elif sshd_started:
+            final_msg = "[xcelsior] Terminal ready — SSH daemon up but no credentials set"
+            final_level = "warning"
         elif sshd_present and not sshd_started:
             final_msg = "[xcelsior] Terminal ready — web terminal only (sshd failed to start)"
             final_level = "warning"
@@ -4174,7 +4206,9 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
         # (no sshd installable, daemon failed to start, key fetch failed,
         # etc). Best-effort — never blocks or raises.
         try:
-            ssh_ok = bool(sshd_started) and (len(keys) > 0)
+            # "ok" means the user can connect via at least one auth method
+            # (key OR password). Without sshd_started neither works.
+            ssh_ok = bool(sshd_started) and (len(keys) > 0 or bool(root_password))
             requests.post(
                 _api_url(f"/agent/ssh-status/{job_id}"),
                 headers=_api_headers(),
@@ -4183,6 +4217,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     "sshd_present": bool(sshd_present),
                     "sshd_started": bool(sshd_started),
                     "key_count": len(keys),
+                    "root_password": root_password if sshd_started else "",
                     "summary": final_msg,
                     "level": final_level,
                     "elapsed_sec": round(elapsed, 2),

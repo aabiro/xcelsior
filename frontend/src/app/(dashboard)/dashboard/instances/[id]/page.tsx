@@ -11,7 +11,7 @@ import { LogViewer } from "@/components/ui/log-viewer";
 import {
   ArrowLeft, Clock, Cpu, DollarSign, HardDrive, Lock, Server, RotateCcw, XCircle, Terminal, Wifi, WifiOff,
   Copy, Globe, Container, Square, Loader2, AlertTriangle, Info, ChevronDown, ChevronUp,
-  Play, RefreshCw, Zap, MoreVertical, Link2, Pencil, Check, X, Camera,
+  Play, RefreshCw, Zap, MoreVertical, Link2, Pencil, Check, X, Camera, Eye, EyeOff, Key,
 } from "lucide-react";
 import {
   fetchInstance, cancelInstance, requeueInstance,
@@ -89,6 +89,44 @@ function DirectAccessSection({ instance }: { instance: Instance }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function RootPasswordRow({ password }: { password: string }) {
+  const [show, setShow] = useState(false);
+  const masked = "•".repeat(Math.min(password.length, 20));
+  return (
+    <div className="mt-2 pt-2 border-t border-border/50">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Key className="h-3 w-3 text-text-muted" />
+        <p className="text-xs font-medium text-text-secondary">Root password</p>
+        <div className="group relative">
+          <Info className="h-3 w-3 text-text-muted cursor-help" />
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 w-64 rounded-md bg-surface-overlay border border-border p-2 text-xs text-text-muted shadow-lg">
+            Auto-generated for this instance. Use if you don&apos;t have an SSH key on file. Rotates every launch.
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 text-sm font-mono text-ice-blue bg-background rounded px-2.5 py-2 select-all border border-border tracking-wider">
+          {show ? password : masked}
+        </code>
+        <button
+          onClick={() => setShow((s) => !s)}
+          className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+          title={show ? "Hide" : "Show"}
+        >
+          {show ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          onClick={() => { navigator.clipboard.writeText(password); toast.success("Password copied"); }}
+          className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+          title="Copy"
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -851,6 +889,9 @@ export default function InstanceDetailPage() {
                       <Copy className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                  {instance.ssh_status?.root_password && (
+                    <RootPasswordRow password={instance.ssh_status.root_password} />
+                  )}
                 </div>
                 <DirectAccessSection instance={instance} />
                 <dl className="grid gap-y-2 gap-x-6 text-sm sm:grid-cols-2 pt-2 border-t border-border">

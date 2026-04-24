@@ -990,11 +990,15 @@ async def api_agent_ssh_status(job_id: str, request: Request):
     level = str(body.get("level") or "info")
     if level not in ("info", "warning", "error"):
         level = "info"
+    # Per-instance generated root password (optional). Bounded length to
+    # prevent accidental blob storage; empty means "no password available".
+    root_password = str(body.get("root_password") or "")[:128]
     status = {
         "ok": bool(body.get("ok")),
         "sshd_present": bool(body.get("sshd_present")),
         "sshd_started": bool(body.get("sshd_started")),
         "key_count": int(body.get("key_count") or 0),
+        "root_password": root_password,
         "summary": summary,
         "level": level,
         "elapsed_sec": float(body.get("elapsed_sec") or 0),
