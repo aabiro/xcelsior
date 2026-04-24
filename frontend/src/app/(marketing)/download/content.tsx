@@ -205,6 +205,53 @@ export function DownloadContent() {
         >
           {t("download.build_note")}
         </motion.p>
+
+        {/* macOS Gatekeeper workaround — shown to everyone (macOS users see it
+            prominently; others can still reference it). Until we ship a signed +
+            notarized build via an Apple Developer ID, macOS quarantines our DMG
+            and shows "Xcelsior is damaged and can't be opened." The file is
+            fine — it just isn't notarized yet. */}
+        <motion.details
+          variants={fadeUp}
+          custom={5}
+          open={detected === "macos"}
+          className="mx-auto mt-6 max-w-2xl rounded-xl border border-border bg-surface-overlay/60 backdrop-blur-sm"
+        >
+          <summary className="flex cursor-pointer items-center gap-2 px-5 py-3 text-sm font-medium text-text-primary select-none">
+            <Shield className="h-4 w-4 text-accent-cyan shrink-0" />
+            <span>macOS: &ldquo;Xcelsior is damaged&rdquo; — here&apos;s the fix</span>
+          </summary>
+          <div className="border-t border-border px-5 py-4 text-sm text-text-secondary space-y-3">
+            <p>
+              macOS Gatekeeper blocks apps that aren&apos;t signed with an Apple
+              Developer ID. Our build isn&apos;t notarized yet — the download
+              itself is safe. Pick either option below:
+            </p>
+            <div>
+              <p className="font-medium text-text-primary mb-1">Option 1 — Terminal (recommended)</p>
+              <p className="text-xs mb-1.5">After dragging Xcelsior to Applications, run:</p>
+              <code className="block rounded-md bg-background border border-border px-3 py-2 font-mono text-xs text-ice-blue select-all">
+                xattr -cr /Applications/Xcelsior.app
+              </code>
+              <p className="text-xs mt-1.5 text-text-muted">
+                This removes the quarantine flag macOS added to the download. Then
+                open Xcelsior normally.
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-text-primary mb-1">Option 2 — Right-click</p>
+              <p className="text-xs">
+                Right-click (or <kbd className="rounded border border-border bg-background px-1 text-[10px]">Ctrl</kbd>-click)
+                the Xcelsior app → <strong>Open</strong> → confirm in the dialog.
+                You only need to do this once.
+              </p>
+            </div>
+            <p className="text-xs text-text-muted pt-1 border-t border-border/50">
+              Proper notarization is on the roadmap — this warning will disappear
+              once we ship a signed build.
+            </p>
+          </div>
+        </motion.details>
       </motion.div>
 
       {/* What the desktop app does */}

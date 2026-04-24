@@ -75,11 +75,11 @@ function OverviewActionVisual({
 }) {
   const tones = {
     launch: {
-      shell: "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(8,145,178,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(0,212,255,0.16),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+      shell: "border-accent-violet/20 bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.14),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,249,255,0.94))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.18),transparent_26%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
       panel: "bg-white/[0.72] dark:bg-[#091120]/85",
-      ring: "text-accent-red shadow-[0_18px_52px_rgba(234,88,12,0.14)] dark:shadow-[0_18px_52px_rgba(255,82,82,0.18)]",
-      cornerA: "bg-[radial-gradient(circle_at_0%_0%,rgba(8,145,178,0.22),transparent_55%)]",
-      cornerB: "bg-[radial-gradient(circle_at_100%_100%,rgba(91,33,182,0.18),transparent_55%)]",
+      ring: "text-accent-violet shadow-[0_18px_52px_rgba(124,58,237,0.14)] dark:shadow-[0_18px_52px_rgba(124,58,237,0.18)]",
+      cornerA: "bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.22),transparent_55%)]",
+      cornerB: "bg-[radial-gradient(circle_at_100%_100%,rgba(0,212,255,0.18),transparent_55%)]",
       img: "/rocket.svg?v=6",
       imgLight: "/rocket-light.svg?v=6",
     },
@@ -136,10 +136,10 @@ function OverviewActionCard({
   const styles = {
     launch: {
       shell:
-        "border-accent-red/20 bg-[radial-gradient(circle_at_0%_0%,rgba(234,88,12,0.15),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(255,82,82,0.16),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
-      chip: "border-accent-red/20 bg-accent-red/10 text-accent-red dark:border-accent-red/25",
+        "border-accent-violet/20 bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.14),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,250,255,0.95))] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(124,58,237,0.18),transparent_24%),linear-gradient(180deg,rgba(8,12,24,0.96),rgba(7,11,20,0.92))]",
+      chip: "border-accent-violet/20 bg-accent-violet/10 text-accent-violet dark:border-accent-violet/25",
       subchip: "border-accent-cyan/[0.18] bg-accent-cyan/[0.08] text-accent-cyan dark:border-accent-cyan/20",
-      button: "bg-accent-red text-white hover:bg-accent-red-hover",
+      button: "bg-accent-violet text-white hover:bg-accent-violet/90",
     },
     provider: {
       shell:
