@@ -4011,8 +4011,14 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     "sh",
                     "-c",
                     "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    # Disable password + keyboard-interactive auth so users without a
+                    # key get an immediate 'Permission denied (publickey)' instead of
+                    # a password prompt they can never satisfy (root has no password).
+                    "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
+                    "sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true; "
                     "sed -i '/^ClientAliveInterval/d;/^ClientAliveCountMax/d;/^TCPKeepAlive/d' /etc/ssh/sshd_config 2>/dev/null || true; "
-                    "printf '\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config",
+                    "printf '\\nPasswordAuthentication no\\nKbdInteractiveAuthentication no\\nClientAliveInterval 30\\nClientAliveCountMax 6\\nTCPKeepAlive yes\\n' >> /etc/ssh/sshd_config",
                 ],
                 capture_output=True,
                 timeout=_remaining(5),
