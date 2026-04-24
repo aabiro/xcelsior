@@ -4102,22 +4102,19 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 timeout=_remaining(15),
             )
 
-            # Ensure runtime dirs exist — Debian/Ubuntu sshd refuses to start
-            # without /run/sshd ("Missing privilege separation directory").
-            subprocess.run(
+            # Start sshd. Ensure privsep dir exists in the SAME exec so there's
+            # no window for /run/sshd to disappear (seen on Ubuntu 24.04 pytorch
+            # images where openssh-server postinst does not create /run/sshd —
+            # it relies on systemd-tmpfiles which never runs in a container).
+            sshd_start = subprocess.run(
                 [
                     "docker", "exec", container_name, "sh", "-c",
-                    "mkdir -p /run/sshd /var/run/sshd && chmod 0755 /run/sshd /var/run/sshd",
+                    "mkdir -p /run/sshd /var/run/sshd && "
+                    "chmod 0755 /run/sshd /var/run/sshd && "
+                    "/usr/sbin/sshd",
                 ],
                 capture_output=True,
-                timeout=_remaining(5),
-            )
-
-            # Start sshd
-            sshd_start = subprocess.run(
-                ["docker", "exec", container_name, "/usr/sbin/sshd"],
-                capture_output=True,
-                timeout=_remaining(5),
+                timeout=_remaining(8),
             )
             sshd_started = sshd_start.returncode == 0
             if sshd_started:
