@@ -1973,6 +1973,10 @@ export interface Instance {
     sshd_present: boolean;
     sshd_started: boolean;
     key_count: number;
+    /** Auto-generated root password for this instance. Surfaced on the
+     *  dashboard so users can connect without uploading an SSH key.
+     *  Empty string when password auth isn't available (sshd didn't start). */
+    root_password?: string;
     summary: string;
     level: "info" | "warning" | "error";
     elapsed_sec: number;
