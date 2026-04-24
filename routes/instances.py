@@ -372,6 +372,12 @@ class StatusUpdate(BaseModel):
     host_id: str | None = None
     container_id: str | None = None
     container_name: str | None = None
+    # ssh_port here is the GATEWAY-SIDE PUBLIC port the worker mapped to
+    # the container's sshd (10000-65000). This is a separate semantic from
+    # JobIn.ssh_port (container-internal port, defaults to 22) — see the
+    # api_update_instance handler below, which persists this to
+    # `public_ssh_port` in the payload to avoid overwriting the
+    # container-internal value (self-poisoning incident 2026-04-23).
     ssh_port: int | None = None
     interactive: bool | None = None
     error_message: str | None = None
@@ -708,6 +714,15 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
         j.setdefault("host_vram_gb", host.get("total_vram_gb", 0))
         j.setdefault("gpu_type", host.get("gpu_model", ""))
 
+    # SSH port surfaced to clients is the GATEWAY-SIDE public port. Prefer
+    # the new `public_ssh_port` field (written by api_update_instance); fall
+    # back to the legacy `ssh_port` field for instances that predate the
+    # public_ssh_port rollout (2026-04-23) or were poisoned by the old
+    # worker code path.
+    pub_port = j.get("public_ssh_port")
+    if pub_port:
+        j["ssh_port"] = pub_port
+
     # Cost
     elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
     if elapsed > 0 and j.get("cost_cad") is None:
@@ -816,7 +831,14 @@ def api_update_instance(job_id: str, update: StatusUpdate):
                         f"ssh_port {update.ssh_port} outside reserved gateway " "range 10000-65000"
                     ),
                 )
-            extras["ssh_port"] = update.ssh_port
+            # DEFENSE-IN-DEPTH: persist under `public_ssh_port` — NOT
+            # `ssh_port` — so we don't overwrite the container-internal
+            # port value the worker reads back on requeue. Writing
+            # host_port to payload.ssh_port caused the worker to map
+            # `-p <host_port>:<host_port>` on the next launch, while
+            # sshd inside the container still listens on :22, breaking
+            # the gateway relay (self-poisoning incident 2026-04-23).
+            extras["public_ssh_port"] = update.ssh_port
         if update.interactive is not None:
             extras["interactive"] = update.interactive
         if update.error_message:

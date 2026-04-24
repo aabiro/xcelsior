@@ -1,11 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" fill="none">
   <defs>
-    <pattern id="majorGrid" width="64" height="64" patternUnits="userSpaceOnUse">
-      <path d="M64 0H0V64" stroke="#334155" stroke-opacity="0.715" stroke-width="1.3"/>
-    </pattern>
-    <pattern id="minorGrid" width="22" height="22" patternUnits="userSpaceOnUse">
-      <path d="M22 0H0V22" stroke="#475569" stroke-opacity="0.52" stroke-width="0.6"/>
-    </pattern>
+    <!-- Grid patterns removed — were unused and made the SVG read as a technical grid on light bg. -->
 
     <!-- Asymmetric fade -->
     <linearGradient id="gridFadeV" x1="0" y1="0" x2="0" y2="900" gradientUnits="userSpaceOnUse">
@@ -160,21 +155,9 @@
         <path d="M240 480 H420 V540 H600 V480 H700" stroke="url(#traceRed)" stroke-width="1.7"/>
       </g>
 
-      <!-- Branch connectors — T-junctions and stubs -->
-      <g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.7">
-        <path d="M460 192 V160" stroke="#0891b2" stroke-width="1.5"/>
-        <path d="M460 310 H490 V350" stroke="#0891b2" stroke-width="1.3"/>
-        <path d="M340 256 V290" stroke="#6d28d9" stroke-width="1.3"/>
-        <path d="M520 180 V150" stroke="#6d28d9" stroke-width="1.3"/>
-        <path d="M380 352 V320" stroke="#c2410c" stroke-width="1.3"/>
-        <path d="M560 420 V450" stroke="#c2410c" stroke-width="1.1"/>
-        <path d="M300 416 V390" stroke="#0891b2" stroke-width="1.1"/>
-        <path d="M500 480 V510" stroke="#0891b2" stroke-width="1.1"/>
-        <path d="M280 140 V110" stroke="#6d28d9" stroke-width="1.1"/>
-        <path d="M440 96 V70" stroke="#6d28d9" stroke-width="1.1"/>
-        <path d="M420 480 V450" stroke="#c2410c" stroke-width="1.1"/>
-        <path d="M600 540 V570" stroke="#c2410c" stroke-width="1.1"/>
-      </g>
+      <!-- Branch connectors and IC-style hollow pads removed — their short
+           vertical stubs read as a technical grid on light bg. Keeping only
+           the 6 main gradient-stroked traces for a cleaner circuit motif. -->
 
       <!-- Endpoint pads — filled circles at trace terminations -->
       <g filter="url(#dotGlow)">
@@ -190,16 +173,6 @@
         <circle cx="720" cy="352" r="4" fill="#c2410c" fill-opacity="0.845"/>
         <circle cx="700" cy="480" r="3.5" fill="#c2410c" fill-opacity="0.715"/>
         <circle cx="600" cy="570" r="3" fill="#c2410c" fill-opacity="0.585"/>
-      </g>
-
-      <!-- Hollow pads at bend points — IC-style rounded-rect pad -->
-      <g fill="none" stroke-width="1.5" opacity="0.6">
-        <rect x="453" y="184" width="14" height="14" rx="3" stroke="#0891b2"/>
-        <rect x="333" y="249" width="14" height="14" rx="3" stroke="#6d28d9"/>
-        <rect x="373" y="345" width="14" height="14" rx="3" stroke="#c2410c"/>
-        <rect x="513" y="173" width="14" height="14" rx="3" stroke="#6d28d9"/>
-        <rect x="553" y="413" width="14" height="14" rx="3" stroke="#c2410c"/>
-        <rect x="293" y="409" width="14" height="14" rx="3" stroke="#0891b2"/>
       </g>
 
       <!-- Beam energy animations — two traces get a moving highlight -->
