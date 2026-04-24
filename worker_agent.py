@@ -2731,7 +2731,14 @@ def run_job(job):
             log.info("Multi-GPU job: requesting %d GPUs", num_gpus)
 
         # 3. Build secure Docker args
-        ssh_port = int(job.get("ssh_port", 22) or 22)
+        # Container-side SSH port is always 22 (OpenSSH default). The
+        # `ssh_port` we report back to the control plane is the PUBLIC
+        # host port users connect to — if we read it back here from the
+        # job payload on a requeue we'd end up with `-p 14096:14096`
+        # and sshd (listening on 22) would refuse the gateway's relay,
+        # producing "Connection closed by <vps>" on the client. See
+        # incident 2026-04-23. Keep this value hardcoded.
+        ssh_port = 22
 
         # Interactive mode: override entrypoint to keep container alive
         # and expose SSH port for user access
