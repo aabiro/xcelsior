@@ -2440,6 +2440,143 @@ def _cleanup_partial_volume(volume_id: str):
             os.rmdir(mount_point)
 
 
+# ── Phase 7 / §3: exclusive_gpu lifecycle ────────────────────────────
+#
+# A tier-1 (exclusive_gpu=true) tenant gets the entire 3060 to itself.
+# Acquire flow:
+#   1) flock /run/xcelsior/gpu.lock              (mutex against other tenants)
+#   2) POST /admin/drain  → tower-serverless     (rejects new inference)
+#   3) `ollama stop`                             (graceful unload)
+#   4) SIGSTOP ollama runner pids                (free VRAM driver state)
+#   5) pkill -TERM 'tier3-'                      (background jobs checkpoint)
+# Release flow reverses it (SIGCONT, /admin/resume, flock release).
+#
+# All steps are best-effort: a missing ollama binary or a non-running
+# tower-serverless does not abort the job.
+GPU_LOCK_PATH = "/run/xcelsior/gpu.lock"
+TOWER_SERVERLESS_URL = os.environ.get(
+    "TOWER_SERVERLESS_URL", "http://127.0.0.1:8001"
+)
+EXCLUSIVE_GPU_LOCK_TIMEOUT_S = 60
+
+
+def _acquire_exclusive_gpu(job_id: str) -> dict:
+    """Acquire exclusive access to the local GPU. See module-level docstring.
+    Returns a state dict with keys: ok, lock_fd, ollama_pids, error.
+    """
+    import fcntl
+    state: dict = {"ok": False, "lock_fd": None, "ollama_pids": []}
+
+    # 1. flock (blocking with timeout)
+    try:
+        fd = os.open(GPU_LOCK_PATH, os.O_WRONLY | os.O_CREAT, 0o664)
+    except OSError as e:
+        state["error"] = f"open(gpu.lock): {e}"
+        return state
+    deadline = time.time() + EXCLUSIVE_GPU_LOCK_TIMEOUT_S
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.time() >= deadline:
+                with suppress(Exception):
+                    os.close(fd)
+                state["error"] = (
+                    f"flock timeout ({EXCLUSIVE_GPU_LOCK_TIMEOUT_S}s) — "
+                    "another tier-1 tenant holds the GPU"
+                )
+                return state
+            time.sleep(0.5)
+    state["lock_fd"] = fd
+    log.info("exclusive_gpu[%s]: flock acquired", job_id)
+
+    # 2. drain serverless
+    try:
+        r = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
+        log.info(
+            "exclusive_gpu[%s]: drain rc=%s body=%s",
+            job_id, r.status_code, r.text[:120],
+        )
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: drain skipped (%s)", job_id, e)
+
+    # 3. ollama stop (graceful unload)
+    try:
+        subprocess.run(
+            ["ollama", "stop"], timeout=10, capture_output=True
+        )
+        log.info("exclusive_gpu[%s]: ollama stop sent", job_id)
+    except FileNotFoundError:
+        log.info("exclusive_gpu[%s]: ollama not installed — skipping", job_id)
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: ollama stop failed (%s)", job_id, e)
+
+    # 4. SIGSTOP ollama runner processes
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", "ollama"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for raw in out.stdout.split():
+            if not raw.isdigit():
+                continue
+            pid = int(raw)
+            with suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGSTOP)
+                state["ollama_pids"].append(pid)
+        if state["ollama_pids"]:
+            log.info(
+                "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s",
+                job_id, state["ollama_pids"],
+            )
+    except FileNotFoundError:
+        pass  # pgrep missing
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: ollama SIGSTOP failed (%s)", job_id, e)
+
+    # 5. SIGTERM tier3- background jobs
+    try:
+        subprocess.run(
+            ["pkill", "-TERM", "-f", "tier3-"],
+            timeout=5, capture_output=True,
+        )
+        log.info("exclusive_gpu[%s]: tier3- jobs SIGTERM'd", job_id)
+    except Exception as e:
+        log.debug("exclusive_gpu[%s]: pkill tier3 (%s)", job_id, e)
+
+    state["ok"] = True
+    return state
+
+
+def _release_exclusive_gpu(job_id: str, state: dict) -> None:
+    """Reverse of _acquire_exclusive_gpu. Idempotent and best-effort."""
+    import fcntl
+    if not state:
+        return
+
+    # 1. SIGCONT ollama runners
+    for pid in state.get("ollama_pids", []):
+        with suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, signal.SIGCONT)
+
+    # 2. resume serverless
+    try:
+        requests.post(f"{TOWER_SERVERLESS_URL}/admin/resume", timeout=5)
+    except Exception as e:
+        log.warning("exclusive_gpu[%s]: resume failed (%s)", job_id, e)
+
+    # 3. release flock
+    fd = state.get("lock_fd")
+    if fd is not None:
+        with suppress(Exception):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        with suppress(Exception):
+            os.close(fd)
+
+    log.info("exclusive_gpu[%s]: released", job_id)
+
+
 # ── Container Lifecycle ──────────────────────────────────────────────
 
 
@@ -2560,6 +2697,28 @@ def run_job(job):
     encrypted_vol_ids = []
     managed_vol_mounts = []  # /mnt/xcelsior-volumes/{vid} paths for cleanup
     current_stage = "preparing instance"
+
+    # ── Phase 7 / §3: acquire exclusive GPU before any container/IO setup ──
+    exclusive_gpu = bool(job.get("exclusive_gpu"))
+    _excl_state: dict = {}
+    if exclusive_gpu:
+        log.info(
+            "Job %s requested exclusive_gpu — acquiring tier-1 GPU lock",
+            job_id,
+        )
+        _excl_state = _acquire_exclusive_gpu(job_id)
+        if not _excl_state.get("ok"):
+            err = _excl_state.get("error", "unknown")
+            log.error(
+                "Job %s: exclusive_gpu acquire failed: %s", job_id, err
+            )
+            report_job_status(
+                job_id, "failed",
+                error_message=f"exclusive_gpu acquire failed: {err}",
+            )
+            release_lease(job_id, "failed")
+            return
+
     try:
         # 0. Mount NFS volume (if configured — skip for interactive instances
         #    which don't need shared storage and the 30s timeout blocks startup)
@@ -3042,6 +3201,11 @@ def run_job(job):
         _lease_stop.set()
         with _active_lock:
             _active_containers.pop(job_id, None)
+
+        # Release exclusive GPU lock (Phase 7 / §3) — must run last so any
+        # checkpoint/cleanup work above completes while we still own the GPU.
+        if exclusive_gpu and _excl_state.get("ok"):
+            _release_exclusive_gpu(job_id, _excl_state)
 
         # Unmount NFS if we mounted it
         if nfs_mounted:
