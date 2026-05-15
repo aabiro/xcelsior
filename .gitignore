@@ -100,6 +100,46 @@ frontend/test-results/
 checkpoints/
 .dev-logs/
 
+# ── AI coding agent configs (local-only) ─────────────────────────────────
+.adal/
+.agents/
+.augment/
+.bob/
+.claude/skills/
+.claude/._*
+.codebuddy/
+.codex
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mcp.json
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+skills/
+skills-lock.json
+
+# ── macOS resource forks ─────────────────────────────────────────────────
+._*
+
 # ── Stray files ──────────────────────────────────────────────────────────
 tatus\ --short
 et
