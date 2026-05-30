@@ -906,6 +906,13 @@ class ReputationEngine:
 
 GPU_REFERENCE_PRICING_CAD = {
     # model: {base_rate, subsidized_rate, premium_rate (Gold/Platinum)}
+    "RTX 3060": {
+        "base_rate_cad": 0.16,
+        "subsidized_starter_cad": 0.12,
+        "premium_rate_cad": 0.22,
+        "min_rate_cad": 0.08,
+        "max_rate_cad": 0.35,
+    },
     "RTX 3090": {
         "base_rate_cad": 0.35,
         "subsidized_starter_cad": 0.30,

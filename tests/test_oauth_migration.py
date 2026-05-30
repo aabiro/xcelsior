@@ -146,46 +146,23 @@ class TestOAuthMigrationSecurity:
         r = client.get("/api/ssh/keys", headers={"Authorization": f"Bearer {machine_token}"})
         assert r.status_code == 403
 
-    def test_deprecation_telemetry_fired_on_api_key_usage(self, monkeypatch):
+    def test_api_keys_permanently_rejected(self, monkeypatch):
+        """API keys are permanently disabled — auth with one must return 401."""
         import routes._deps as _deps_mod
 
-        token = _register_and_get_token("deprecated-telemetry@xcelsior.ca")
+        token = _register_and_get_token("rejected-key@xcelsior.ca")
 
-        # Create an API key
+        # /api/keys/generate should return 410 Gone
         key_resp = client.post(
             "/api/keys/generate",
             headers={"Authorization": f"Bearer {token}"},
             json={"name": "test-key", "scope": "full-access"},
         )
-        assert key_resp.status_code == 200
-        api_key = key_resp.json()["key"]
+        assert key_resp.status_code == 410
 
-        # Get baseline counter metric value
-        try:
-            baseline = _deps_mod._deprecated_api_key_requests.labels(
-                "deprecated-telemetry@xcelsior.ca"
-            )._value.get()
-        except:
-            baseline = 0
-
-        import api
-
-        monkeypatch.setenv("XCELSIOR_API_TOKEN", "test-master-token")
-        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
-        monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-        # Use API key to access telemetry
-        r = client.get("/api/telemetry/all", headers={"Authorization": f"Bearer {api_key}"})
-        assert r.status_code == 200
-
-        # Verify deprecation headers exist
-        assert "Deprecation" in r.headers
-        assert "Warning" in r.headers
-
-        # Verify prometheus counter increased
-        try:
-            metric_val = _deps_mod._deprecated_api_key_requests.labels(
-                "deprecated-telemetry@xcelsior.ca"
-            )._value.get()
-            assert metric_val > baseline
-        except:
-            pass  # Noop counter in test mode
+        # /api/keys list should return 410 Gone
+        list_resp = client.get(
+            "/api/keys",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert list_resp.status_code == 410
