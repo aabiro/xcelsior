@@ -521,27 +521,17 @@ def _get_current_user(request: Request) -> dict | None:
             return merged
         api_key = UserStore.get_api_key(token)
         if api_key:
-            full_user = UserStore.get_user(api_key["email"])
-            merged = _merge_auth_user(
-                {
-                    "email": api_key["email"],
-                    "user_id": api_key["user_id"],
-                    "role": api_key.get("role", "submitter"),
-                    "is_admin": api_key.get("is_admin", False),
-                    "name": api_key.get("name", ""),
-                    "scope": api_key.get("scope", "full-access"),
-                },
-                full_user,
-            )
-            merged["auth_type"] = "api_key"
-            merged["deprecation_headers"] = build_deprecation_headers("API keys")
             _deprecated_api_key_requests.labels(api_key["email"]).inc()
             log.warning(
-                "deprecated.api_key.used email=%s key_name=%s",
+                "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
                 api_key["email"],
                 api_key.get("name", "unknown"),
             )
-            return merged
+            raise HTTPException(
+                401,
+                "API keys have been permanently disabled. Migrate to OAuth 2.0: "
+                "POST /oauth/clients to create a client, then use client_credentials grant.",
+            )
     else:
         with _user_lock:
             session = _sessions.get(token)
@@ -552,29 +542,18 @@ def _get_current_user(request: Request) -> dict | None:
             return merged
         with _user_lock:
             api_key = _api_keys.get(token)
-            full_user = _users_db.get(api_key["email"]) if api_key else None
         if api_key:
-            api_key["last_used"] = time.time()
-            merged = _merge_auth_user(
-                {
-                    "email": api_key["email"],
-                    "user_id": api_key["user_id"],
-                    "role": api_key.get("role", "submitter"),
-                    "is_admin": api_key.get("is_admin", False),
-                    "name": api_key.get("name", ""),
-                    "scope": api_key.get("scope", "full-access"),
-                },
-                full_user,
-            )
-            merged["auth_type"] = "api_key"
-            merged["deprecation_headers"] = build_deprecation_headers("API keys")
             _deprecated_api_key_requests.labels(api_key["email"]).inc()
             log.warning(
-                "deprecated.api_key.used email=%s key_name=%s",
+                "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
                 api_key["email"],
                 api_key.get("name", "unknown"),
             )
-            return merged
+            raise HTTPException(
+                401,
+                "API keys have been permanently disabled. Migrate to OAuth 2.0: "
+                "POST /oauth/clients to create a client, then use client_credentials grant.",
+            )
     return None
 
 

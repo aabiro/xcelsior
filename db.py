@@ -158,8 +158,14 @@ def _get_pg_pool():
 
         for attempt in range(1, max_attempts + 1):
             try:
+                # Re-read DSN at pool init time — module-scope POSTGRES_DSN
+                # may have been evaluated before dotenv loaded.
+                dsn = os.environ.get(
+                    "XCELSIOR_POSTGRES_DSN",
+                    os.environ.get("DATABASE_URL", POSTGRES_DSN),
+                )
                 pool = ConnectionPool(
-                    POSTGRES_DSN,
+                    dsn,
                     min_size=2,
                     max_size=PG_POOL_SIZE,
                     max_idle=PG_MAX_OVERFLOW,

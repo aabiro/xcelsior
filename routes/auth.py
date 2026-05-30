@@ -1349,114 +1349,20 @@ def api_auth_delete_account(request: Request):
 
 @router.post("/api/keys/generate", tags=["Auth"], deprecated=True)
 async def api_generate_api_key(request: Request):
-    """Generate a named API key for the authenticated user.
-
-    API keys can be used as Bearer tokens for programmatic access.
-    Scope: 'full-access' (default) or 'read-only' (GET requests only).
-    """
-    user = _require_user_grant(request)
-    body = await request.json()
-    name = body.get("name", "default")
-    scope = body.get("scope", "full-access")
-    if scope not in VALID_KEY_SCOPES:
-        raise HTTPException(
-            400, f"Invalid scope. Must be one of: {', '.join(sorted(VALID_KEY_SCOPES))}"
-        )
-
-    key = f"xcel_{secrets.token_urlsafe(32)}"
-    key_data = {
-        "key": key,
-        "name": name,
-        "email": user["email"],
-        "user_id": user["user_id"],
-        "role": user.get("role", "submitter"),
-        "is_admin": True if _is_platform_admin(user) else False,
-        "scope": scope,
-        "created_at": time.time(),
-        "last_used": None,
-    }
-    with _user_lock:
-        _api_keys[key] = key_data
-    if _USE_PERSISTENT_AUTH:
-        UserStore.create_api_key(key_data)
-
-    resp = JSONResponse(
-        content={
-            "ok": True,
-            "key": key,
-            "name": name,
-            "scope": scope,
-            "preview": key[:12] + "..." + key[-4:],
-            "note": "Save this key — it will not be shown again.",
-        }
-    )
-    for hdr, value in build_deprecation_headers("/api/keys").items():
-        resp.headers[hdr] = value
-    return resp
+    """API keys have been permanently disabled. Use OAuth 2.0 client_credentials."""
+    raise HTTPException(410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients")
 
 
 @router.get("/api/keys", tags=["Auth"], deprecated=True)
 def api_list_keys(request: Request):
-    """List all API keys for the authenticated user (keys are redacted)."""
-    user = _require_user_grant(request)
-
-    if _USE_PERSISTENT_AUTH:
-        all_keys = UserStore.list_api_keys(user["email"])
-        keys = [
-            {
-                "name": v["name"],
-                "preview": v["key"][:12] + "..." + v["key"][-4:],
-                "scope": v.get("scope", "full-access"),
-                "created_at": v["created_at"],
-                "last_used": v["last_used"],
-            }
-            for v in all_keys
-        ]
-    else:
-        with _user_lock:
-            keys = [
-                {
-                    "name": v["name"],
-                    "preview": v["key"][:12] + "..." + v["key"][-4:],
-                    "scope": v.get("scope", "full-access"),
-                    "created_at": v["created_at"],
-                    "last_used": v["last_used"],
-                }
-                for v in _api_keys.values()
-                if v["email"] == user["email"]
-            ]
-
-    resp = JSONResponse(content={"ok": True, "keys": keys})
-    for hdr, value in build_deprecation_headers("/api/keys").items():
-        resp.headers[hdr] = value
-    return resp
+    """API keys have been permanently disabled. Use OAuth 2.0 client_credentials."""
+    raise HTTPException(410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients")
 
 
 @router.delete("/api/keys/{key_preview}", tags=["Auth"], deprecated=True)
 def api_revoke_key(key_preview: str, request: Request):
-    """Revoke an API key by its preview string."""
-    user = _require_user_grant(request)
-
-    if _USE_PERSISTENT_AUTH:
-        found = UserStore.delete_api_key_by_preview(user["email"], key_preview)
-        if not found:
-            raise HTTPException(404, "API key not found")
-    else:
-        with _user_lock:
-            to_remove = [
-                k
-                for k, v in _api_keys.items()
-                if v["email"] == user["email"]
-                and (v["key"][:12] + "..." + v["key"][-4:]) == key_preview
-            ]
-            for k in to_remove:
-                del _api_keys[k]
-        if not to_remove:
-            raise HTTPException(404, "API key not found")
-    resp = JSONResponse(content={"ok": True, "message": "API key revoked"})
-    for hdr, value in build_deprecation_headers("/api/keys").items():
-        resp.headers[hdr] = value
-    return resp
+    """API keys have been permanently disabled. Use OAuth 2.0 client_credentials."""
+    raise HTTPException(410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients")
 
 
 # ── Model: PasswordResetRequest ──

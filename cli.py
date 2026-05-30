@@ -66,13 +66,15 @@ def cmd_run(args):
         args.priority,
         tier=args.tier,
         num_gpus=getattr(args, "gpus", 1),
+        gpu_model=getattr(args, "gpu", None),
         nfs_server=getattr(args, "nfs_server", None),
         nfs_path=getattr(args, "nfs_path", None),
         image=getattr(args, "image", None),
     )
     gpus_str = f" | {job.get('num_gpus', 1)} GPUs" if job.get("num_gpus", 1) > 1 else ""
+    gpu_str = f" | gpu={job.get('gpu_model')}" if job.get("gpu_model") else ""
     print(
-        f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB{gpus_str} | tier={job['tier']} (priority {job['priority']})"
+        f"Job submitted: {job['job_id']} | {job['name']} | {job['vram_needed_gb']}GB{gpus_str}{gpu_str} | tier={job['tier']} (priority {job['priority']})"
     )
 
     if not args.no_assign:
@@ -721,6 +723,125 @@ def cmd_compliance(args):
             )
 
 
+def cmd_host_profile(args):
+    """Show reusable host profile defaults and setup commands."""
+    from host_profiles import (
+        build_host_add_command,
+        build_market_list_command,
+        get_host_profile,
+        list_host_profiles,
+    )
+
+    if not args.profile:
+        profiles = list_host_profiles()
+        if RICH_AVAILABLE:
+            table = Table(title="Host Profiles")
+            table.add_column("Profile")
+            table.add_column("GPU")
+            table.add_column("VRAM", justify="right")
+            table.add_column("Rate", justify="right")
+            table.add_column("Use")
+            for profile in profiles:
+                table.add_row(
+                    profile["profile_id"],
+                    profile["gpu_model"],
+                    f'{profile["total_vram_gb"]:g}GB',
+                    f'${profile["default_rate_cad_per_hour"]:.2f}/hr',
+                    profile["description"],
+                )
+            console.print(table)
+        else:
+            for profile in profiles:
+                print(
+                    f'{profile["profile_id"]}: {profile["gpu_model"]} '
+                    f'{profile["total_vram_gb"]:g}GB '
+                    f'${profile["default_rate_cad_per_hour"]:.2f}/hr'
+                )
+        return
+
+    try:
+        profile = get_host_profile(args.profile)
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        print(json.dumps(profile, indent=2))
+        return
+
+    print(profile["label"])
+    print(f"  Profile: {profile['profile_id']}")
+    print(f"  GPU:     {profile['gpu_model']} ({profile['architecture']})")
+    print(
+        f"  VRAM:    {profile['total_vram_gb']:g}GB total, "
+        f"{profile['usable_vram_gb']:g}GB usable"
+    )
+    print(f"  Rate:    ${profile['default_rate_cad_per_hour']:.2f}/hr CAD")
+    print(f"  Runtime: {profile['recommended_runtime']}")
+    print()
+    print("Recommended workloads:")
+    for item in profile["recommended_workloads"]:
+        print(f"  - {item}")
+    print("Avoid:")
+    for item in profile["avoid_workloads"]:
+        print(f"  - {item}")
+    print()
+    print("Register command:")
+    print(
+        "  "
+        + build_host_add_command(
+            profile["profile_id"],
+            args.host_id,
+            args.ip,
+            country=args.country,
+            province=args.province,
+        )
+    )
+    print("Marketplace command:")
+    print("  " + build_market_list_command(profile["profile_id"], args.host_id, owner=args.owner))
+
+
+def cmd_host_accept(args):
+    """Run local provider acceptance checks."""
+    from host_acceptance import probe_local_host
+
+    report = probe_local_host(
+        host_id=args.host_id,
+        expected_gpu_model=args.expected_gpu,
+        min_vram_gb=args.min_vram,
+        docker_probe=args.docker_probe,
+        docker_image=args.docker_image,
+    )
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    elif RICH_AVAILABLE:
+        title = f"Host Acceptance: {report['host_id']}"
+        table = Table(title=title)
+        table.add_column("Check")
+        table.add_column("Status")
+        table.add_column("Detail")
+        for check in report["checks"]:
+            status = "[green]PASS[/green]" if check["ok"] else "[red]FAIL[/red]"
+            if check["severity"] == "info":
+                status = "[cyan]INFO[/cyan]"
+            table.add_row(check["name"], status, check["detail"])
+        console.print(table)
+        print(f"Ready: {'yes' if report['ready'] else 'no'}")
+    else:
+        print(f"Host acceptance: {report['host_id']}")
+        for check in report["checks"]:
+            if check["severity"] == "info":
+                status = "INFO"
+            else:
+                status = "PASS" if check["ok"] else "FAIL"
+            print(f"  {status:>4} {check['name']}: {check['detail']}")
+        print(f"Ready: {'yes' if report['ready'] else 'no'}")
+
+    if not report["ready"]:
+        sys.exit(1)
+
+
 # ── Config File (~/.xcelsior/config.toml) ─────────────────────────────
 
 CONFIG_DIR = os.path.expanduser("~/.xcelsior")
@@ -1063,6 +1184,7 @@ def main():
         help="Priority tier (overrides --priority)",
     )
     p_run.add_argument("--gpus", type=int, default=1, help="Number of GPUs needed (default 1)")
+    p_run.add_argument("--gpu", default=None, help="Required GPU model, e.g. RTX 3060")
     p_run.add_argument("--nfs-server", default=None, help="NFS server for shared storage")
     p_run.add_argument("--nfs-path", default=None, help="NFS export path")
     p_run.add_argument("--image", default=None, help="Docker image to run")
@@ -1174,6 +1296,40 @@ def main():
     p_hostsca = sub.add_parser("hosts-ca", help="List Canadian hosts only")
     p_hostsca.add_argument("--all", action="store_true", help="Include dead hosts")
     p_hostsca.set_defaults(func=cmd_hosts_ca)
+
+    # xcelsior host-profile [profile]
+    p_hprofile = sub.add_parser("host-profile", help="Show reusable provider host profiles")
+    p_hprofile.add_argument("profile", nargs="?", help="Profile ID or alias, e.g. rtx3060-local")
+    p_hprofile.add_argument("--host-id", default="tower-server", help="Host ID for command output")
+    p_hprofile.add_argument("--ip", default="tower-server", help="Host IP/hostname for command output")
+    p_hprofile.add_argument("--country", default="CA", help="Country code for command output")
+    p_hprofile.add_argument(
+        "--province",
+        default="ON",
+        choices=CA_PROVINCES,
+        help="Province/territory code for command output",
+    )
+    p_hprofile.add_argument("--owner", default="internal", help="Marketplace owner label")
+    p_hprofile.add_argument("--json", action="store_true", help="Print profile JSON")
+    p_hprofile.set_defaults(func=cmd_host_profile)
+
+    # xcelsior host-accept
+    p_haccept = sub.add_parser("host-accept", help="Run local provider acceptance checks")
+    p_haccept.add_argument("--host-id", default="local", help="Host ID label for the report")
+    p_haccept.add_argument("--expected-gpu", default="", help="Expected GPU model substring")
+    p_haccept.add_argument("--min-vram", type=float, default=0, help="Required minimum VRAM in GB")
+    p_haccept.add_argument(
+        "--docker-probe",
+        action="store_true",
+        help="Run a Docker GPU visibility probe using the configured image",
+    )
+    p_haccept.add_argument(
+        "--docker-image",
+        default="nvidia/cuda:12.4.1-base-ubuntu22.04",
+        help="Container image for --docker-probe",
+    )
+    p_haccept.add_argument("--json", action="store_true", help="Print report JSON")
+    p_haccept.set_defaults(func=cmd_host_accept)
 
     # xcelsior canada
     p_canada = sub.add_parser("canada", help="Toggle or check Canada-only mode")
