@@ -1,6 +1,6 @@
 """P3/C7 — worker_agent drain-side allowlist (defence-in-depth)."""
-from pathlib import Path
 
+from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent / "worker_agent.py"
 
@@ -35,18 +35,14 @@ def test_c7_drain_rejects_unknown_at_top():
     first_dispatch_idx = body.find('if name == "reinject_shell"')
     assert reject_idx > 0
     assert first_dispatch_idx > 0
-    assert reject_idx < first_dispatch_idx, (
-        "allowlist check must precede the first dispatch branch"
-    )
+    assert reject_idx < first_dispatch_idx, "allowlist check must precede the first dispatch branch"
 
 
 def test_c7_no_else_soft_warning():
     """The old `else: log.warning('Unknown agent command ...')` fallback
     must be gone — the allowlist at the top replaces it."""
     src = SRC.read_text()
-    assert "Unknown agent command cmd=" not in src, (
-        "legacy soft-warning else branch still present"
-    )
+    assert "Unknown agent command cmd=" not in src, "legacy soft-warning else branch still present"
 
 
 def test_c7_rejection_counter_labeled():
@@ -60,6 +56,6 @@ def test_c7_allowlist_matches_api_side():
     import worker_agent  # noqa
     from routes import agent as agent_route
 
-    assert worker_agent._AGENT_COMMAND_ALLOWED == agent_route._AGENT_COMMAND_ALLOWED, (
-        "worker and API allowlists diverged"
-    )
+    assert (
+        worker_agent._AGENT_COMMAND_ALLOWED == agent_route._AGENT_COMMAND_ALLOWED
+    ), "worker and API allowlists diverged"

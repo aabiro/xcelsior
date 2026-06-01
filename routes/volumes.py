@@ -334,9 +334,7 @@ def api_volume_snapshot_list(volume_id: str, request: Request):
     return {"ok": True, "snapshots": snaps}
 
 
-@router.post(
-    "/api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore", tags=["Volumes"]
-)
+@router.post("/api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore", tags=["Volumes"])
 def api_volume_snapshot_restore(volume_id: str, snapshot_id: str, request: Request):
     from routes._deps import _require_scope
 
@@ -358,9 +356,7 @@ def api_volume_snapshot_restore(volume_id: str, snapshot_id: str, request: Reque
     return {"ok": True, **result}
 
 
-@router.delete(
-    "/api/v2/volumes/{volume_id}/snapshots/{snapshot_id}", tags=["Volumes"]
-)
+@router.delete("/api/v2/volumes/{volume_id}/snapshots/{snapshot_id}", tags=["Volumes"])
 def api_volume_snapshot_delete(volume_id: str, snapshot_id: str, request: Request):
     from routes._deps import _require_scope
 

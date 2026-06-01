@@ -41,6 +41,7 @@ def cleanup_images():
         return
     try:
         from db import _get_pg_pool
+
         p = _get_pg_pool()
         with p.connection() as conn:
             for iid in ids:

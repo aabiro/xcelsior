@@ -33,6 +33,7 @@ logging.basicConfig(
 # P3/C3 — scrub PII from bg-worker logs too.
 try:
     from log_pii_filter import install as _install_pii_scrub
+
     _install_pii_scrub()
 except Exception:  # pragma: no cover
     pass
@@ -215,8 +216,7 @@ def main():
             conn.row_factory = dict_row
             # Pull stale jobs. paused_at lives in payload; completed_at lives
             # in payload for stopped; fall back to submitted_at if absent.
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT j.job_id, j.status, j.host_id,
                        j.payload->>'container_name' AS container_name,
                        COALESCE(
@@ -229,8 +229,7 @@ def main():
                    AND j.host_id IS NOT NULL AND j.host_id <> ''
                  ORDER BY j.submitted_at DESC
                  LIMIT 200
-                """
-            ).fetchall()
+                """).fetchall()
             enqueued = 0
             for row in rows:
                 state_ts = row.get("state_age_ts") or 0.0
@@ -355,7 +354,8 @@ def main():
         if purged:
             log.info(
                 "user_images GC: hard-deleted %d rows (deleted_at < %d days ago)",
-                purged, retention_days,
+                purged,
+                retention_days,
             )
 
     tasks.append(("user_images_hard_delete_gc", _user_images_hard_delete_gc, 86400))
@@ -372,13 +372,15 @@ def main():
 
         registry_health.probe_registry()
 
-    tasks.append((
-        "registry_health_probe",
-        _registry_health_probe,
-        # registry_health.PROBE_INTERVAL_SEC defaults to 300s; read it
-        # lazily so env changes are respected at startup.
-        __import__("registry_health").PROBE_INTERVAL_SEC,
-    ))
+    tasks.append(
+        (
+            "registry_health_probe",
+            _registry_health_probe,
+            # registry_health.PROBE_INTERVAL_SEC defaults to 300s; read it
+            # lazily so env changes are respected at startup.
+            __import__("registry_health").PROBE_INTERVAL_SEC,
+        )
+    )
 
     # 18. Phase E/E8 — retry snapshots queued during registry outage.
     # When the snapshot endpoint runs while the registry is unhealthy
@@ -411,7 +413,7 @@ def main():
             ).fetchall()
 
         promoted = 0
-        for (image_id, owner_id, job_id, host_id, name, tag, image_ref, description) in rows:
+        for image_id, owner_id, job_id, host_id, name, tag, image_ref, description in rows:
             if not host_id:
                 # Host disappeared while we were queued — fail the row
                 # rather than leave it stuck forever.
@@ -449,7 +451,8 @@ def main():
             except Exception as e:
                 log.warning(
                     "E8 retry enqueue failed image_id=%s err=%s",
-                    image_id, type(e).__name__,
+                    image_id,
+                    type(e).__name__,
                 )
 
         if promoted:
@@ -491,7 +494,7 @@ def main():
                 """,
             ).fetchall()
 
-        for (rid, host_id, target_sha, enqueued_at, age_sec, current_sha) in rows:
+        for rid, host_id, target_sha, enqueued_at, age_sec, current_sha in rows:
             age = float(age_sec or 0)
             # Success path — heartbeat now reports the target sha.
             if current_sha == target_sha and age >= MARK_COMPLETE_MIN_AGE_SEC:
@@ -530,14 +533,17 @@ def main():
                         conn.commit()
                     rolled_back += 1
                     log.warning(
-                        "rollout watchdog: auto-rollback host=%s age=%.0fs "
-                        "target=%s current=%s",
-                        host_id, age, target_sha[:8], (current_sha or "none")[:8],
+                        "rollout watchdog: auto-rollback host=%s age=%.0fs " "target=%s current=%s",
+                        host_id,
+                        age,
+                        target_sha[:8],
+                        (current_sha or "none")[:8],
                     )
                 except Exception as e:
                     log.warning(
                         "rollout watchdog: enqueue rollback failed host=%s: %s",
-                        host_id, e,
+                        host_id,
+                        e,
                     )
                 continue
             # Otherwise: still within grace, just touch last_check_at.
@@ -552,7 +558,8 @@ def main():
         if completed or rolled_back:
             log.info(
                 "rollout watchdog: completed=%d rolled_back=%d",
-                completed, rolled_back,
+                completed,
+                rolled_back,
             )
 
     tasks.append(("agent_rollout_watchdog", _agent_rollout_watchdog, 30))

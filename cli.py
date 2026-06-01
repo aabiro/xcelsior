@@ -1301,7 +1301,9 @@ def main():
     p_hprofile = sub.add_parser("host-profile", help="Show reusable provider host profiles")
     p_hprofile.add_argument("profile", nargs="?", help="Profile ID or alias, e.g. rtx3060-local")
     p_hprofile.add_argument("--host-id", default="tower-server", help="Host ID for command output")
-    p_hprofile.add_argument("--ip", default="tower-server", help="Host IP/hostname for command output")
+    p_hprofile.add_argument(
+        "--ip", default="tower-server", help="Host IP/hostname for command output"
+    )
     p_hprofile.add_argument("--country", default="CA", help="Country code for command output")
     p_hprofile.add_argument(
         "--province",

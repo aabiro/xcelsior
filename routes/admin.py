@@ -1137,6 +1137,7 @@ def api_admin_agent_rollout(request: Request, body: dict):
             # new bytes within the grace window.
             try:
                 from db import pg_transaction as _pg_txn
+
                 with _pg_txn() as _conn:
                     _cur = _conn.cursor()
                     _cur.execute(

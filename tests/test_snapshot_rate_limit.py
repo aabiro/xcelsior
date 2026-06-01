@@ -1,4 +1,5 @@
 """P3/B4 — per-user snapshot rate limit regression tests."""
+
 import pytest
 from fastapi import HTTPException
 
@@ -75,7 +76,7 @@ def test_rate_limit_snapshot_endpoint_calls_helper():
     idx = src.find("def api_snapshot_instance(")
     assert idx >= 0
     body_end = src.find("\n@router", idx)
-    body = src[idx: body_end if body_end > 0 else len(src)]
-    assert "_check_snapshot_rate_limit(owner_id)" in body, (
-        "api_snapshot_instance must call _check_snapshot_rate_limit(owner_id)"
-    )
+    body = src[idx : body_end if body_end > 0 else len(src)]
+    assert (
+        "_check_snapshot_rate_limit(owner_id)" in body
+    ), "api_snapshot_instance must call _check_snapshot_rate_limit(owner_id)"

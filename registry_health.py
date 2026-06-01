@@ -52,11 +52,14 @@ try:
     )
     _PROM = True
 except Exception:  # pragma: no cover - prometheus_client should always be present
+
     class _NoopGauge:
         def labels(self, **_kw):
             return self
+
         def set(self, _v):
             return None
+
     _reachable_gauge = _NoopGauge()  # type: ignore
     _last_probe_gauge = _NoopGauge()  # type: ignore
     _probe_latency_gauge = _NoopGauge()  # type: ignore
@@ -228,7 +231,7 @@ def probe_registry(url: Optional[str] = None) -> dict:
     module-level cache + emitted as Prometheus gauges). Safe to call
     from any thread — uses a lock around the cache update.
     """
-    registry = (url if url is not None else _configured_registry())
+    registry = url if url is not None else _configured_registry()
     if not registry:
         # Make the misconfiguration visible — without this log line
         # the probe runs silently and operators have no trail to
@@ -310,12 +313,17 @@ def probe_registry(url: Optional[str] = None) -> dict:
     if reachable:
         log.info(
             "registry probe OK registry=%s status=%s latency_ms=%.1f",
-            registry, status_code, latency_ms,
+            registry,
+            status_code,
+            latency_ms,
         )
     else:
         log.warning(
             "registry probe FAIL registry=%s err=%s status=%s latency_ms=%.1f",
-            registry, err, status_code, latency_ms,
+            registry,
+            err,
+            status_code,
+            latency_ms,
         )
     return snapshot
 

@@ -1401,7 +1401,12 @@ class BillingEngine:
                     created_by="billing_restart_start",
                 )
                 restart_queued = True
-                log.info("RESTART queued (was_running=%s): %s on %s", was_running, container_name, host_id)
+                log.info(
+                    "RESTART queued (was_running=%s): %s on %s",
+                    was_running,
+                    container_name,
+                    host_id,
+                )
             except Exception as e:
                 enqueue_error = type(e).__name__
                 log.warning("RESTART enqueue failed for %s: %s: %s", job_id, enqueue_error, e)
@@ -1421,7 +1426,11 @@ class BillingEngine:
             conn.commit()
 
         if not restart_queued:
-            log.error("RESTART failed for job=%s — marking stopped (reason=%s)", job_id, enqueue_error or "unknown")
+            log.error(
+                "RESTART failed for job=%s — marking stopped (reason=%s)",
+                job_id,
+                enqueue_error or "unknown",
+            )
             return {
                 "restarted": False,
                 "reason": enqueue_error or "enqueue_failed",
@@ -2531,7 +2540,9 @@ class BillingEngine:
                                 created_by="billing_wallet_suspended",
                             )
                         except Exception as ke:
-                            log.warning("stop_container enqueue failed for %s: %s", job["job_id"], ke)
+                            log.warning(
+                                "stop_container enqueue failed for %s: %s", job["job_id"], ke
+                            )
             except Exception as e:
                 log.warning("Container cleanup enqueue failed: %s", e)
 

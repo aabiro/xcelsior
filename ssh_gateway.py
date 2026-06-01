@@ -359,9 +359,10 @@ class SSHGateway:
             # the port.
             self._failed_binds[port] = time.time()
             log.error(
-                "Failed to bind port %d for instance %s: %s "
-                "(will retry on next sync)",
-                port, route.job_id[:8], e,
+                "Failed to bind port %d for instance %s: %s " "(will retry on next sync)",
+                port,
+                route.job_id[:8],
+                e,
             )
 
     async def close_listener(self, port: int, drain: bool = True):
@@ -503,7 +504,8 @@ class SSHGateway:
                 self._pg_reconnects += 1
                 log.warning(
                     "Postgres LISTEN connection lost (#%d): %s — reconnecting in 5s",
-                    self._pg_reconnects, e,
+                    self._pg_reconnects,
+                    e,
                 )
                 if conn:
                     try:
@@ -537,7 +539,9 @@ class SSHGateway:
         if self._last_pg_notify_ok_at and now - self._last_pg_notify_ok_at > 600:
             issues.append("pg_listen_stale")
         # DB polling should succeed at least every 2× sync interval.
-        if self._last_db_query_ok_at and now - self._last_db_query_ok_at > max(60, SYNC_INTERVAL_SEC * 3):
+        if self._last_db_query_ok_at and now - self._last_db_query_ok_at > max(
+            60, SYNC_INTERVAL_SEC * 3
+        ):
             issues.append("db_query_stale")
         if self._failed_binds:
             issues.append(f"failed_binds:{len(self._failed_binds)}")
@@ -553,12 +557,10 @@ class SSHGateway:
                 "uptime_sec": uptime,
                 "pg_reconnects": self._pg_reconnects,
                 "last_pg_notify_age_sec": (
-                    int(now - self._last_pg_notify_ok_at)
-                    if self._last_pg_notify_ok_at else None
+                    int(now - self._last_pg_notify_ok_at) if self._last_pg_notify_ok_at else None
                 ),
                 "last_db_query_age_sec": (
-                    int(now - self._last_db_query_ok_at)
-                    if self._last_db_query_ok_at else None
+                    int(now - self._last_db_query_ok_at) if self._last_db_query_ok_at else None
                 ),
                 "failed_binds": sorted(self._failed_binds.keys()),
                 "ports": sorted(self.listeners.keys()),

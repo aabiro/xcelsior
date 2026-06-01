@@ -1350,19 +1350,25 @@ def api_auth_delete_account(request: Request):
 @router.post("/api/keys/generate", tags=["Auth"], deprecated=True)
 async def api_generate_api_key(request: Request):
     """API keys have been permanently disabled. Use OAuth 2.0 client_credentials."""
-    raise HTTPException(410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients")
+    raise HTTPException(
+        410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients"
+    )
 
 
 @router.get("/api/keys", tags=["Auth"], deprecated=True)
 def api_list_keys(request: Request):
     """API keys have been permanently disabled. Use OAuth 2.0 client_credentials."""
-    raise HTTPException(410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients")
+    raise HTTPException(
+        410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients"
+    )
 
 
 @router.delete("/api/keys/{key_preview}", tags=["Auth"], deprecated=True)
 def api_revoke_key(key_preview: str, request: Request):
     """API keys have been permanently disabled. Use OAuth 2.0 client_credentials."""
-    raise HTTPException(410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients")
+    raise HTTPException(
+        410, "API keys are permanently disabled. Use OAuth 2.0: POST /api/oauth/clients"
+    )
 
 
 # ── Model: PasswordResetRequest ──

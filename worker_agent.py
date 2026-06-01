@@ -190,9 +190,7 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
         exposed_ports_s = ""
     auto_launch = job.get("auto_launch") or []
     if isinstance(auto_launch, (list, tuple)):
-        auto_launch_s = ",".join(
-            str(s).strip().lower() for s in auto_launch if str(s).strip()
-        )
+        auto_launch_s = ",".join(str(s).strip().lower() for s in auto_launch if str(s).strip())
     else:
         auto_launch_s = ""
     return {
@@ -944,9 +942,7 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
     # transport confidentiality + to avoid DNS/HTTP MITM feeding us a valid
     # (attacker-signed) blob alongside a poisoned sha. If your API_URL is
     # http://localhost for local dev, set XCELSIOR_ALLOW_INSECURE_UPGRADE=1.
-    if not url.startswith("https://") and os.environ.get(
-        "XCELSIOR_ALLOW_INSECURE_UPGRADE"
-    ) != "1":
+    if not url.startswith("https://") and os.environ.get("XCELSIOR_ALLOW_INSECURE_UPGRADE") != "1":
         log.error("upgrade_agent refusing non-https url: %s", url)
         return False
 
@@ -1042,15 +1038,17 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
 #: P3/C7 — drain-side allowlist. Defence-in-depth against an API-side
 #: bypass: the worker only executes commands on this list. Must stay in
 #: sync with routes/agent.py::_AGENT_COMMAND_ALLOWED.
-_AGENT_COMMAND_ALLOWED = frozenset({
-    "reinject_shell",
-    "upgrade_agent",
-    "rollback_agent",     # P1.2 — auto-rollback driver restores .bak
-    "stop_container",
-    "pause_container",
-    "start_container",
-    "snapshot_container",
-})
+_AGENT_COMMAND_ALLOWED = frozenset(
+    {
+        "reinject_shell",
+        "upgrade_agent",
+        "rollback_agent",  # P1.2 — auto-rollback driver restores .bak
+        "stop_container",
+        "pause_container",
+        "start_container",
+        "snapshot_container",
+    }
+)
 
 
 def drain_agent_commands() -> int:
@@ -1088,7 +1086,9 @@ def drain_agent_commands() -> int:
         if name not in _AGENT_COMMAND_ALLOWED:
             log.warning(
                 "drain_agent_commands refused unknown cmd=%s name=%r by=%s",
-                cmd_id, name, by,
+                cmd_id,
+                name,
+                by,
             )
             _agent_commands_rejected_total.labels(command=str(name)[:32]).inc()
             continue
@@ -1134,10 +1134,13 @@ def drain_agent_commands() -> int:
                 # skip so the drain loop doesn't keep retrying.
                 try:
                     from pathlib import Path as _P
+
                     _self = _P(__file__).resolve()
                     _bak = _self.with_suffix(".py.bak")
                     if not _bak.exists():
-                        log.warning("rollback_agent cmd=%s no .bak file at %s — skipping", cmd_id, _bak)
+                        log.warning(
+                            "rollback_agent cmd=%s no .bak file at %s — skipping", cmd_id, _bak
+                        )
                         continue
                     # Keep the current bytes around one level deeper so a
                     # subsequent re-upgrade has a recovery path (rotates
@@ -1148,6 +1151,7 @@ def drain_agent_commands() -> int:
                     except OSError:
                         pass
                     import os as _os
+
                     _os.replace(_bak, _self)
                     log.warning("rollback_agent cmd=%s restored .bak — exiting for restart", cmd_id)
                     logging.shutdown()
@@ -1167,11 +1171,15 @@ def drain_agent_commands() -> int:
                 try:
                     subprocess.run(
                         ["docker", "stop", "-t", "30", cname],
-                        capture_output=True, text=True, timeout=45,
+                        capture_output=True,
+                        text=True,
+                        timeout=45,
                     )
                     subprocess.run(
                         ["docker", "rm", "-f", cname],
-                        capture_output=True, text=True, timeout=15,
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
                     )
                     _active_containers.pop(_job_id, None)
                     dispatched += 1
@@ -1191,14 +1199,18 @@ def drain_agent_commands() -> int:
                 try:
                     r = subprocess.run(
                         ["docker", "stop", "-t", "30", cname],
-                        capture_output=True, text=True, timeout=45,
+                        capture_output=True,
+                        text=True,
+                        timeout=45,
                     )
                     if r.returncode == 0:
                         dispatched += 1
                     else:
                         log.warning(
                             "pause_container cmd=%s rc=%s stderr=%s",
-                            cmd_id, r.returncode, (r.stderr or "")[:200],
+                            cmd_id,
+                            r.returncode,
+                            (r.stderr or "")[:200],
                         )
                 except subprocess.TimeoutExpired:
                     log.warning("pause_container cmd=%s container=%s timed out", cmd_id, cname)
@@ -1214,7 +1226,9 @@ def drain_agent_commands() -> int:
                 try:
                     r = subprocess.run(
                         ["docker", "start", cname],
-                        capture_output=True, text=True, timeout=30,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
                     )
                     if r.returncode == 0:
                         dispatched += 1
@@ -1222,7 +1236,9 @@ def drain_agent_commands() -> int:
                         stderr_trim = (r.stderr or "").strip()[:400]
                         log.warning(
                             "start_container cmd=%s rc=%s stderr=%s",
-                            cmd_id, r.returncode, stderr_trim,
+                            cmd_id,
+                            r.returncode,
+                            stderr_trim,
                         )
                         # P3/B8 — previous code left the job stuck at status
                         # 'running' (set optimistically by the start path) even
@@ -1236,14 +1252,15 @@ def drain_agent_commands() -> int:
                                 report_job_status(
                                     start_job_id,
                                     "stopped",
-                                    error_message=f"start failed: {stderr_trim}" or
-                                                  "start failed: docker start exited non-zero",
+                                    error_message=f"start failed: {stderr_trim}"
+                                    or "start failed: docker start exited non-zero",
                                 )
                             except Exception as cb_err:
                                 log.warning(
-                                    "start_container failure-callback cmd=%s "
-                                    "job=%s failed: %s",
-                                    cmd_id, start_job_id, cb_err,
+                                    "start_container failure-callback cmd=%s " "job=%s failed: %s",
+                                    cmd_id,
+                                    start_job_id,
+                                    cb_err,
                                 )
                 except subprocess.TimeoutExpired:
                     log.warning("start_container cmd=%s container=%s timed out", cmd_id, cname)
@@ -1256,9 +1273,10 @@ def drain_agent_commands() -> int:
                             )
                         except Exception as cb_err:
                             log.warning(
-                                "start_container timeout-callback cmd=%s "
-                                "job=%s failed: %s",
-                                cmd_id, start_job_id, cb_err,
+                                "start_container timeout-callback cmd=%s " "job=%s failed: %s",
+                                cmd_id,
+                                start_job_id,
+                                cb_err,
                             )
             elif name == "reset_container":
                 # P2 — restart the container with a fresh /workspace scratch
@@ -1302,9 +1320,7 @@ def drain_agent_commands() -> int:
                                 (r.stderr or "").strip()[:400],
                             )
                     except subprocess.TimeoutExpired:
-                        log.warning(
-                            "reset_container cmd=%s container=%s timed out", cmd_id, cname
-                        )
+                        log.warning("reset_container cmd=%s container=%s timed out", cmd_id, cname)
             elif name == "snapshot_container":
                 # P3.1 — `docker commit` the running container to a user
                 # image tag. Pushed to a registry when XCELSIOR_REGISTRY_URL
@@ -1317,7 +1333,10 @@ def drain_agent_commands() -> int:
                     continue
                 log.info(
                     "Executing snapshot_container cmd=%s container=%s ref=%s by=%s",
-                    cmd_id, cname, image_ref, by,
+                    cmd_id,
+                    cname,
+                    image_ref,
+                    by,
                 )
                 status = "failed"
                 size_bytes = 0
@@ -1327,7 +1346,9 @@ def drain_agent_commands() -> int:
                     # Step 1: docker commit (local tag created).
                     commit = subprocess.run(
                         ["docker", "commit", cname, image_ref],
-                        capture_output=True, text=True, timeout=900,
+                        capture_output=True,
+                        text=True,
+                        timeout=900,
                     )
                     if commit.returncode != 0:
                         # P3/B7 — distinguish commit vs push failures so the
@@ -1339,7 +1360,9 @@ def drain_agent_commands() -> int:
                         try:
                             insp = subprocess.run(
                                 ["docker", "image", "inspect", "-f", "{{.Size}}", image_ref],
-                                capture_output=True, text=True, timeout=10,
+                                capture_output=True,
+                                text=True,
+                                timeout=10,
                             )
                             if insp.returncode == 0:
                                 size_bytes = int((insp.stdout or "0").strip() or 0)
@@ -1355,7 +1378,9 @@ def drain_agent_commands() -> int:
                             try:
                                 subprocess.run(
                                     ["docker", "rmi", image_ref],
-                                    capture_output=True, text=True, timeout=30,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30,
                                 )
                                 committed_locally = False
                             except subprocess.TimeoutExpired:
@@ -1364,7 +1389,9 @@ def drain_agent_commands() -> int:
                             # Step 2: docker push.
                             push = subprocess.run(
                                 ["docker", "push", image_ref],
-                                capture_output=True, text=True, timeout=900,
+                                capture_output=True,
+                                text=True,
+                                timeout=900,
                             )
                             if push.returncode != 0:
                                 err_msg = f"push failed: {(push.stderr or '').strip()[:480]}"
@@ -1374,13 +1401,17 @@ def drain_agent_commands() -> int:
                                 try:
                                     subprocess.run(
                                         ["docker", "rmi", image_ref],
-                                        capture_output=True, text=True, timeout=30,
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=30,
                                     )
                                     committed_locally = False
                                 except subprocess.TimeoutExpired:
                                     log.warning(
                                         "snapshot_container rmi-after-push-fail "
-                                        "cmd=%s ref=%s timed out", cmd_id, image_ref,
+                                        "cmd=%s ref=%s timed out",
+                                        cmd_id,
+                                        image_ref,
                                     )
                             else:
                                 status = "ready"
@@ -1396,7 +1427,9 @@ def drain_agent_commands() -> int:
                             try:
                                 subprocess.run(
                                     ["docker", "rmi", image_ref],
-                                    capture_output=True, text=True, timeout=30,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30,
                                 )
                                 committed_locally = False
                             except subprocess.TimeoutExpired:
@@ -1418,7 +1451,9 @@ def drain_agent_commands() -> int:
                     if resp.status_code >= 400:
                         log.warning(
                             "snapshot_container callback cmd=%s got HTTP %s: %s",
-                            cmd_id, resp.status_code, (resp.text or "")[:200],
+                            cmd_id,
+                            resp.status_code,
+                            (resp.text or "")[:200],
                         )
                 except requests.RequestException as e:
                     log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
@@ -2454,9 +2489,7 @@ def _cleanup_partial_volume(volume_id: str):
 # All steps are best-effort: a missing ollama binary or a non-running
 # tower-serverless does not abort the job.
 GPU_LOCK_PATH = "/run/xcelsior/gpu.lock"
-TOWER_SERVERLESS_URL = os.environ.get(
-    "TOWER_SERVERLESS_URL", "http://127.0.0.1:8001"
-)
+TOWER_SERVERLESS_URL = os.environ.get("TOWER_SERVERLESS_URL", "http://127.0.0.1:8001")
 EXCLUSIVE_GPU_LOCK_TIMEOUT_S = 60
 
 
@@ -2465,6 +2498,7 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
     Returns a state dict with keys: ok, lock_fd, ollama_pids, error.
     """
     import fcntl
+
     state: dict = {"ok": False, "lock_fd": None, "ollama_pids": []}
 
     # 1. flock (blocking with timeout)
@@ -2496,16 +2530,16 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
         r = requests.post(f"{TOWER_SERVERLESS_URL}/admin/drain", timeout=5)
         log.info(
             "exclusive_gpu[%s]: drain rc=%s body=%s",
-            job_id, r.status_code, r.text[:120],
+            job_id,
+            r.status_code,
+            r.text[:120],
         )
     except Exception as e:
         log.warning("exclusive_gpu[%s]: drain skipped (%s)", job_id, e)
 
     # 3. ollama stop (graceful unload)
     try:
-        subprocess.run(
-            ["ollama", "stop"], timeout=10, capture_output=True
-        )
+        subprocess.run(["ollama", "stop"], timeout=10, capture_output=True)
         log.info("exclusive_gpu[%s]: ollama stop sent", job_id)
     except FileNotFoundError:
         log.info("exclusive_gpu[%s]: ollama not installed — skipping", job_id)
@@ -2516,7 +2550,9 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
     try:
         out = subprocess.run(
             ["pgrep", "-f", "ollama"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         for raw in out.stdout.split():
             if not raw.isdigit():
@@ -2528,7 +2564,8 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
         if state["ollama_pids"]:
             log.info(
                 "exclusive_gpu[%s]: SIGSTOP'd ollama pids=%s",
-                job_id, state["ollama_pids"],
+                job_id,
+                state["ollama_pids"],
             )
     except FileNotFoundError:
         pass  # pgrep missing
@@ -2539,7 +2576,8 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
     try:
         subprocess.run(
             ["pkill", "-TERM", "-f", "tier3-"],
-            timeout=5, capture_output=True,
+            timeout=5,
+            capture_output=True,
         )
         log.info("exclusive_gpu[%s]: tier3- jobs SIGTERM'd", job_id)
     except Exception as e:
@@ -2552,6 +2590,7 @@ def _acquire_exclusive_gpu(job_id: str) -> dict:
 def _release_exclusive_gpu(job_id: str, state: dict) -> None:
     """Reverse of _acquire_exclusive_gpu. Idempotent and best-effort."""
     import fcntl
+
     if not state:
         return
 
@@ -2709,11 +2748,10 @@ def run_job(job):
         _excl_state = _acquire_exclusive_gpu(job_id)
         if not _excl_state.get("ok"):
             err = _excl_state.get("error", "unknown")
-            log.error(
-                "Job %s: exclusive_gpu acquire failed: %s", job_id, err
-            )
+            log.error("Job %s: exclusive_gpu acquire failed: %s", job_id, err)
             report_job_status(
-                job_id, "failed",
+                job_id,
+                "failed",
                 error_message=f"exclusive_gpu acquire failed: {err}",
             )
             release_lease(job_id, "failed")
@@ -2933,14 +2971,10 @@ def run_job(job):
             # so interactive instances have these on $PATH without paying an
             # apt-install tax at boot. We skip the mount when the dir doesn't
             # exist on the host so unprovisioned dev machines still work.
-            host_tools_dir = os.environ.get(
-                "XCELSIOR_TOOLS_DIR", "/var/lib/xcelsior/tools"
-            )
+            host_tools_dir = os.environ.get("XCELSIOR_TOOLS_DIR", "/var/lib/xcelsior/tools")
             try:
                 if os.path.isdir(host_tools_dir):
-                    extra_docker_args.extend(
-                        ["-v", f"{host_tools_dir}:/opt/xcelsior/bin:ro"]
-                    )
+                    extra_docker_args.extend(["-v", f"{host_tools_dir}:/opt/xcelsior/bin:ro"])
                     log.info("Mounted host tools: %s -> /opt/xcelsior/bin (ro)", host_tools_dir)
             except Exception as e:
                 log.debug("Tools mount skipped: %s", e)
@@ -3551,9 +3585,7 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 # 137 (SIGKILL from `docker stop` timeout), 143 (SIGTERM
                 # graceful). Anything else is a real crash.
                 _CLEAN_EXIT_CODES = {0, 130, 137, 143}
-                reported_status = (
-                    "stopped" if exit_code in _CLEAN_EXIT_CODES else "failed"
-                )
+                reported_status = "stopped" if exit_code in _CLEAN_EXIT_CODES else "failed"
                 log.info(
                     "Interactive container %s exited (code %d) — reporting %s",
                     container_name,
@@ -3571,9 +3603,7 @@ def _monitor_interactive(job_id, container_name, log_forwarder=None):
                 # elsewhere) and exit the monitor without clobbering status;
                 # anything else is a hard failure.
                 if status == "paused":
-                    log.info(
-                        "Interactive container %s is paused — monitor exiting", container_name
-                    )
+                    log.info("Interactive container %s is paused — monitor exiting", container_name)
                     return
                 log.warning(
                     "Interactive container %s in unexpected state: %s", container_name, status
@@ -3641,7 +3671,13 @@ def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
         ]
         _push_log_lines(
             job_id,
-            [{"message": f"[xcelsior] {tag} starting (≤{seconds}s)…", "level": "info", "timestamp": started}],
+            [
+                {
+                    "message": f"[xcelsior] {tag} starting (≤{seconds}s)…",
+                    "level": "info",
+                    "timestamp": started,
+                }
+            ],
         )
         try:
             # Outer timeout is slightly larger to let `timeout` emit its own
@@ -3724,7 +3760,13 @@ def _run_provisioning_hooks(job_id: str, container_name: str, job: dict):
             started = time.time()
             _push_log_lines(
                 job_id,
-                [{"message": "[xcelsior] init_script starting (≤15s)…", "level": "info", "timestamp": started}],
+                [
+                    {
+                        "message": "[xcelsior] init_script starting (≤15s)…",
+                        "level": "info",
+                        "timestamp": started,
+                    }
+                ],
             )
             write_cmd = [
                 "docker",
@@ -3802,9 +3844,7 @@ def _auto_launch_token(job_id: str) -> str:
     predictable across hosts that share a job_id which never happens
     in practice).
     """
-    host_secret = os.environ.get("HOST_SECRET") or os.environ.get(
-        "XCELSIOR_HOST_SECRET", ""
-    )
+    host_secret = os.environ.get("HOST_SECRET") or os.environ.get("XCELSIOR_HOST_SECRET", "")
     return hashlib.sha256(f"{job_id}:{host_secret}".encode()).hexdigest()[:32]
 
 
@@ -3841,18 +3881,25 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
         started = time.time()
         _push_log_lines(
             job_id,
-            [{
-                "message": f"[xcelsior] auto-launch {tag} starting…",
-                "level": "info",
-                "timestamp": started,
-            }],
+            [
+                {
+                    "message": f"[xcelsior] auto-launch {tag} starting…",
+                    "level": "info",
+                    "timestamp": started,
+                }
+            ],
         )
         # ``docker exec -d`` detaches the exec process so the agent
         # returns immediately; we still wrap the inner command with
         # ``nohup`` + ``&`` so the process survives the exec session.
         cmd = [
-            "docker", "exec", "-d", container_name,
-            "bash", "-lc", shell_cmd,
+            "docker",
+            "exec",
+            "-d",
+            container_name,
+            "bash",
+            "-lc",
+            shell_cmd,
         ]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=seconds)
@@ -3860,30 +3907,36 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
                 err = (proc.stderr or proc.stdout or "").strip()[-256:]
                 _push_log_lines(
                     job_id,
-                    [{
-                        "message": f"[xcelsior] auto-launch {tag} rc={proc.returncode}: {err}",
-                        "level": "warn",
-                        "timestamp": time.time(),
-                    }],
+                    [
+                        {
+                            "message": f"[xcelsior] auto-launch {tag} rc={proc.returncode}: {err}",
+                            "level": "warn",
+                            "timestamp": time.time(),
+                        }
+                    ],
                 )
                 return
             elapsed_ms = int((time.time() - started) * 1000)
             _push_log_lines(
                 job_id,
-                [{
-                    "message": f"[xcelsior] auto-launch {tag} ok ({elapsed_ms} ms) token_sha={token_prefix}",
-                    "level": "info",
-                    "timestamp": time.time(),
-                }],
+                [
+                    {
+                        "message": f"[xcelsior] auto-launch {tag} ok ({elapsed_ms} ms) token_sha={token_prefix}",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
             )
         except subprocess.TimeoutExpired:
             _push_log_lines(
                 job_id,
-                [{
-                    "message": f"[xcelsior] auto-launch {tag} exceeded {seconds}s — abandoned",
-                    "level": "warn",
-                    "timestamp": time.time(),
-                }],
+                [
+                    {
+                        "message": f"[xcelsior] auto-launch {tag} exceeded {seconds}s — abandoned",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
             )
         except Exception as e:
             log.debug("auto_launch %s error: %s", tag, e)
@@ -3903,7 +3956,7 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
                 "  pip install --quiet --no-cache-dir jupyterlab 2>/dev/null || "
                 "  pip3 install --quiet --no-cache-dir jupyterlab 2>/dev/null || true ); "
                 "nohup jupyter lab --allow-root --no-browser --ip=0.0.0.0 "
-                "--port=8888 --ServerApp.token=\"$JUPY_TOKEN\" "
+                '--port=8888 --ServerApp.token="$JUPY_TOKEN" '
                 "--ServerApp.password='' "
                 ">/tmp/xcelsior-jupyter.log 2>&1 &"
             )
@@ -3924,11 +3977,13 @@ def _run_auto_launch(job_id: str, container_name: str, job: dict) -> None:
         else:
             _push_log_lines(
                 job_id,
-                [{
-                    "message": f"[xcelsior] auto-launch {svc} not supported — skipping",
-                    "level": "warn",
-                    "timestamp": time.time(),
-                }],
+                [
+                    {
+                        "message": f"[xcelsior] auto-launch {svc} not supported — skipping",
+                        "level": "warn",
+                        "timestamp": time.time(),
+                    }
+                ],
             )
 
     # Stash the port mapping in job.payload.http_ports so P2.2's
@@ -4196,13 +4251,14 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             # connection panel, and it's unique-per-job so compromise is scoped.
             # 20 chars, URL/terminal-safe alphabet (no ambiguous 0/O/1/l/I).
             _pw_alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-            root_password = "".join(
-                secrets.choice(_pw_alphabet) for _ in range(20)
-            )
+            root_password = "".join(secrets.choice(_pw_alphabet) for _ in range(20))
             try:
                 pw_set = subprocess.run(
                     [
-                        "docker", "exec", "-i", container_name,
+                        "docker",
+                        "exec",
+                        "-i",
+                        container_name,
                         "chpasswd",
                     ],
                     input=f"root:{root_password}\n".encode(),
@@ -4307,7 +4363,11 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             # it relies on systemd-tmpfiles which never runs in a container).
             sshd_start = subprocess.run(
                 [
-                    "docker", "exec", container_name, "sh", "-c",
+                    "docker",
+                    "exec",
+                    container_name,
+                    "sh",
+                    "-c",
                     "mkdir -p /run/sshd /var/run/sshd && "
                     "chmod 0755 /run/sshd /var/run/sshd && "
                     "/usr/sbin/sshd",
@@ -4487,7 +4547,12 @@ def _sample_io_delta(state: dict) -> dict:
     so the telemetry pipeline never breaks.
     """
     if psutil is None:
-        return {"net_rx_mbps": 0.0, "net_tx_mbps": 0.0, "disk_read_mb_s": 0.0, "disk_write_mb_s": 0.0}
+        return {
+            "net_rx_mbps": 0.0,
+            "net_tx_mbps": 0.0,
+            "disk_read_mb_s": 0.0,
+            "disk_write_mb_s": 0.0,
+        }
     now = time.monotonic()
     out = {"net_rx_mbps": 0.0, "net_tx_mbps": 0.0, "disk_read_mb_s": 0.0, "disk_write_mb_s": 0.0}
     try:

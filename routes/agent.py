@@ -71,7 +71,9 @@ def _require_agent_auth(request: Request, *, host_id: str | None = None) -> dict
     # host_id. Default OFF for backward compat; production already hard-fails
     # above so this flag is a no-op there.
     strict = os.environ.get("XCELSIOR_AGENT_STRICT_HOST_BINDING", "").lower() in (
-        "1", "true", "yes",
+        "1",
+        "true",
+        "yes",
     )
 
     def _enforce_host_registered() -> None:
@@ -237,7 +239,7 @@ def api_schedule_preemption(host_id: str, job_id: str, request: Request):
 _AGENT_COMMAND_ALLOWED = {
     "reinject_shell",
     "upgrade_agent",
-    "rollback_agent",   # P1.2 — auto-rollback driver
+    "rollback_agent",  # P1.2 — auto-rollback driver
     "stop_container",  # P3.2 — billing/admin-initiated container kill (+ rm)
     "pause_container",  # internal: state-preserving stop primitive used by /stop
     "start_container",  # P3.2 — (re)start a stopped container

@@ -54,6 +54,7 @@ def _no_network(monkeypatch):
 def _fake_run(returncode=0, stdout="0", stderr=""):
     def _r(*a, **kw):
         return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+
     return _r
 
 

@@ -57,11 +57,11 @@ def test_user_images_endpoints_use_canonical_helper():
         body_end = src.find("\n@router", idx)
         if body_end < 0:
             body_end = src.find("\ndef ", idx + 1)
-        body = src[idx:body_end if body_end > 0 else len(src)]
+        body = src[idx : body_end if body_end > 0 else len(src)]
         assert "_canonical_owner_id(user)" in body, (
             f"{endpoint} must use _canonical_owner_id(user) helper; "
             f"divergent owner-id patterns are forbidden."
         )
-        assert 'user.get("customer_id") or user.get("user_id")' not in body, (
-            f"{endpoint} still uses legacy short-circuit pattern"
-        )
+        assert (
+            'user.get("customer_id") or user.get("user_id")' not in body
+        ), f"{endpoint} still uses legacy short-circuit pattern"

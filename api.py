@@ -798,7 +798,11 @@ async def request_validation_exception_handler(_: Request, exc: RequestValidatio
         if isinstance(err, dict):
             err = dict(err)
             ctx = err.get("ctx")
-            if isinstance(ctx, dict) and "error" in ctx and not isinstance(ctx["error"], (str, int, float, bool, type(None))):
+            if (
+                isinstance(ctx, dict)
+                and "error" in ctx
+                and not isinstance(ctx["error"], (str, int, float, bool, type(None)))
+            ):
                 ctx = dict(ctx)
                 ctx["error"] = str(ctx["error"])
                 err["ctx"] = ctx

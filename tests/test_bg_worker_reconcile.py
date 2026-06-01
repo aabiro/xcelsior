@@ -39,7 +39,11 @@ class _FakeConn:
         s = " ".join(sql.split()).lower()
         if "from agent_commands" in s:
             return _FakeCursor(rows=[{"ok": 1}] if self._pending else [])
-        if s.startswith("select") or "select" in s.split("update", 1)[0] if "update" in s else s.startswith("select"):
+        if (
+            s.startswith("select") or "select" in s.split("update", 1)[0]
+            if "update" in s
+            else s.startswith("select")
+        ):
             return _FakeCursor(rows=self._rows)
         return _FakeCursor(rowcount=self._rowcount)
 
@@ -155,8 +159,10 @@ def test_reconcile_reenqueues_stale_stopped_jobs():
         enqueued.append((host_id, cmd, args))
         return "cmd-x"
 
-    with patch("db._get_pg_pool", return_value=pool), \
-         patch("routes.agent.enqueue_agent_command", side_effect=fake_enqueue):
+    with (
+        patch("db._get_pg_pool", return_value=pool),
+        patch("routes.agent.enqueue_agent_command", side_effect=fake_enqueue),
+    ):
         func()
 
     names = {(h, c) for h, c, _ in enqueued}
@@ -169,20 +175,25 @@ def test_reconcile_skips_fresh_jobs():
     func, _ = closures["reconcile_paused_stopped"]
 
     fresh_ts = time.time() - 30.0  # < 120s
-    rows = [{
-        "job_id": "job-fresh",
-        "status": "stopped",
-        "host_id": "host-1",
-        "container_name": "xcl-job-fresh",
-        "state_age_ts": fresh_ts,
-    }]
+    rows = [
+        {
+            "job_id": "job-fresh",
+            "status": "stopped",
+            "host_id": "host-1",
+            "container_name": "xcl-job-fresh",
+            "state_age_ts": fresh_ts,
+        }
+    ]
     conn = _FakeConn(rows_for_select=rows)
     pool = _FakePool(conn)
 
     enqueued = []
-    with patch("db._get_pg_pool", return_value=pool), \
-         patch("routes.agent.enqueue_agent_command",
-               side_effect=lambda *a, **kw: enqueued.append(a)):
+    with (
+        patch("db._get_pg_pool", return_value=pool),
+        patch(
+            "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
+        ),
+    ):
         func()
     assert enqueued == [], "fresh jobs must not be reconciled"
 
@@ -192,20 +203,25 @@ def test_reconcile_skips_when_pending_command_exists():
     func, _ = closures["reconcile_paused_stopped"]
 
     stale_ts = time.time() - 300.0
-    rows = [{
-        "job_id": "job-pending",
-        "status": "stopped",
-        "host_id": "host-1",
-        "container_name": "xcl-job-pending",
-        "state_age_ts": stale_ts,
-    }]
+    rows = [
+        {
+            "job_id": "job-pending",
+            "status": "stopped",
+            "host_id": "host-1",
+            "container_name": "xcl-job-pending",
+            "state_age_ts": stale_ts,
+        }
+    ]
     conn = _FakeConn(rows_for_select=rows, pending=True)  # pending cmd exists
     pool = _FakePool(conn)
 
     enqueued = []
-    with patch("db._get_pg_pool", return_value=pool), \
-         patch("routes.agent.enqueue_agent_command",
-               side_effect=lambda *a, **kw: enqueued.append(a)):
+    with (
+        patch("db._get_pg_pool", return_value=pool),
+        patch(
+            "routes.agent.enqueue_agent_command", side_effect=lambda *a, **kw: enqueued.append(a)
+        ),
+    ):
         func()
     assert enqueued == [], "must not duplicate a pending reconcile command"
 

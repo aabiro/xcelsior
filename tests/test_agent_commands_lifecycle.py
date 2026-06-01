@@ -43,18 +43,22 @@ def _ok(stdout: str = "", stderr: str = "", rc: int = 0):
 
 def _mock_requests_get(commands: list[dict]):
     """Return a callable that mimics ``requests.get`` for /agent/commands/*."""
+
     def _fake_get(url, headers=None, timeout=None):
         return SimpleNamespace(
             status_code=200,
             json=lambda: {"commands": commands},
         )
+
     return _fake_get
 
 
 def _mock_requests_post_noop():
     """Swallow the snapshot /complete callback — we don't assert on it here."""
+
     def _fake_post(url, headers=None, json=None, timeout=None):
         return SimpleNamespace(status_code=200, text="ok")
+
     return _fake_post
 
 
@@ -62,20 +66,28 @@ def _mock_requests_post_noop():
 # stop_container
 # ---------------------------------------------------------------------------
 
+
 def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
-    cmds = [{
-        "id": 101, "command": "stop_container",
-        "args": {"job_id": "job-aaa", "container_name": "xcl-aaa"},
-        "created_by": "billing_terminate",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
+    cmds = [
+        {
+            "id": 101,
+            "command": "stop_container",
+            "args": {"job_id": "job-aaa", "container_name": "xcl-aaa"},
+            "created_by": "billing_terminate",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
 
     calls: list[list[str]] = []
+
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
         return _ok()
+
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
     n = worker_agent.drain_agent_commands()
@@ -86,17 +98,23 @@ def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
 
 
 def test_stop_container_missing_container_name_is_skipped(monkeypatch):
-    cmds = [{
-        "id": 102, "command": "stop_container",
-        "args": {},  # no job_id, no container_name → helper can't derive
-        "created_by": "billing_terminate",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
+    cmds = [
+        {
+            "id": 102,
+            "command": "stop_container",
+            "args": {},  # no job_id, no container_name → helper can't derive
+            "created_by": "billing_terminate",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
     called = []
-    monkeypatch.setattr(worker_agent.subprocess, "run",
-                        lambda *a, **kw: (called.append(a), _ok())[1])
+    monkeypatch.setattr(
+        worker_agent.subprocess, "run", lambda *a, **kw: (called.append(a), _ok())[1]
+    )
 
     n = worker_agent.drain_agent_commands()
     assert n == 0
@@ -107,21 +125,29 @@ def test_stop_container_missing_container_name_is_skipped(monkeypatch):
 # pause_container — must NOT call docker rm
 # ---------------------------------------------------------------------------
 
+
 def test_pause_container_does_not_remove_container(monkeypatch):
     """A3 regression: pause must preserve the container for later resume."""
-    cmds = [{
-        "id": 201, "command": "pause_container",
-        "args": {"job_id": "job-bbb", "container_name": "xcl-bbb"},
-        "created_by": "billing_pause",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
+    cmds = [
+        {
+            "id": 201,
+            "command": "pause_container",
+            "args": {"job_id": "job-bbb", "container_name": "xcl-bbb"},
+            "created_by": "billing_pause",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
 
     calls: list[list[str]] = []
+
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
         return _ok()
+
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
     n = worker_agent.drain_agent_commands()
@@ -135,16 +161,22 @@ def test_pause_container_does_not_remove_container(monkeypatch):
 
 
 def test_pause_container_nonzero_rc_is_not_counted(monkeypatch):
-    cmds = [{
-        "id": 202, "command": "pause_container",
-        "args": {"job_id": "job-ccc", "container_name": "xcl-ccc"},
-        "created_by": "billing_pause",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
-    monkeypatch.setattr(worker_agent.subprocess, "run",
-                        lambda *a, **kw: _ok(stderr="no such container", rc=1))
+    cmds = [
+        {
+            "id": 202,
+            "command": "pause_container",
+            "args": {"job_id": "job-ccc", "container_name": "xcl-ccc"},
+            "created_by": "billing_pause",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
+    monkeypatch.setattr(
+        worker_agent.subprocess, "run", lambda *a, **kw: _ok(stderr="no such container", rc=1)
+    )
 
     n = worker_agent.drain_agent_commands()
     assert n == 0  # failed rc → not counted dispatched
@@ -154,20 +186,28 @@ def test_pause_container_nonzero_rc_is_not_counted(monkeypatch):
 # start_container
 # ---------------------------------------------------------------------------
 
+
 def test_start_container_runs_docker_start(monkeypatch):
-    cmds = [{
-        "id": 301, "command": "start_container",
-        "args": {"job_id": "job-ddd", "container_name": "xcl-ddd"},
-        "created_by": "billing_resume",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
+    cmds = [
+        {
+            "id": 301,
+            "command": "start_container",
+            "args": {"job_id": "job-ddd", "container_name": "xcl-ddd"},
+            "created_by": "billing_resume",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
 
     calls: list[list[str]] = []
+
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
         return _ok()
+
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
     n = worker_agent.drain_agent_commands()
@@ -178,20 +218,29 @@ def test_start_container_runs_docker_start(monkeypatch):
 
 def test_start_container_failure_reports_stopped(monkeypatch):
     """B8 regression: docker start rc!=0 must flip job back to stopped."""
-    cmds = [{
-        "id": 302, "command": "start_container",
-        "args": {"job_id": "job-eee", "container_name": "xcl-eee"},
-        "created_by": "billing_start",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
-    monkeypatch.setattr(worker_agent.subprocess, "run",
-                        lambda *a, **kw: _ok(stderr="Error: no such container: xcl-eee", rc=1))
+    cmds = [
+        {
+            "id": 302,
+            "command": "start_container",
+            "args": {"job_id": "job-eee", "container_name": "xcl-eee"},
+            "created_by": "billing_start",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
+    monkeypatch.setattr(
+        worker_agent.subprocess,
+        "run",
+        lambda *a, **kw: _ok(stderr="Error: no such container: xcl-eee", rc=1),
+    )
 
     reports: list[tuple] = []
     monkeypatch.setattr(
-        worker_agent, "report_job_status",
+        worker_agent,
+        "report_job_status",
         lambda job_id, status, error_message=None, **kw: reports.append(
             (job_id, status, error_message)
         ),
@@ -211,42 +260,56 @@ def test_start_container_failure_reports_stopped(monkeypatch):
 # snapshot_container — commit + push
 # ---------------------------------------------------------------------------
 
+
 def test_snapshot_container_commits_and_pushes(monkeypatch):
     image_ref = "ghcr.io/aabiro/user/demo:v1"
     monkeypatch.setenv("XCELSIOR_REGISTRY_URL", "ghcr.io/aabiro")
 
-    cmds = [{
-        "id": 401, "command": "snapshot_container",
-        "args": {
-            "image_id": "img-fff",
-            "container_name": "xcl-fff",
-            "image_ref": image_ref,
-        },
-        "created_by": "snapshot",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        post=_mock_requests_post_noop(),
-                                        RequestException=Exception))
+    cmds = [
+        {
+            "id": 401,
+            "command": "snapshot_container",
+            "args": {
+                "image_id": "img-fff",
+                "container_name": "xcl-fff",
+                "image_ref": image_ref,
+            },
+            "created_by": "snapshot",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(
+            get=_mock_requests_get(cmds),
+            post=_mock_requests_post_noop(),
+            RequestException=Exception,
+        ),
+    )
 
     calls: list[list[str]] = []
+
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
         # "docker image inspect … {{.Size}}" → must produce an int-parseable stdout
         if len(argv) >= 3 and argv[0] == "docker" and argv[1] == "image" and argv[2] == "inspect":
             return _ok(stdout="12345678\n")
         return _ok()
+
     monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
 
     callback_bodies: list[dict] = []
+
     def _fake_post(url, headers=None, json=None, timeout=None):
         callback_bodies.append({"url": url, "body": json})
         return SimpleNamespace(status_code=200, text="ok")
+
     monkeypatch.setattr(worker_agent.requests, "post", _fake_post, raising=False)
     # Monkeypatch.setattr with raising=False may not hit the SimpleNamespace;
     # so rebuild requests namespace with the capturing post.
     monkeypatch.setattr(
-        worker_agent, "requests",
+        worker_agent,
+        "requests",
         SimpleNamespace(
             get=_mock_requests_get(cmds),
             post=_fake_post,
@@ -275,17 +338,21 @@ def test_snapshot_container_no_registry_reports_failure(monkeypatch):
     error='registry_not_configured', AND must have rmi'd the local tag."""
     monkeypatch.delenv("XCELSIOR_REGISTRY_URL", raising=False)
 
-    cmds = [{
-        "id": 402, "command": "snapshot_container",
-        "args": {
-            "image_id": "img-ggg",
-            "container_name": "xcl-ggg",
-            "image_ref": "ghcr.io/aabiro/user/demo:v2",
-        },
-        "created_by": "snapshot",
-    }]
+    cmds = [
+        {
+            "id": 402,
+            "command": "snapshot_container",
+            "args": {
+                "image_id": "img-ggg",
+                "container_name": "xcl-ggg",
+                "image_ref": "ghcr.io/aabiro/user/demo:v2",
+            },
+            "created_by": "snapshot",
+        }
+    ]
 
     calls: list[list[str]] = []
+
     def _fake_run(argv, *a, **kw):
         calls.append(list(argv))
         if len(argv) >= 3 and argv[0] == "docker" and argv[1] == "image" and argv[2] == "inspect":
@@ -293,12 +360,14 @@ def test_snapshot_container_no_registry_reports_failure(monkeypatch):
         return _ok()
 
     callback_bodies: list[dict] = []
+
     def _fake_post(url, headers=None, json=None, timeout=None):
         callback_bodies.append({"url": url, "body": json})
         return SimpleNamespace(status_code=200, text="ok")
 
     monkeypatch.setattr(
-        worker_agent, "requests",
+        worker_agent,
+        "requests",
         SimpleNamespace(
             get=_mock_requests_get(cmds),
             post=_fake_post,
@@ -323,17 +392,25 @@ def test_snapshot_container_no_registry_reports_failure(monkeypatch):
 # allowlist defence-in-depth
 # ---------------------------------------------------------------------------
 
+
 def test_unknown_command_is_rejected_not_dispatched(monkeypatch):
-    cmds = [{
-        "id": 501, "command": "rm_rf_slash",  # not in allowlist
-        "args": {}, "created_by": "attacker",
-    }]
-    monkeypatch.setattr(worker_agent, "requests",
-                        SimpleNamespace(get=_mock_requests_get(cmds),
-                                        RequestException=Exception))
+    cmds = [
+        {
+            "id": 501,
+            "command": "rm_rf_slash",  # not in allowlist
+            "args": {},
+            "created_by": "attacker",
+        }
+    ]
+    monkeypatch.setattr(
+        worker_agent,
+        "requests",
+        SimpleNamespace(get=_mock_requests_get(cmds), RequestException=Exception),
+    )
     called = []
-    monkeypatch.setattr(worker_agent.subprocess, "run",
-                        lambda *a, **kw: (called.append(a), _ok())[1])
+    monkeypatch.setattr(
+        worker_agent.subprocess, "run", lambda *a, **kw: (called.append(a), _ok())[1]
+    )
 
     n = worker_agent.drain_agent_commands()
 
