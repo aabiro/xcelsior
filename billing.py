@@ -593,6 +593,69 @@ class BillingEngine:
             "currency": "CAD",
         }
 
+    # ── Reserved Commitments (UI-5.2) ─────────────────────────────────
+
+    def record_reservation(self, c: dict) -> None:
+        """Persist a reserved pricing commitment.
+
+        Idempotent on ``commitment_id`` so a retried POST does not create
+        duplicate commitments. Caller supplies the fully-priced commitment
+        dict (see ``routes/billing.py:api_reserve_commitment``).
+        """
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO reserved_commitments
+                    (commitment_id, customer_id, commitment_type, gpu_model,
+                     quantity, province, base_rate_cad, discounted_rate_cad,
+                     discount_pct, min_hours_per_day, status, created_at,
+                     start_at, end_at)
+                   VALUES (%(commitment_id)s, %(customer_id)s, %(commitment_type)s,
+                           %(gpu_model)s, %(quantity)s, %(province)s,
+                           %(base_rate_cad)s, %(discounted_rate_cad)s,
+                           %(discount_pct)s, %(min_hours_per_day)s, %(status)s,
+                           %(created_at)s, %(start_at)s, %(end_at)s)
+                   ON CONFLICT (commitment_id) DO NOTHING""",
+                c,
+            )
+
+    def list_reservations(self, customer_id: str) -> list[dict]:
+        """Return a customer's reserved commitments with realized savings.
+
+        Realized savings are grounded in actual consumption: GPU-hours
+        metered on the committed GPU model during the commitment window,
+        times the per-hour gap between on-demand and discounted rates. A
+        commitment past its ``end_at`` that is still ``active`` is reported
+        as ``expired`` (the row is not mutated).
+        """
+        now = time.time()
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM reserved_commitments WHERE customer_id = %s "
+                "ORDER BY created_at DESC",
+                (customer_id,),
+            ).fetchall()
+            out: list[dict] = []
+            for row in rows:
+                r = dict(row)
+                used = conn.execute(
+                    "SELECT COALESCE(SUM(gpu_seconds), 0) AS secs "
+                    "FROM usage_meters "
+                    "WHERE owner = %s AND gpu_model = %s "
+                    "AND started_at >= %s AND started_at < %s",
+                    (customer_id, r["gpu_model"], r["start_at"], r["end_at"]),
+                ).fetchone()
+                used_hours = float(used["secs"] or 0) / 3600.0
+                per_hour_savings = max(
+                    0.0, float(r["base_rate_cad"]) - float(r["discounted_rate_cad"])
+                )
+                r["realized_hours"] = round(used_hours, 2)
+                r["realized_savings_cad"] = round(used_hours * per_hour_savings, 2)
+                if r["status"] == "active" and now >= float(r["end_at"]):
+                    r["status"] = "expired"
+                r["is_active"] = r["status"] == "active"
+                out.append(r)
+            return out
+
     def generate_attestation(self) -> ProviderAttestation:
         """Generate a provider attestation bundle.
 

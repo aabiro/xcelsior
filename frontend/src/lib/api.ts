@@ -824,6 +824,21 @@ export async function createReservation(data: {
   }>("/api/pricing/reserve", { method: "POST", body: JSON.stringify(data) });
 }
 
+export async function fetchReservations(customerId?: string) {
+  const qs = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : "";
+  return apiFetch<{
+    ok: boolean;
+    customer_id: string;
+    reservations: ReservedCommitment[];
+    summary: {
+      active_count: number;
+      total_count: number;
+      realized_savings_cad: number;
+      projected_monthly_savings_cad: number;
+    };
+  }>(`/api/pricing/reservations${qs}`);
+}
+
 // ── Provider / Earnings ───────────────────────────────────────────────
 export async function fetchProviderEarnings(providerId: string) {
   return apiFetch<{
@@ -2081,6 +2096,26 @@ export interface ReservedPlan {
   discount_pct: number;
   gpu_model: string;
   price_per_hour_cad: number;
+}
+
+export interface ReservedCommitment {
+  commitment_id: string;
+  customer_id: string;
+  commitment_type: string;
+  gpu_model: string;
+  quantity: number;
+  province?: string;
+  base_rate_cad: number;
+  discounted_rate_cad: number;
+  discount_pct: number;
+  min_hours_per_day: number;
+  status: string;
+  is_active: boolean;
+  created_at: number;
+  start_at: number;
+  end_at: number;
+  realized_hours: number;
+  realized_savings_cad: number;
 }
 
 export interface ReputationEntry {

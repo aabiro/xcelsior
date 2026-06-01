@@ -5,6 +5,7 @@ import io
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -59,6 +60,8 @@ RESERVED_PRICING_TIERS = {
         "min_hours_per_day": 0,
     },
 }
+# Commitment term length in days, keyed by commitment_type.
+_RESERVED_TERM_DAYS = {"1_month": 30, "3_month": 90, "1_year": 365}
 try:
     import bitcoin as _btc_mod
 except ImportError:
@@ -970,6 +973,11 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
     discounted_rate = round(base_rate * (1 - tier["discount_pct"] / 100), 4)
     tax_rate, tax_desc = get_tax_rate_for_province(req.province)
 
+    now = time.time()
+    term_days = _RESERVED_TERM_DAYS.get(req.commitment_type, 30)
+    start_at = now
+    end_at = now + term_days * 86400
+
     commitment = {
         "commitment_id": str(uuid.uuid4()),
         "customer_id": req.customer_id,
@@ -984,7 +992,11 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
         "tax_description": tax_desc,
         "commitment_description": tier["description"],
         "min_hours_per_day": tier["min_hours_per_day"],
-        "created_at": time.time(),
+        "created_at": now,
+        "start_at": start_at,
+        "end_at": end_at,
+        "start_date": datetime.fromtimestamp(start_at, tz=timezone.utc).isoformat(),
+        "end_date": datetime.fromtimestamp(end_at, tz=timezone.utc).isoformat(),
         "status": "active",
     }
 
@@ -993,6 +1005,39 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
     monthly_estimate = discounted_rate * req.quantity * 24 * 30
     commitment["monthly_estimate_cad"] = round(monthly_estimate, 2)
     commitment["monthly_estimate_with_tax_cad"] = round(monthly_estimate * (1 + tax_rate), 2)
+    # Total value of the commitment over its full term (at 24h/day utilization).
+    commitment["total_commitment_value_cad"] = round(
+        discounted_rate * req.quantity * 24 * term_days, 2
+    )
+
+    # Persist so the customer can later see active commitments + realized
+    # savings (GET /api/pricing/reservations). Best-effort: a storage hiccup
+    # should not fail the reservation the customer just paid for.
+    try:
+        billing.record_reservation(
+            {
+                "commitment_id": commitment["commitment_id"],
+                "customer_id": commitment["customer_id"],
+                "commitment_type": commitment["commitment_type"],
+                "gpu_model": commitment["gpu_model"],
+                "quantity": commitment["quantity"],
+                "province": commitment["province"],
+                "base_rate_cad": commitment["base_rate_cad"],
+                "discounted_rate_cad": commitment["discounted_rate_cad"],
+                "discount_pct": commitment["discount_pct"],
+                "min_hours_per_day": commitment["min_hours_per_day"],
+                "status": "active",
+                "created_at": now,
+                "start_at": start_at,
+                "end_at": end_at,
+            }
+        )
+    except Exception as e:  # pragma: no cover - storage failure path
+        log.warning(
+            "reserve: failed to persist commitment %s: %s",
+            commitment["commitment_id"],
+            e,
+        )
 
     broadcast_sse(
         "reservation_created",
@@ -1003,6 +1048,70 @@ def api_reserve_commitment(req: ReservedCommitmentRequest):
         },
     )
     return {"ok": True, **commitment}
+
+
+@router.get("/api/pricing/reservations", tags=["Billing"])
+def api_list_reservations(request: Request, customer_id: str = ""):
+    """List the authenticated customer's reserved commitments + savings.
+
+    Returns each commitment with realized savings (computed from GPU-hours
+    actually consumed on the committed GPU model during the commitment
+    window) plus a summary: count of active commitments, total realized
+    savings to date, and projected monthly savings at the committed
+    minimum daily usage.
+
+    Non-admin callers are always scoped to their own commitments; the
+    `customer_id` query param is honoured only for admins.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    if not bool(user.get("is_admin")) or not customer_id:
+        customer_id = _analytics_customer_scope(user)
+
+    empty_summary = {
+        "active_count": 0,
+        "total_count": 0,
+        "realized_savings_cad": 0.0,
+        "projected_monthly_savings_cad": 0.0,
+    }
+    if not customer_id:
+        return {"ok": True, "customer_id": "", "reservations": [], "summary": empty_summary}
+
+    billing = get_billing_engine()
+    try:
+        reservations = billing.list_reservations(customer_id)
+    except Exception as e:
+        log.warning("reservations: failed to load for %s: %s", customer_id, e)
+        return {
+            "ok": True,
+            "customer_id": customer_id,
+            "reservations": [],
+            "summary": empty_summary,
+        }
+
+    active = [r for r in reservations if r.get("is_active")]
+    realized = round(sum(float(r.get("realized_savings_cad", 0)) for r in reservations), 2)
+    projected_monthly = round(
+        sum(
+            max(0.0, float(r["base_rate_cad"]) - float(r["discounted_rate_cad"]))
+            * float(r["min_hours_per_day"])
+            * 30
+            * int(r["quantity"])
+            for r in active
+        ),
+        2,
+    )
+    return {
+        "ok": True,
+        "customer_id": customer_id,
+        "reservations": reservations,
+        "summary": {
+            "active_count": len(active),
+            "total_count": len(reservations),
+            "realized_savings_cad": realized,
+            "projected_monthly_savings_cad": projected_monthly,
+        },
+    }
 
 
 @router.get("/api/analytics/usage", tags=["Billing"])

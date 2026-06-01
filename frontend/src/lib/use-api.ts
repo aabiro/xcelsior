@@ -24,6 +24,7 @@ export function useApi() {
     fetchTelemetry: api.fetchTelemetry,
     fetchPricingReference: api.fetchPricingReference,
     fetchReservedPlans: api.fetchReservedPlans,
+    fetchReservations: api.fetchReservations,
     fetchSpotPrices: api.fetchSpotPrices,
     fetchLeaderboard: api.fetchLeaderboard,
     fetchAnalytics: api.fetchAnalytics,
