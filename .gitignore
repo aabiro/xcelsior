@@ -53,11 +53,12 @@ uploads/
 # ── Docker ────────────────────────────────────────────────────────────
 docker-compose.override.yml
 
-# ── HPC / Slurm (requires cluster access) ─────────
+# ── HPC / Slurm artifacts (generated; not source) ─────────
+# NOTE: do NOT use bare slurm*.py / test_slurm*.py here — those globs
+# swallow the slurm_adapter.py source module and its tests. Only ignore
+# Slurm-generated runtime artifacts.
 slurm/
 nibi/
-slurm*.py
-test_slurm*.py
 *.sbatch
 *.slurm
 slurm-*.out
