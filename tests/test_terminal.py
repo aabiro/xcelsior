@@ -1864,20 +1864,37 @@ class TestFrontendIntegration:
 
 
 # ===============================================================================
-# 15. Legacy websocket hardening smoke coverage
+# 15. Websocket hardening smoke coverage (live routes/)
 # ===============================================================================
 
 
-class TestLegacyApiWebsocketHardening:
-    def test_api_old_uses_ticket_and_origin_hardening(self):
-        path = os.path.join(os.path.dirname(__file__), "..", "api_old.py")
-        with open(path) as f:
-            content = f.read()
-        assert '@app.post("/api/terminal/ticket")' in content
-        assert '@app.post("/api/instances/{job_id}/stream-ticket")' in content
-        assert "_shared_validate_ws_origin(" in content
-        assert "_shared_check_ws_connect_rate_limit(" in content
-        assert "allow_query_token=False" in content
+class TestRouteWebsocketHardening:
+    def test_routes_use_ticket_and_origin_hardening(self):
+        base = os.path.join(os.path.dirname(__file__), "..", "routes")
+
+        def _read(name):
+            with open(os.path.join(base, name)) as f:
+                return f.read()
+
+        deps = _read("_deps.py")
+        terminal = _read("terminal.py")
+        instances = _read("instances.py")
+
+        # Shared WS hardening helpers are defined once in routes/_deps.py.
+        assert "def _validate_ws_origin(" in deps
+        assert "def _check_ws_connect_rate_limit(" in deps
+
+        # Terminal ticket endpoint + hardening wired in routes/terminal.py.
+        assert '"/api/terminal/ticket"' in terminal
+        assert "_validate_ws_origin(" in terminal
+        assert "_check_ws_connect_rate_limit(" in terminal
+        assert "allow_query_token=False" in terminal
+
+        # Instance stream-ticket endpoint + hardening wired in routes/instances.py.
+        assert "stream-ticket" in instances
+        assert "_validate_ws_origin(" in instances
+        assert "_check_ws_connect_rate_limit(" in instances
+        assert "allow_query_token=False" in instances
 
 
 # ===============================================================================

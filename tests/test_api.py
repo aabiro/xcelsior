@@ -640,7 +640,7 @@ class TestAuth:
 
     def test_source_has_no_http_query_token_fallback(self):
         """Main and legacy apps do not accept HTTP auth via ?token=."""
-        for rel_path in ("api.py", "api_old.py"):
+        for rel_path in ("api.py",):
             path = os.path.join(os.path.dirname(__file__), "..", rel_path)
             with open(path) as f:
                 content = f.read()
