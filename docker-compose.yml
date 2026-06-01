@@ -246,6 +246,15 @@ services:
       - ${HOME}/.ssh/xcelsior:/run/secrets/ssh_key:ro
       - ${HOME}/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     restart: unless-stopped
+    # This image's Dockerfile HEALTHCHECK probes the API's HTTP /healthz,
+    # which a headless worker doesn't serve — that gave a permanent false
+    # "unhealthy". Override with a process-liveness check instead.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qa scheduler_main /proc/1/cmdline"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   # ── Background Task Worker ─────────────────────────────────────────
   # Runs billing, webhooks, spot pricing, inference, cloudburst, SLA,
@@ -261,6 +270,14 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # Override the image's API-oriented HTTP HEALTHCHECK (this worker has no
+    # HTTP port) with a process-liveness check.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qa bg_worker /proc/1/cmdline"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   frontend:
     build:
@@ -298,6 +315,15 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+    # Real liveness: the gateway serves an HTTP health endpoint on
+    # SSH_GW_HEALTH_PORT (returns 200 whenever the asyncio loop is alive),
+    # so probe that instead of the image's API /healthz default.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9510/ >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   # ── Observability: Jaeger (OpenTelemetry traces) ───────────────────
   jaeger:
