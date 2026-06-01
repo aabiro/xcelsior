@@ -18,7 +18,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { Wallet, WalletTransaction, Invoice } from "@/lib/api";
+import type { Wallet, WalletTransaction, Invoice, ReservedCommitment } from "@/lib/api";
 import { toast } from "sonner";
 import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
 
@@ -68,6 +68,11 @@ export default function BillingPage() {
     commitment: string; discount_pct: number; description: string;
     min_hours_per_day: number; sample_hourly_rates_cad: Record<string, number>;
   }> | null>(null);
+  const [reservations, setReservations] = useState<ReservedCommitment[]>([]);
+  const [reservationSummary, setReservationSummary] = useState<{
+    active_count: number; total_count: number;
+    realized_savings_cad: number; projected_monthly_savings_cad: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDeposit, setShowDeposit] = useState(false);
   const searchParams = useSearchParams();
@@ -102,12 +107,13 @@ export default function BillingPage() {
     if (!customerId) return;
     setLoading(true);
     try {
-      const [walletRes, histRes, invoiceRes, usageRes, plansRes] = await Promise.allSettled([
+      const [walletRes, histRes, invoiceRes, usageRes, plansRes, reservationsRes] = await Promise.allSettled([
         api.fetchWallet(customerId),
         api.fetchWalletHistory(customerId),
         api.fetchInvoices(customerId),
         api.fetchUsageSummary(customerId),
         api.fetchReservedPlans(),
+        api.fetchReservations(customerId),
       ]);
       if (walletRes.status === "fulfilled") setWallet(walletRes.value.wallet);
       if (histRes.status === "fulfilled") setTransactions(histRes.value.transactions || []);
@@ -118,6 +124,10 @@ export default function BillingPage() {
       }
       if (plansRes.status === "fulfilled" && (plansRes.value as Record<string, unknown>).reserved_tiers) {
         setReservedTiers((plansRes.value as Record<string, unknown>).reserved_tiers as typeof reservedTiers);
+      }
+      if (reservationsRes.status === "fulfilled") {
+        setReservations(reservationsRes.value.reservations || []);
+        setReservationSummary(reservationsRes.value.summary || null);
       }
     } catch {
       toast.error("Failed to load billing data");
@@ -879,6 +889,76 @@ export default function BillingPage() {
                     </Card>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Active Commitments + savings */}
+          {reservations.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Active Commitments</h2>
+                {reservationSummary && reservationSummary.realized_savings_cad > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm text-emerald">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="font-medium">
+                      You&apos;ve saved {formatCad(reservationSummary.realized_savings_cad)} with reserved pricing
+                    </span>
+                  </div>
+                )}
+              </div>
+              {reservationSummary && reservationSummary.projected_monthly_savings_cad > 0 && (
+                <p className="text-xs text-text-muted mb-3">
+                  Projected savings of {formatCad(reservationSummary.projected_monthly_savings_cad)}/month
+                  at your committed minimum usage across {reservationSummary.active_count} active{" "}
+                  {reservationSummary.active_count === 1 ? "commitment" : "commitments"}.
+                </p>
+              )}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {reservations.map((r) => (
+                  <Card key={r.commitment_id} className="overflow-hidden">
+                    <CardContent className="space-y-2 pt-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{r.gpu_model}</span>
+                          <Badge variant="info" className="text-[10px]">
+                            {tierMeta[r.commitment_type]?.label || r.commitment_type.replace("_", " ")}
+                          </Badge>
+                        </div>
+                        <Badge
+                          variant={r.is_active ? "active" : "default"}
+                          className={`text-[10px] ${r.is_active ? "" : "text-text-muted"}`}
+                        >
+                          {r.is_active ? "Active" : r.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-lg font-bold font-mono text-emerald">
+                          {formatCad(r.discounted_rate_cad)}/hr
+                        </span>
+                        <span className="text-xs text-text-muted line-through font-mono">
+                          {formatCad(r.base_rate_cad)}/hr
+                        </span>
+                        <span className="text-xs font-medium text-emerald">−{r.discount_pct}%</span>
+                        {r.quantity > 1 && (
+                          <span className="text-xs text-text-muted">×{r.quantity} slots</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-text-muted">
+                        <Clock className="h-3 w-3" />
+                        {new Date(r.start_at * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                        {" – "}
+                        {new Date(r.end_at * 1000).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                      </div>
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                        <span className="text-text-muted">{r.realized_hours.toFixed(1)} GPU-hrs used</span>
+                        <span className="font-medium text-emerald">
+                          {formatCad(r.realized_savings_cad)} saved
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             </div>
           )}
