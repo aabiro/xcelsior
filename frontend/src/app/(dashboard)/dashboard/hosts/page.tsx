@@ -553,7 +553,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">Hourly Rate</Label>
-              <p className="text-xs text-text-muted bg-surface-hover rounded-md px-3 py-2">Rates are set automatically based on GPU model and tier. You'll earn the platform rate for your GPU.</p>
+              <p className="text-xs text-text-muted bg-surface-hover rounded-md px-3 py-2">Rates are set automatically based on GPU model and tier. You&apos;ll earn the platform rate for your GPU.</p>
             </div>
           </div>
 

@@ -89,9 +89,9 @@ function AcceptInviteContent() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10">
             <CheckCircle className="h-8 w-8 text-emerald" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">You're In!</h1>
+          <h1 className="text-2xl font-bold mb-2">You&apos;re In!</h1>
           <p className="text-text-secondary mb-6">
-            You've joined <strong className="text-text-primary">{teamName}</strong> as a {role}.
+            You&apos;ve joined <strong className="text-text-primary">{teamName}</strong> as a {role}.
           </p>
           <Link href="/dashboard/settings?tab=team">
             <Button className="w-full">View Team</Button>
@@ -114,7 +114,7 @@ function AcceptInviteContent() {
         </div>
         <h1 className="text-2xl font-bold mb-2">Team Invitation</h1>
         <p className="text-text-secondary mb-1">
-          You've been invited to join
+          You&apos;ve been invited to join
         </p>
         <p className="text-lg font-semibold text-text-primary mb-4">{teamName}</p>
         <p className="text-sm text-text-muted mb-6">
@@ -130,7 +130,7 @@ function AcceptInviteContent() {
             <div className="space-y-3">
               <p className="text-sm text-accent-gold">
                 This invitation is for <strong>{inviteEmail}</strong>.
-                You're signed in as <strong>{user.email}</strong>.
+                You&apos;re signed in as <strong>{user.email}</strong>.
               </p>
               <Link href={`/login?redirect=/accept-invite?token=${encodeURIComponent(token)}`}>
                 <Button variant="outline" className="w-full">Sign in with the correct account</Button>

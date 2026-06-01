@@ -17,7 +17,7 @@ import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
-import type { EnhancedAnalytics } from "@/lib/api";
+import type { EnhancedAnalytics, WalletTransaction } from "@/lib/api";
 import {
   SpendTrendChart, JobsTrendChart, UtilizationChart,
   CumulativeSpendChart, CostPerHourChart, GpuHoursChart,
@@ -272,6 +272,8 @@ export default function AnalyticsPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [walletKpis, setWalletKpis] = useState({ balance: 0, deposited: 0, spent: 0 });
+  const [spotPrices, setSpotPrices] = useState<{ model: string; price: number }[]>([]);
   const sseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const api = useApi();
   const { user } = useAuth();
@@ -293,10 +295,20 @@ export default function AnalyticsPage() {
         api.fetchAnalytics({ days: String(days), group_by: "province" }),
         api.fetchAnalytics({ days: String(days), group_by: "day", offset_days: String(days) }),
         api.fetchEnhancedAnalytics(days),
+        api.fetchSpotPrices(),
       ]);
-      const [usageRes, gpuRes, provinceRes, prevWindowRes, enhancedRes] = results;
+      const [usageRes, gpuRes, provinceRes, prevWindowRes, enhancedRes, spotRes] = results;
       if (usageRes.status === "fulfilled") setData(usageRes.value);
       if (enhancedRes.status === "fulfilled") setEnhanced(enhancedRes.value as EnhancedAnalytics);
+      if (spotRes.status === "fulfilled" && spotRes.value) {
+        const prices = (spotRes.value as any)?.spot_prices || (spotRes.value as any)?.prices || {};
+        setSpotPrices(
+          Object.entries(prices)
+            .map(([model, price]) => ({ model, price: Number(price ?? 0) }))
+            .sort((a, b) => b.price - a.price)
+            .slice(0, 10)
+        );
+      }
       setGpuBreakdown(gpuRes.status === "fulfilled" ? (((gpuRes.value as any)?.analytics ?? []) as any[]) : []);
       setProvinceBreakdown(provinceRes.status === "fulfilled" ? (((provinceRes.value as any)?.analytics ?? []) as any[]) : []);
       setPreviousSummary(prevWindowRes.status === "fulfilled" ? ((prevWindowRes.value as any)?.summary ?? null) : null);
@@ -344,6 +356,29 @@ export default function AnalyticsPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   });
+
+  // ── Wallet KPIs (separate fetch, needs user) ──────────────────────
+
+  useEffect(() => {
+    const cid = (user as any)?.customer_id || (user as any)?.user_id;
+    if (!cid) return;
+    api.fetchWalletHistory(cid, 50)
+      .then((res: any) => {
+        const txs: WalletTransaction[] = res?.transactions ?? [];
+        const kpis = txs.reduce(
+          (acc: { balance: number; deposited: number; spent: number }, tx: WalletTransaction) => {
+            if (tx.amount_cad > 0) acc.deposited += tx.amount_cad;
+            if (tx.amount_cad < 0) acc.spent += Math.abs(tx.amount_cad);
+            acc.balance += tx.amount_cad;
+            return acc;
+          },
+          { balance: 0, deposited: 0, spent: 0 },
+        );
+        setWalletKpis(kpis);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // ── Derived data ──────────────────────────────────────────────────
 
@@ -714,7 +749,7 @@ export default function AnalyticsPage() {
                 </div>
               </FadeIn>
 
-              {/* Hero charts */}
+              {/* ── Trends ── */}
               <FadeIn delay={0.25}>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <JobsTrendChart data={jobsOverTime} />
@@ -722,7 +757,7 @@ export default function AnalyticsPage() {
                 </div>
               </FadeIn>
 
-              {/* Activity heatmap */}
+              {/* ── Activity Patterns ── */}
               <HourlyHeatmap data={enhanced?.hourly_heatmap ?? []} />
 
               {/* Peak days */}
@@ -769,6 +804,7 @@ export default function AnalyticsPage() {
                 </div>
               </FadeIn>
 
+              {/* ── Detailed Breakdown ── */}
               <GpuPerformanceTable data={enhanced?.gpu_performance ?? []} />
               <TopEntitiesTable data={enhanced?.top_entities ?? []} entityLabel={isAdmin ? "Customer" : "Host"} />
             </div>
@@ -802,6 +838,21 @@ export default function AnalyticsPage() {
                 </StaggerItem>
               </StaggerList>
 
+              {/* Wallet Balance */}
+              <FadeIn delay={0.1}>
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Wallet className="h-4 w-4 text-accent-cyan" />
+                    <h3 className="text-sm font-semibold">Wallet</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <StatCard label="Balance" value={<CountUp value={walletKpis.balance} prefix="$" />} icon={Wallet} />
+                    <StatCard label="Total Deposited" value={<CountUp value={walletKpis.deposited} prefix="$" />} icon={TrendingUp} />
+                    <StatCard label="Total Spent" value={<CountUp value={walletKpis.spent} prefix="$" />} icon={DollarSign} />
+                  </div>
+                </div>
+              </FadeIn>
+
               <FadeIn delay={0.15}>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <SpendTrendChart data={spendOverTime} />
@@ -817,6 +868,34 @@ export default function AnalyticsPage() {
                   <ProvinceDonutChart data={provinceSeries} />
                 </div>
               </FadeIn>
+
+              {/* Spot Pricing */}
+              {spotPrices.length > 0 && (
+                <FadeIn delay={0.35}>
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Zap className="h-4 w-4 text-accent-gold" />
+                      <h3 className="text-sm font-semibold">Current Spot Rates</h3>
+                      <span className="text-[10px] text-text-muted font-mono">{spotPrices.length} models</span>
+                    </div>
+                    <Card className="glow-card overflow-hidden">
+                      <div className="divide-y divide-border/40">
+                        {spotPrices.map((sp) => (
+                          <div key={sp.model} className="flex items-center justify-between px-5 py-3 hover:bg-surface-hover/50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-gold/10">
+                                <Cpu className="h-4 w-4 text-accent-gold" />
+                              </div>
+                              <span className="text-sm font-medium">{sp.model}</span>
+                            </div>
+                            <span className="text-sm font-mono font-semibold text-accent-gold">${sp.price.toFixed(4)}/hr</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  </div>
+                </FadeIn>
+              )}
             </div>
           )}
 

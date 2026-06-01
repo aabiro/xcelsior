@@ -145,3 +145,6 @@ tatus\ --short
 et
 wget-log
 .hypothesis/
+
+# Next.js incremental build cache
+frontend/tsconfig.tsbuildinfo
