@@ -36,9 +36,6 @@ KNOWN_SAFE = {
     "ai_assistant.py",
     # Dev-only migration script — reads table names from a hardcoded TABLES list.
     "scripts/migrate_sqlite_to_pg.py",
-    # Pre-split legacy file, kept only for regression tests (not served). Shares
-    # the same allowlist pattern as routes/billing.py.
-    "api_old.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real
