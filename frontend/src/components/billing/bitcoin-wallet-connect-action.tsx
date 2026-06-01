@@ -34,15 +34,21 @@ function btcToSatsString(amountBtc: number) {
   return sats || "0";
 }
 
-export function BitcoinWalletConnectAction({
-  amountBtc,
-  recipient,
-  disabled = false,
-}: BitcoinWalletConnectActionProps) {
+export function BitcoinWalletConnectAction(
+  props: BitcoinWalletConnectActionProps,
+) {
   if (!isWalletConnectConfigured) {
     return null;
   }
 
+  return <BitcoinWalletConnectActionInner {...props} />;
+}
+
+function BitcoinWalletConnectActionInner({
+  amountBtc,
+  recipient,
+  disabled = false,
+}: BitcoinWalletConnectActionProps) {
   const { open } = useAppKit();
   const { address, isConnected } = useAppKitAccount({ namespace: "bip122" });
   const { walletInfo } = useWalletInfo("bip122");

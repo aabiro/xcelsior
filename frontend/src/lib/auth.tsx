@@ -72,6 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessionExpiring, setSessionExpiring] = useState(false);
 
   // Track last user activity timestamp (ms)
+  // useRef seeds this once on first render and ignores the value thereafter,
+  // so Date.now() here is stable, not an unstable impure read.
+  // eslint-disable-next-line react-hooks/purity
   const lastActivity = useRef(Date.now());
   const warnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
