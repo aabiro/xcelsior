@@ -21,11 +21,23 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install linters
-        run: pip install ruff black
+        # Pin to match the versions developers run locally so formatting
+        # rules can't drift between local and CI (a version bump in black
+        # can otherwise turn a green local checkout red in CI).
+        run: pip install ruff==0.15.8 black==26.3.1
       - name: Lint (ruff)
         run: ruff check .
       - name: Format check (black)
         run: black --check *.py routes/*.py tests/
+
+  compose:
+    # Catch docker-compose.yml regressions (bad interpolation, malformed
+    # service definitions) without needing a worker or live build.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate docker-compose.yml
+        run: docker compose config -q
 
   test:
     runs-on: ubuntu-latest
