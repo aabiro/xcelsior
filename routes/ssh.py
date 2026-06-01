@@ -132,12 +132,15 @@ def _trigger_reinject_for_user(user: dict) -> int:
             # the instance. Don't fail the API call over this.
             log.warning(
                 "reinject trigger: enqueue failed job=%s host=%s: %s",
-                job_id, host_id, e,
+                job_id,
+                host_id,
+                e,
             )
     if enqueued:
         log.info(
             "ssh key change for %s — enqueued reinject for %d running instance(s)",
-            email, enqueued,
+            email,
+            enqueued,
         )
     return enqueued
 

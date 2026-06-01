@@ -1,4 +1,5 @@
 """P3/C1 — Prometheus counter wiring for snapshot pipeline."""
+
 import pytest
 from fastapi import HTTPException
 
@@ -11,6 +12,7 @@ def _get_value(counter, **labels) -> float:
 @pytest.fixture(autouse=True)
 def _reset_buckets():
     from routes import instances as mod
+
     mod._SNAPSHOT_RATE_BUCKETS.clear()
     yield
     mod._SNAPSHOT_RATE_BUCKETS.clear()
@@ -61,9 +63,9 @@ def test_c1_source_wires_counters_in_endpoint():
     end = src.find("\n@router", idx)
     body = src[idx:end]
     for outcome in ("not_found", "forbidden", "bad_state", "duplicate_name", "enqueued"):
-        assert f'outcome="{outcome}"' in body, (
-            f"api_snapshot_instance missing outcome={outcome} counter"
-        )
+        assert (
+            f'outcome="{outcome}"' in body
+        ), f"api_snapshot_instance missing outcome={outcome} counter"
 
 
 def test_c1_source_wires_completion_counter():

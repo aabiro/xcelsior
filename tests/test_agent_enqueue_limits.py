@@ -1,10 +1,10 @@
 """P3/C4+C5 — enqueue_agent_command args size + per-host queue cap."""
+
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-
 
 SRC_AGENT = Path(__file__).resolve().parent.parent / "routes" / "agent.py"
 
@@ -27,13 +27,16 @@ def _mock_pool_factory(pending_count: int = 0, inserted_id: int = 42):
 
 # ---------- C4 ----------
 
+
 def test_c4_args_under_16kb_accepted():
     from routes.agent import enqueue_agent_command
 
     pool, _ = _mock_pool_factory(pending_count=0)
     with patch("routes.agent._get_pg_pool", return_value=pool):
         cid = enqueue_agent_command(
-            "host-1", "snapshot_container", args={"image_ref": "foo/bar:baz"},
+            "host-1",
+            "snapshot_container",
+            args={"image_ref": "foo/bar:baz"},
         )
     assert cid == 42
 
@@ -58,13 +61,15 @@ def test_c4_env_var_adjusts_limit(monkeypatch):
     with patch("routes.agent._get_pg_pool", return_value=pool):
         with pytest.raises(HTTPException) as exc:
             enqueue_agent_command(
-                "host-1", "snapshot_container",
+                "host-1",
+                "snapshot_container",
                 args={"x": "A" * 200},
             )
     assert exc.value.status_code == 413
 
 
 # ---------- C5 ----------
+
 
 def test_c5_under_cap_accepted():
     from routes.agent import enqueue_agent_command

@@ -89,9 +89,7 @@ def _canonical_owner_id(user: dict) -> str:
 from collections import deque as _deque  # noqa: E402
 
 _SNAPSHOT_RATE_LIMIT = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_LIMIT", "5"))
-_SNAPSHOT_RATE_WINDOW_SEC = int(
-    os.environ.get("XCELSIOR_SNAPSHOT_RATE_WINDOW_SEC", "3600")
-)
+_SNAPSHOT_RATE_WINDOW_SEC = int(os.environ.get("XCELSIOR_SNAPSHOT_RATE_WINDOW_SEC", "3600"))
 _SNAPSHOT_RATE_BUCKETS: dict[str, "_deque[float]"] = {}
 
 
@@ -114,6 +112,7 @@ try:
         ["status"],
     )
 except Exception:  # pragma: no cover — prom lib not installed
+
     class _NoopCounter:
         def labels(self, *a, **kw):
             return self
@@ -147,7 +146,6 @@ def _check_snapshot_rate_limit(owner_id: str) -> None:
             f"{_SNAPSHOT_RATE_WINDOW_SEC // 60} min. Retry in ~{retry_in}s.",
         )
     bucket.append(now)
-
 
 
 def _get_user_concurrency_cap(customer_id: str) -> int:
@@ -288,9 +286,7 @@ class JobIn(BaseModel):
         # Only public https clones — no ssh://, git://, file://, or embedded creds.
         import re
 
-        if not re.fullmatch(
-            r"https://[A-Za-z0-9._~-]+(?::\d+)?/[A-Za-z0-9._~\-/]+(?:\.git)?", v
-        ):
+        if not re.fullmatch(r"https://[A-Za-z0-9._~-]+(?::\d+)?/[A-Za-z0-9._~\-/]+(?:\.git)?", v):
             raise ValueError("git_repo must be a plain https:// URL (no creds)")
         if "@" in v.split("://", 1)[1]:
             raise ValueError("git_repo must not contain credentials")
@@ -988,9 +984,7 @@ def _check_not_locked(job: dict) -> None:
         )
 
 
-def _authorize_instance_mutation(
-    request: Request, job_id: str, action: str
-) -> tuple[dict, dict]:
+def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> tuple[dict, dict]:
     """Shared owner/admin + existence + lock guard for mutating endpoints.
 
     Returns (user, job). Raises 404/403 as appropriate. Does NOT check
@@ -1009,9 +1003,7 @@ def _authorize_instance_mutation(
 
     job_owner = job.get("owner", "")
     if role != "admin" and job_owner != customer_id:
-        raise HTTPException(
-            status_code=403, detail=f"Not authorized to {action} this instance"
-        )
+        raise HTTPException(status_code=403, detail=f"Not authorized to {action} this instance")
     return user, job
 
 
@@ -1824,6 +1816,7 @@ def _owner_slug(owner_id: str) -> str:
     guarantee uniqueness in the local-only image tag path.
     """
     import hashlib
+
     clean = re.sub(r"[^a-z0-9_-]", "-", (owner_id or "").lower()).strip("-") or "user"
     # Keep registry paths readable but always disambiguated.
     # P3/B5 — 16 hex chars = 64 bits of entropy. An 8-char prefix (32 bits)
@@ -1895,8 +1888,15 @@ class SnapshotIn(BaseModel):
         # legitimate use for LRO/RLO/PDF/LRI/RLI/FSI/PDI in an image
         # description.
         _BIDI_CHARS = {
-            "\u202A", "\u202B", "\u202C", "\u202D", "\u202E",  # LRE/RLE/PDF/LRO/RLO
-            "\u2066", "\u2067", "\u2068", "\u2069",             # LRI/RLI/FSI/PDI
+            "\u202a",
+            "\u202b",
+            "\u202c",
+            "\u202d",
+            "\u202e",  # LRE/RLE/PDF/LRO/RLO
+            "\u2066",
+            "\u2067",
+            "\u2068",
+            "\u2069",  # LRI/RLI/FSI/PDI
         }
         if any(c in _BIDI_CHARS for c in v):
             v = "".join(c for c in v if c not in _BIDI_CHARS)
@@ -1906,6 +1906,7 @@ class SnapshotIn(BaseModel):
 def _user_images_pool():
     """Lazy import; keeps pg_pool import out of module-load order."""
     from db import _get_pg_pool  # type: ignore
+
     return _get_pg_pool()
 
 
@@ -2001,8 +2002,16 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,0)
             """,
             (
-                image_id, owner_id, body.name, body.tag, body.description,
-                job_id, host_id, image_ref, initial_status, now,
+                image_id,
+                owner_id,
+                body.name,
+                body.tag,
+                body.description,
+                job_id,
+                host_id,
+                image_ref,
+                initial_status,
+                now,
             ),
         )
 
@@ -2011,7 +2020,10 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
         _snapshot_requests_total.labels(outcome="queued_registry_down").inc()
         log.warning(
             "snapshot queued (registry down) image=%s job=%s host=%s owner=%s",
-            image_id, job_id, host_id, owner_id,
+            image_id,
+            job_id,
+            host_id,
+            owner_id,
         )
     else:
         cmd_id = enqueue_agent_command(
@@ -2047,7 +2059,10 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
         _snapshot_requests_total.labels(outcome="enqueued").inc()
         log.info(
             "User image snapshot queued image=%s job=%s host=%s owner=%s",
-            image_id, job_id, host_id, owner_id,
+            image_id,
+            job_id,
+            host_id,
+            owner_id,
         )
     return {
         "ok": True,
@@ -2168,6 +2183,7 @@ class _UserImagePatchIn(BaseModel):
     data itself (``image_ref``, ``size_bytes``, ``status``) is NEVER
     patched via this endpoint — those are managed by the worker.
     """
+
     description: str | None = Field(default=None, max_length=512)
     is_public: bool | None = None
     labels: list[str] | None = None
@@ -2179,13 +2195,23 @@ class _UserImagePatchIn(BaseModel):
         if v is None:
             return v
         # Mirror SnapshotIn — strip control chars + bidi overrides.
-        cleaned = "".join(
-            c for c in v
-            if c.isprintable() or c in ("\n", "\t")
-        )
-        for bad in ("\u202a", "\u202b", "\u202c", "\u202d", "\u202e",
-                    "\u2066", "\u2067", "\u2068", "\u2069",
-                    "\u200b", "\u200c", "\u200d", "\u200e", "\u200f"):
+        cleaned = "".join(c for c in v if c.isprintable() or c in ("\n", "\t"))
+        for bad in (
+            "\u202a",
+            "\u202b",
+            "\u202c",
+            "\u202d",
+            "\u202e",
+            "\u2066",
+            "\u2067",
+            "\u2068",
+            "\u2069",
+            "\u200b",
+            "\u200c",
+            "\u200d",
+            "\u200e",
+            "\u200f",
+        ):
             cleaned = cleaned.replace(bad, "")
         return cleaned.strip()
 
@@ -2422,9 +2448,7 @@ class _AutoLaunchReport(BaseModel):
 
 
 @router.post("/instances/{job_id}/auto-launch/report", tags=["Instances"])
-def api_instances_auto_launch_report(
-    job_id: str, body: _AutoLaunchReport, request: Request
-):
+def api_instances_auto_launch_report(job_id: str, body: _AutoLaunchReport, request: Request):
     """Internal: worker agent reports that auto-launch finished.
 
     Authenticated by the same shared agent secret used for
@@ -2444,13 +2468,15 @@ def api_instances_auto_launch_report(
     pool = _user_images_pool()
     import json as _json
 
-    payload_value = _json.dumps({
-        "host_id": body.host_id,
-        "ports": body.ports,
-        "token_sha": body.token_sha,
-        "token": body.token or "",
-        "reported_at": time.time(),
-    })
+    payload_value = _json.dumps(
+        {
+            "host_id": body.host_id,
+            "ports": body.ports,
+            "token_sha": body.token_sha,
+            "token": body.token or "",
+            "reported_at": time.time(),
+        }
+    )
 
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -2554,7 +2580,11 @@ def api_instances_auto_launch_get(job_id: str, request: Request):
             "host_port": int(hport),
         }
         if svc == "jupyter":
-            entry["url"] = f"https://{slug}-{cport}.{base}/?token={token}" if token else f"https://{slug}-{cport}.{base}/"
+            entry["url"] = (
+                f"https://{slug}-{cport}.{base}/?token={token}"
+                if token
+                else f"https://{slug}-{cport}.{base}/"
+            )
             entry["token"] = token
         elif svc == "vscode":
             entry["url"] = f"https://{slug}-{cport}.{base}/"
@@ -2732,9 +2762,7 @@ def api_instances_expose(job_id: str, body: _ExposeIn, request: Request):
     if host_id:
         pool = _user_images_pool()
         with pool.connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT payload->>'ip' FROM hosts WHERE host_id=%s", (host_id,)
-            )
+            cur.execute("SELECT payload->>'ip' FROM hosts WHERE host_id=%s", (host_id,))
             r = cur.fetchone()
         if r:
             host_ip = (r[0] if not isinstance(r, dict) else r.get("?column?")) or ""
@@ -2822,4 +2850,3 @@ def api_internal_route(slug: str, port: int, request: Request):
     )
     resp.headers["X-Upstream"] = upstream
     return resp
-

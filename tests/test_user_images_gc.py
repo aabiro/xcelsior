@@ -1,4 +1,5 @@
 """P3/C2 — hard-delete GC for soft-deleted user_images."""
+
 from pathlib import Path
 
 
@@ -12,7 +13,7 @@ def test_c2_gc_task_registered():
 def test_c2_gc_uses_retention_env_var():
     src = (Path(__file__).resolve().parent.parent / "bg_worker.py").read_text()
     # Must be configurable, default 30 days.
-    assert 'XCELSIOR_USER_IMAGES_GC_DAYS' in src
+    assert "XCELSIOR_USER_IMAGES_GC_DAYS" in src
     assert '"30"' in src or "'30'" in src
 
 

@@ -18,6 +18,7 @@ Sites covered:
 - BillingService.stop_instance        → "pause_container"  (state-machine: STOPPED→RESTARTING needs container)
 - suspended-wallet sweep / grace expired → "stop_container"
 """
+
 from __future__ import annotations
 
 import re
@@ -64,13 +65,13 @@ def test_terminal_paths_use_stop_container(billing_src: str) -> None:
     """Wallet-suspension / grace-expired truly destroy the container."""
     pairs = _enqueue_calls(billing_src)
     cmds_for_terminal = [
-        c for by, c in pairs
+        c
+        for by, c in pairs
         if by in {"billing_suspended", "billing_grace_expired", "billing_topup_failure"}
     ]
     assert any(c == "stop_container" for c in cmds_for_terminal), (
         "Terminal billing sweepers must enqueue stop_container (docker stop + rm). "
-        "Found created_by labels: "
-        + repr([by for by, _ in pairs])
+        "Found created_by labels: " + repr([by for by, _ in pairs])
     )
 
 
@@ -80,9 +81,7 @@ def test_no_ssh_exec_for_lifecycle(billing_src: str) -> None:
     The whole point of P3.2 was to remove direct SSH-from-VPS-to-host
     lifecycle ops. Catching this in CI prevents reverts.
     """
-    bad = re.findall(
-        r"ssh_exec\([^)]*docker\s+(?:start|stop|kill|rm)\b", billing_src
-    )
+    bad = re.findall(r"ssh_exec\([^)]*docker\s+(?:start|stop|kill|rm)\b", billing_src)
     assert not bad, f"billing.py reintroduced SSH-based lifecycle ops: {bad}"
 
 
@@ -92,15 +91,9 @@ def test_all_enqueues_pass_container_name_and_job_id(billing_src: str) -> None:
     Worker handlers branch on container_name; job_id is needed for the
     callback report path. Missing either is a silent breakage.
     """
-    blocks = re.findall(
-        r"enqueue_agent_command\s*\([^)]*\)", billing_src, re.DOTALL
-    )
+    blocks = re.findall(r"enqueue_agent_command\s*\([^)]*\)", billing_src, re.DOTALL)
     assert blocks, "no enqueue_agent_command calls found in billing.py — "
     "P3.2 may have been reverted entirely"
     for blk in blocks:
-        assert "container_name" in blk, (
-            f"enqueue call missing container_name arg: {blk[:200]}"
-        )
-        assert "job_id" in blk, (
-            f"enqueue call missing job_id arg: {blk[:200]}"
-        )
+        assert "container_name" in blk, f"enqueue call missing container_name arg: {blk[:200]}"
+        assert "job_id" in blk, f"enqueue call missing job_id arg: {blk[:200]}"

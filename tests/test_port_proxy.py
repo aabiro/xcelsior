@@ -122,6 +122,7 @@ def _set_http_ports(job_id: str, ports: dict[str, int]) -> None:
 # POST /instances/{job_id}/http-ports/report
 # ---------------------------------------------------------------------------
 
+
 def test_http_ports_report_stores_mapping(client, seeded_job):
     r = client.post(
         f"/instances/{seeded_job['job_id']}/http-ports/report",
@@ -160,10 +161,10 @@ def test_http_ports_report_drops_invalid_entries(client, seeded_job):
         json={
             "host_id": seeded_job["host_id"],
             "ports": {
-                "22": 55100,        # reserved → dropped
-                "8888": 54999,      # host port below 55000 → dropped
-                "8080": 60001,      # host port above 59999 → dropped
-                "9000": 55500,      # ok
+                "22": 55100,  # reserved → dropped
+                "8888": 54999,  # host port below 55000 → dropped
+                "8080": 60001,  # host port above 59999 → dropped
+                "9000": 55500,  # ok
                 "not-a-port": 55501,  # non-numeric → dropped
             },
         },
@@ -186,6 +187,7 @@ def test_http_ports_report_drops_invalid_entries(client, seeded_job):
 # ---------------------------------------------------------------------------
 # POST /instances/{job_id}/expose
 # ---------------------------------------------------------------------------
+
 
 def test_expose_happy_path(client, seeded_job):
     _set_http_ports(seeded_job["job_id"], {"8888": 55123})
@@ -245,8 +247,7 @@ def test_expose_403_when_owner_mismatch(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"bob\"') "
-            "WHERE job_id=%s",
+            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"bob\"') " "WHERE job_id=%s",
             (seeded_job["job_id"],),
         )
         conn.commit()
@@ -269,6 +270,7 @@ def test_expose_403_when_owner_mismatch(client, seeded_job):
 # ---------------------------------------------------------------------------
 # GET /internal/route/{slug}/{port}
 # ---------------------------------------------------------------------------
+
 
 def test_internal_route_returns_upstream_header(client, seeded_job):
     _set_http_ports(seeded_job["job_id"], {"8888": 55123})

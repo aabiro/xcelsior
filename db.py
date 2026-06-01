@@ -142,6 +142,7 @@ def _get_pg_pool():
             raise
 
         max_attempts = 5
+
         # Reset hook — runs when a connection is RETURNED to the pool.
         # Many call sites mutate ``conn.row_factory = dict_row`` directly
         # (legacy pattern used in 20+ places). Without a reset hook, the
@@ -152,6 +153,7 @@ def _get_pg_pool():
         def _reset_conn(_conn):
             try:
                 from psycopg.rows import tuple_row
+
                 _conn.row_factory = tuple_row
             except Exception:
                 pass
@@ -237,7 +239,6 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("T4", 16, "PCIe", False, 0.35),
     ("V100", 32, "PCIe", False, 0.95),
     ("V100", 16, "PCIe", False, 0.75),
-
     # ── NVIDIA RTX 50 Series ──
     ("RTX 5090", 32, "PCIe", False, 0.90),
     ("RTX 5080", 16, "PCIe", False, 0.55),
@@ -245,10 +246,9 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("RTX 5070", 12, "PCIe", False, 0.38),
     ("RTX 5060 Ti", 16, "PCIe", False, 0.30),
     ("RTX 5060", 8, "PCIe", False, 0.22),
-
     # ── NVIDIA RTX 40 Series ──
     ("RTX 4090", 24, "PCIe", False, 0.55),
-    ("RTX 4090", 24, "PCIe", True, 0.62),   # high-frequency variant
+    ("RTX 4090", 24, "PCIe", True, 0.62),  # high-frequency variant
     ("RTX 4080 Super", 16, "PCIe", False, 0.42),
     ("RTX 4080", 16, "PCIe", False, 0.40),
     ("RTX 4070 Ti Super", 16, "PCIe", False, 0.34),
@@ -258,7 +258,6 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("RTX 4060 Ti", 16, "PCIe", False, 0.22),
     ("RTX 4060 Ti", 8, "PCIe", False, 0.18),
     ("RTX 4060", 8, "PCIe", False, 0.15),
-
     # ── NVIDIA RTX 30 Series ──
     ("RTX 3090 Ti", 24, "PCIe", False, 0.35),
     ("RTX 3090", 24, "PCIe", False, 0.30),
@@ -269,7 +268,6 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("RTX 3070", 8, "PCIe", False, 0.16),
     ("RTX 3060 Ti", 8, "PCIe", False, 0.15),
     ("RTX 3060", 12, "PCIe", False, 0.13),
-
     # ── NVIDIA RTX 20 Series ──
     ("RTX 2080 Ti", 11, "PCIe", False, 0.20),
     ("RTX 2080 Super", 8, "PCIe", False, 0.16),
@@ -278,7 +276,6 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("RTX 2070", 8, "PCIe", False, 0.12),
     ("RTX 2060 Super", 8, "PCIe", False, 0.11),
     ("RTX 2060", 6, "PCIe", False, 0.09),
-
     # ── NVIDIA Workstation (Ada & Ampere) ──
     ("RTX 6000 Ada", 48, "PCIe", False, 2.00),
     ("RTX 5000 Ada", 32, "PCIe", False, 1.40),
@@ -286,12 +283,10 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
     ("RTX A6000", 48, "PCIe", False, 1.60),
     ("RTX A5000", 24, "PCIe", False, 0.95),
     ("RTX A4000", 16, "PCIe", False, 0.60),
-
     # ── AMD Data Center ──
     ("MI300X", 192, "OAM", False, 4.50),
     ("MI250X", 128, "OAM", False, 2.80),
     ("MI210", 64, "PCIe", False, 1.40),
-
     # ── AMD Consumer ──
     ("RX 7900 XTX", 24, "PCIe", False, 0.28),
     ("RX 7900 XT", 20, "PCIe", False, 0.24),
@@ -306,18 +301,26 @@ _TIER_SOVEREIGNTY = {"standard": 0.0, "premium": 0.0, "sovereign": 0.10}
 def _generate_gpu_pricing_rows() -> list[tuple]:
     """Expand ``_GPU_PRICING_BASE`` into the full pricing matrix."""
     out: list[tuple] = []
-    for (model, vram, form_factor, high_freq, base) in _GPU_PRICING_BASE:
+    for model, vram, form_factor, high_freq, base in _GPU_PRICING_BASE:
         for tier, tmult in _TIER_MULT.items():
             for mode, mmult in _MODE_MULT.items():
                 rate = round(base * tmult * mmult, 4)
-                out.append((
-                    model, vram, form_factor, high_freq,
-                    tier, mode, rate,
-                    1.0,                        # priority_multiplier
-                    _TIER_SOVEREIGNTY[tier],    # sovereignty_premium
-                    0.0,                        # spot_discount (already in mode_mult)
-                    0.05, 0.10,                 # multi-GPU discounts
-                ))
+                out.append(
+                    (
+                        model,
+                        vram,
+                        form_factor,
+                        high_freq,
+                        tier,
+                        mode,
+                        rate,
+                        1.0,  # priority_multiplier
+                        _TIER_SOVEREIGNTY[tier],  # sovereignty_premium
+                        0.0,  # spot_discount (already in mode_mult)
+                        0.05,
+                        0.10,  # multi-GPU discounts
+                    )
+                )
     return out
 
 
@@ -590,8 +593,7 @@ def _ensure_pg_tables(conn):
     # Drop legacy plain UNIQUE constraint (migration 024 shape) if present —
     # it blocks re-creating a template after soft-delete. Migration 025 does
     # the same for alembic-tracked deployments.
-    cur.execute(
-        """
+    cur.execute("""
         DO $$
         BEGIN
             IF EXISTS (
@@ -604,15 +606,13 @@ def _ensure_pg_tables(conn):
                     DROP CONSTRAINT user_images_owner_id_name_tag_key;
             END IF;
         END$$;
-        """
-    )
+        """)
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_user_images_live "
         "ON user_images (owner_id, name, tag) WHERE deleted_at = 0"
     )
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_images_owner "
-        "ON user_images (owner_id, deleted_at)"
+        "CREATE INDEX IF NOT EXISTS idx_user_images_owner " "ON user_images (owner_id, deleted_at)"
     )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_user_images_source_job "
@@ -621,15 +621,13 @@ def _ensure_pg_tables(conn):
     # Phase E/E6 — columns for the /dashboard/templates UI. Idempotent
     # DDL mirrors migration 026 so fresh databases get the same shape
     # without needing the full alembic history.
-    cur.execute(
-        """
+    cur.execute("""
         ALTER TABLE user_images
             ADD COLUMN IF NOT EXISTS is_public  boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS labels     jsonb   NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS starred_at double precision NULL,
             ADD COLUMN IF NOT EXISTS error      text    DEFAULT ''
-        """
-    )
+        """)
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_user_images_public_live "
         "ON user_images (created_at DESC) "
@@ -647,8 +645,7 @@ def _ensure_pg_tables(conn):
     # Each process has its own prometheus_client REGISTRY and module
     # state, so we need a cross-process channel. One row per distinct
     # registry URL; current deploys only use one.
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS registry_health_cache (
             registry      TEXT PRIMARY KEY,
             reachable     BOOLEAN NOT NULL DEFAULT FALSE,
@@ -657,8 +654,7 @@ def _ensure_pg_tables(conn):
             status_code   INTEGER NULL,
             error         TEXT NULL
         )
-        """
-    )
+        """)
 
     # ── P1.2 — agent rollout tracking (auto-rollback driver) ──
     # When the admin rollout endpoint enqueues an upgrade_agent command,
@@ -667,8 +663,7 @@ def _ensure_pg_tables(conn):
     # each host; hosts that fail to pick up the new bytes within
     # ROLLBACK_GRACE_SEC get a rollback_agent directive enqueued
     # automatically (restores .bak).
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS agent_rollouts (
             id             BIGSERIAL PRIMARY KEY,
             host_id        TEXT NOT NULL,
@@ -680,8 +675,7 @@ def _ensure_pg_tables(conn):
             last_check_at  DOUBLE PRECISION NULL,
             error          TEXT NULL
         )
-        """
-    )
+        """)
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_rollouts_pending "
         "ON agent_rollouts (enqueued_at) WHERE status = 'pending'"

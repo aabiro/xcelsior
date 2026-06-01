@@ -834,9 +834,7 @@ class VolumeEngine:
     # on the NFS host). Snapshots require the volume to be detached so the
     # on-disk state is consistent — matches the RunPod/Vast model.
 
-    def create_snapshot(
-        self, volume_id: str, owner_id: str, label: str = ""
-    ) -> dict:
+    def create_snapshot(self, volume_id: str, owner_id: str, label: str = "") -> dict:
         """Create an instant CoW snapshot. Volume must be detached."""
         # Soft cap: prevents runaway snapshot growth (each one consumes a
         # row + a server-side reflink that may diverge over time). Matches
@@ -856,8 +854,7 @@ class VolumeEngine:
                     f"Volume must be detached to snapshot (current status: {vol['status']})"
                 )
             count_row = conn.execute(
-                "SELECT COUNT(*) AS n FROM volume_snapshots "
-                "WHERE volume_id=%s AND deleted_at=0",
+                "SELECT COUNT(*) AS n FROM volume_snapshots " "WHERE volume_id=%s AND deleted_at=0",
                 (volume_id,),
             ).fetchone()
             if count_row and count_row["n"] >= MAX_SNAPSHOTS_PER_VOLUME:
@@ -871,9 +868,7 @@ class VolumeEngine:
 
         if NFS_SERVER:
             snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
-            self._ssh_exec_with_retry(
-                NFS_SERVER, f"mkdir -p {shlex.quote(snap_dir)}"
-            )
+            self._ssh_exec_with_retry(NFS_SERVER, f"mkdir -p {shlex.quote(snap_dir)}")
             if vol["encrypted"]:
                 src = f"{NFS_EXPORT_BASE}/{volume_id}.img"
                 dst = f"{snap_dir}/{snap_id}.img"
@@ -936,9 +931,7 @@ class VolumeEngine:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def restore_snapshot(
-        self, volume_id: str, owner_id: str, snapshot_id: str
-    ) -> dict:
+    def restore_snapshot(self, volume_id: str, owner_id: str, snapshot_id: str) -> dict:
         """Restore volume data from a snapshot. Volume must be detached.
 
         Current data is preserved as a `.pre-restore-{ts}` sibling so the
@@ -1000,9 +993,7 @@ class VolumeEngine:
         log.info("Volume %s restored from snapshot %s", volume_id, snapshot_id)
         return {"volume_id": volume_id, "snapshot_id": snapshot_id, "status": "restored"}
 
-    def delete_snapshot(
-        self, volume_id: str, owner_id: str, snapshot_id: str
-    ) -> dict:
+    def delete_snapshot(self, volume_id: str, owner_id: str, snapshot_id: str) -> dict:
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT vs.snapshot_id, v.owner_id AS vol_owner, v.encrypted "

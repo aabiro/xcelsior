@@ -2,7 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from host_acceptance import DEFAULT_DOCKER_PROBE_IMAGE, probe_local_host
 
-
 GOOD_VERSIONS = {
     "runc": "1.2.4",
     "docker": "25.0.0",

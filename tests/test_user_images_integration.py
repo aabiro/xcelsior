@@ -123,9 +123,7 @@ def seeded_job():
     # Teardown: drop any images created during the test, then the job + host.
     with pool.connection() as conn:
         if image_ids:
-            conn.execute(
-                "DELETE FROM user_images WHERE image_id = ANY(%s)", (image_ids,)
-            )
+            conn.execute("DELETE FROM user_images WHERE image_id = ANY(%s)", (image_ids,))
         conn.execute("DELETE FROM user_images WHERE source_job_id=%s", (job_id,))
         conn.execute("DELETE FROM agent_commands WHERE host_id=%s", (host_id,))
         conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
@@ -136,6 +134,7 @@ def seeded_job():
 # ---------------------------------------------------------------------------
 # POST /instances/{job_id}/snapshot
 # ---------------------------------------------------------------------------
+
 
 def test_snapshot_happy_path(client, seeded_job):
     r = client.post(
@@ -193,8 +192,7 @@ def test_snapshot_403_when_owner_mismatch(client, seeded_job):
 
     with _get_pg_pool().connection() as conn:
         conn.execute(
-            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"bob\"') "
-            "WHERE job_id=%s",
+            "UPDATE jobs SET payload = jsonb_set(payload, '{owner}', '\"bob\"') " "WHERE job_id=%s",
             (seeded_job["job_id"],),
         )
         conn.commit()
@@ -252,6 +250,7 @@ def test_snapshot_503_when_registry_unset(client, seeded_job, monkeypatch):
 # GET /user-images
 # ---------------------------------------------------------------------------
 
+
 def test_list_excludes_soft_deleted(client, seeded_job):
     r1 = client.post(
         f"/instances/{seeded_job['job_id']}/snapshot",
@@ -278,6 +277,7 @@ def test_list_excludes_soft_deleted(client, seeded_job):
 # ---------------------------------------------------------------------------
 # POST /user-images/{id}/complete — A1 URL regression guard
 # ---------------------------------------------------------------------------
+
 
 def test_complete_callback_url_is_mounted_at_expected_path(client, seeded_job):
     """A1 regression: the worker agent posts to

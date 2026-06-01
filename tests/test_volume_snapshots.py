@@ -84,9 +84,11 @@ def test_snapshot_uses_reflink_not_rsync(monkeypatch):
         ],
         [[]],
     ]
-    with _patch_conn(engine, blocks), patch.object(
-        engine, "_ssh_exec_with_retry", side_effect=fake_ssh
-    ), patch.object(engine, "_emit_event"):
+    with (
+        _patch_conn(engine, blocks),
+        patch.object(engine, "_ssh_exec_with_retry", side_effect=fake_ssh),
+        patch.object(engine, "_emit_event"),
+    ):
         snap = engine.create_snapshot("vol1", "u1", label="nightly")
 
     assert snap["status"] == "ready"
@@ -151,9 +153,11 @@ def test_restore_uses_reflink(monkeypatch):
             [{"snapshot_id": "snap-abc"}],
         ],
     ]
-    with _patch_conn(engine, blocks), patch.object(
-        engine, "_ssh_exec_with_retry", side_effect=fake_ssh
-    ), patch.object(engine, "_emit_event"):
+    with (
+        _patch_conn(engine, blocks),
+        patch.object(engine, "_ssh_exec_with_retry", side_effect=fake_ssh),
+        patch.object(engine, "_emit_event"),
+    ):
         res = engine.restore_snapshot("vol1", "u1", "snap-abc")
 
     assert res["status"] == "restored"
@@ -179,9 +183,11 @@ def test_delete_snapshot_guards_path(monkeypatch):
         [[{"snapshot_id": "snap-abc", "vol_owner": "u1", "encrypted": False}]],
         [[]],
     ]
-    with _patch_conn(engine, blocks), patch.object(
-        engine, "_ssh_exec_with_retry", side_effect=fake_ssh
-    ), patch.object(engine, "_emit_event"):
+    with (
+        _patch_conn(engine, blocks),
+        patch.object(engine, "_ssh_exec_with_retry", side_effect=fake_ssh),
+        patch.object(engine, "_emit_event"),
+    ):
         res = engine.delete_snapshot("vol1", "u1", "snap-abc")
 
     assert res["status"] == "deleted"
@@ -265,13 +271,14 @@ def test_restore_uses_mv_T_for_safety(monkeypatch):
             [{"snapshot_id": "snap-abc"}],
         ],
     ]
-    with _patch_conn(engine, blocks), patch.object(
-        engine, "_ssh_exec_with_retry", side_effect=fake_ssh
-    ), patch.object(engine, "_emit_event"):
+    with (
+        _patch_conn(engine, blocks),
+        patch.object(engine, "_ssh_exec_with_retry", side_effect=fake_ssh),
+        patch.object(engine, "_emit_event"),
+    ):
         engine.restore_snapshot("vol1", "u1", "snap-abc")
 
     # Unencrypted path should use the safer mv -T (or guarded mv) and never
     # rely on bare `mv` which can nest a dir if the target exists.
     joined = " ".join(captured)
     assert "mv -T" in joined or "[ -e " in joined
-

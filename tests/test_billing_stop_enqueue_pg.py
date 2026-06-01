@@ -8,6 +8,7 @@ created_by tag at every billing call site.
 
 Skips automatically if no PG pool is available (CI without postgres service).
 """
+
 import json
 import os
 import time
@@ -222,9 +223,9 @@ def test_billing_stop_args_shape_complete(cleanup_ids, captured_enqueue):
 
     assert len(captured_enqueue) == 1
     args = captured_enqueue[0]["args"]
-    assert "container_name" in args and args["container_name"], (
-        "container_name is required by worker drain handler"
-    )
-    assert "job_id" in args and args["job_id"], (
-        "job_id is required for worker callback / metrics correlation"
-    )
+    assert (
+        "container_name" in args and args["container_name"]
+    ), "container_name is required by worker drain handler"
+    assert (
+        "job_id" in args and args["job_id"]
+    ), "job_id is required for worker callback / metrics correlation"

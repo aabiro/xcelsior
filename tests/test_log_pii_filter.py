@@ -1,4 +1,5 @@
 """P3/C3 — PII log scrubbing."""
+
 import logging
 
 import pytest
@@ -43,9 +44,7 @@ def test_stripe_customer_id_redacted():
 def test_jwt_redacted():
     from log_pii_filter import _scrub
 
-    jwt = "eyJhbGciOiJIUzI1NiJ9." \
-          "eyJ1c2VyIjoiYWxpY2UifQ." \
-          "abcdef1234567890abcdef12"
+    jwt = "eyJhbGciOiJIUzI1NiJ9." "eyJ1c2VyIjoiYWxpY2UifQ." "abcdef1234567890abcdef12"
     out = _scrub(f"bad token: {jwt}")
     assert jwt not in out
     assert "<jwt:redacted>" in out
@@ -89,6 +88,7 @@ def test_install_disabled_by_env_var(monkeypatch):
     # Reset the installed flag.
     import importlib
     import log_pii_filter
+
     importlib.reload(log_pii_filter)
     log_pii_filter.install("test-logger-no-scrub")
     # No filter should be attached.
@@ -102,6 +102,7 @@ def test_install_disabled_by_env_var(monkeypatch):
 def test_install_is_idempotent():
     import importlib
     import log_pii_filter
+
     importlib.reload(log_pii_filter)
     log_pii_filter.install("xcelsior.test-idempotent")
     log_pii_filter.install("xcelsior.test-idempotent")

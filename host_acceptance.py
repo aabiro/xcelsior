@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass
 
 from security import admit_node, get_local_versions, recommend_runtime
 
-
 REQUIRED_VERSION_KEYS = ("runc", "docker", "nvidia_driver", "nvidia_toolkit")
 DEFAULT_DOCKER_PROBE_IMAGE = "nvidia/cuda:12.4.1-base-ubuntu22.04"
 
@@ -154,7 +153,9 @@ def probe_local_host(
     if not gpu_for_runtime and gpus:
         gpu_for_runtime = gpus[0].get("gpu_model", "")
     runtime, runtime_reason = recommend_runtime(gpu_for_runtime or "unknown")
-    checks.append(AcceptanceCheck("runtime_recommendation", True, f"{runtime}: {runtime_reason}", "info"))
+    checks.append(
+        AcceptanceCheck("runtime_recommendation", True, f"{runtime}: {runtime_reason}", "info")
+    )
 
     if docker_probe:
         checks.append(_run_docker_probe(docker_image))

@@ -14,6 +14,7 @@ These tests verify the worker-side `_run_auto_launch` dispatcher:
 The `subprocess.run` boundary is monkeypatched so the tests never
 actually fork docker.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -51,7 +52,8 @@ def test_no_auto_launch_is_noop(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": True},
     )
     assert captured_calls == []
@@ -61,7 +63,8 @@ def test_auto_launch_requires_interactive(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": False, "auto_launch": ["jupyter"]},
     )
     assert captured_calls == []
@@ -71,7 +74,8 @@ def test_jupyter_launch(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": True, "auto_launch": ["jupyter"]},
     )
     assert len(captured_calls) == 1
@@ -92,7 +96,8 @@ def test_vscode_launch(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": True, "auto_launch": ["vscode"]},
     )
     assert len(captured_calls) == 1
@@ -106,7 +111,8 @@ def test_both_services_launch(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": True, "auto_launch": ["jupyter", "vscode"]},
     )
     assert len(captured_calls) == 2
@@ -119,7 +125,8 @@ def test_unknown_service_skipped(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": True, "auto_launch": ["ssh-tunnel"]},
     )
     assert captured_calls == []
@@ -143,7 +150,8 @@ def test_csv_auto_launch_string_accepted(captured_calls):
     import worker_agent as wa
 
     wa._run_auto_launch(
-        "jobA", "container1",
+        "jobA",
+        "container1",
         {"interactive": True, "auto_launch": "jupyter,vscode"},
     )
     assert len(captured_calls) == 2
@@ -194,9 +202,7 @@ def test_jobin_auto_launch_both_adds_both_ports():
 
 
 def test_jobin_auto_launch_preserves_user_ports_no_dup():
-    j = _irinst.JobIn(
-        name="t", auto_launch=["jupyter"], exposed_ports=[7000, 8888]
-    )
+    j = _irinst.JobIn(name="t", auto_launch=["jupyter"], exposed_ports=[7000, 8888])
     assert j.exposed_ports == [7000, 8888]
 
 

@@ -20,13 +20,13 @@ Design notes:
       Logging is on the hot path; a slow filter adds latency to every
       request.
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
 import re
-
 
 # Order matters: match longer/specific patterns first so we don't eat
 # substrings that would also match a broader pattern.
