@@ -13,7 +13,7 @@ import uuid
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Callable, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
 import anthropic
 import httpx
@@ -1336,10 +1336,14 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
 
 
 def _tool_get_sla_terms(args: dict, _user: dict) -> dict:
-    from sla import SLA_TARGETS
+    from sla import SLA_TARGETS, SLATier
 
     tier = args.get("tier", "community")
-    targets = SLA_TARGETS.get(tier, SLA_TARGETS.get("community", {}))
+    try:
+        sla_tier = SLATier(tier)
+    except ValueError:
+        sla_tier = SLATier.COMMUNITY
+    targets = SLA_TARGETS[sla_tier]
     return {"tier": tier, "targets": targets}
 
 
@@ -4314,8 +4318,10 @@ async def _stream_with_anthropic_provider(
             model=AI_MODEL,
             max_tokens=AI_MAX_TOKENS,
             system=system,
-            messages=messages,
-            tools=tools,
+            # list[dict] is loose vs the SDK's MessageParam/ToolParam TypedDicts;
+            # cast only these two so kwarg-name checking stays live on the call.
+            messages=cast("Any", messages),
+            tools=cast("Any", tools),
             stream=True,
         )
 

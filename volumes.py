@@ -247,7 +247,7 @@ class VolumeEngine:
             ).fetchone()
             if not row:
                 raise ValueError(f"Volume {volume_id} not found")
-            current = row["status"]
+            current = str(row["status"])
 
         allowed = self._VALID_TRANSITIONS.get(current, set())
         if new_status not in allowed:
@@ -675,7 +675,7 @@ class VolumeEngine:
                 raise ValueError("Cannot delete volume with active attachments. Detach first.")
 
             # Validate transition via state machine
-            current = vol["status"]
+            current = str(vol["status"])
             allowed = self._VALID_TRANSITIONS.get(current, set())
             if "deleting" not in allowed:
                 raise ValueError(

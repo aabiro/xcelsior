@@ -1125,7 +1125,10 @@ class PgEventBus:
                                 "ts": time.time(),
                             }
                         )
-                    conn.execute(f"NOTIFY {self.channel}, %s", (payload,))
+                    # pg_notify() binds channel + payload as parameters —
+                    # injection-safe and case-consistent with the quoted
+                    # sql.Identifier() used on the LISTEN side (start_pg_listen).
+                    conn.execute("SELECT pg_notify(%s, %s)", (self.channel, payload))
                     conn.commit()
             except Exception as e:
                 log.debug("PgEventBus notify failed: %s", e)
@@ -2089,12 +2092,16 @@ def start_pg_listen(callback, channel="xcelsior_events"):
             try:
                 # Dedicated connection for LISTEN (not from pool)
                 import psycopg
+                from psycopg import sql
 
                 conn = psycopg.connect(
                     os.environ.get("XCELSIOR_PG_DSN") or POSTGRES_DSN,
                     autocommit=True,
                 )
-                conn.execute(f"LISTEN {channel}")
+                # Compose the channel as an identifier rather than f-string
+                # interpolation — keeps it injection-safe and satisfies
+                # psycopg's LiteralString-typed query overload.
+                conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
                 log.info("PgEventBus: LISTEN started on channel '%s'", channel)
 
                 while True:
