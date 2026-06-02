@@ -818,9 +818,9 @@ async def api_agent_logs(job_id: str, request: Request):
     # terminal state for >1h. Prevents zombie log-line floods from a
     # forgotten/rogue worker agent and keeps the job_logs table bounded.
     try:
-        from db import load_jobs_snapshot
+        from scheduler import load_jobs
 
-        snap = {j["job_id"]: j for j in load_jobs_snapshot()}
+        snap = {j["job_id"]: j for j in load_jobs()}
         job = snap.get(job_id)
         if not job:
             return {"ok": True, "accepted": 0, "dropped": "unknown_job"}

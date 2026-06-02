@@ -32,7 +32,7 @@ def api_get_lease(job_id: str, request: Request):
     if user:
         _require_scope(user, "events:read")
     store = get_event_store()
-    lease = store.get_lease(job_id)
+    lease = store.get_active_lease(job_id)
     if not lease:
         raise HTTPException(status_code=404, detail=f"No active lease for job {job_id}")
     return {"ok": True, "lease": lease}

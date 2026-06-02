@@ -703,9 +703,9 @@ def metrics_prometheus():
 
     # GPU telemetry if available
     try:
-        from nvml_telemetry import get_all_gpu_stats
+        from nvml_telemetry import collect_all_gpus
 
-        gpu_stats = get_all_gpu_stats()
+        gpu_stats = collect_all_gpus()
         if gpu_stats:
             lines.extend(
                 [
