@@ -1600,6 +1600,106 @@ class BillingEngine:
             "auto_topup_threshold_cad": threshold_cad,
         }
 
+    def ensure_stripe_customer(self, customer_id: str, email: str = "") -> str:
+        """Return the Stripe customer id for a wallet, creating it on first use.
+
+        Persisted on ``wallets.stripe_customer_id`` so off-session auto-top-up
+        charges target a real Stripe Customer. Raises RuntimeError if Stripe is
+        not configured.
+        """
+        from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+        if not STRIPE_ENABLED or not _stripe_mod:
+            raise RuntimeError("Stripe is not configured")
+
+        wallet = self.get_wallet(customer_id)
+        existing = (wallet.get("stripe_customer_id") or "").strip()
+        if existing:
+            return existing
+
+        create_kwargs: dict = {"metadata": {"xcelsior_customer_id": customer_id}}
+        if email:
+            create_kwargs["email"] = email
+        cust = _stripe_mod.Customer.create(**create_kwargs)
+
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE wallets SET stripe_customer_id = %s, updated_at = %s "
+                "WHERE customer_id = %s",
+                (cust.id, time.time(), customer_id),
+            )
+        log.info("Created Stripe customer %s for %s", cust.id, customer_id)
+        return cust.id
+
+    def create_setup_intent(self, customer_id: str, email: str = "") -> dict:
+        """Create a Stripe SetupIntent so the client can save a card off-session."""
+        from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+        if not STRIPE_ENABLED or not _stripe_mod:
+            raise RuntimeError("Stripe is not configured")
+
+        stripe_customer_id = self.ensure_stripe_customer(customer_id, email)
+        si = _stripe_mod.SetupIntent.create(
+            customer=stripe_customer_id,
+            usage="off_session",
+            payment_method_types=["card"],
+            metadata={"xcelsior_customer_id": customer_id},
+        )
+        return {
+            "client_secret": si.client_secret,
+            "setup_intent_id": si.id,
+            "stripe_customer_id": stripe_customer_id,
+        }
+
+    def list_payment_methods(self, customer_id: str) -> list[dict]:
+        """List the saved card payment methods for a customer wallet."""
+        from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+        if not STRIPE_ENABLED or not _stripe_mod:
+            return []
+
+        wallet = self.get_wallet(customer_id)
+        stripe_customer_id = (wallet.get("stripe_customer_id") or "").strip()
+        if not stripe_customer_id:
+            return []
+
+        default_pm = (wallet.get("stripe_payment_method_id") or "").strip()
+        methods = _stripe_mod.PaymentMethod.list(customer=stripe_customer_id, type="card")
+        out: list[dict] = []
+        for pm in methods.data:
+            card = pm.get("card") or {}
+            out.append(
+                {
+                    "id": pm.get("id"),
+                    "brand": card.get("brand", ""),
+                    "last4": card.get("last4", ""),
+                    "exp_month": card.get("exp_month"),
+                    "exp_year": card.get("exp_year"),
+                    "is_default": pm.get("id") == default_pm,
+                }
+            )
+        return out
+
+    def detach_payment_method(self, customer_id: str, payment_method_id: str) -> dict:
+        """Detach a saved card. If it was the auto-top-up default, disable auto-top-up."""
+        from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+        if not STRIPE_ENABLED or not _stripe_mod:
+            raise RuntimeError("Stripe is not configured")
+
+        _stripe_mod.PaymentMethod.detach(payment_method_id)
+
+        wallet = self.get_wallet(customer_id)
+        if (wallet.get("stripe_payment_method_id") or "").strip() == payment_method_id:
+            with self._conn() as conn:
+                conn.execute(
+                    "UPDATE wallets SET stripe_payment_method_id = '', "
+                    "auto_topup_enabled = false, updated_at = %s WHERE customer_id = %s",
+                    (time.time(), customer_id),
+                )
+            log.info("Detached default payment method for %s; auto-topup disabled", customer_id)
+        return {"ok": True, "payment_method_id": payment_method_id}
+
     # ── Auto-Billing Cycle (Running Instances) ────────────────────────
 
     def auto_billing_cycle(self) -> dict:
@@ -2251,6 +2351,7 @@ class BillingEngine:
                      AND auto_topup_enabled = true
                      AND balance_cad <= auto_topup_threshold_cad
                      AND stripe_payment_method_id != ''
+                     AND stripe_customer_id != ''
                      AND auto_topup_failures < 3""",
             ).fetchall()
 
@@ -2276,7 +2377,7 @@ class BillingEngine:
                 pi = _stripe_mod.PaymentIntent.create(
                     amount=amount_cents,
                     currency="cad",
-                    customer=customer_id,
+                    customer=w["stripe_customer_id"],
                     payment_method=w["stripe_payment_method_id"],
                     off_session=True,
                     confirm=True,

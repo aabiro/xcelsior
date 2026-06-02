@@ -1555,13 +1555,13 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     be = get_billing_engine()
-    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "")))
+    customer_id = _analytics_customer_scope(user)
     be.configure_auto_topup(
         customer_id=customer_id,
         enabled=body.enabled,
         amount_cad=body.amount_cad,
         threshold_cad=body.threshold_cad,
-        payment_method_id=body.stripe_payment_method_id,
+        stripe_payment_method_id=body.stripe_payment_method_id,
     )
     return {"ok": True, "auto_topup": body.model_dump()}
 
@@ -1573,13 +1573,64 @@ def api_billing_get_topup(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     be = get_billing_engine()
-    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "")))
-    wallet = be.get_or_create_wallet(customer_id)
+    customer_id = _analytics_customer_scope(user)
+    wallet = be.get_wallet(customer_id)
+    payment_method_id = (wallet.get("stripe_payment_method_id") or "").strip()
     return {
         "ok": True,
         "auto_topup": {
             "enabled": bool(wallet.get("auto_topup_enabled", False)),
-            "amount_cad": wallet.get("auto_topup_amount", 0),
-            "threshold_cad": wallet.get("auto_topup_threshold", 0),
+            "amount_cad": wallet.get("auto_topup_amount_cad", 0),
+            "threshold_cad": wallet.get("auto_topup_threshold_cad", 0),
+            "payment_method_id": payment_method_id,
+            "has_payment_method": bool(payment_method_id),
         },
     }
+
+
+# ── Saved payment methods (Stripe SetupIntent — backs auto-top-up) ──────────
+
+
+@router.post("/api/billing/setup-intent", tags=["Billing"])
+def api_billing_setup_intent(request: Request):
+    """Create a Stripe SetupIntent so the client can save a card off-session.
+
+    Returns a client_secret for Stripe Elements `confirmCardSetup`. The saved
+    card can then be selected for wallet auto-top-up.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.create_setup_intent(customer_id, email=user.get("email", ""))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    return {"ok": True, **result}
+
+
+@router.get("/api/billing/payment-methods", tags=["Billing"])
+def api_billing_list_payment_methods(request: Request):
+    """List the customer's saved card payment methods."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    return {"ok": True, "payment_methods": be.list_payment_methods(customer_id)}
+
+
+@router.delete("/api/billing/payment-methods/{payment_method_id}", tags=["Billing"])
+def api_billing_detach_payment_method(payment_method_id: str, request: Request):
+    """Detach a saved card. Disables auto-top-up if it was the default method."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.detach_payment_method(customer_id, payment_method_id)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    return result
