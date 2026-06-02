@@ -17,6 +17,7 @@ import urllib.request
 import uuid
 from contextlib import contextmanager
 from email.mime.text import MIMEText
+from typing import Any
 
 from db import (
     get_engine,
@@ -199,7 +200,11 @@ def _load_legacy_namespace(conn, path):
     return _read_legacy_json_file(path)
 
 
-def _decode_payload(payload):
+def _decode_payload(payload) -> Any:
+    # Returns decoded JSON — a dict for host/job records, occasionally a list,
+    # or None on failure. Typed Any (like json.loads) so record accessors such
+    # as host["status"] aren't mis-flagged as list-subscripts by the type
+    # checker; the JSONB payloads are genuinely heterogeneous.
     if isinstance(payload, (dict, list)):
         return payload
     try:
