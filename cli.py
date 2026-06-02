@@ -550,15 +550,18 @@ def cmd_verify(args):
     from verification import get_verification_engine
 
     ve = get_verification_engine()
-    status = ve.get_host_status(args.host_id)
-    if not status:
+    v = ve.store.get_verification(args.host_id)
+    if not v:
         print(f"No verification record for host {args.host_id}")
         return
     print(f"Host: {args.host_id}")
-    print(f"  State: {status.get('state', 'unknown')}")
-    print(f"  Score: {status.get('overall_score', 0)}")
-    for check, result in status.get("checks", {}).items():
-        print(f"  {check}: {result}")
+    print(f"  State: {v.state}")
+    print(f"  Score: {v.overall_score}")
+    for check in v.checks:
+        name = check.get("check_name", "?")
+        outcome = "PASS" if check.get("passed") else "FAIL"
+        details = check.get("details", "")
+        print(f"  {name}: {outcome}{' — ' + details if details else ''}")
 
 
 def cmd_wallet(args):
@@ -591,11 +594,11 @@ def cmd_invoice(args):
     # Full-history invoice (period 0 → now); name blank, tax auto-detected by province.
     invoice = be.generate_invoice(args.customer_id, "", 0, time.time())
     print(f"Invoice for {args.customer_id}:")
-    print(f"  Subtotal: ${invoice.get('subtotal_cad', 0):.2f}")
-    print(f"  Tax:      ${invoice.get('tax_cad', 0):.2f}")
-    print(f"  Total:    ${invoice.get('total_cad', 0):.2f}")
-    for line in invoice.get("lines", []):
-        print(f"    {line.get('description', '')}: ${line.get('amount_cad', 0):.2f}")
+    print(f"  Subtotal: ${invoice.subtotal_cad:.2f}")
+    print(f"  Tax:      ${invoice.tax_amount_cad:.2f}")
+    print(f"  Total:    ${invoice.total_cad:.2f}")
+    for line in invoice.line_items:
+        print(f"    {line.get('description', '')}: ${line.get('subtotal_cad', 0):.2f}")
 
 
 def cmd_sla(args):

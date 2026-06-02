@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CI gate: fail on any wrong-call / wrong-argument finding pyright reports.
 
-Two related rule families catch the bug class where a call is structurally
+Three related rule families catch the bug class where a call is structurally
 wrong — the kind that is silently broken at runtime:
 
   * reportCallIssue   — wrong kwarg name / wrong arg count / no-such-parameter
@@ -9,8 +9,11 @@ wrong — the kind that is silently broken at runtime:
   * reportArgumentType — a value of the wrong type passed to a parameter
     (e.g. None into a str param, float into int, or a list-typed record where
     a dict was meant — which is how the scheduler crash bugs surfaced).
+  * reportAttributeAccessIssue — accessing an attribute / importing a symbol
+    that doesn't exist (e.g. `from db import get_db`, or calling a method that
+    was renamed) — which is how the scaffolded-endpoint bugs surfaced.
 
-Both backlogs have been cleared, so this is a zero-tolerance gate: it fails if
+All backlogs have been cleared, so this is a zero-tolerance gate: it fails if
 ANY tracked finding appears, catching this whole class of bug on a PR.
 
 One sub-class is deliberately filtered out: psycopg types execute()'s query
@@ -33,6 +36,7 @@ import sys
 TRACKED_RULES: dict[str, tuple[str, ...]] = {
     "reportCallIssue": (),
     "reportArgumentType": ("QueryNoTemplate",),  # psycopg dynamic-SQL LiteralString noise
+    "reportAttributeAccessIssue": (),
 }
 
 

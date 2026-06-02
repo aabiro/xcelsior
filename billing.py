@@ -15,7 +15,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 log = logging.getLogger("xcelsior")
 
@@ -1666,7 +1666,8 @@ class BillingEngine:
         default_pm = (wallet.get("stripe_payment_method_id") or "").strip()
         methods = _stripe_mod.PaymentMethod.list(customer=stripe_customer_id, type="card")
         out: list[dict] = []
-        for pm in methods.data:
+        # Stripe objects are dict-like at runtime but typed without .get().
+        for pm in cast("list[Any]", methods.data):
             card = pm.get("card") or {}
             out.append(
                 {

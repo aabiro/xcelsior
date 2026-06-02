@@ -450,10 +450,10 @@ def api_admin_toggle_admin(email: str, request: Request):
 def api_admin_teams(request: Request):
     """List all teams with their members. Platform admin only."""
     _require_admin(request)
-    from db import get_db
+    from db import auth_connection
 
     teams = []
-    with get_db() as conn:
+    with auth_connection() as conn:
         rows = conn.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
         for row in rows:
             team = dict(row)

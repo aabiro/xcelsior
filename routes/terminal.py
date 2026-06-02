@@ -1189,7 +1189,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     _probe_reason,
                     host_id,
                 )
-                _host_probe_failure_total.labels(
+                cast(Any, _host_probe_failure_total).labels(
                     host_id=host_id or "unknown",
                     reason=_probe_reason,
                 ).inc()
@@ -1349,7 +1349,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         if _is_paramiko_chan:
             raw_sock = exec_socket  # keep non-None so cleanup paths still run
         else:
-            raw_sock = getattr(exec_socket, "_sock", exec_socket)
+            raw_sock = cast(Any, getattr(exec_socket, "_sock", exec_socket))
             try:
                 raw_sock.setblocking(False)
             except (OSError, AttributeError):
