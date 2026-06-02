@@ -6,12 +6,12 @@ class of bug — e.g. passing ``customer_id=`` to a function whose parameter is
 ``user=``, or calling ``foo(a, b, c)`` when ``foo`` takes two arguments. A scan
 in June 2026 found nine such bugs in route/CLI handlers (all silently broken).
 
-The codebase still carries a backlog of these findings, most of them pyright
-mis-inferring dict variables as lists in scheduler.py — not real bugs, but not
-worth annotating away in a 150 KB hot-path file right now. So instead of
-blocking on the legacy backlog, this gate *ratchets*: it fails only when the
-count rises above BASELINE, catching any NEW bug of this class on a PR. Lower
-BASELINE whenever the count drops to lock in the improvement.
+The legacy backlog of these findings has been fully cleared (56 -> 0). The
+bulk were pyright mis-inferring scheduler.py's JSONB host/job dicts as lists,
+fixed by typing the _decode_payload boundary as Any; the rest were wrong
+key-type / loose arg typing in a handful of handlers. So BASELINE is now 0
+and this is a zero-tolerance gate: it fails if ANY reportCallIssue appears,
+catching the whole class of bug on a PR. Keep it at 0 — only ratchet DOWN.
 
 Run locally:  python scripts/pyright_gate.py
 """
@@ -20,12 +20,10 @@ import json
 import subprocess
 import sys
 
-# reportCallIssue count as of 2026-06-02 (pyright 1.1.410, deps installed).
-# 56 -> 48: cleared the 8 non-scheduler findings (wrong key-type / loose
-# arg typing in ai_assistant.py, cli.py, db.py, volumes.py, routes/_deps.py).
-# The remaining 48 are all scheduler.py dict-vs-list mis-inference.
-# Only ever ratchet this DOWN.
-BASELINE = 48
+# reportCallIssue count: 0 as of 2026-06-02 (pyright 1.1.410, deps installed).
+# The full backlog (56 -> 0) has been cleared, so this is a zero-tolerance
+# gate. Keep it at 0; only ever ratchet DOWN.
+BASELINE = 0
 
 
 def main() -> int:
