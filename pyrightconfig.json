@@ -20,6 +20,7 @@
   "typeCheckingMode": "off",
   "reportCallIssue": "error",
   "reportArgumentType": "error",
+  "reportAttributeAccessIssue": "error",
   "reportMissingImports": false,
   "reportMissingModuleSource": false
 }

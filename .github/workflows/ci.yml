@@ -40,10 +40,11 @@ jobs:
         run: docker compose config -q
 
   typecheck:
-    # Zero-tolerance gate on pyright reportCallIssue + reportArgumentType —
-    # the wrong-kwarg / wrong-arg / wrong-type class of bug (e.g. passing
-    # customer_id= when the param is user=, or None into a str param). Both
-    # backlogs are cleared, so scripts/pyright_gate.py fails on ANY finding
+    # Zero-tolerance gate on pyright reportCallIssue + reportArgumentType +
+    # reportAttributeAccessIssue — the wrong-kwarg / wrong-arg / wrong-type /
+    # missing-symbol class of bug (e.g. passing customer_id= when the param is
+    # user=, None into a str param, or importing a name that doesn't exist).
+    # All backlogs are cleared, so scripts/pyright_gate.py fails on ANY finding
     # (it filters only the psycopg dynamic-SQL LiteralString noise). Deps +
     # pyright are pinned so the result matches local.
     runs-on: ubuntu-latest

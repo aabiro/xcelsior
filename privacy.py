@@ -815,7 +815,7 @@ class CryptoShredder:
 
         pool = _get_pg_pool()
         conn = pool.getconn()
-        conn.row_factory = None
+        conn.row_factory = None  # pyright: ignore[reportAttributeAccessIssue]  # reset pooled conn to default tuple rows
         try:
             yield conn
             conn.commit()
