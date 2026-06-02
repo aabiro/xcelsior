@@ -484,6 +484,21 @@ class ArtifactManager:
 
         return self.primary.generate_download_url(key)
 
+    def download_url_for(
+        self,
+        artifact_type: str,
+        job_id: str,
+        filename: str,
+        prefer_cache: bool = True,
+    ) -> dict:
+        """Presigned download URL for an artifact, addressed by its structured key.
+
+        Builds the same key as ``request_upload`` (``_make_key``) so uploads and
+        downloads stay consistent.
+        """
+        key = self._make_key(artifact_type, job_id, filename)
+        return self.request_download(key, prefer_cache=prefer_cache)
+
     def get_job_artifacts(self, job_id: str) -> list[dict]:
         """List all artifacts for a job."""
         results = []

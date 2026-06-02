@@ -39,7 +39,7 @@ def api_request_upload(req: UploadRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.request_upload(req.job_id, req.filename, atype, rpolicy)
+    result = mgr.request_upload(atype, req.job_id, req.filename, residency=rpolicy)
     return {"ok": True, **result}
 
 
@@ -67,7 +67,7 @@ def api_request_download(req: DownloadRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.request_download(req.job_id, req.filename, atype)
+    result = mgr.download_url_for(atype, req.job_id, req.filename)
     return {"ok": True, **result}
 
 
