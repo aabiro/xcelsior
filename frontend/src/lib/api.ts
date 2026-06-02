@@ -2468,8 +2468,46 @@ export async function configureAutoTopup(data: {
 }
 
 export async function fetchAutoTopup() {
-  return apiFetch<{ ok: boolean; auto_topup: { enabled: boolean; amount_cad: number; threshold_cad: number } }>(
-    "/api/v2/billing/auto-topup",
+  return apiFetch<{
+    ok: boolean;
+    auto_topup: {
+      enabled: boolean;
+      amount_cad: number;
+      threshold_cad: number;
+      payment_method_id: string;
+      has_payment_method: boolean;
+    };
+  }>("/api/v2/billing/auto-topup");
+}
+
+export interface SavedPaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  exp_month: number | null;
+  exp_year: number | null;
+  is_default: boolean;
+}
+
+export async function createSetupIntent() {
+  return apiFetch<{
+    ok: boolean;
+    client_secret: string;
+    setup_intent_id: string;
+    stripe_customer_id: string;
+  }>("/api/billing/setup-intent", { method: "POST" });
+}
+
+export async function fetchPaymentMethods() {
+  return apiFetch<{ ok: boolean; payment_methods: SavedPaymentMethod[] }>(
+    "/api/billing/payment-methods",
+  );
+}
+
+export async function deletePaymentMethod(paymentMethodId: string) {
+  return apiFetch<{ ok: boolean; payment_method_id: string }>(
+    `/api/billing/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+    { method: "DELETE" },
   );
 }
 
