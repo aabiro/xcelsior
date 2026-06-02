@@ -4622,9 +4622,9 @@ def process_webhook_inbox():
     Called periodically by the background scheduler.
     """
     try:
-        from stripe_connect import get_connect_engine
+        from stripe_connect import get_stripe_manager
 
-        engine = get_connect_engine()
+        engine = get_stripe_manager()
     except Exception as e:
         log.debug("Stripe Connect not available: %s", e)
         return {"processed": 0, "errors": 0}
