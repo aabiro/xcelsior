@@ -307,7 +307,12 @@ def api_marketplace_allocate(body: AllocateGPURequest, request: Request):
 
     _require_scope(user, "marketplace:write")
     me = get_marketplace_engine()
-    alloc = me.allocate_gpu(body.offer_id, body.job_id, body.gpu_count, spot=body.spot)
+    alloc = me.allocate_gpu(
+        body.offer_id,
+        body.job_id,
+        body.gpu_count,
+        allocation_type="spot" if body.spot else "on_demand",
+    )
     if not alloc:
         raise HTTPException(409, "Offer not available or insufficient GPUs")
     return {"ok": True, "allocation": alloc}

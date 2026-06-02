@@ -517,7 +517,7 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
         max_tokens=body.max_tokens,
         temperature=body.temperature,
         stream=body.stream,
-        customer_id=customer_id,
+        user=customer_id,
     )
     result = ie.submit_request(inf_req)
     if not result:
@@ -551,7 +551,9 @@ def api_inference_complete(request_id: str, request: Request):
         body = {}
     ie.complete_request(
         request_id=request_id,
-        output_text=body.get("output_text", ""),
+        outputs=body.get("outputs") or [body.get("output_text", "")],
+        model=body.get("model", ""),
+        worker_id=body.get("worker_id", ""),
         input_tokens=body.get("input_tokens", 0),
         output_tokens=body.get("output_tokens", 0),
         latency_ms=body.get("latency_ms", 0),
