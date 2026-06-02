@@ -812,10 +812,16 @@ class CryptoShredder:
     @contextmanager
     def _conn(self):
         from db import _get_pg_pool
+        from psycopg.rows import tuple_row
 
         pool = _get_pg_pool()
         conn = pool.getconn()
-        conn.row_factory = None  # pyright: ignore[reportAttributeAccessIssue]  # reset pooled conn to default tuple rows
+        # This store reads rows positionally (row[0], row[1]), so it needs
+        # tuple rows. Save/restore the factory rather than leaving it mutated —
+        # the conn returns to a shared pool and the next caller would otherwise
+        # inherit it (the footgun db.auth_connection documents).
+        _prev_rf = conn.row_factory
+        conn.row_factory = tuple_row
         try:
             yield conn
             conn.commit()
@@ -823,6 +829,7 @@ class CryptoShredder:
             conn.rollback()
             raise
         finally:
+            conn.row_factory = _prev_rf
             pool.putconn(conn)
 
     def _ensure_table(self, conn):
