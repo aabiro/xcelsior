@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,7 @@ def profile_for_gpu_model(gpu_model: str) -> dict | None:
     return None
 
 
-def _quote_cmd(parts: list[str]) -> str:
+def _quote_cmd(parts: list[Any]) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts if str(part) != "")
 
 

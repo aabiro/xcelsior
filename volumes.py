@@ -1136,7 +1136,7 @@ class VolumeEngine:
         log.info("NFS mounted %s on %s at %s", volume_id, host_ip, mount_path)
         return True
 
-    def detach_volume(self, volume_id: str, instance_id: str = None) -> dict:
+    def detach_volume(self, volume_id: str, instance_id: str | None = None) -> dict:
         """Detach a volume from an instance.
 
         If instance_id is None, finds and detaches the active attachment.
@@ -1159,7 +1159,7 @@ class VolumeEngine:
             if not att:
                 raise ValueError("No active attachment found")
 
-            instance_id = att["instance_id"]
+            instance_id = str(att["instance_id"])
             mount_path = att.get("mount_path", DEFAULT_MOUNT_PATH)
 
             # Best-effort unmount (failures must not block DB cleanup)

@@ -430,7 +430,11 @@ class DataLifecycleManager:
 
     def _cascade_delete(self, category: str, entity_id: str, entity_type: str):
         """Delete actual data from the appropriate data store."""
-        handler = self._purge_handlers.get(category)
+        try:
+            cat = DataCategory(category)
+        except ValueError:
+            cat = None
+        handler = self._purge_handlers.get(cat) if cat is not None else None
         if handler:
             handler(self, entity_id, entity_type)
         else:

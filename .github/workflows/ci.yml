@@ -40,11 +40,12 @@ jobs:
         run: docker compose config -q
 
   typecheck:
-    # Ratchet gate on pyright reportCallIssue — the wrong-kwarg / wrong-arg
-    # class of bug (e.g. passing customer_id= when the parameter is user=).
-    # Fails only when the count rises above the baseline in
-    # scripts/pyright_gate.py, so it catches new bugs without blocking on the
-    # legacy backlog. Deps + pyright are pinned so the count matches local.
+    # Zero-tolerance gate on pyright reportCallIssue + reportArgumentType —
+    # the wrong-kwarg / wrong-arg / wrong-type class of bug (e.g. passing
+    # customer_id= when the param is user=, or None into a str param). Both
+    # backlogs are cleared, so scripts/pyright_gate.py fails on ANY finding
+    # (it filters only the psycopg dynamic-SQL LiteralString noise). Deps +
+    # pyright are pinned so the result matches local.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -57,7 +58,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyright==1.1.410
-      - name: Wrong-call gate (pyright reportCallIssue ratchet)
+      - name: Wrong-call / wrong-arg gate (pyright)
         run: python scripts/pyright_gate.py
 
   test:

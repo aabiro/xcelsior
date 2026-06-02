@@ -19,7 +19,7 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional, cast
 
 log = logging.getLogger("xcelsior.stripe")
 
@@ -346,7 +346,7 @@ class StripeConnectManager:
                     "card_payments": {"requested": True},
                     "transfers": {"requested": True},
                 },
-                business_type=provider_type,
+                business_type=cast(Any, provider_type),
                 metadata={
                     "xcelsior_provider_id": provider_id,
                     "corporation_name": corporation_name,

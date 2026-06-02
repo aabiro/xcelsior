@@ -589,7 +589,7 @@ except ImportError:
     return None
 
 
-def run_network_benchmark(scheduler_url: str = None):
+def run_network_benchmark(scheduler_url: str | None = None):
     """Benchmark network quality to the scheduler (throughput, jitter, loss).
 
     Returns dict with throughput_mbps, jitter_ms, packet_loss_pct.

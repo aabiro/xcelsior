@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("xcelsior")
 
@@ -396,7 +396,7 @@ class StorageClient:
 # based on residency policy.
 
 
-_CACHE_AUTO = object()  # sentinel: auto-detect cache from env
+_CACHE_AUTO: Any = object()  # sentinel: auto-detect cache from env
 
 
 class ArtifactManager:

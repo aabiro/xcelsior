@@ -590,6 +590,8 @@ def api_mfa_passkey_register_complete(req: PasskeyRegisterCompleteRequest, reque
 
     # Store credential
     cred_data = auth_data.credential_data
+    if cred_data is None:
+        raise HTTPException(400, "Passkey registration produced no credential data")
     credential_id_b64 = _b64url_encode(cred_data.credential_id)
     public_key_b64 = _b64url_encode(bytes(cred_data))
 

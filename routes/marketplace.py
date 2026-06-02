@@ -199,10 +199,10 @@ def api_marketplace_search(body: MarketplaceSearchParams):
     """Search available GPU offers with filters."""
     me = get_marketplace_engine()
     offers = me.search_offers(
-        gpu_model=body.gpu_model or None,
-        min_vram_gb=body.min_vram_gb or None,
-        max_price_cents=body.max_price_cents or None,
-        region=body.region or None,
+        gpu_model=body.gpu_model,
+        min_vram_gb=body.min_vram_gb,
+        max_price_cents=body.max_price_cents,
+        region=body.region,
         canada_only=body.canada_only,
         sort_by=body.sort_by,
         limit=body.limit,
