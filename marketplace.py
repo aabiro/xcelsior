@@ -64,6 +64,8 @@ class MarketplaceEngine:
         region: str = "",
         province: str = "",
         spot_multiplier: float = 0.6,
+        spot_enabled: bool = True,
+        spot_min_cents: int = 0,
     ) -> dict:
         """Create or update a GPU offer from a provider."""
         now = time.time()
@@ -79,7 +81,8 @@ class MarketplaceEngine:
                     """UPDATE gpu_offers SET
                         ask_cents_per_hour = %s, gpu_count_total = %s,
                         gpu_count_available = %s, vram_gb = %s,
-                        spot_multiplier = %s, region = %s, province = %s,
+                        spot_multiplier = %s, spot_enabled = %s, spot_min_cents = %s,
+                        region = %s, province = %s,
                         available = true, updated_at = %s
                        WHERE offer_id = %s""",
                     (
@@ -88,6 +91,8 @@ class MarketplaceEngine:
                         gpu_count_total,
                         vram_gb,
                         spot_multiplier,
+                        spot_enabled,
+                        spot_min_cents,
                         region,
                         province,
                         now,
@@ -100,8 +105,10 @@ class MarketplaceEngine:
                     """INSERT INTO gpu_offers
                        (offer_id, provider_id, host_id, gpu_model, gpu_count_total,
                         gpu_count_available, vram_gb, ask_cents_per_hour, spot_multiplier,
+                        spot_enabled, spot_min_cents,
                         currency, region, province, available, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'CAD', %s, %s, true, %s, %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                               'CAD', %s, %s, true, %s, %s)""",
                     (
                         offer_id,
                         provider_id,
@@ -112,6 +119,8 @@ class MarketplaceEngine:
                         vram_gb,
                         ask_cents_per_hour,
                         spot_multiplier,
+                        spot_enabled,
+                        spot_min_cents,
                         region,
                         province,
                         now,
@@ -245,9 +254,13 @@ class MarketplaceEngine:
             allocation_id = f"alloc-{uuid.uuid4().hex[:12]}"
             price_cents = offer["ask_cents_per_hour"]
 
-            # Apply spot multiplier for spot allocations
+            # Apply spot pricing: discount by spot_multiplier, floored at the
+            # provider's spot_min_cents. Reject spot if the offer disabled it.
             if allocation_type == "spot":
-                price_cents = int(price_cents * offer.get("spot_multiplier", 0.6))
+                if not offer.get("spot_enabled", True):
+                    return None
+                discounted = int(price_cents * offer.get("spot_multiplier", 0.6))
+                price_cents = max(int(offer.get("spot_min_cents", 0) or 0), discounted)
 
             conn.execute(
                 """INSERT INTO gpu_allocations
