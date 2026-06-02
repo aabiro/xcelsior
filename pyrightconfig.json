@@ -19,6 +19,7 @@
   ],
   "typeCheckingMode": "off",
   "reportCallIssue": "error",
+  "reportArgumentType": "error",
   "reportMissingImports": false,
   "reportMissingModuleSource": false
 }

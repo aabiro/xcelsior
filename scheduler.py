@@ -4329,7 +4329,7 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
     # 2. Verification filter — only use verified hosts for production
     try:
         ve = get_verification_engine()
-        verified_ids = {h["host_id"] for h in ve.get_verified_hosts()}
+        verified_ids = set(ve.get_verified_hosts())
         verified_hosts = [h for h in hosts if h["host_id"] in verified_ids]
         if verified_hosts:
             hosts = verified_hosts

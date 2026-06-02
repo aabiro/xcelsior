@@ -161,7 +161,7 @@ class JurisdictionConstraint:
 
     canada_only: bool = False
     province: Optional[str] = None  # Restrict to specific province
-    trust_tier: str = TrustTier.COMMUNITY  # Minimum trust tier
+    trust_tier: Optional[str] = TrustTier.COMMUNITY  # Minimum trust tier
     exclude_countries: list = field(default_factory=list)
     require_verified: bool = False
     require_sovereignty: bool = False

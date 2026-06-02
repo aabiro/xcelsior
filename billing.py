@@ -15,7 +15,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("xcelsior")
 
@@ -3440,7 +3440,7 @@ class BillingEngine:
             Paragraph("<b>Host</b>", h_small),
             Paragraph("<b>Eligibility</b>", h_small),
         ]
-        items_rows = [items_header]
+        items_rows: list[list[Any]] = [items_header]
         if not items:
             items_rows.append(
                 [

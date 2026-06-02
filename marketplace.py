@@ -58,7 +58,7 @@ class MarketplaceEngine:
         provider_id: str,
         host_id: str,
         gpu_model: str,
-        vram_gb: int,
+        vram_gb: float,
         ask_cents_per_hour: int,
         gpu_count_total: int = 1,
         region: str = "",
@@ -145,7 +145,7 @@ class MarketplaceEngine:
     def search_offers(
         self,
         gpu_model: str = "",
-        min_vram_gb: int = 0,
+        min_vram_gb: float = 0,
         max_price_cents: int = 0,
         region: str = "",
         canada_only: bool = False,

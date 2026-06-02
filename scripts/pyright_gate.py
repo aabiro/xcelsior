@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""CI gate: fail if pyright reports MORE wrong-call findings than the baseline.
+"""CI gate: fail on any wrong-call / wrong-argument finding pyright reports.
 
-``reportCallIssue`` catches the wrong-kwarg / wrong-arg-count / no-such-parameter
-class of bug — e.g. passing ``customer_id=`` to a function whose parameter is
-``user=``, or calling ``foo(a, b, c)`` when ``foo`` takes two arguments. A scan
-in June 2026 found nine such bugs in route/CLI handlers (all silently broken).
+Two related rule families catch the bug class where a call is structurally
+wrong — the kind that is silently broken at runtime:
 
-The legacy backlog of these findings has been fully cleared (56 -> 0). The
-bulk were pyright mis-inferring scheduler.py's JSONB host/job dicts as lists,
-fixed by typing the _decode_payload boundary as Any; the rest were wrong
-key-type / loose arg typing in a handful of handlers. So BASELINE is now 0
-and this is a zero-tolerance gate: it fails if ANY reportCallIssue appears,
-catching the whole class of bug on a PR. Keep it at 0 — only ratchet DOWN.
+  * reportCallIssue   — wrong kwarg name / wrong arg count / no-such-parameter
+    (e.g. passing customer_id= when the parameter is user=).
+  * reportArgumentType — a value of the wrong type passed to a parameter
+    (e.g. None into a str param, float into int, or a list-typed record where
+    a dict was meant — which is how the scheduler crash bugs surfaced).
+
+Both backlogs have been cleared, so this is a zero-tolerance gate: it fails if
+ANY tracked finding appears, catching this whole class of bug on a PR.
+
+One sub-class is deliberately filtered out: psycopg types execute()'s query
+parameter as LiteralString (to discourage SQL injection), so every intentional
+dynamic-SQL f-string trips reportArgumentType with a "QueryNoTemplate" message.
+Parameterising that ~two-dozen-site pattern is a separate initiative; until
+then those findings are skipped by message match so they don't mask real
+argument-type bugs.
 
 Run locally:  python scripts/pyright_gate.py
 """
@@ -20,10 +27,13 @@ import json
 import subprocess
 import sys
 
-# reportCallIssue count: 0 as of 2026-06-02 (pyright 1.1.410, deps installed).
-# The full backlog (56 -> 0) has been cleared, so this is a zero-tolerance
-# gate. Keep it at 0; only ever ratchet DOWN.
-BASELINE = 0
+# Rules enforced at zero tolerance. The tuple lists message substrings to
+# ignore for that rule (known, accepted noise). Keep each list short and
+# justified — every entry is a hole in the gate.
+TRACKED_RULES: dict[str, tuple[str, ...]] = {
+    "reportCallIssue": (),
+    "reportArgumentType": ("QueryNoTemplate",),  # psycopg dynamic-SQL LiteralString noise
+}
 
 
 def main() -> int:
@@ -38,28 +48,25 @@ def main() -> int:
         print("pyright did not return JSON. stderr:\n" + proc.stderr, file=sys.stderr)
         return 2
 
-    call_issues = [
-        d for d in data.get("generalDiagnostics", []) if d.get("rule") == "reportCallIssue"
-    ]
-    count = len(call_issues)
-    print(f"reportCallIssue: {count} (baseline {BASELINE})")
+    offenders = []
+    for d in data.get("generalDiagnostics", []):
+        rule = d.get("rule")
+        if rule not in TRACKED_RULES:
+            continue
+        if any(skip in d.get("message", "") for skip in TRACKED_RULES[rule]):
+            continue
+        offenders.append(d)
 
-    if count > BASELINE:
-        print(f"\n[FAIL] {count - BASELINE} new wrong-call finding(s) — likely a bad kwarg/arg.")
-        print("All current reportCallIssue locations:")
-        for d in sorted(call_issues, key=lambda x: (x["file"], x["range"]["start"]["line"])):
+    print(f"tracked findings: {len(offenders)} (must be 0)")
+    if offenders:
+        print("\n[FAIL] wrong-call / wrong-argument finding(s) — likely a bad kwarg/arg/type:")
+        for d in sorted(offenders, key=lambda x: (x["file"], x["range"]["start"]["line"])):
             line = d["range"]["start"]["line"] + 1
             msg = d["message"].splitlines()[0]
-            print(f"  {d['file']}:{line}: {msg}")
+            print(f"  {d['file']}:{line}: [{d.get('rule')}] {msg}")
         return 1
 
-    if count < BASELINE:
-        print(
-            f"\n[OK] {BASELINE - count} fewer than baseline — lower BASELINE in "
-            f"scripts/pyright_gate.py to {count} to lock in the win."
-        )
-    else:
-        print("[OK] no new wrong-call findings.")
+    print("[OK] no wrong-call / wrong-argument findings.")
     return 0
 
 

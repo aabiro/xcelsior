@@ -43,7 +43,7 @@ import socket
 import subprocess
 import threading
 import time
-from typing import Optional
+from typing import Any, Optional, cast
 
 import docker
 from docker.errors import APIError, DockerException, NotFound
@@ -528,6 +528,8 @@ def _docker_client(
             _docker_client_cache.pop(cache_key, None)
 
         # Build a fresh client. Prerequisites live on disk / global paramiko.
+        # cache_key is non-None only for remote hosts, so host_ip is set here.
+        assert host_ip is not None
         _ensure_remote_host_key_pinned(host_ip)
         _ensure_ssh_identity(ssh_key_path)
         if not _patch_paramiko_host_keys():
@@ -1370,7 +1372,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 # paramiko Channel.recv is blocking; run in executor so we don't
                 # block the event loop. EOF returns b"".
                 return await loop.run_in_executor(None, exec_socket.recv, n)
-            return await loop.sock_recv(raw_sock, n)
+            return await loop.sock_recv(cast(Any, raw_sock), n)
 
         async def _exec_sendall(data: bytes) -> None:
             """Write all bytes to the exec PTY, uniform across transports."""
@@ -1381,14 +1383,14 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 def _send_blocking() -> None:
                     remaining = memoryview(data)
                     while remaining:
-                        sent = exec_socket.send(remaining)
+                        sent = exec_socket.send(cast(Any, remaining))
                         if sent <= 0:
                             raise ConnectionError("paramiko channel closed")
                         remaining = remaining[sent:]
 
                 await loop.run_in_executor(None, _send_blocking)
             else:
-                await loop.sock_sendall(raw_sock, data)
+                await loop.sock_sendall(cast(Any, raw_sock), data)
 
         # Seed PTY with sensible default dims so bash has a WINSIZE before it
         # renders PS1; client's real dims arrive on the first resize frame.
