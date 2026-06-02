@@ -588,7 +588,8 @@ def cmd_invoice(args):
     from billing import get_billing_engine
 
     be = get_billing_engine()
-    invoice = be.generate_invoice(args.customer_id)
+    # Full-history invoice (period 0 → now); name blank, tax auto-detected by province.
+    invoice = be.generate_invoice(args.customer_id, "", 0, time.time())
     print(f"Invoice for {args.customer_id}:")
     print(f"  Subtotal: ${invoice.get('subtotal_cad', 0):.2f}")
     print(f"  Tax:      ${invoice.get('tax_cad', 0):.2f}")

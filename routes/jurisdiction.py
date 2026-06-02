@@ -90,7 +90,9 @@ def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
     )
     from jurisdiction import filter_hosts_by_jurisdiction
 
-    filtered = filter_hosts_by_jurisdiction(hosts, constraint)
+    # Second arg is the host_id -> HostJurisdiction map; pass {} to fall back to
+    # each host's own fields (matches scheduler.py allocate-time usage).
+    filtered = filter_hosts_by_jurisdiction(hosts, {}, constraint)
     return {"ok": True, "count": len(filtered), "hosts": filtered}
 
 

@@ -1586,7 +1586,7 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
     # ── v2.1: Record event + trigger billing/reputation ──
     try:
         sm = get_state_machine()
-        sm.transition(job_id, JobState(status), actor="scheduler")
+        sm.transition(job_id, old_status, status, actor="scheduler")
     except Exception as exc:
         log.debug("Event record skip: %s", exc)
 

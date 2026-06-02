@@ -40,7 +40,7 @@ def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "verification:write")
     ve = get_verification_engine()
-    result = ve.run_verification(host_id, req.gpu_info, req.network_info)
+    result = ve.run_verification(host_id, {**req.gpu_info, **req.network_info})
     return {"ok": True, "host_id": host_id, "verification": result}
 
 
