@@ -21,8 +21,11 @@ import subprocess
 import sys
 
 # reportCallIssue count as of 2026-06-02 (pyright 1.1.410, deps installed).
+# 56 -> 48: cleared the 8 non-scheduler findings (wrong key-type / loose
+# arg typing in ai_assistant.py, cli.py, db.py, volumes.py, routes/_deps.py).
+# The remaining 48 are all scheduler.py dict-vs-list mis-inference.
 # Only ever ratchet this DOWN.
-BASELINE = 56
+BASELINE = 48
 
 
 def main() -> int:

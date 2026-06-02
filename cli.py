@@ -691,7 +691,7 @@ def cmd_leaderboard(args):
 def cmd_compliance(args):
     """Show province compliance matrix and tax rates."""
     from billing import PROVINCE_TAX_RATES
-    from jurisdiction import PROVINCE_COMPLIANCE
+    from jurisdiction import PROVINCE_COMPLIANCE, Province
 
     if RICH_AVAILABLE:
         table = Table(title="Province Compliance Matrix")
@@ -700,7 +700,7 @@ def cmd_compliance(args):
         table.add_column("Residency Req.", justify="center")
         table.add_column("PIA Required", justify="center")
         for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-            comp = PROVINCE_COMPLIANCE.get(prov, {})
+            comp = PROVINCE_COMPLIANCE.get(Province(prov), {})
             residency = comp.get("residency_required", False)
             pia = comp.get("pia_required", False)
             table.add_row(
@@ -715,7 +715,7 @@ def cmd_compliance(args):
         print(f"  {'Province':<6} {'Tax Rate':>10} {'Residency':>12} {'PIA Required':>14}")
         print(f"  {'─'*6} {'─'*10} {'─'*12} {'─'*14}")
         for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-            comp = PROVINCE_COMPLIANCE.get(prov, {})
+            comp = PROVINCE_COMPLIANCE.get(Province(prov), {})
             residency = comp.get("residency_required", False)
             pia = comp.get("pia_required", False)
             print(

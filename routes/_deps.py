@@ -11,6 +11,7 @@ import time
 import threading as _threading
 import urllib.parse
 from collections import defaultdict, deque
+from typing import Any
 
 from fastapi import HTTPException, Request, WebSocket
 from db import DatabaseOps, UserStore, NotificationStore, get_engine
@@ -685,7 +686,7 @@ def _lock_shared_state(
     return DatabaseOps.decode_payload(payload) or {}
 
 
-def _shared_state_update(namespace: str, default_factory, mutator) -> tuple[bool, object]:
+def _shared_state_update(namespace: str, default_factory, mutator) -> tuple[bool, Any]:
     """Atomically mutate shared runtime state, mirrored in dual-write mode."""
     if not _USE_SHARED_RUNTIME_LIMITS:
         return False, None
