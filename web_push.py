@@ -150,7 +150,7 @@ def deliver_web_push_notification(user_email: str, notification: dict[str, Any])
         return
 
     payload = _notification_payload(notification)
-    vapid_claims = {"sub": VAPID_SUBJECT}
+    vapid_claims: dict[str, str | int] = {"sub": VAPID_SUBJECT}
 
     for subscription in subscriptions:
         endpoint = subscription["endpoint"]

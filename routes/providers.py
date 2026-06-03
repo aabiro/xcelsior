@@ -159,6 +159,8 @@ def api_resume_onboarding(provider_id: str, request: Request):
     _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(404, f"Provider {provider_id} not found")
     if provider.get("status") == "active":
         return {"ok": True, "status": "active", "message": "Provider is already fully onboarded"}
     # Re-call create_provider_account which handles re-generating the onboarding link
