@@ -157,3 +157,33 @@ def test_provider_earnings_forbidden_cross_account(two_users):
         headers=user_b["headers"],
     )
     assert r.status_code == 403
+
+
+def test_v1_inference_poll_forbidden_cross_account(two_users):
+    user_a, user_b = two_users
+    submitted = client.post(
+        "/api/inference",
+        json={
+            "model": "distilbert-base-uncased-finetuned-sst-2-english",
+            "inputs": ["hello"],
+        },
+        headers=user_a["headers"],
+    )
+    assert submitted.status_code == 200, submitted.text[:200]
+    job_id = submitted.json()["job_id"]
+    r = client.get(f"/v1/inference/{job_id}", headers=user_b["headers"])
+    assert r.status_code == 403
+
+
+def test_residency_trace_forbidden_cross_account(two_users):
+    user_a, user_b = two_users
+    job = client.post(
+        "/instance",
+        json={"name": "residency-a", "vram_needed_gb": 1},
+        headers=user_a["headers"],
+    ).json()["instance"]
+    r = client.get(
+        f"/api/jurisdiction/residency-trace/{job['job_id']}",
+        headers=user_b["headers"],
+    )
+    assert r.status_code == 403

@@ -347,8 +347,11 @@ def api_v1_inference_async(body: V1InferenceRequest, request: Request):
 
 
 @router.get("/v1/inference/{job_id}", tags=["Inference v2"])
-def api_v1_inference_poll(job_id: str):
+def api_v1_inference_poll(job_id: str, request: Request):
     """Poll for inference results by job_id."""
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
+    _require_inference_job_access(user, job_id)
     result = get_inference_result(job_id)
     if result:
         return {
