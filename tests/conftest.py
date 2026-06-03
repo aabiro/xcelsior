@@ -31,6 +31,8 @@ else:
 # helpers that branch on it (e.g. logging) still behave.
 os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_ALLOW_UNAUTH_AGENT", "1")
+# Avoid api lifespan background threads during TestClient runs (reduces CI deadlocks/timeouts).
+os.environ.setdefault("XCELSIOR_BG_TASKS", "false")
 
 # Exclude live E2E test scripts from pytest collection
 collect_ignore = ["test_e2e_live.py"]
