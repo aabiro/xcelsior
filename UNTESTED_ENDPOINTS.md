@@ -9,27 +9,27 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ## Routes (170 untested)
 
 ### `routes/billing.py` (21)
-- [ ] `DELETE /api/billing/payment-methods/{payment_method_id}` — `api_billing_detach_payment_method`
-- [ ] `GET /api/billing/crypto/deposit/{deposit_id}` — `api_crypto_deposit_status`
-- [ ] `GET /api/billing/crypto/rate` — `api_crypto_rate`
-- [ ] `GET /api/billing/invoice/{customer_id}` — `api_generate_invoice`
-- [ ] `GET /api/billing/invoice/{customer_id}/download` — `api_download_invoice`
-- [ ] `GET /api/billing/lightning/deposit/{deposit_id}` — `api_ln_check_deposit`
-- [ ] `GET /api/billing/lightning/enabled` — `api_ln_enabled`
-- [ ] `GET /api/billing/lightning/rate` — `api_ln_rate`
-- [ ] `GET /api/billing/payment-methods` — `api_billing_list_payment_methods`
-- [ ] `GET /api/billing/paypal/enabled` — `api_paypal_enabled`
-- [ ] `GET /api/billing/usage/{customer_id}` — `api_usage_summary`
-- [ ] `GET /api/pricing/models` — `api_pricing_models`
-- [ ] `GET /api/pricing/rates` — `api_pricing_rates`
-- [ ] `GET /api/pricing/reservations` — `api_list_reservations`
-- [ ] `GET /api/v2/billing/auto-topup` — `api_billing_get_topup`
-- [ ] `POST /api/billing/crypto/deposit` — `api_crypto_deposit`
-- [ ] `POST /api/billing/crypto/refresh/{deposit_id}` — `api_crypto_refresh`
-- [ ] `POST /api/billing/lightning/deposit` — `api_ln_create_deposit`
-- [ ] `POST /api/billing/payment-intent` — `api_create_payment_intent`
-- [ ] `POST /api/billing/setup-intent` — `api_billing_setup_intent`
-- [ ] `POST /api/v2/billing/auto-topup` — `api_billing_configure_topup`
+- [x] `DELETE /api/billing/payment-methods/{payment_method_id}` — `api_billing_detach_payment_method`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/crypto/deposit/{deposit_id}` — `api_crypto_deposit_status`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/crypto/rate` — `api_crypto_rate`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/invoice/{customer_id}` — `api_generate_invoice`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/invoice/{customer_id}/download` — `api_download_invoice`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/lightning/deposit/{deposit_id}` — `api_ln_check_deposit`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/lightning/enabled` — `api_ln_enabled`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/lightning/rate` — `api_ln_rate`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/payment-methods` — `api_billing_list_payment_methods`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/paypal/enabled` — `api_paypal_enabled`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/billing/usage/{customer_id}` — `api_usage_summary`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/pricing/models` — `api_pricing_models`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/pricing/rates` — `api_pricing_rates`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/pricing/reservations` — `api_list_reservations`  ✓ test_billing_endpoints_coverage.py
+- [x] `GET /api/v2/billing/auto-topup` — `api_billing_get_topup`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/billing/crypto/deposit` — `api_crypto_deposit`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/billing/crypto/refresh/{deposit_id}` — `api_crypto_refresh`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/billing/lightning/deposit` — `api_ln_create_deposit`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/billing/payment-intent` — `api_create_payment_intent`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/billing/setup-intent` — `api_billing_setup_intent`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/v2/billing/auto-topup` — `api_billing_configure_topup`  ✓ test_billing_endpoints_coverage.py
 
 ### `routes/health.py` (17)
 - [ ] `GET /_internal/legacy-auth/verify` — `api_auth_verify_page`
