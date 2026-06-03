@@ -849,17 +849,17 @@ class TestBillingEndpoints:
         assert r.status_code == 200
 
     def test_billing_wallet_create(self):
-        """GET /api/billing/wallet/{id} on new customer creates wallet."""
+        """GET /api/billing/wallet/{id} requires auth and matching customer scope."""
         r = client.get("/api/billing/wallet/cust-new")
-        assert r.status_code == 200
+        assert r.status_code == 401
 
     def test_billing_wallet_deposit(self):
-        """POST wallet deposit."""
+        """POST wallet deposit requires auth and matching customer scope."""
         r = client.post(
             "/api/billing/wallet/cust-1/deposit",
             json={"amount_cad": 100.0, "description": "Test deposit"},
         )
-        assert r.status_code == 200
+        assert r.status_code == 401
 
     def test_billing_wallet_reset_requires_admin(self, monkeypatch):
         """POST wallet reset is restricted to platform admins."""
@@ -904,6 +904,7 @@ class TestBillingEndpoints:
         deposit = client.post(
             f"/api/billing/wallet/{customer_id}/deposit",
             json={"amount_cad": 25.0, "description": "Reset test deposit"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert deposit.status_code == 200
 
@@ -928,7 +929,10 @@ class TestBillingEndpoints:
         assert status.status_code == 200
         assert status.json()["claimed"] is False
 
-        history = client.get(f"/api/billing/wallet/{customer_id}/history")
+        history = client.get(
+            f"/api/billing/wallet/{customer_id}/history",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert history.status_code == 200
         assert history.json()["transactions"] == []
 
