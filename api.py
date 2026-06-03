@@ -392,7 +392,11 @@ def _stop_background_tasks():
 async def lifespan(app):
     """FastAPI lifespan: start background tasks on startup, stop on shutdown."""
     # ── One-time backfill: ensure owner field exists on active jobs ────
+    db_backend = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
     try:
+        if db_backend not in ("postgres", "dual"):
+            raise RuntimeError(f"skipped for backend={db_backend}")
+
         from db import _get_pg_pool
 
         pool = _get_pg_pool()
