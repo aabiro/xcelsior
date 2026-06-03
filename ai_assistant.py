@@ -2856,7 +2856,7 @@ journalctl -u xcelsior-worker -f    # live logs
 WHAT TO WATCH FOR:
 - First job arrival time: varies by demand. Consumer GPUs often get first job within 1 hour during peak hours (weekday 9am–6pm ET).
 - {_BASE_DOMAIN}/dashboard → Revenue tab: shows live earnings, uptime %, and booking history.
-- {_BASE_DOMAIN}/dashboard → My GPU: change rate, pause/resume, view reviews.
+- {_BASE_DOMAIN}/dashboard → My GPU: change rate, stop/start listing, view reviews.
 
 TIER EARNINGS NOTE:
 - Community: 100% of rate is yours minus Xcelsior 15% platform fee
@@ -3395,7 +3395,7 @@ FILES ON THEIR SYSTEM:
 
 DASHBOARD — {_BASE_DOMAIN}/dashboard has four key tabs:
 - **Revenue**: GPU earnings (live + historical, by job)
-- **My GPU**: manage listing — rate, pause/resume, view reviews, upgrade security tier
+- **My GPU**: manage listing — rate, stop/start, view reviews, upgrade security tier
 - **Instances**: their own active compute sessions (renter side)
 - **Billing**: wallet balance, top-up, transaction history
 
