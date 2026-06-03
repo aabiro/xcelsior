@@ -3,7 +3,10 @@
 from fastapi import APIRouter, HTTPException, Request
 
 from routes._deps import (
+    _get_current_user,
     _require_admin,
+    _require_auth,
+    _require_scope,
 )
 from events import get_event_store, get_state_machine
 
@@ -28,9 +31,11 @@ def api_get_lease(job_id: str, request: Request):
     """Get active lease for a job."""
     from routes._deps import _get_current_user, _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "events:read")
+    user = _require_auth(request)
+    _require_scope(user, "events:read")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, job_id)
     store = get_event_store()
     lease = store.get_active_lease(job_id)
     if not lease:
@@ -52,12 +57,16 @@ def api_verify_event_chain(request: Request):
 
 
 @router.get("/api/audit/instance/{job_id}", tags=["Events"])
-def api_instance_audit_trail(job_id: str):
+def api_instance_audit_trail(job_id: str, request: Request):
     """Full auditable trail for a job — every event with hash chain.
 
     This is the dispute-resolution artifact: every state change,
     lease renewal, billing event, ordered by time with tamper-evident hashes.
     """
+    user = _require_auth(request)
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, job_id)
     sm = get_state_machine()
     timeline = sm.get_job_timeline(job_id)
     if not timeline:

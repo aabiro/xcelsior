@@ -937,12 +937,14 @@ class TestBillingEndpoints:
         assert history.json()["transactions"] == []
 
     def test_billing_refund(self):
-        """POST /api/billing/refund processes a refund."""
+        """POST /api/billing/refund processes a refund for the caller's job."""
+        resp = _submit_job("refund-test", 8)
+        job_id = resp.json()["instance"]["job_id"]
         r = client.post(
             "/api/billing/refund",
             json={
-                "job_id": "job-test-refund",
-                "exit_code": -1,
+                "job_id": job_id,
+                "exit_code": 1,
                 "failure_reason": "hardware",
             },
         )

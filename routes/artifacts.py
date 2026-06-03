@@ -80,6 +80,9 @@ def api_list_artifacts(job_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, job_id)
     mgr = get_artifact_manager()
     artifacts = mgr.get_job_artifacts(job_id)
     return {"ok": True, "job_id": job_id, "artifacts": artifacts}
@@ -98,6 +101,9 @@ def api_artifact_expiry(job_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, job_id)
     try:
         am = get_artifact_manager()
         arts = am.get_job_artifacts(job_id)
