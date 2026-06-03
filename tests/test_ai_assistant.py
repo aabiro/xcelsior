@@ -90,6 +90,16 @@ def _mock_reputation_score(**kwargs):
     return score
 
 
+@pytest.fixture(autouse=True)
+def _fast_spot_price_reads(monkeypatch):
+    """estimate_cost/get_pricing call load_spot_prices -> PG; keep unit tests off the pool."""
+    monkeypatch.setattr(
+        "scheduler.get_current_spot_prices",
+        lambda: {"RTX 4090": 0.45, "A100": 2.0, "H100": 4.0, "L40": 1.5, "RTX 3090": 0.3},
+    )
+    monkeypatch.setattr("scheduler.load_spot_prices", lambda: [])
+
+
 FAKE_OFFERS = [
     {
         "host_id": "h-1",
