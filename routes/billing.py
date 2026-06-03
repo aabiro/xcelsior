@@ -105,8 +105,11 @@ def _require_customer_access(request: Request, customer_id: str) -> dict:
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
+    from routes._deps import _require_platform_worker
+
     user = _require_auth(request)
     _require_scope(user, "billing:write")
+    _require_platform_worker(user)
     with otel_span("billing.bill_job", {"job.id": job_id}):
         record = bill_job(job_id)
         if not record:
@@ -117,8 +120,7 @@ def api_bill_instance(job_id: str, request: Request):
 @router.post("/billing/bill-all", tags=["Billing"])
 def api_bill_all(request: Request):
     """Bill all unbilled completed jobs."""
-    user = _require_auth(request)
-    _require_scope(user, "billing:write")
+    _require_admin(request)
     try:
         bills = bill_all_completed()
     except Exception as exc:
@@ -128,8 +130,9 @@ def api_bill_all(request: Request):
 
 
 @router.get("/billing", tags=["Billing"])
-def api_billing():
-    """Get all billing records and total revenue."""
+def api_billing(request: Request):
+    """Get all billing records and total revenue (platform admin only)."""
+    _require_admin(request)
     records = load_billing()
     return {
         "records": records,

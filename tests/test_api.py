@@ -834,6 +834,7 @@ class TestPricing:
 class TestBillingEndpoints:
     def test_billing_empty(self):
         r = client.get("/billing")
+        # Platform-wide billing dump requires admin; anonymous test user is admin.
         assert r.status_code == 200
         assert r.json()["total_revenue"] == 0
 

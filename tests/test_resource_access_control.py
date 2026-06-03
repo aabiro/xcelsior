@@ -91,6 +91,53 @@ def test_billing_refund_forbidden_cross_account(two_users):
     assert r.status_code == 403
 
 
+def test_billing_dump_requires_admin_not_regular_user(two_users):
+    user_a, _user_b = two_users
+    r = client.get("/billing", headers=user_a["headers"])
+    assert r.status_code == 403
+
+
+def test_events_all_requires_admin(two_users):
+    _, user_b = two_users
+    r = client.get("/api/events", headers=user_b["headers"])
+    assert r.status_code == 403
+
+
+def test_provider_list_only_own_account(two_users):
+    user_a, user_b = two_users
+    provider_id = f"prov-{uuid.uuid4().hex[:8]}"
+    client.post(
+        "/api/providers/register",
+        json={
+            "provider_id": provider_id,
+            "email": user_a["email"],
+            "provider_type": "individual",
+            "legal_name": "Test Provider",
+            "province": "ON",
+        },
+        headers=user_a["headers"],
+    )
+    r = client.get("/api/providers", headers=user_b["headers"])
+    assert r.status_code == 200
+    assert r.json()["count"] == 0
+
+
+def test_provider_register_email_mismatch_forbidden(two_users):
+    user_a, user_b = two_users
+    r = client.post(
+        "/api/providers/register",
+        json={
+            "provider_id": f"prov-{uuid.uuid4().hex[:8]}",
+            "email": user_a["email"],
+            "provider_type": "individual",
+            "legal_name": "Evil",
+            "province": "ON",
+        },
+        headers=user_b["headers"],
+    )
+    assert r.status_code == 403
+
+
 def test_provider_earnings_forbidden_cross_account(two_users):
     user_a, user_b = two_users
     provider_id = f"prov-{uuid.uuid4().hex[:8]}"

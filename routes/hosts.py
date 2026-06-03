@@ -9,7 +9,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from routes._deps import (
+    _caller_owner_ids,
+    _is_platform_admin,
     _require_admin,
+    _require_auth,
+    _require_scope,
     broadcast_sse,
     log,
 )
@@ -29,6 +33,14 @@ from security import admit_node
 from reputation import VerificationType, get_reputation_engine
 
 router = APIRouter()
+
+
+def _require_host_operator(user: dict, host_id: str) -> None:
+    if _is_platform_admin(user):
+        return
+    if (host_id or "").strip() in _caller_owner_ids(user):
+        return
+    raise HTTPException(403, "Forbidden")
 
 
 def _resolve_host_id(host_id: str) -> tuple[str | None, list[dict]]:
@@ -133,11 +145,9 @@ def api_register_host(h: HostIn, request: Request):
     - Hosts register as 'pending' until agent completes benchmark + admission
     - If versions are provided inline, admission is checked immediately
     """
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "hosts:write")
+    user = _require_auth(request)
+    _require_scope(user, "hosts:write")
+    _require_host_operator(user, h.host_id)
     from security import admit_node
 
     # Register the host with country/province metadata
@@ -765,11 +775,8 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
 @router.get("/host/{host_id}", tags=["Hosts"])
 def api_get_host(host_id: str, request: Request):
     """Get a single host by ID."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "hosts:read")
+    user = _require_auth(request)
+    _require_scope(user, "hosts:read")
     resolved, hosts = _resolve_host_id(host_id)
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
@@ -780,11 +787,8 @@ def api_get_host(host_id: str, request: Request):
 @router.get("/hosts", tags=["Hosts"])
 def api_list_hosts(request: Request, active_only: bool = True):
     """List all hosts."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "hosts:read")
+    user = _require_auth(request)
+    _require_scope(user, "hosts:read")
     return {"hosts": list_hosts(active_only=active_only)}
 
 
@@ -865,11 +869,9 @@ def api_undrain_host(host_id: str, request: Request):
 @router.delete("/host/{host_id}", tags=["Hosts"])
 def api_remove_host(host_id: str, request: Request):
     """Remove a host."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "hosts:write")
+    user = _require_auth(request)
+    _require_scope(user, "hosts:write")
+    _require_host_operator(user, host_id)
     resolved, _hosts = _resolve_host_id(host_id)
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
@@ -882,11 +884,7 @@ def api_remove_host(host_id: str, request: Request):
 @router.post("/hosts/check", tags=["Hosts"])
 def api_check_hosts(request: Request):
     """Ping all hosts and update status."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "hosts:write")
+    _require_admin(request)
     results = check_hosts()
     return {"results": results}
 

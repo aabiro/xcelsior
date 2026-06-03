@@ -1102,22 +1102,7 @@ def api_stop_instance(job_id: str, request: Request):
     preserved — data, volumes and configuration are intact. Storage billing
     continues at the per-GB rate. The instance can be started again at any time.
     """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to stop this instance")
-
-    _check_not_locked(job)
+    user, job = _authorize_instance_mutation(request, job_id, "stop")
 
     if job.get("status") != "running":
         raise HTTPException(
@@ -1143,22 +1128,9 @@ def api_start_instance(job_id: str, request: Request):
     preserved. Requires a positive wallet balance. Compute billing resumes
     immediately.
     """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to start this instance")
-
-    _check_not_locked(job)
+    user, job = _authorize_instance_mutation(request, job_id, "start")
+    customer_id = _canonical_owner_id(user)
+    job_owner = (job.get("owner") or "").strip()
 
     if job.get("status") != "stopped":
         raise HTTPException(

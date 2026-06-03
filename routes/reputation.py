@@ -4,10 +4,12 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
-    _AUTH_COOKIE_NAME,
-    _USE_PERSISTENT_AUTH,
+    _caller_owner_ids,
+    _is_platform_admin,
+    _require_admin,
+    _require_auth,
+    _require_scope,
 )
-from db import UserStore
 from reputation import (
     VerificationType,
     get_reputation_engine,
@@ -41,14 +43,30 @@ _TIER_DESCRIPTIONS = {
 }
 
 
+def _require_reputation_entity_access(user: dict, entity_id: str) -> None:
+    if _is_platform_admin(user):
+        return
+    eid = (entity_id or "").strip()
+    if eid in _caller_owner_ids(user):
+        return
+    raise HTTPException(403, "Forbidden")
+
+
+def _reputation_subject_id(user: dict) -> str:
+    from routes.instances import _canonical_owner_id
+
+    return (
+        str(user.get("provider_id") or "").strip()
+        or _canonical_owner_id(user)
+        or str(user.get("email") or "").strip()
+    )
+
+
 @router.get("/api/trust-tiers", tags=["Reputation"])
 def api_trust_tiers(request: Request):
     """Return all six trust tiers with thresholds, perks, and unlock requirements."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "reputation:read")
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
     tiers = []
     for tier in ReputationTier:
         tiers.append(
@@ -68,11 +86,8 @@ def api_trust_tiers(request: Request):
 @router.get("/api/reputation/leaderboard", tags=["Reputation"])
 def api_reputation_leaderboard(request: Request, entity_type: str = "host", limit: int = 20):
     """Top hosts/users by reputation score."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "reputation:read")
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
     re_engine = get_reputation_engine()
     board = re_engine.get_leaderboard(entity_type, limit)
     return {"ok": True, "entity_type": entity_type, "leaderboard": board}
@@ -81,29 +96,11 @@ def api_reputation_leaderboard(request: Request, entity_type: str = "host", limi
 @router.get("/api/reputation/me", tags=["Reputation"])
 def api_reputation_me(request: Request):
     """Get reputation for the currently authenticated user."""
-    from routes._deps import _require_scope
-
-    user = getattr(request.state, "user", None)
-    user_id = ""
-    if user:
-        user_id = getattr(user, "user_id", "") or getattr(user, "customer_id", "")
-    if not user_id:
-        # Try from middleware-set attributes
-        user_id = getattr(request.state, "user_id", "") or getattr(request.state, "customer_id", "")
-    if not user_id:
-        # Try extracting from session cookie
-        token = request.cookies.get(_AUTH_COOKIE_NAME, "")
-        if token and _USE_PERSISTENT_AUTH:
-            session = UserStore.get_session(token)
-            if session:
-                user_id = session.get("user_id", "")
-    if not user_id:
-        # Fall back to provider_id if present
-        user_id = getattr(request.state, "provider_id", "")
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
+    user_id = _reputation_subject_id(user)
     if not user_id:
         return {"ok": True, "score": 0, "tier": "new_user"}
-    if user:
-        _require_scope(user, "reputation:read")
     re_engine = get_reputation_engine()
     score = re_engine.compute_score(user_id)
     return {"ok": True, **score.to_dict()}
@@ -112,11 +109,8 @@ def api_reputation_me(request: Request):
 @router.get("/api/reputation/{entity_id}", tags=["Reputation"])
 def api_get_reputation(entity_id: str, request: Request):
     """Get reputation score and tier for a host or user."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "reputation:read")
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
     re_engine = get_reputation_engine()
     score = re_engine.compute_score(entity_id)
     return {"ok": True, "reputation": score.to_dict()}
@@ -125,11 +119,9 @@ def api_get_reputation(entity_id: str, request: Request):
 @router.get("/api/reputation/{entity_id}/history", tags=["Reputation"])
 def api_reputation_history(entity_id: str, request: Request, limit: int = 50):
     """Get reputation event history."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "reputation:read")
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
+    _require_reputation_entity_access(user, entity_id)
     re_engine = get_reputation_engine()
     history = re_engine.store.get_event_history(entity_id, limit)
     return {"ok": True, "entity_id": entity_id, "events": history}
@@ -145,12 +137,8 @@ class VerificationGrant(BaseModel):
 
 @router.post("/api/reputation/verify", tags=["Reputation"])
 def api_grant_verification(req: VerificationGrant, request: Request):
-    """Grant a verification badge to a host/user."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "reputation:write")
+    """Grant a verification badge to a host/user (platform admin only)."""
+    _require_admin(request)
     try:
         vtype = VerificationType(req.verification_type)
     except ValueError:
@@ -165,16 +153,13 @@ def api_grant_verification(req: VerificationGrant, request: Request):
 @router.get("/api/reputation/{entity_id}/breakdown", tags=["Reputation"])
 def api_reputation_breakdown(entity_id: str, request: Request):
     """Get a detailed breakdown of how a reputation score is calculated."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "reputation:read")
+    user = _require_auth(request)
+    _require_scope(user, "reputation:read")
+    _require_reputation_entity_access(user, entity_id)
     re_engine = get_reputation_engine()
     score_data = re_engine.store.get_score(entity_id) or {}
     history = re_engine.store.get_event_history(entity_id, limit=100)
 
-    # Calculate component breakdown from history
     jobs_points = 0
     uptime_bonus = 0
     penalties = 0
