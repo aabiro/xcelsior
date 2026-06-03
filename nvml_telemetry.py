@@ -19,7 +19,7 @@ import logging
 import os
 import time
 from collections import deque
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("xcelsior")
 
@@ -37,6 +37,8 @@ try:
 except ImportError:
     pynvml = None  # type: ignore[assignment]
     log.debug("nvidia-ml-py not installed — GPU telemetry will use nvidia-smi fallback")
+
+pynvml: Any
 
 
 # ── Thermal rolling average ──────────────────────────────────────────

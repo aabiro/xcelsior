@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CI gate: fail on any wrong-call / wrong-argument finding pyright reports.
 
-Three related rule families catch the bug class where a call is structurally
+Five related rule families catch bug classes where a call or dereference is structurally
 wrong — the kind that is silently broken at runtime:
 
   * reportCallIssue   — wrong kwarg name / wrong arg count / no-such-parameter
@@ -12,6 +12,10 @@ wrong — the kind that is silently broken at runtime:
   * reportAttributeAccessIssue — accessing an attribute / importing a symbol
     that doesn't exist (e.g. `from db import get_db`, or calling a method that
     was renamed) — which is how the scaffolded-endpoint bugs surfaced.
+  * reportOptionalMemberAccess — calling methods/attributes on values that can
+    be None (e.g. optional imports or nullable DB records).
+  * reportOptionalSubscript — subscripting values that can be None (e.g. rows
+    from fetchone() without a guard).
 
 All backlogs have been cleared, so this is a zero-tolerance gate: it fails if
 ANY tracked finding appears, catching this whole class of bug on a PR.
@@ -37,6 +41,8 @@ TRACKED_RULES: dict[str, tuple[str, ...]] = {
     "reportCallIssue": (),
     "reportArgumentType": ("QueryNoTemplate",),  # psycopg dynamic-SQL LiteralString noise
     "reportAttributeAccessIssue": (),
+    "reportOptionalMemberAccess": (),
+    "reportOptionalSubscript": (),
 }
 
 

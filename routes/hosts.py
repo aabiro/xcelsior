@@ -856,6 +856,8 @@ def api_undrain_host(host_id: str, request: Request):
         raise HTTPException(status_code=409, detail="Cannot undrain a dead host")
 
     updated = set_host_draining(host_id, draining=False)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
     broadcast_sse("host_update", {"host_id": host_id, "status": updated.get("status", "pending")})
     return {"ok": True, "host": updated}
 

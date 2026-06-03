@@ -335,6 +335,15 @@ class ReputationEngine:
     def __init__(self, store: Optional[ReputationStore] = None):
         self.store = store or ReputationStore()
 
+    def _get_or_create_score_record(self, entity_id: str, entity_type: str = "host") -> dict:
+        existing = self.store.get_score(entity_id)
+        if not existing:
+            self._ensure_entity(entity_id, entity_type=entity_type)
+            existing = self.store.get_score(entity_id)
+        if existing is None:
+            raise RuntimeError(f"Reputation score row missing after create: {entity_id}")
+        return existing
+
     def compute_score(self, entity_id: str) -> ReputationScore:
         """Recompute the full reputation score for an entity."""
         existing = self.store.get_score(entity_id)
@@ -395,10 +404,7 @@ class ReputationEngine:
 
     def add_verification(self, entity_id: str, vtype: VerificationType) -> ReputationScore:
         """Grant verification points (capped at MAX_VERIFICATION_POINTS)."""
-        existing = self.store.get_score(entity_id)
-        if not existing:
-            self._ensure_entity(entity_id)
-            existing = self.store.get_score(entity_id)
+        existing = self._get_or_create_score_record(entity_id)
 
         raw_v = existing.get("verifications", "[]")
         if isinstance(raw_v, list):
@@ -447,12 +453,9 @@ class ReputationEngine:
         "focus on total value and complexity of successfully completed
         workloads" — flat points for first N jobs, then diminishing.
         """
-        existing = self.store.get_score(entity_id)
-        if not existing:
-            self._ensure_entity(entity_id)
-            existing = self.store.get_score(entity_id)
+        existing = self._get_or_create_score_record(entity_id)
 
-        jobs_done = existing.get("jobs_completed", 0) if existing else 0
+        jobs_done = existing.get("jobs_completed", 0)
 
         # Diminishing returns: after threshold, each job earns less
         if jobs_done < DIMINISHING_RETURNS_THRESHOLD:
@@ -487,10 +490,7 @@ class ReputationEngine:
 
     def record_job_failure(self, entity_id: str, is_host_fault: bool = True) -> ReputationScore:
         """Record a job failure. Host-side faults incur penalties."""
-        existing = self.store.get_score(entity_id)
-        if not existing:
-            self._ensure_entity(entity_id)
-            existing = self.store.get_score(entity_id)
+        existing = self._get_or_create_score_record(entity_id)
 
         if is_host_fault:
             penalty = PENALTY_POINTS[PenaltyType.JOB_FAILURE_HOST]
@@ -611,10 +611,7 @@ class ReputationEngine:
 
         Returns dict with bayesian_score, alpha, prior, observed, confidence.
         """
-        existing = self.store.get_score(entity_id)
-        if not existing:
-            self._ensure_entity(entity_id)
-            existing = self.store.get_score(entity_id)
+        existing = self._get_or_create_score_record(entity_id)
 
         jobs_completed = int(existing.get("jobs_completed", 0))
         jobs_failed = int(existing.get("jobs_failed_host", 0))

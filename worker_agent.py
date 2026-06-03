@@ -804,6 +804,8 @@ def _api_headers():
 
 def _api_url(path):
     """Build absolute API URL."""
+    if not SCHEDULER_URL:
+        raise RuntimeError("XCELSIOR_SCHEDULER_URL is not set")
     return f"{SCHEDULER_URL.rstrip('/')}{path}"
 
 

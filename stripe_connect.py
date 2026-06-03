@@ -186,6 +186,7 @@ class StripeConnectManager:
                 "Stripe Connect is not configured. Set XCELSIOR_STRIPE_SECRET_KEY "
                 "in .env with a valid Stripe secret key to enable provider onboarding."
             )
+        stripe_api = stripe
 
         _base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
         refresh_url = f"{_base_url}/dashboard/earnings?stripe=refresh&provider={provider_id}"
@@ -198,12 +199,12 @@ class StripeConnectManager:
             # where the user completes onboarding but the webhook hasn't landed
             # yet, then clicks "Continue" and gets sent back into the flow.
             try:
-                acct_check = stripe.Account.retrieve(account_id)
+                acct_check = stripe_api.Account.retrieve(account_id)
                 acct_check_dict = json.loads(str(acct_check))
                 if acct_check_dict.get("charges_enabled") and acct_check_dict.get(
                     "payouts_enabled"
                 ):
-                    login_link = stripe.Account.create_login_link(account_id)
+                    login_link = stripe_api.Account.create_login_link(account_id)
                     return login_link.url, "active"
             except Exception as check_err:
                 log.warning(
@@ -214,7 +215,7 @@ class StripeConnectManager:
                 )
 
             try:
-                link = stripe.AccountLink.create(
+                link = stripe_api.AccountLink.create(
                     account=account_id,
                     refresh_url=refresh_url,
                     return_url=return_url,
@@ -231,7 +232,7 @@ class StripeConnectManager:
 
             # Verify the account still exists on Stripe before deciding next steps.
             try:
-                acct = stripe.Account.retrieve(account_id)
+                acct = stripe_api.Account.retrieve(account_id)
             except Exception as retrieve_err:
                 # Account not found on Stripe (e.g. deleted, wrong API mode key).
                 # Signal to the caller that this is a stale reference so a fresh
@@ -252,7 +253,7 @@ class StripeConnectManager:
             payouts_enabled = bool(acct_dict.get("payouts_enabled", False))
             if charges_enabled and payouts_enabled:
                 try:
-                    login_link = stripe.Account.create_login_link(account_id)
+                    login_link = stripe_api.Account.create_login_link(account_id)
                     return login_link.url, "active"
                 except Exception as ll_err:
                     log.warning(
@@ -338,7 +339,7 @@ class StripeConnectManager:
 
         try:
             # Create Stripe Connect Express account
-            acct = stripe.Account.create(
+            acct = stripe_api.Account.create(
                 type="express",
                 country="CA",
                 email=email,
