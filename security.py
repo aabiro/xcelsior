@@ -609,8 +609,19 @@ def build_secure_docker_args(
             # Reject path traversal
             if ".." in host_path:
                 raise ValueError(f"Volume path contains '..': {host_path!r}")
-            # Resolve symlinks before prefix check
-            resolved = os.path.realpath(host_path)
+            # Prefix check on normalized path first (realpath can hang on stale NFS/autofs).
+            normalized = os.path.normpath(os.path.abspath(host_path))
+            if not normalized.startswith(_ALLOWED_VOLUME_PREFIXES):
+                raise ValueError(f"Volume host path {host_path!r} is outside allowed prefixes")
+            if normalized.startswith("/mnt/xcelsior-nfs/"):
+                resolved = normalized
+            elif os.path.lexists(normalized):
+                try:
+                    resolved = os.path.realpath(normalized)
+                except OSError:
+                    resolved = normalized
+            else:
+                resolved = normalized
             if not resolved.startswith(_ALLOWED_VOLUME_PREFIXES):
                 raise ValueError(f"Volume host path {host_path!r} is outside allowed prefixes")
             if ":" in vol and not vol.endswith(":ro") and not vol.endswith(":rw"):
