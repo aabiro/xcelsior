@@ -62,6 +62,24 @@ from api import app
 
 client = TestClient(app)
 
+
+def _auth_headers(email: str | None = None) -> dict:
+    """Bearer token for endpoints that require an authenticated user."""
+    if email is None:
+        email = f"ux-{int(time.time() * 1000)}@xcelsior.ca"
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "testpass123"},
+    ).json()
+    return {"Authorization": f"Bearer {reg['access_token']}"}
+
+
+def _platform_headers() -> dict:
+    """Platform API token (admin) for cross-tenant reads in tests."""
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
+
 GOOD_VERSIONS = {
     "runc": "1.2.4",
     "gvisor": "20250101.0",
@@ -182,7 +200,7 @@ class TestArtifactExpiryEndpoint:
     """Test the artifact expiry/TTL endpoint."""
 
     def test_artifact_expiry_returns_list(self):
-        r = client.get("/api/artifacts/test-job-999/expiry")
+        r = client.get("/api/artifacts/test-job-999/expiry", headers=_platform_headers())
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -203,7 +221,7 @@ class TestArtifactExpiryEndpoint:
         )
         if upload_r.status_code != 200:
             pytest.skip("Artifact upload not available")
-        r = client.get("/api/artifacts/ux-expiry-job/expiry")
+        r = client.get("/api/artifacts/ux-expiry-job/expiry", headers=_platform_headers())
         d = r.json()
         if d["artifacts"]:
             art = d["artifacts"][0]
@@ -216,7 +234,7 @@ class TestArtifactExpiryEndpoint:
 
     def test_artifact_expiry_ttl_varies_by_type(self):
         """Different artifact types should have different TTLs."""
-        r = client.get("/api/artifacts/some-job/expiry")
+        r = client.get("/api/artifacts/some-job/expiry", headers=_platform_headers())
         d = r.json()
         # Just verify the endpoint works and returns the right shape
         assert d["ok"] is True
@@ -229,7 +247,7 @@ class TestReputationBreakdownEndpoint:
     def test_breakdown_returns_components(self):
         # Register host to create reputation entity
         _register_host("h-rep-bd-1")
-        r = client.get("/api/reputation/h-rep-bd-1/breakdown")
+        r = client.get("/api/reputation/h-rep-bd-1/breakdown", headers=_platform_headers())
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -241,25 +259,25 @@ class TestReputationBreakdownEndpoint:
         assert "decay" in b
 
     def test_breakdown_has_entity_id(self):
-        r = client.get("/api/reputation/test-entity/breakdown")
+        r = client.get("/api/reputation/test-entity/breakdown", headers=_platform_headers())
         assert r.status_code == 200
         d = r.json()
         assert d["entity_id"] == "test-entity"
 
     def test_breakdown_has_tier(self):
-        r = client.get("/api/reputation/test-entity-2/breakdown")
+        r = client.get("/api/reputation/test-entity-2/breakdown", headers=_platform_headers())
         d = r.json()
         assert "tier" in d
         assert isinstance(d["tier"], str)
 
     def test_breakdown_has_events_count(self):
-        r = client.get("/api/reputation/test-entity-3/breakdown")
+        r = client.get("/api/reputation/test-entity-3/breakdown", headers=_platform_headers())
         d = r.json()
         assert "events_analyzed" in d
         assert isinstance(d["events_analyzed"], int)
 
     def test_breakdown_values_are_numeric(self):
-        r = client.get("/api/reputation/h-rep-bd-1/breakdown")
+        r = client.get("/api/reputation/h-rep-bd-1/breakdown", headers=_platform_headers())
         d = r.json()
         b = d["breakdown"]
         for key in ("jobs_completed", "uptime_bonus", "penalties", "decay"):

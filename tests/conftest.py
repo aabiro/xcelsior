@@ -34,3 +34,31 @@ os.environ.setdefault("XCELSIOR_ALLOW_UNAUTH_AGENT", "1")
 
 # Exclude live E2E test scripts from pytest collection
 collect_ignore = ["test_e2e_live.py"]
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _pin_test_auth_env(monkeypatch):
+    """Keep auth flags consistent when tests temporarily rewrite os.environ."""
+    import routes._deps as deps
+
+    monkeypatch.setenv("XCELSIOR_ENV", "test")
+    monkeypatch.setattr(deps, "XCELSIOR_ENV", "test")
+    monkeypatch.setattr(deps, "AUTH_REQUIRED", False)
+
+
+@pytest.fixture(autouse=True)
+def _clear_module_test_client_cookies():
+    """Prevent session cookies from one test bleeding into the next (shared TestClient)."""
+    import sys
+
+    yield
+    for mod in sys.modules.values():
+        client = getattr(mod, "client", None)
+        if client is not None and hasattr(client, "cookies"):
+            try:
+                client.cookies.clear()
+            except Exception:
+                pass

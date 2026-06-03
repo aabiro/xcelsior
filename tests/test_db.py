@@ -471,7 +471,22 @@ class TestPgListenDsnSelection:
 
         captured = {}
 
+        class _FakeSql:
+            @staticmethod
+            def SQL(_template):
+                class _Query:
+                    def format(self, _ident):
+                        return "LISTEN xcelsior_events"
+
+                return _Query()
+
+            class Identifier:
+                def __init__(self, name):
+                    self.name = name
+
         class FakePsycopg:
+            sql = _FakeSql
+
             @staticmethod
             def connect(dsn, autocommit):
                 captured["dsn"] = dsn
@@ -505,7 +520,22 @@ class TestPgListenDsnSelection:
 
         captured = {}
 
+        class _FakeSql:
+            @staticmethod
+            def SQL(_template):
+                class _Query:
+                    def format(self, _ident):
+                        return "LISTEN xcelsior_events"
+
+                return _Query()
+
+            class Identifier:
+                def __init__(self, name):
+                    self.name = name
+
         class FakePsycopg:
+            sql = _FakeSql
+
             @staticmethod
             def connect(dsn, autocommit):
                 captured["dsn"] = dsn

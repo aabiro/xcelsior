@@ -712,12 +712,10 @@ class TestPersistentAuthEndpoints:
             json={"name": "persist-key"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert r.status_code == 200
-        key_val = r.json()["key"]
-        # Key should be in persistent store
-        stored = UserStore.get_api_key(key_val)
-        assert stored is not None
-        assert stored["name"] == "persist-key"
+        assert r.status_code == 410
+        body = r.json()
+        msg = body.get("detail") or (body.get("error") or {}).get("message") or ""
+        assert "permanently disabled" in msg
 
 
 # ── SLA Enforcement ───────────────────────────────────────────────────

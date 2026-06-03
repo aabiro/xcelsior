@@ -985,33 +985,33 @@ class TestInjectSshKeys:
         mkdir_calls = [c for c in run_calls if "mkdir" in str(c[1])]
         assert len(mkdir_calls) >= 1
 
-    def test_no_keys_returns_early(self, monkeypatch):
-        """When no keys exist, no docker exec calls are made."""
+    def test_no_keys_still_bootstraps_sshd(self, monkeypatch):
+        """With no keys, password/SSH bootstrap still runs (no authorized_keys write)."""
         body = {"ok": True, "keys": []}
         calls = self._patch_inject(monkeypatch, resp_body=body)
         worker_agent._inject_ssh_keys("job-2", "xcl-job-2")
 
         run_calls = [c for c in calls if c[0] == "run"]
-        assert len(run_calls) == 0
+        assert len(run_calls) >= 1
+        auth_key_writes = [c for c in run_calls if "authorized_keys" in str(c[1])]
+        assert len(auth_key_writes) == 0
 
     def test_api_error_is_nonfatal(self, monkeypatch):
         """When the API returns an error, the function doesn't crash."""
         calls = self._patch_inject(monkeypatch, resp_status=500)
-        # Should not raise
         worker_agent._inject_ssh_keys("job-3", "xcl-job-3")
+        assert any(c[0] == "get" for c in calls)
 
-        run_calls = [c for c in calls if c[0] == "run"]
-        assert len(run_calls) == 0
-
-    def test_no_sshd_still_injects_keys(self, monkeypatch):
-        """When sshd is not found, keys are still injected but sshd is not started."""
+    def test_no_sshd_installs_and_injects_keys(self, monkeypatch):
+        """When sshd is missing, keys are injected and openssh-server install is attempted."""
         calls = self._patch_inject(monkeypatch, sshd_found=False)
         worker_agent._inject_ssh_keys("job-4", "xcl-job-4")
 
         run_calls = [c for c in calls if c[0] == "run"]
-        # Should have: mkdir, chmod, write keys, which sshd (returns 1) — no further sshd calls
-        sshd_start = [c for c in run_calls if "/usr/sbin/sshd" in str(c[1])]
-        assert len(sshd_start) == 0
+        auth_key_writes = [c for c in run_calls if "authorized_keys" in str(c[1])]
+        assert len(auth_key_writes) >= 1
+        install_calls = [c for c in run_calls if "openssh-server" in str(c[1])]
+        assert len(install_calls) >= 1
 
     def test_network_failure_is_nonfatal(self, monkeypatch):
         """When the API request raises an exception, doesn't crash."""

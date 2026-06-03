@@ -76,7 +76,8 @@ def _register_host(
     if versions is not None:
         data["versions"] = versions
     data.update(extra)
-    return client.put("/host", json=data)
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return client.put("/host", json=data, headers={"Authorization": f"Bearer {token}"})
 
 
 @pytest.fixture(autouse=True)
