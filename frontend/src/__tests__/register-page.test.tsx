@@ -49,6 +49,11 @@ const translations: Record<string, string> = {
   "auth.register_button": "Create Account",
   "auth.reset_mismatch": "Passwords do not match",
   "auth.pw_policy_error": "Please satisfy all password requirements.",
+  "auth.register_agree_prefix": "I agree to the",
+  "auth.register_agree_and": "and",
+  "auth.register_agree_error": "You must agree to the Terms and Privacy Policy.",
+  "footer.terms": "Terms of Service",
+  "footer.privacy": "Privacy Policy",
 };
 
 vi.mock("@/lib/api", () => apiMocks);
@@ -94,8 +99,10 @@ describe("RegisterPage password requirements", () => {
     apiMocks.register.mockResolvedValue({ email_verification_required: true });
   });
 
-  it("updates the live checklist and only enables submit when the password is valid and confirmed", async () => {
-    const user = userEvent.setup();
+  it(
+    "updates the live checklist and only enables submit when the password is valid and confirmed",
+    async () => {
+    const user = userEvent.setup({ delay: null });
 
     render(<RegisterPage />);
 
@@ -128,6 +135,12 @@ describe("RegisterPage password requirements", () => {
     await user.type(confirmInput, "StrongPass123!");
 
     expect(matchRequirement).toHaveAttribute("data-satisfied", "true");
+    expect(submitButton).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: /agree/i }));
+
     expect(submitButton).toBeEnabled();
-  });
+  },
+    15000,
+  );
 });
