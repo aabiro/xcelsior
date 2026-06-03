@@ -559,12 +559,12 @@ def _get_current_user(request: Request) -> dict | None:
 
 
 def _require_auth(request: Request) -> dict:
+    user = _get_current_user(request)
+    if user:
+        return user
     if not AUTH_REQUIRED:
         return {"email": "anonymous", "user_id": "anonymous", "role": "admin", "is_admin": True}
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Authentication required")
-    return user
+    raise HTTPException(401, "Authentication required")
 
 
 def _require_admin(request: Request) -> dict:

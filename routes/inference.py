@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from routes._deps import (
     _get_current_user,
+    _is_platform_admin,
     _require_auth,
     broadcast_sse,
     otel_span,
@@ -28,6 +29,12 @@ from inference_store import (
 from inference import get_inference_engine
 
 router = APIRouter()
+
+
+def _require_inference_endpoint_access(user: dict, ep: dict) -> None:
+    owner_id = user.get("user_id", user.get("email", ""))
+    if ep.get("owner_id") != owner_id and not _is_platform_admin(user):
+        raise HTTPException(403, "Forbidden")
 
 
 # ── Model: InferenceRequest ──
@@ -442,6 +449,7 @@ def api_inference_get_endpoint(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     return {"ok": True, "endpoint": ep}
 
 
@@ -455,6 +463,7 @@ def api_inference_endpoint_health(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     health = ie.get_endpoint_health(endpoint_id)
     return {"ok": True, "health": health}
 
@@ -469,6 +478,7 @@ def api_inference_endpoint_usage(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     usage = ie.get_endpoint_usage(endpoint_id)
     return {"ok": True, "usage": usage}
 
@@ -480,6 +490,10 @@ def api_inference_delete_endpoint(endpoint_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     ie = get_inference_engine()
+    ep = ie.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     ie.delete_endpoint(endpoint_id)
     return {"ok": True}
 

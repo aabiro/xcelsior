@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from routes._deps import (
     _get_current_user,
+    _is_platform_admin,
     broadcast_sse,
     log,
     otel_span,
@@ -16,6 +17,24 @@ from stripe_connect import get_stripe_manager
 from reputation import VerificationType, get_reputation_engine
 
 router = APIRouter()
+
+
+def _require_provider_access(request: Request, provider_id: str) -> dict:
+    """Authn + ownership guard for provider-scoped routes."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    if _is_platform_admin(user):
+        return user
+    mgr = get_stripe_manager()
+    provider = mgr.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(404, f"Provider {provider_id} not found")
+    owned = {str(user.get(k) or "").strip() for k in ("provider_id", "email", "customer_id")}
+    owned.discard("")
+    if provider_id not in owned and str(provider.get("email") or "").strip() not in owned:
+        raise HTTPException(403, "Forbidden")
+    return user
 
 
 # ── Model: ProviderRegisterRequest ──
@@ -112,9 +131,7 @@ def api_abandon_onboarding(provider_id: str, request: Request):
     """
     from routes._deps import _require_scope
 
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Unauthorized")
+    user = _require_provider_access(request, provider_id)
     _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
     result = mgr.mark_abandoned(provider_id)
@@ -130,14 +147,10 @@ def api_resume_onboarding(provider_id: str, request: Request):
     """
     from routes._deps import _require_scope
 
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Unauthorized")
+    user = _require_provider_access(request, provider_id)
     _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
-    if not provider:
-        raise HTTPException(404, f"Provider {provider_id} not found")
     if provider.get("status") == "active":
         return {"ok": True, "status": "active", "message": "Provider is already fully onboarded"}
     # Re-call create_provider_account which handles re-generating the onboarding link
@@ -160,11 +173,10 @@ def api_resume_onboarding(provider_id: str, request: Request):
 @router.get("/api/providers/{provider_id}", tags=["Providers"])
 def api_get_provider(provider_id: str, request: Request):
     """Get provider account details including company info and payout status."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "providers:read")
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:read")
     mgr = get_stripe_manager()
     provider = mgr.get_provider(provider_id)
     if not provider:
@@ -197,15 +209,11 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, 
     The file itself should first be uploaded via POST /api/artifacts/upload
     with artifact_type='incorporation_doc'. Then pass the resulting file_id here.
     """
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "providers:write")
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
     mgr = get_stripe_manager()
-    provider = mgr.get_provider(provider_id)
-    if not provider:
-        raise HTTPException(404, f"Provider {provider_id} not found")
     result = mgr.upload_incorporation_file(provider_id, req.file_id)
 
     # Also add 'incorporation' verification to reputation
@@ -221,11 +229,10 @@ def api_upload_incorporation(provider_id: str, req: IncorporationUploadRequest, 
 @router.get("/api/providers/{provider_id}/earnings", tags=["Providers"])
 def api_provider_earnings(provider_id: str, request: Request):
     """Get aggregate earnings and payout history for a provider."""
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "providers:read")
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:read")
     mgr = get_stripe_manager()
     earnings = mgr.get_provider_earnings(provider_id)
     payouts = mgr.get_provider_payouts(provider_id, limit=20)
@@ -239,11 +246,10 @@ def api_provider_payout(provider_id: str, request: Request, job_id: str = "", to
     Applies province-specific GST/HST. If Stripe is configured,
     creates a real Transfer to the provider's connected account.
     """
-    from routes._deps import _require_scope, _get_current_user
+    from routes._deps import _require_scope
 
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "providers:write")
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
     if not job_id or total_cad <= 0:
         raise HTTPException(400, "job_id and total_cad (>0) required")
     mgr = get_stripe_manager()

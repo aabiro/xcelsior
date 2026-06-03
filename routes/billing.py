@@ -652,13 +652,17 @@ class RefundRequest(BaseModel):
 
 
 @router.post("/api/billing/refund", tags=["Billing"])
-def api_process_refund(req: RefundRequest):
+def api_process_refund(req: RefundRequest, request: Request):
     """Process a refund for a failed job.
 
     From REPORT_FEATURE_1.md:
     - Hardware error → full refund
     - User OOM (exit 137) → zero refund
     """
+    from routes.instances import _check_job_access
+
+    user = _require_auth(request)
+    _check_job_access(user, req.job_id)
     be = get_billing_engine()
     result = be.process_refund(req.job_id, req.exit_code, req.failure_reason)
     return {"ok": True, **result}
@@ -673,8 +677,9 @@ class CryptoDepositRequest(BaseModel):
 
 
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
-def api_crypto_deposit(req: CryptoDepositRequest):
+def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
     """Create a BTC deposit request. Returns address, amount, and QR data."""
+    _require_customer_access(request, req.customer_id)
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
     service_status = _btc_mod.get_service_status()
@@ -695,13 +700,14 @@ def api_crypto_deposit(req: CryptoDepositRequest):
 
 
 @router.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
-def api_crypto_deposit_status(deposit_id: str):
+def api_crypto_deposit_status(deposit_id: str, request: Request):
     """Poll deposit confirmation status."""
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
     dep = _btc_mod.get_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, dep["customer_id"])
     return {"ok": True, **dep}
 
 
@@ -718,10 +724,14 @@ def api_crypto_rate():
 
 
 @router.post("/api/billing/crypto/refresh/{deposit_id}", tags=["Billing"])
-def api_crypto_refresh(deposit_id: str):
+def api_crypto_refresh(deposit_id: str, request: Request):
     """Refresh an expired deposit with a new BTC/CAD rate."""
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
+    existing = _btc_mod.get_deposit(deposit_id)
+    if not existing:
+        raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, existing["customer_id"])
     dep = _btc_mod.refresh_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
@@ -792,6 +802,7 @@ def api_ln_check_deposit(deposit_id: str, request: Request):
     dep = _ln_mod.check_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, dep.get("customer_id", ""))
     return {"ok": True, **dep}
 
 
