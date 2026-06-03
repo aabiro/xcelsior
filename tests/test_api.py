@@ -109,6 +109,35 @@ def _submit_job(name="llama3", vram=16, **extra):
     return client.post("/instance", json=data)
 
 
+def _register_user(
+    email: str,
+    password: str = "testpass123",
+    *,
+    is_admin: bool = False,
+    role: str | None = None,
+) -> tuple[str, dict]:
+    """Register a user and return (access_token, user dict)."""
+    from db import UserStore
+
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": email, "password": password},
+    ).json()
+    token = reg["access_token"]
+    updates: dict = {}
+    if is_admin:
+        updates["is_admin"] = 1
+    if role:
+        updates["role"] = role
+    if updates:
+        UserStore.update_user(email, updates)
+    return token, reg.get("user", {})
+
+
+def _bearer(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
 @pytest.fixture(autouse=True)
 def clean_data(monkeypatch):
     import api as api_mod
@@ -532,10 +561,15 @@ class TestJobEndpoints:
         assert r.status_code == 404
 
     def test_update_job_status(self):
-        """PATCH /job/{id}/status transitions correctly."""
+        """PATCH /instance/{id} status updates (worker/platform token)."""
         resp = _submit_job("test", 8)
         job_id = resp.json()["instance"]["job_id"]
-        r = client.patch(f"/instance/{job_id}", json={"status": "completed"})
+        token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+        r = client.patch(
+            f"/instance/{job_id}",
+            json={"status": "completed"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert r.status_code == 200
         assert r.json()["status"] == "completed"
 
@@ -655,6 +689,7 @@ class TestAuth:
 class TestTelemetry:
     def test_telemetry_push_pull(self):
         """POST telemetry → GET returns it."""
+        token, _ = _register_user("telemetry-user@xcelsior.ca")
         client.post(
             "/agent/telemetry",
             json={
@@ -663,17 +698,19 @@ class TestTelemetry:
                 "metrics": {"utilization": 85, "temp": 72, "memory_errors": 0},
             },
         )
-        r = client.get("/agent/telemetry/h1")
+        r = client.get("/agent/telemetry/h1", headers=_bearer(token))
         assert r.status_code == 200
         assert r.json()["metrics"]["utilization"] == 85
 
     def test_telemetry_missing_host(self):
         """GET telemetry for unknown host → 404."""
-        r = client.get("/agent/telemetry/nonexistent")
+        token, _ = _register_user("telemetry-missing@xcelsior.ca")
+        r = client.get("/agent/telemetry/nonexistent", headers=_bearer(token))
         assert r.status_code == 404
 
     def test_telemetry_all(self):
         """GET /api/telemetry/all returns all host telemetry."""
+        admin_token, _ = _register_user("telemetry-admin@xcelsior.ca", is_admin=True)
         client.post(
             "/agent/telemetry",
             json={
@@ -688,7 +725,7 @@ class TestTelemetry:
                 "metrics": {"utilization": 90},
             },
         )
-        r = client.get("/api/telemetry/all")
+        r = client.get("/api/telemetry/all", headers=_bearer(admin_token))
         assert r.status_code == 200
         assert r.json()["count"] == 2
 
@@ -696,12 +733,13 @@ class TestTelemetry:
         """Telemetry older than 30s is marked stale."""
         from routes.agent import _host_telemetry
 
+        token, _ = _register_user("telemetry-stale@xcelsior.ca")
         _host_telemetry["h-stale"] = {
             "timestamp": time.time() - 60,
             "metrics": {"utilization": 10},
             "received_at": time.time() - 60,
         }
-        r = client.get("/agent/telemetry/h-stale")
+        r = client.get("/agent/telemetry/h-stale", headers=_bearer(token))
         assert r.json()["stale"] is True
 
 
@@ -828,7 +866,7 @@ class TestPricing:
                 "commitment_type": "5_year",
             },
         )
-        assert r.status_code == 400
+        assert r.status_code == 422
 
 
 class TestBillingEndpoints:
@@ -1127,7 +1165,11 @@ class TestAgentEndpoints:
 
     def test_agent_preemption_schedule(self):
         """POST /agent/preempt/{host_id}/{job_id} schedules preemption."""
-        r = client.post("/agent/preempt/h1/job-abc")
+        admin_token, _ = _register_user("preempt-admin@xcelsior.ca", is_admin=True)
+        r = client.post(
+            "/agent/preempt/h1/job-abc",
+            headers=_bearer(admin_token),
+        )
         assert r.status_code == 200
         # Check it's retrievable
         r2 = client.get("/agent/preempt/h1")
@@ -1888,7 +1930,7 @@ class TestUserAuth:
         r = client.post(
             "/api/auth/register", json={"email": "shortpw@xcelsior.ca", "password": "short"}
         )
-        assert r.status_code == 400
+        assert r.status_code == 422
 
     def test_login_success(self):
         """POST /api/auth/login with valid credentials returns token."""
@@ -2077,117 +2119,66 @@ class TestPlatformAdminSecurity:
         r = client.get("/api/admin/stats", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
 
-    def test_slurm_profiles_require_provider_or_admin(self, monkeypatch):
+    def test_slurm_profiles_require_admin(self, monkeypatch):
         import routes._deps as _deps_mod
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
-        reg = client.post(
-            "/api/auth/register",
-            json={
-                "email": "hpcsubmitter@xcelsior.ca",
-                "password": "testpass123",
-                "role": "submitter",
-            },
-        ).json()
-        token = reg["access_token"]
-
-        r = client.get("/api/slurm/profiles", headers={"Authorization": f"Bearer {token}"})
+        submitter_token, _ = _register_user("hpcsubmitter@xcelsior.ca", role="submitter")
+        r = client.get("/api/slurm/profiles", headers=_bearer(submitter_token))
         assert r.status_code == 403
 
-        reg_provider = client.post(
-            "/api/auth/register",
-            json={
-                "email": "hpcprovider@xcelsior.ca",
-                "password": "testpass123",
-                "role": "provider",
-            },
-        ).json()
-        provider_token = reg_provider["access_token"]
-        r2 = client.get(
-            "/api/slurm/profiles", headers={"Authorization": f"Bearer {provider_token}"}
-        )
-        assert r2.status_code == 200
+        provider_token, _ = _register_user("hpcprovider@xcelsior.ca", role="provider")
+        r2 = client.get("/api/slurm/profiles", headers=_bearer(provider_token))
+        assert r2.status_code == 403
+
+        admin_token, _ = _register_user("hpcadmin@xcelsior.ca", is_admin=True)
+        r3 = client.get("/api/slurm/profiles", headers=_bearer(admin_token))
+        assert r3.status_code == 200
 
 
 class TestApiKeys:
-    """Tests for /api/keys/* endpoints."""
+    """Legacy /api/keys/* endpoints are permanently disabled (410 Gone)."""
 
     def test_generate_and_list_keys(self):
-        """Generate an API key and verify it appears in the list."""
-        reg = client.post(
-            "/api/auth/register", json={"email": "keysuser@xcelsior.ca", "password": "testpass123"}
-        ).json()
-        token = reg["access_token"]
+        """Key generation and listing return 410 with deprecation header."""
+        token, _ = _register_user("keysuser@xcelsior.ca")
 
-        # Generate key
         r = client.post(
             "/api/keys/generate",
             json={"name": "test-key"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_bearer(token),
         )
-        assert r.status_code == 200
-        d = r.json()
-        assert d["ok"] is True
-        assert d["name"] == "test-key"
-        assert d["key"].startswith("xcel_")
-        assert r.headers.get("Deprecation") == "true"
+        assert r.status_code == 410
 
-        # List keys
-        r2 = client.get("/api/keys", headers={"Authorization": f"Bearer {token}"})
-        assert r2.status_code == 200
-        assert r2.headers.get("Deprecation") == "true"
-        keys = r2.json()["keys"]
-        assert len(keys) >= 1
-        assert keys[0]["name"] == "test-key"
+        r2 = client.get("/api/keys", headers=_bearer(token))
+        assert r2.status_code == 410
 
     def test_api_key_as_bearer(self):
-        """API keys are deprecated and cannot be used for interactive self-service endpoints."""
-        reg = client.post(
-            "/api/auth/register",
-            json={"email": "apikeyauth@xcelsior.ca", "password": "testpass123"},
-        ).json()
-        token = reg["access_token"]
+        """Legacy API keys cannot be generated or used as bearer tokens."""
+        token, _ = _register_user("apikeyauth@xcelsior.ca")
 
-        # Generate API key
-        key = client.post(
-            "/api/keys/generate",
-            json={"name": "auth-key"},
-            headers={"Authorization": f"Bearer {token}"},
-        ).json()["key"]
-
-        # Use API key to access profile
-        r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {key}"})
-        assert r.status_code == 403
-
-    def test_revoke_key(self):
-        """DELETE /api/keys/{preview} revokes the key."""
-        reg = client.post(
-            "/api/auth/register", json={"email": "revokekey@xcelsior.ca", "password": "testpass123"}
-        ).json()
-        token = reg["access_token"]
-
-        # Generate and get preview
         gen = client.post(
             "/api/keys/generate",
-            json={"name": "revoke-me"},
-            headers={"Authorization": f"Bearer {token}"},
-        ).json()
-        preview = gen["preview"]
+            json={"name": "auth-key"},
+            headers=_bearer(token),
+        )
+        assert gen.status_code == 410
 
-        # Revoke
-        r = client.delete(f"/api/keys/{preview}", headers={"Authorization": f"Bearer {token}"})
-        assert r.status_code == 200
-        assert r.headers.get("Deprecation") == "true"
+        r = client.get("/api/auth/me", headers={"Authorization": "Bearer xcel_disabled"})
+        assert r.status_code == 401
 
-        # Key should no longer work
-        r2 = client.get("/api/auth/me", headers={"Authorization": f"Bearer {gen['key']}"})
-        assert r2.status_code == 401
+    def test_revoke_key(self):
+        """DELETE /api/keys/{preview} returns 410."""
+        token, _ = _register_user("revokekey@xcelsior.ca")
+
+        r = client.delete("/api/keys/abcd1234", headers=_bearer(token))
+        assert r.status_code == 410
 
     def test_generate_key_unauthenticated(self):
-        """POST /api/keys/generate without auth returns 401."""
+        """POST /api/keys/generate without auth still returns 410 (endpoint removed)."""
         fresh = TestClient(app, cookies={})
         r = fresh.post("/api/keys/generate", json={"name": "nope"})
-        assert r.status_code == 401
+        assert r.status_code == 410
 
 
 # ═══════════════════════════════════════════════════════════════════════

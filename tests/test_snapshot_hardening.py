@@ -42,9 +42,8 @@ def test_b6_snapshot_rmi_on_push_failure():
     """Push-failure path must `docker rmi` the local tag to prevent disk leak."""
     src = SRC_WORKER.read_text()
     # Find the snapshot_container branch
-    idx = src.find('"snapshot_container"')
+    idx = src.find('elif name == "snapshot_container"')
     assert idx >= 0
-    # Look at the next ~4000 chars (the handler body)
     body = src[idx : idx + 6000]
     assert "push failed" in body.lower(), "B7 distinct push-failure message missing"
     assert '"docker", "rmi"' in body, "B6 docker rmi on push-fail missing"
@@ -52,7 +51,7 @@ def test_b6_snapshot_rmi_on_push_failure():
 
 def test_b7_snapshot_distinguishes_commit_vs_push_errors():
     src = SRC_WORKER.read_text()
-    idx = src.find('"snapshot_container"')
+    idx = src.find('elif name == "snapshot_container"')
     body = src[idx : idx + 6000]
     assert "commit failed" in body.lower(), "B7 distinct commit-failure message missing"
     assert "push failed" in body.lower()
@@ -66,7 +65,9 @@ def test_b8_start_container_reports_failure_to_api():
     src = SRC_WORKER.read_text()
     idx = src.find('"start_container"')
     assert idx >= 0
-    end = src.find("elif name ==", idx + 1)
+    end = src.find('elif name == "reset_container"', idx + 1)
+    if end < 0:
+        end = src.find("elif name ==", idx + 1)
     body = src[idx : end if end > 0 else idx + 4000]
     # Must revert to stopped on failure (not leave at 'running')
     assert "report_job_status" in body, "B8 missing report_job_status callback"
@@ -77,7 +78,9 @@ def test_b8_start_container_reports_failure_to_api():
 def test_b8_start_container_handles_timeout():
     src = SRC_WORKER.read_text()
     idx = src.find('"start_container"')
-    end = src.find("elif name ==", idx + 1)
+    end = src.find('elif name == "reset_container"', idx + 1)
+    if end < 0:
+        end = src.find("elif name ==", idx + 1)
     body = src[idx:end]
     # Both non-zero exit AND timeout should callback
     assert (

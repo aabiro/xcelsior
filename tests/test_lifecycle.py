@@ -490,15 +490,15 @@ class TestBillingStopInstance:
                 # We just check the function is referenced; full mock is complex
                 pass
 
-        # Structural check: stop_container_graceful is referenced in billing source
-        assert "stop_container_graceful" in _BILLING_SRC
+        # Structural check: stop enqueues pause_container (preserves container for restart)
+        assert "pause_container" in _BILLING_SRC
 
 
 class TestBillingStartInstance:
     """Unit tests for BillingEngine.start_instance."""
 
     def test_start_calls_start_stopped_container(self):
-        assert "start_stopped_container" in _BILLING_SRC
+        assert "start_container" in _BILLING_SRC
 
     def test_start_checks_wallet_balance(self):
         """start_instance must check wallet balance before starting."""
@@ -517,8 +517,8 @@ class TestBillingRestartInstance:
     """Unit tests for BillingEngine.restart_instance."""
 
     def test_restart_calls_stop_and_start_helpers(self):
-        assert "stop_container_graceful" in _BILLING_SRC
-        assert "start_stopped_container" in _BILLING_SRC
+        assert "pause_container" in _BILLING_SRC
+        assert "start_container" in _BILLING_SRC
 
     def test_restart_works_from_running_and_stopped(self):
         """Source must handle both 'running' and 'stopped' input states."""
@@ -672,10 +672,9 @@ class TestLifecycleRoutes:
 
     def test_endpoints_check_job_ownership(self):
         """Ownership check: user can only act on their own instances."""
-        assert "Not authorized to stop" in _ROUTES_SRC
-        assert "Not authorized to start" in _ROUTES_SRC
-        assert "Not authorized to restart" in _ROUTES_SRC
-        assert "Not authorized to terminate" in _ROUTES_SRC
+        assert "Not authorized to {action}" in _ROUTES_SRC
+        assert "Not authorized to restart this instance" in _ROUTES_SRC
+        assert "Not authorized to terminate this instance" in _ROUTES_SRC
 
     def test_stop_broadcasts_sse_event(self):
         assert "instance_stopped" in _ROUTES_SRC

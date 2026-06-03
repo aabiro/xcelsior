@@ -107,12 +107,10 @@ def test_owner_slug_fallback_for_empty():
     assert len(s) >= len("user-") + 8
 
 
-def test_build_image_ref_local_only_without_registry(monkeypatch):
+def test_build_image_ref_requires_registry(monkeypatch):
     monkeypatch.delenv("XCELSIOR_REGISTRY_URL", raising=False)
-    ref = _build_image_ref("alice@example.com", "my-img", "v1")
-    assert ref.startswith("xcl-")
-    assert ref.endswith(":v1")
-    assert "my-img" in ref
+    with pytest.raises(RuntimeError, match="registry_not_configured"):
+        _build_image_ref("alice@example.com", "my-img", "v1")
 
 
 def test_build_image_ref_uses_registry_when_configured(monkeypatch):

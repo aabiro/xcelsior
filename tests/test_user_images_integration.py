@@ -66,6 +66,15 @@ def _force_registry_healthy(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_snapshot_rate_limit(monkeypatch):
+    """Module import order can freeze the default limit (5); force unlimited for tests."""
+    monkeypatch.setattr(rinst, "_SNAPSHOT_RATE_LIMIT", 0)
+    rinst._SNAPSHOT_RATE_BUCKETS.clear()
+    yield
+    rinst._SNAPSHOT_RATE_BUCKETS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _stub_agent_enqueue(monkeypatch):
     """Avoid booking real agent_commands rows — return a synthetic cmd id."""
     import routes.agent as ragent

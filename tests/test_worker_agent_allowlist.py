@@ -7,7 +7,7 @@ SRC = Path(__file__).resolve().parent.parent / "worker_agent.py"
 
 def test_c7_allowlist_constant_exists():
     src = SRC.read_text()
-    assert "_AGENT_COMMAND_ALLOWED = frozenset({" in src
+    assert "_AGENT_COMMAND_ALLOWED = frozenset(" in src
 
 
 def test_c7_allowlist_covers_known_commands():
@@ -17,9 +17,11 @@ def test_c7_allowlist_covers_known_commands():
     expected = {
         "reinject_shell",
         "upgrade_agent",
+        "rollback_agent",
         "stop_container",
         "pause_container",
         "start_container",
+        "reset_container",
         "snapshot_container",
     }
     assert worker_agent._AGENT_COMMAND_ALLOWED == expected

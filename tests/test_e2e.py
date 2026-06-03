@@ -39,6 +39,11 @@ from api import app
 client = TestClient(app)
 
 
+def _platform_headers() -> dict:
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _billing_auth():
     """Register a user and return (customer_id, auth headers) for billing routes."""
     email = f"caf-e2e-{int(time.time() * 1000)}@xcelsior.ca"
@@ -261,6 +266,7 @@ class TestExportCAFCSV:
         # Register and admit host
         client.put(
             "/host",
+            headers=_platform_headers(),
             json={
                 "host_id": "caf-h1",
                 "ip": "10.0.0.60",
@@ -283,14 +289,25 @@ class TestExportCAFCSV:
                 "tier": "premium",
             },
         )
+        assert job_resp.status_code == 200, job_resp.text
         job_id = job_resp.json()["instance"]["job_id"]
 
+        worker_token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+        worker_headers = {"Authorization": f"Bearer {worker_token}"}
         client.post("/queue/process")
-        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "caf-h1"})
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "running", "host_id": "caf-h1"},
+            headers=worker_headers,
+        )
         time.sleep(1.1)
-        client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "caf-h1"})
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "completed", "host_id": "caf-h1"},
+            headers=worker_headers,
+        )
 
-        bill_resp = client.post(f"/billing/bill/{job_id}")
+        bill_resp = client.post(f"/billing/bill/{job_id}", headers=worker_headers)
         assert bill_resp.status_code == 200
 
         # Export CAF (authenticated; customer may have no line items in this smoke test)
@@ -334,6 +351,7 @@ class TestFullJobLifecycleE2E:
         # Register host
         client.put(
             "/host",
+            headers=_platform_headers(),
             json={
                 "host_id": "e2e-lc-h1",
                 "ip": "10.0.0.70",
@@ -360,16 +378,25 @@ class TestFullJobLifecycleE2E:
         assert inst["status"] in ("assigned", "running")
 
         # Run → Complete
-        client.patch(f"/instance/{job_id}", json={"status": "running", "host_id": "e2e-lc-h1"})
+        wh = _platform_headers()
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "running", "host_id": "e2e-lc-h1"},
+            headers=wh,
+        )
         time.sleep(1.1)
-        client.patch(f"/instance/{job_id}", json={"status": "completed", "host_id": "e2e-lc-h1"})
+        client.patch(
+            f"/instance/{job_id}",
+            json={"status": "completed", "host_id": "e2e-lc-h1"},
+            headers=wh,
+        )
 
         # Verify completed
         detail = client.get(f"/instance/{job_id}")
         assert detail.json()["instance"]["status"] == "completed"
 
         # Bill the job
-        bill = client.post(f"/billing/bill/{job_id}")
+        bill = client.post(f"/billing/bill/{job_id}", headers=wh)
         assert bill.status_code == 200
         assert bill.json()["bill"]["cost"] > 0
 
@@ -379,6 +406,7 @@ class TestFullJobLifecycleE2E:
         for hid, vram, cost in [("mh-1", 24, 0.50), ("mh-2", 80, 1.20), ("mh-3", 48, 0.90)]:
             client.put(
                 "/host",
+                headers=_platform_headers(),
                 json={
                     "host_id": hid,
                     "ip": "10.0.0.1",
@@ -396,10 +424,13 @@ class TestFullJobLifecycleE2E:
             json={
                 "name": "big-job",
                 "vram_needed_gb": 40,
+                "interactive": False,
             },
         )
+        assert job_resp.status_code == 200, job_resp.text
         inst = job_resp.json()["instance"]
         job_id = inst["job_id"]
+        assert inst["vram_needed_gb"] == 40
         # auto queue processing assigns during submit
         assert inst["status"] in ("assigned", "running")
         assert inst.get("host_id") in ("mh-2", "mh-3")
@@ -409,6 +440,7 @@ class TestFullJobLifecycleE2E:
         _reset_state()
         client.put(
             "/host",
+            headers=_platform_headers(),
             json={
                 "host_id": "unadmitted",
                 "ip": "10.0.0.2",
