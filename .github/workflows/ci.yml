@@ -84,7 +84,9 @@ jobs:
       XCELSIOR_API_TOKEN: ""
       XCELSIOR_DB_BACKEND: sqlite
       XCELSIOR_PG_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
-      PYTEST_ADDOPTS: "--timeout=30"
+      XCELSIOR_BG_TASKS: "false"
+      # Per-test cap; pyproject also sets timeout=120. Avoid 30s — CI PG init + API import exceed it.
+      PYTEST_ADDOPTS: "--timeout=120"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
