@@ -64,6 +64,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: lint
     services:
       postgres:
@@ -83,6 +84,7 @@ jobs:
       XCELSIOR_API_TOKEN: ""
       XCELSIOR_DB_BACKEND: sqlite
       XCELSIOR_PG_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
+      PYTEST_ADDOPTS: "--timeout=30"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
