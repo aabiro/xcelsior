@@ -354,6 +354,58 @@ def _is_platform_admin(user: dict | None) -> bool:
     return _admin_flag(user.get("is_admin")) == 1 or user.get("role") == "admin"
 
 
+def _caller_owner_ids(user: dict) -> set[str]:
+    """Identifiers that may match resource owner fields (customer, user, email, provider)."""
+    owned: set[str] = set()
+    for key in ("customer_id", "user_id", "email", "provider_id"):
+        v = str(user.get(key) or "").strip()
+        if v:
+            owned.add(v)
+    return owned
+
+
+def _is_platform_worker(user: dict) -> bool:
+    return _is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")
+
+
+def _require_platform_worker(user: dict) -> None:
+    if not _is_platform_worker(user):
+        raise HTTPException(403, "Forbidden")
+
+
+def _require_entity_event_access(user: dict, entity_type: str, entity_id: str) -> None:
+    """Ownership guard for GET /api/events/{entity_type}/{entity_id}."""
+    if _is_platform_admin(user):
+        return
+    et = (entity_type or "").strip().lower()
+    eid = (entity_id or "").strip()
+    if et in ("job", "instance"):
+        from routes.instances import _check_job_access
+
+        _check_job_access(user, eid)
+        return
+    if et == "host":
+        if eid in _caller_owner_ids(user):
+            return
+        raise HTTPException(403, "Forbidden")
+    raise HTTPException(403, "Forbidden")
+
+
+def _require_inference_job_access(user: dict, job_id: str) -> None:
+    if _is_platform_admin(user):
+        return
+    from inference_store import get_inference_job
+    from routes.instances import _check_job_access
+
+    meta = get_inference_job(job_id)
+    if meta:
+        cid = str(meta.get("customer_id") or "").strip()
+        if cid and cid not in _caller_owner_ids(user):
+            raise HTTPException(403, "Forbidden")
+        return
+    _check_job_access(user, job_id)
+
+
 def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     merged = dict(base or {})
     if full_user:

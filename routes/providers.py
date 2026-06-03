@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from routes._deps import (
     _get_current_user,
     _is_platform_admin,
+    _require_auth,
+    _require_scope,
     broadcast_sse,
     log,
     otel_span,
@@ -71,11 +73,17 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     3. Credentialing (GPU/bandwidth checked at admission)
     4. Tax Compliance (GST/HST auto-collected per province)
     """
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "providers:write")
+    user = _require_auth(request)
+    _require_scope(user, "providers:write")
+    caller_email = str(user.get("email") or "").strip().lower()
+    if not caller_email:
+        raise HTTPException(401, "Not authenticated")
+    if (
+        req.email.strip().lower() != caller_email
+        and not _is_platform_admin(user)
+    ):
+        raise HTTPException(403, "You can only register a provider for your own email")
+    register_email = caller_email if not _is_platform_admin(user) else req.email.strip()
     if req.provider_type == "company" and not req.corporation_name:
         raise HTTPException(400, "corporation_name required for company providers")
 
@@ -83,7 +91,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     try:
         result = mgr.create_provider_account(
             provider_id=req.provider_id,
-            email=req.email,
+            email=register_email,
             provider_type=req.provider_type,
             corporation_name=req.corporation_name,
             business_number=req.business_number,
@@ -99,7 +107,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     # Link provider_id to user account and promote role
     from db import UserStore
 
-    UserStore.update_user(req.email, {"provider_id": req.provider_id, "role": "provider"})
+    UserStore.update_user(register_email, {"provider_id": req.provider_id, "role": "provider"})
 
     # Create initial reputation record so the provider starts with a score
     try:
@@ -188,15 +196,24 @@ def api_get_provider(provider_id: str, request: Request):
 
 @router.get("/api/providers", tags=["Providers"])
 def api_list_providers(request: Request, status: str = ""):
-    """List all provider accounts, optionally filtered by status."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "providers:read")
+    """List provider accounts visible to the caller (own account, or all for admins)."""
+    user = _require_auth(request)
+    _require_scope(user, "providers:read")
     mgr = get_stripe_manager()
-    providers = mgr.list_providers(status)
-    # Redact Stripe IDs
+    if _is_platform_admin(user):
+        providers = mgr.list_providers(status)
+    else:
+        pid = str(user.get("provider_id") or "").strip()
+        if not pid:
+            providers = []
+        else:
+            one = mgr.get_provider(pid)
+            if not one:
+                providers = []
+            elif status and one.get("status") != status:
+                providers = []
+            else:
+                providers = [one]
     for p in providers:
         p.pop("stripe_account_id", None)
     return {"ok": True, "providers": providers, "count": len(providers)}

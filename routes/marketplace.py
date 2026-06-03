@@ -5,6 +5,10 @@ from pydantic import BaseModel, Field
 
 from routes._deps import (
     _get_current_user,
+    _require_admin,
+    _require_auth,
+    _require_platform_worker,
+    _require_scope,
 )
 from marketplace import get_marketplace_engine
 from scheduler import get_marketplace, list_rig, marketplace_bill, marketplace_stats, unlist_rig
@@ -120,12 +124,9 @@ def api_get_marketplace(request: Request, active_only: bool = True):
 @router.post("/marketplace/bill/{job_id}", tags=["Marketplace"])
 def api_marketplace_bill(job_id: str, request: Request):
     """Bill a marketplace job — split between host and platform."""
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    from routes._deps import _require_scope
-
+    user = _require_auth(request)
     _require_scope(user, "marketplace:write")
+    _require_platform_worker(user)
     result = marketplace_bill(job_id)
     if not result:
         raise HTTPException(status_code=400, detail=f"Could not bill marketplace job {job_id}")
@@ -134,12 +135,8 @@ def api_marketplace_bill(job_id: str, request: Request):
 
 @router.get("/marketplace/stats", tags=["Marketplace"])
 def api_marketplace_stats(request: Request):
-    """Marketplace aggregate stats."""
-    user = _get_current_user(request) if request else None
-    if user:
-        from routes._deps import _require_scope
-
-        _require_scope(user, "marketplace:read")
+    """Marketplace aggregate stats (platform admin only)."""
+    _require_admin(request)
     return {"stats": marketplace_stats()}
 
 

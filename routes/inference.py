@@ -13,6 +13,8 @@ from routes._deps import (
     _get_current_user,
     _is_platform_admin,
     _require_auth,
+    _require_inference_job_access,
+    _require_scope,
     broadcast_sse,
     otel_span,
 )
@@ -59,11 +61,11 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     Schedules a short-lived GPU job that runs the specified model on the
     provided inputs. Returns a job_id to poll for results.
     """
-    from routes._deps import _require_scope
+    from routes.instances import _canonical_owner_id
 
     user = _require_auth(request)
     _require_scope(user, "inference:write")
-    customer_id = user.get("customer_id", user.get("email", "anon"))
+    customer_id = _canonical_owner_id(user) or "anon"
     inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
 
     # Wallet pre-flight
@@ -99,11 +101,9 @@ def api_inference_submit(req: InferenceRequest, request: Request):
 @router.get("/api/inference/{job_id}", tags=["Inference"])
 def api_inference_result(job_id: str, request: Request):
     """Get inference results for a submitted request."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "inference:read")
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
+    _require_inference_job_access(user, job_id)
     result = get_inference_result(job_id)
     if result:
         return {"ok": True, "status": "completed", **result}
@@ -130,11 +130,8 @@ def api_inference_result(job_id: str, request: Request):
 @router.get("/api/inference/models/available", tags=["Inference"])
 def api_inference_models(request: Request):
     """List available inference models and their resource requirements."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "inference:read")
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
     models = [
         {
             "name": "distilbert-base-uncased-finetuned-sst-2-english",
@@ -186,8 +183,11 @@ class InferenceResultCallback(BaseModel):
 
 
 @router.post("/api/inference/{job_id}/result", tags=["Inference"])
-def api_inference_post_result(job_id: str, body: InferenceResultCallback):
+def api_inference_post_result(job_id: str, body: InferenceResultCallback, request: Request):
     """Worker callback: post inference results. Internal use."""
+    from routes.instances import _require_worker_status_update
+
+    _require_worker_status_update(request)
     store_inference_result(
         job_id=job_id,
         outputs=body.outputs,

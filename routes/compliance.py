@@ -7,6 +7,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _require_admin,
+    _require_auth,
+    _require_scope,
     log,
 )
 from db import UserStore
@@ -34,11 +37,7 @@ def api_gst_threshold_status(request: Request):
     - `threshold_cad`: the $30,000 statutory limit
     - `quarters_assessed`: number of quarters with data
     """
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "compliance:read")
+    _require_admin(request)
     billing = get_billing_engine()
     now = time.time()
     # Look back 4 quarters (~365 days)
