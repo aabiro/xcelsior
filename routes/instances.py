@@ -239,9 +239,7 @@ def _check_job_access(user: dict, job_id: str):
 def _require_worker_status_update(request: Request) -> dict:
     """PATCH /instance/{job_id} is for worker agents (API token), not end users."""
     user = _get_current_user(request)
-    if user and (
-        _is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")
-    ):
+    if user and (_is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")):
         return user
     if os.environ.get("XCELSIOR_ENV", "").lower() == "test":
         return _require_auth(request)

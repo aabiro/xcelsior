@@ -78,10 +78,7 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     caller_email = str(user.get("email") or "").strip().lower()
     if not caller_email:
         raise HTTPException(401, "Not authenticated")
-    if (
-        req.email.strip().lower() != caller_email
-        and not _is_platform_admin(user)
-    ):
+    if req.email.strip().lower() != caller_email and not _is_platform_admin(user):
         raise HTTPException(403, "You can only register a provider for your own email")
     register_email = caller_email if not _is_platform_admin(user) else req.email.strip()
     if req.provider_type == "company" and not req.corporation_name:

@@ -237,9 +237,7 @@ class TestExportCAFCSV:
 
     def test_caf_csv_export_returns_csv(self):
         customer_id, headers = _billing_auth()
-        resp = client.get(
-            f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers
-        )
+        resp = client.get(f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers)
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
 
@@ -253,9 +251,7 @@ class TestExportCAFCSV:
 
     def test_caf_csv_has_content_disposition(self):
         customer_id, headers = _billing_auth()
-        resp = client.get(
-            f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers
-        )
+        resp = client.get(f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers)
         assert "content-disposition" in resp.headers
         assert "attachment" in resp.headers["content-disposition"]
         assert "caf" in resp.headers["content-disposition"]
