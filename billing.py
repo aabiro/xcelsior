@@ -1688,9 +1688,24 @@ class BillingEngine:
         if not STRIPE_ENABLED or not _stripe_mod:
             raise RuntimeError("Stripe is not configured")
 
+        wallet = self.get_wallet(customer_id)
+        stripe_customer_id = (wallet.get("stripe_customer_id") or "").strip()
+
+        # Verify the payment method belongs to this customer BEFORE detaching.
+        # Stripe's detach() works on any pm_ id regardless of owner, so without
+        # this check a user could detach another customer's card by id (IDOR).
+        # retrieve() also raises for unknown ids — convert to a clean ValueError
+        # (404 at the route) instead of letting it bubble up as a 500.
+        try:
+            pm = _stripe_mod.PaymentMethod.retrieve(payment_method_id)
+        except Exception as e:
+            raise ValueError("Payment method not found") from e
+        pm_customer = getattr(pm, "customer", None)
+        if not stripe_customer_id or pm_customer != stripe_customer_id:
+            raise ValueError("Payment method not found")
+
         _stripe_mod.PaymentMethod.detach(payment_method_id)
 
-        wallet = self.get_wallet(customer_id)
         if (wallet.get("stripe_payment_method_id") or "").strip() == payment_method_id:
             with self._conn() as conn:
                 conn.execute(
