@@ -14,7 +14,7 @@ import os
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional, cast
 
 log = logging.getLogger("xcelsior.marketplace")
 
@@ -184,7 +184,7 @@ class MarketplaceEngine:
 
         with self._conn() as conn:
             rows = conn.execute(
-                f"SELECT * FROM gpu_offers WHERE {where} ORDER BY {order} LIMIT %s",
+                cast(Any, f"SELECT * FROM gpu_offers WHERE {where} ORDER BY {order} LIMIT %s"),
                 params,
             ).fetchall()
             return [dict(r) for r in rows]

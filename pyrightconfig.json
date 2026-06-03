@@ -21,6 +21,8 @@
   "reportCallIssue": "error",
   "reportArgumentType": "error",
   "reportAttributeAccessIssue": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalSubscript": "error",
   "reportMissingImports": false,
   "reportMissingModuleSource": false
 }

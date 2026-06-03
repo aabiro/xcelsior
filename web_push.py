@@ -132,7 +132,7 @@ def _notification_payload(notification: dict[str, Any]) -> str:
     )
 
 
-def _status_code(exc: WebPushException) -> int | None:
+def _status_code(exc: Any) -> int | None:
     response = getattr(exc, "response", None)
     return getattr(response, "status_code", None)
 

@@ -1074,6 +1074,10 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             await _send_error(websocket, str(exc.detail), ws_code)
             await websocket.close(code=ws_code)
             return
+        if instance is None:
+            await _send_error(websocket, "Instance not found", 4004)
+            await websocket.close(code=4004)
+            return
 
         # Allow WS connections for any active (non-terminal) status. For
         # queued/assigned/starting we stream lifecycle log lines while polling
@@ -1100,7 +1104,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             # clean up stale jobs on its cadence.
             status_poll_max = 600
             status_poll_sec = 3.0
-            prev_status = instance.get("status")
+            prev_status = str(instance.get("status") or "pending")
             for s_attempt in range(status_poll_max):
                 await _send_status(
                     websocket,

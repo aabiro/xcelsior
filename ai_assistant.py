@@ -1821,15 +1821,21 @@ def _tool_get_sla_status(args: dict, user: dict) -> dict:
 
             placeholders = ",".join(["%s"] * len(user_host_ids))
             monthly_rows = conn.execute(
-                f"SELECT host_id, month, tier, total_seconds, downtime_seconds, incidents, "
-                f"credit_pct, credit_cad, enforced FROM sla_monthly "
-                f"WHERE host_id IN ({placeholders}) ORDER BY month DESC LIMIT 30",
+                cast(
+                    Any,
+                    f"SELECT host_id, month, tier, total_seconds, downtime_seconds, incidents, "
+                    f"credit_pct, credit_cad, enforced FROM sla_monthly "
+                    f"WHERE host_id IN ({placeholders}) ORDER BY month DESC LIMIT 30",
+                ),
                 user_host_ids,
             ).fetchall()
             violation_rows = conn.execute(
-                f"SELECT host_id, violation_type, severity, metric_value, threshold, timestamp "
-                f"FROM sla_violations WHERE host_id IN ({placeholders}) "
-                f"ORDER BY timestamp DESC LIMIT 20",
+                cast(
+                    Any,
+                    f"SELECT host_id, violation_type, severity, metric_value, threshold, timestamp "
+                    f"FROM sla_violations WHERE host_id IN ({placeholders}) "
+                    f"ORDER BY timestamp DESC LIMIT 20",
+                ),
                 user_host_ids,
             ).fetchall()
         return {

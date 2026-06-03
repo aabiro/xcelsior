@@ -7,6 +7,7 @@ import os
 import re
 import time
 import uuid
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -861,6 +862,8 @@ def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Reque
 
     _require_auth(request)
     user = _get_current_user(request)
+    if user is None:
+        raise HTTPException(401, "Authentication required")
     from scheduler import get_job, _set_job_fields
 
     job = get_job(job_id)
@@ -2150,7 +2153,7 @@ def api_list_user_images(
 
     pool = _user_images_pool()
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(cast(Any, sql), params)
         rows = cur.fetchall() or []
     items = [
         {
@@ -2283,7 +2286,7 @@ def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Reques
             raise HTTPException(403, "Not your image")
         params.append(image_id)
         cur.execute(
-            f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s",
+            cast(Any, f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s"),
             params,
         )
     try:

@@ -20,6 +20,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from typing import Any, cast
 
 log = logging.getLogger("xcelsior")
 
@@ -114,11 +115,11 @@ def sqlite_transaction():
 
 # ── PostgreSQL Backend ────────────────────────────────────────────────
 
-_pg_pool = None
+_pg_pool: Any = None
 _pg_pool_lock = threading.Lock()
 
 
-def _get_pg_pool():
+def _get_pg_pool() -> Any:
     """Lazy-initialize PostgreSQL connection pool using psycopg3.
 
     Retries with exponential backoff if PG is temporarily unavailable
@@ -203,6 +204,8 @@ def _get_pg_pool():
                     delay,
                 )
                 time.sleep(delay)
+
+    raise RuntimeError("PostgreSQL pool initialization exited retry loop unexpectedly")
 
 
 # ── GPU Pricing seed data ─────────────────────────────────────────────
@@ -1363,7 +1366,7 @@ class UserStore:
         set_clause = ", ".join(f"{k} = %s" for k in fields)
         values = list(fields.values()) + [email]
         with auth_connection() as conn:
-            conn.execute(f"UPDATE users SET {set_clause} WHERE email = %s", values)
+            conn.execute(cast(Any, f"UPDATE users SET {set_clause} WHERE email = %s"), values)
 
     @staticmethod
     def set_admin(email: str, is_admin: int) -> None:
@@ -2329,7 +2332,10 @@ class OAuthStore:
             values.append(client_id)
             where = "client_id = %s"
         with auth_connection() as conn:
-            cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
             return cur.rowcount > 0
 
     @staticmethod

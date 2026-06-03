@@ -92,7 +92,7 @@ def cmd_jobs(args):
     if not jobs:
         print("No jobs.")
         return
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Jobs")
         table.add_column("Status", style="bold")
         table.add_column("Job ID")
@@ -182,7 +182,7 @@ def cmd_hosts(args):
     if not hosts:
         print("No hosts.")
         return
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Hosts")
         table.add_column("Status", style="bold")
         table.add_column("Host ID")
@@ -393,7 +393,7 @@ def cmd_market(args):
     if not listings:
         print("No listings.")
         return
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Marketplace")
         table.add_column("Host ID")
         table.add_column("GPU")
@@ -490,7 +490,7 @@ def cmd_builds(args):
 def cmd_tiers(args):
     """List available priority tiers."""
     tiers = list_tiers()
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Priority Tiers")
         table.add_column("Tier", style="bold")
         table.add_column("Priority", justify="right")
@@ -668,7 +668,7 @@ def cmd_leaderboard(args):
 
     re = get_reputation_engine()
     lb = re.get_leaderboard(entity_type=args.type, limit=args.limit)
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title=f"Reputation Leaderboard (top {args.limit} {args.type}s)")
         table.add_column("#", justify="right")
         table.add_column("Entity ID")
@@ -696,7 +696,7 @@ def cmd_compliance(args):
     from billing import PROVINCE_TAX_RATES
     from jurisdiction import PROVINCE_COMPLIANCE, Province
 
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Province Compliance Matrix")
         table.add_column("Province")
         table.add_column("Tax Rate", justify="right")
@@ -738,7 +738,7 @@ def cmd_host_profile(args):
 
     if not args.profile:
         profiles = list_host_profiles()
-        if RICH_AVAILABLE:
+        if console is not None:
             table = Table(title="Host Profiles")
             table.add_column("Profile")
             table.add_column("GPU")
@@ -819,7 +819,7 @@ def cmd_host_accept(args):
 
     if args.json:
         print(json.dumps(report, indent=2))
-    elif RICH_AVAILABLE:
+    elif console is not None:
         title = f"Host Acceptance: {report['host_id']}"
         table = Table(title=title)
         table.add_column("Check")
@@ -1135,7 +1135,7 @@ def cmd_config(args):
         if not cfg:
             print("No config set. Use 'xcelsior config set <key> <value>' to configure.")
             return
-        if RICH_AVAILABLE:
+        if console is not None:
             table = Table(title="~/.xcelsior/config.toml")
             table.add_column("Key", style="cyan")
             table.add_column("Value", style="green")

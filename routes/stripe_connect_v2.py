@@ -291,21 +291,26 @@ def get_account_status(account_id: str):
 
     # Check if the recipient configuration's stripe_transfers capability is active.
     ready_to_receive_payments = False
-    try:
-        status = account.configuration.recipient.capabilities.stripe_balance.stripe_transfers.status
-        ready_to_receive_payments = status == "active"
-    except (AttributeError, TypeError):
-        pass
+    configuration = getattr(account, "configuration", None)
+    recipient = getattr(configuration, "recipient", None) if configuration else None
+    capabilities = getattr(recipient, "capabilities", None) if recipient else None
+    stripe_balance = getattr(capabilities, "stripe_balance", None) if capabilities else None
+    stripe_transfers = getattr(stripe_balance, "stripe_transfers", None) if stripe_balance else None
+    status = getattr(stripe_transfers, "status", None) if stripe_transfers else None
+    ready_to_receive_payments = status == "active"
 
     # Check whether there are outstanding requirements.
     requirements_status = None
     onboarding_complete = False
-    try:
-        requirements_status = account.requirements.summary.minimum_deadline.status
-        onboarding_complete = requirements_status not in ("currently_due", "past_due")
-    except (AttributeError, TypeError):
-        # If requirements or summary is None, treat as complete.
-        onboarding_complete = True
+    requirements = getattr(account, "requirements", None)
+    summary = getattr(requirements, "summary", None) if requirements else None
+    minimum_deadline = getattr(summary, "minimum_deadline", None) if summary else None
+    requirements_status = getattr(minimum_deadline, "status", None) if minimum_deadline else None
+    onboarding_complete = (
+        requirements_status not in ("currently_due", "past_due")
+        if requirements_status is not None
+        else True
+    )
 
     return {
         "ok": True,
