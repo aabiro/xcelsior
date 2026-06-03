@@ -16,6 +16,7 @@ from routes._deps import (
     XCELSIOR_ENV,
     _USE_PERSISTENT_AUTH,
     _get_current_user,
+    _is_platform_admin,
     _merge_auth_user,
     _require_admin,
     _require_auth,
@@ -83,6 +84,24 @@ def _analytics_customer_scope(user: dict) -> str:
     return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "").strip()
 
 
+def _require_customer_access(request: Request, customer_id: str) -> dict:
+    """Authn + ownership guard for customer-scoped billing routes.
+
+    The caller may only act on their own customer_id; platform admins may act
+    on any. Without this, these routes were IDOR / unauthenticated — anyone
+    could read or mutate another customer's wallet, usage, or invoices by id
+    (customer_id is often the user's email — trivially guessable).
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    owned = {str(user.get(k) or "").strip() for k in ("customer_id", "user_id", "email")}
+    owned.discard("")
+    if customer_id not in owned and not _is_platform_admin(user):
+        raise HTTPException(403, "Forbidden")
+    return user
+
+
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
@@ -119,8 +138,9 @@ def api_billing():
 
 
 @router.get("/api/billing/wallet/{customer_id}", tags=["Billing"])
-def api_get_wallet(customer_id: str):
+def api_get_wallet(customer_id: str, request: Request):
     """Get credit wallet balance and status."""
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     wallet = be.get_wallet(customer_id)
     return {"ok": True, "wallet": wallet}
@@ -281,8 +301,9 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
 
 
 @router.post("/api/billing/wallet/{customer_id}/deposit", tags=["Billing"])
-def api_deposit(customer_id: str, req: DepositRequest):
+def api_deposit(customer_id: str, req: DepositRequest, request: Request):
     """Deposit credits into a customer wallet."""
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     result = be.deposit(customer_id, req.amount_cad, req.description)
     return {"ok": True, **result}
@@ -364,27 +385,32 @@ def api_free_credits_status(customer_id: str, request: Request):
 
 
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
-def api_wallet_history(customer_id: str, limit: int = 50):
+def api_wallet_history(customer_id: str, request: Request, limit: int = 50):
     """Get transaction history for a wallet."""
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     history = be.get_wallet_history(customer_id, limit)
     return {"ok": True, "customer_id": customer_id, "transactions": history}
 
 
 @router.get("/api/billing/wallet/{customer_id}/depletion", tags=["Billing"])
-def api_wallet_depletion(customer_id: str):
+def api_wallet_depletion(customer_id: str, request: Request):
     """Get real-time balance depletion projection.
 
     Returns burn rate, seconds-to-zero, per-instance cost breakdown,
     and alert thresholds (T-30min, T-5min, T-0).
     """
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     return {"ok": True, **be.time_to_zero(customer_id)}
 
 
 @router.get("/api/billing/usage/{customer_id}", tags=["Billing"])
-def api_usage_summary(customer_id: str, period_start: float = 0, period_end: float = 0):
+def api_usage_summary(
+    customer_id: str, request: Request, period_start: float = 0, period_end: float = 0
+):
     """Get usage summary for a customer."""
+    _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
     if period_start == 0:
@@ -397,12 +423,14 @@ def api_usage_summary(customer_id: str, period_start: float = 0, period_end: flo
 @router.get("/api/billing/invoice/{customer_id}", tags=["Billing"])
 def api_generate_invoice(
     customer_id: str,
+    request: Request,
     customer_name: str = "",
     period_start: float = 0,
     period_end: float = 0,
     tax_rate: float = 0.13,
 ):
     """Generate an AI Compute Access Fund–aligned invoice."""
+    _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
     if period_start == 0:
@@ -415,6 +443,7 @@ def api_generate_invoice(
 @router.get("/api/billing/export/caf/{customer_id}", tags=["Billing"])
 def api_export_caf(
     customer_id: str,
+    request: Request,
     period_start: float = 0,
     period_end: float = 0,
     format: str = "json",
@@ -425,6 +454,7 @@ def api_export_caf(
     From REPORT_FEATURE_2.md: /billing/export?format=caf
     Supports json, csv, and html (print-ready claim form) formats.
     """
+    _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
     if period_start == 0:
@@ -462,12 +492,13 @@ def api_export_caf(
 
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
-def api_list_invoices(customer_id: str, limit: int = 12):
+def api_list_invoices(customer_id: str, request: Request, limit: int = 12):
     """List past invoices for a customer (monthly summaries).
 
     Generates monthly invoice stubs for the last N months showing
     total spend, tax, job count, and top GPUs used.
     """
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     now = time.time()
     invoices = []
@@ -503,6 +534,7 @@ def api_list_invoices(customer_id: str, limit: int = 12):
 @router.get("/api/billing/invoice/{customer_id}/download", tags=["Billing"])
 def api_download_invoice(
     customer_id: str,
+    request: Request,
     format: str = "csv",
     period_start: float = 0,
     period_end: float = 0,
@@ -513,6 +545,7 @@ def api_download_invoice(
 
     Formats: csv (spreadsheet-ready), txt (printable receipt).
     """
+    _require_customer_access(request, customer_id)
     import io
     import csv as csv_mod
     from datetime import datetime

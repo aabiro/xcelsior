@@ -39,6 +39,18 @@ from api import app
 client = TestClient(app)
 
 
+def _billing_auth():
+    """Register a user and return (customer_id, auth headers) for billing routes."""
+    email = f"caf-e2e-{int(time.time() * 1000)}@xcelsior.ca"
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "testpass123"},
+    ).json()
+    token = reg["access_token"]
+    customer_id = reg["user"]["customer_id"]
+    return customer_id, {"Authorization": f"Bearer {token}"}
+
+
 def _reset_state():
     with scheduler._atomic_mutation() as conn:
         conn.execute("DELETE FROM hosts")
@@ -210,7 +222,8 @@ class TestExportCAFCSV:
     """GET /api/billing/export/caf → valid CSV."""
 
     def test_caf_json_export_returns_200(self):
-        resp = client.get("/api/billing/export/caf/cust-e2e-1")
+        customer_id, headers = _billing_auth()
+        resp = client.get(f"/api/billing/export/caf/{customer_id}", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
@@ -218,7 +231,10 @@ class TestExportCAFCSV:
         assert "line_items" in data
 
     def test_caf_csv_export_returns_csv(self):
-        resp = client.get("/api/billing/export/caf/cust-e2e-2?format=csv")
+        customer_id, headers = _billing_auth()
+        resp = client.get(
+            f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers
+        )
         assert resp.status_code == 200
         assert "text/csv" in resp.headers.get("content-type", "")
 
@@ -231,7 +247,10 @@ class TestExportCAFCSV:
         assert "Cost (CAD)" in header
 
     def test_caf_csv_has_content_disposition(self):
-        resp = client.get("/api/billing/export/caf/cust-test?format=csv")
+        customer_id, headers = _billing_auth()
+        resp = client.get(
+            f"/api/billing/export/caf/{customer_id}?format=csv", headers=headers
+        )
         assert "content-disposition" in resp.headers
         assert "attachment" in resp.headers["content-disposition"]
         assert "caf" in resp.headers["content-disposition"]
@@ -274,8 +293,9 @@ class TestExportCAFCSV:
         bill_resp = client.post(f"/billing/bill/{job_id}")
         assert bill_resp.status_code == 200
 
-        # Export CAF
-        caf_resp = client.get("/api/billing/export/caf/default")
+        # Export CAF (authenticated; customer may have no line items in this smoke test)
+        customer_id, headers = _billing_auth()
+        caf_resp = client.get(f"/api/billing/export/caf/{customer_id}", headers=headers)
         assert caf_resp.status_code == 200
 
 

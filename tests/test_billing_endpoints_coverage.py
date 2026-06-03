@@ -42,6 +42,31 @@ def auth():
     return email, {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture(scope="module")
+def two_users():
+    """Two distinct accounts for cross-customer access-control tests."""
+    users = []
+    for label in ("a", "b"):
+        email = f"billcov-{label}-{uuid.uuid4().hex[:10]}@xcelsior.ca"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "StrongPass123!", "name": f"Bill {label}"},
+        ).json()
+        login = client.post(
+            "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
+        ).json()
+        token = login["access_token"]
+        customer_id = reg["user"]["customer_id"]
+        users.append(
+            {
+                "email": email,
+                "customer_id": customer_id,
+                "headers": {"Authorization": f"Bearer {token}"},
+            }
+        )
+    return users[0], users[1]
+
+
 # ── Public read endpoints (no auth) — must be 200 with a sane body ──────
 
 
@@ -178,3 +203,51 @@ def test_detach_requires_auth():
     fresh = TestClient(app)
     r = fresh.delete("/api/billing/payment-methods/pm_whatever")
     assert r.status_code == 401
+
+
+# ── Regression: customer-scoped billing routes require auth + ownership ─
+
+
+_CUSTOMER_SCOPED_GETS = [
+    "/api/billing/wallet/{cid}",
+    "/api/billing/wallet/{cid}/history",
+    "/api/billing/wallet/{cid}/depletion",
+    "/api/billing/usage/{cid}",
+    "/api/billing/invoice/{cid}",
+    "/api/billing/export/caf/{cid}",
+    "/api/billing/invoices/{cid}",
+    "/api/billing/invoice/{cid}/download",
+]
+
+
+@pytest.mark.parametrize("path_tpl", _CUSTOMER_SCOPED_GETS)
+def test_customer_billing_get_requires_auth(path_tpl):
+    fresh = TestClient(app)
+    r = fresh.get(path_tpl.format(cid="victim@example.com"))
+    assert r.status_code == 401
+
+
+@pytest.mark.parametrize("path_tpl", _CUSTOMER_SCOPED_GETS)
+def test_customer_billing_get_forbidden_cross_account(two_users, path_tpl):
+    user_a, user_b = two_users
+    r = client.get(path_tpl.format(cid=user_b["customer_id"]), headers=user_a["headers"])
+    assert r.status_code == 403
+
+
+def test_wallet_deposit_requires_auth():
+    fresh = TestClient(app)
+    r = fresh.post(
+        "/api/billing/wallet/victim@example.com/deposit",
+        json={"amount_cad": 10.0, "description": "probe"},
+    )
+    assert r.status_code == 401
+
+
+def test_wallet_deposit_forbidden_cross_account(two_users):
+    user_a, user_b = two_users
+    r = client.post(
+        f"/api/billing/wallet/{user_b['customer_id']}/deposit",
+        json={"amount_cad": 10.0, "description": "probe"},
+        headers=user_a["headers"],
+    )
+    assert r.status_code == 403
