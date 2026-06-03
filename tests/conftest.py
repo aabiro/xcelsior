@@ -19,11 +19,16 @@ if PROJECT_ROOT not in sys.path:
 from dotenv import load_dotenv
 
 _env_test = os.path.join(PROJECT_ROOT, ".env.test")
+# Never override env vars already set (GitHub Actions sets sqlite backend, etc.).
 if os.path.exists(_env_test):
-    load_dotenv(_env_test, override=True)
+    load_dotenv(_env_test, override=False)
 else:
-    # Fall back to .env if .env.test doesn't exist
-    load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=True)
+    load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=False)
+
+# CI job env must win over .env.test (which defaults to postgres).
+if os.environ.get("CI"):
+    os.environ["XCELSIOR_DB_BACKEND"] = os.environ.get("XCELSIOR_DB_BACKEND", "sqlite")
+    os.environ["XCELSIOR_BG_TASKS"] = "false"
 
 # B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
 # Tests that hit /agent/* endpoints without a bearer token need this flag

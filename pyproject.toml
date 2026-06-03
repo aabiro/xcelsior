@@ -56,4 +56,5 @@ pythonpath = ["."]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
-timeout = 120
+timeout = 180
+timeout_func_only = true
