@@ -42,18 +42,12 @@ scheduler.log.addHandler(_fh)
 
 def _admit_host(host_id):
     """Mark a registered host as admitted so allocate() will pick it."""
+    backend = scheduler._active_backend()
     with scheduler._atomic_mutation() as conn:
-        row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
-        if row:
-            import json as _json
-
-            data = (
-                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
-            )
+        data = scheduler.DatabaseOps.get_host(conn, host_id, backend=backend)
+        if data:
             data["admitted"] = True
-            conn.execute(
-                "UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id)
-            )
+            scheduler.DatabaseOps.upsert_host(conn, data, backend=backend)
 
 
 @pytest.fixture(autouse=True)
