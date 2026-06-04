@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import en from "@/lib/i18n/en";
 import fr from "@/lib/i18n/fr";
 
@@ -27,9 +28,13 @@ export function useLocale() {
   return useContext(LocaleContext);
 }
 
+const LEGAL_PATHS = new Set(["/privacy", "/terms"]);
+
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocale] = useState<Locale>("en");
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const stored = localStorage.getItem("xcelsior-locale") as Locale | null;
@@ -47,10 +52,14 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     document.cookie = `xcelsior-locale=${locale};path=/;max-age=31536000;SameSite=Lax`;
   }, [locale, mounted]);
 
-  const toggleLocale = useCallback(
-    () => setLocale((l) => (l === "en" ? "fr" : "en")),
-    [],
-  );
+  const toggleLocale = useCallback(() => {
+    const next: Locale = locale === "en" ? "fr" : "en";
+    setLocale(next);
+    document.cookie = `xcelsior-locale=${next};path=/;max-age=31536000;SameSite=Lax`;
+    if (pathname && LEGAL_PATHS.has(pathname)) {
+      router.refresh();
+    }
+  }, [locale, pathname, router]);
 
   const t = useCallback(
     (key: string, vars?: Record<string, string | number>): string => {
