@@ -33,13 +33,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 ### `routes/health.py` (17)
 - [ ] `GET /_internal/legacy-auth/verify` — `api_auth_verify_page`
-- [ ] `GET /alerts/config` — `api_get_alert_config`
-- [ ] `GET /api/alerts/config` — `api_get_alert_config_alias`
+- [x] `GET /alerts/config` — `api_get_alert_config`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /api/alerts/config` — `api_get_alert_config_alias`  ✓ test_health_endpoints_coverage.py
 - [ ] `GET /api/slurm/instances` — `api_slurm_list_instances`
 - [ ] `GET /api/ssh/pubkey` — `api_get_pubkey`
 - [ ] `GET /builds` — `api_list_builds`
 - [ ] `GET /legacy/{path:path}` — `legacy_dashboard`
-- [ ] `GET /llms.txt` — `api_llms_txt`
+- [x] `GET /llms.txt` — `api_llms_txt`  ✓ test_health_endpoints_coverage.py
 - [ ] `GET /ssh/pubkey` — `api_get_pubkey`
 - [ ] `POST /_internal/legacy-auth/device` — `api_auth_device_code`
 - [ ] `POST /_internal/legacy-auth/token` — `api_auth_device_token`

@@ -870,6 +870,8 @@ ${CYAN}Usage:${NC}
   $0 --ssl              Setup SSL certificates
   $0 --rollback         Rollback to previous backup
   $0 --health           Run health checks
+  $0 --post-merge       Deploy main + migrations + health + post_merge_smoke.sh
+  $0 --smoke            Run post_merge_smoke.sh locally (no deploy)
   $0 --systemd          Deploy using systemd instead of Docker
   $0 --drain-host ID    Mark a worker host as draining
   $0 --undrain-host ID  Restore a drained worker host
@@ -973,6 +975,27 @@ main() {
         --health)
             check_ssh
             health_check
+            ;;
+        --smoke)
+            bash "$SCRIPT_DIR/post_merge_smoke.sh"
+            ;;
+        --post-merge)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            detect_deploy_inputs
+            backup_current
+            sync_code
+            if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
+                install_nginx_configs
+            fi
+            deploy_docker
+            persist_deploy_inputs
+            local_hash=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+            ssh_cmd "echo '$local_hash' | sudo tee /opt/xcelsior/.deploy_hash > /dev/null"
+            health_check
+            bash "$SCRIPT_DIR/post_merge_smoke.sh"
+            success "Post-merge deploy + smoke complete"
             ;;
         --systemd)
             TARGET_ENV="prod"
