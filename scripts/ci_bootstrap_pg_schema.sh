@@ -28,3 +28,13 @@ else
     --schema-only --no-owner --no-privileges -f "${SCHEMA_FILE}"
   echo "Wrote schema cache to ${SCHEMA_FILE}"
 fi
+
+# Migration 030 clears gpu_pricing; schema-only dumps have no seed rows.
+echo "Ensuring scheduler tables and gpu_pricing seed data"
+python - <<'PY'
+from db import _ensure_pg_tables, _get_pg_pool
+
+with _get_pg_pool().connection() as conn:
+    _ensure_pg_tables(conn)
+    conn.commit()
+PY

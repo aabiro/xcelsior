@@ -82,10 +82,15 @@ jobs:
     env:
       XCELSIOR_ENV: test
       XCELSIOR_API_TOKEN: ""
-      XCELSIOR_DB_BACKEND: sqlite
+      # Full suite expects migrated Postgres tables (billing_cycles, sessions, …).
+      XCELSIOR_DB_BACKEND: postgres
       XCELSIOR_POSTGRES_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
       XCELSIOR_PG_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
+      XCELSIOR_PG_POOL_SIZE: "40"
       XCELSIOR_BG_TASKS: "false"
+      XCELSIOR_SCHEDULER_URL: "http://127.0.0.1:9501"
+      XCELSIOR_RATE_LIMIT_REQUESTS: "10000"
+      XCELSIOR_AUTH_RATE_LIMIT_REQUESTS: "10000"
       # Honor pyproject timeout=180 (func_only); do not override with a lower cap.
     steps:
       - uses: actions/checkout@v5
