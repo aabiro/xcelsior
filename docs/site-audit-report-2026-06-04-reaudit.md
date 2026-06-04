@@ -25,7 +25,7 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 | F-002 | **Fixed** (verify UI in browser) | `/api/v2/gpu/available` → `200`; marketing defers auth probe |
 | F-005 | **Fixed** (GPU + sitemap) | GPU canonical `https://xcelsior.ca/gpu-availability`; sitemap lists `/download` + `/gpu-availability` |
 | F-003 | **Improved (post-deploy MCP)** | `/` JS ~374 KB (was ~812 KB); TBT ~5772 ms (was ~9166 ms) |
-| F-004 | **Mostly fixed** | `/blog`, `/download` clear; `/privacy`, `/terms` patched in `7741b59` |
+| F-004 | **Fixed (server components)** | `/blog`, `/download` client fixes (`609ab21`); legal pages SSR in `fd750a2` |
 
 ### Post-deploy performance (MCP `perf-all.json`, 2026-06-04)
 
