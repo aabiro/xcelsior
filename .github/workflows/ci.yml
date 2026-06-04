@@ -98,6 +98,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-timeout
+      - name: Apply database migrations
+        run: alembic upgrade head
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target
         # mappings (quick / ai / billing / security / e2e / live) and
