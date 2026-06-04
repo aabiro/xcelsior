@@ -83,17 +83,17 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/admin/users/{email}/toggle-admin` — `api_admin_toggle_admin`  ✓ test_admin_endpoints_coverage.py
 
 ### `routes/stripe_connect_v2.py` (11)
-- [ ] `GET /api/connect/accounts` — `list_connected_accounts`
-- [ ] `GET /api/connect/accounts/{account_id}/onboarding-link` — `create_onboarding_link`
-- [ ] `GET /api/connect/accounts/{account_id}/status` — `get_account_status`
-- [ ] `GET /api/connect/products` — `list_products`
-- [ ] `GET /connect/dashboard` — `connect_dashboard_page`
-- [ ] `GET /connect/storefront` — `storefront_page`
-- [ ] `GET /connect/success` — `success_page`
-- [ ] `POST /api/connect/accounts` — `create_connected_account`
-- [ ] `POST /api/connect/checkout` — `create_checkout_session`
-- [ ] `POST /api/connect/products` — `create_product`
-- [ ] `POST /api/connect/webhooks` — `handle_thin_webhook`
+- [x] `GET /api/connect/accounts` — `list_connected_accounts`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /api/connect/accounts/{account_id}/onboarding-link` — `create_onboarding_link`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /api/connect/accounts/{account_id}/status` — `get_account_status`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /api/connect/products` — `list_products`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /connect/dashboard` — `connect_dashboard_page`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /connect/storefront` — `storefront_page`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /connect/success` — `success_page`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `POST /api/connect/accounts` — `create_connected_account`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `POST /api/connect/checkout` — `create_checkout_session`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `POST /api/connect/products` — `create_product`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `POST /api/connect/webhooks` — `handle_thin_webhook`  ✓ test_stripe_connect_v2_endpoints_coverage.py
 
 ### `routes/auth.py` (9)
 - [x] `DELETE /api/auth/sessions/{token_prefix}` — `api_auth_revoke_session`  ✓ test_auth_endpoints_coverage.py
@@ -129,22 +129,22 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/providers/{provider_id}/resume-onboarding` — `api_resume_onboarding`  ✓ test_providers_endpoints_coverage.py
 
 ### `routes/instances.py` (7)
-- [ ] `GET /api/images/templates` — `api_image_templates`
-- [ ] `GET /instances/{job_id}/logs/stream` — `api_instance_log_stream`
-- [ ] `PATCH /instance/{job_id}/name` — `api_rename_instance`
-- [ ] `POST /admin/instances/{job_id}/reinject-shell` — `api_admin_reinject_shell`
-- [ ] `POST /instances/{job_id}/lock` — `api_lock_instance`
-- [ ] `POST /instances/{job_id}/reset` — `api_reset_instance`
-- [ ] `POST /instances/{job_id}/unlock` — `api_unlock_instance`
+- [x] `GET /api/images/templates` — `api_image_templates`  ✓ test_instances_endpoints_coverage.py
+- [x] `GET /instances/{job_id}/logs/stream` — `api_instance_log_stream`  ✓ test_instances_endpoints_coverage.py
+- [x] `PATCH /instance/{job_id}/name` — `api_rename_instance`  ✓ test_instances_endpoints_coverage.py
+- [x] `POST /admin/instances/{job_id}/reinject-shell` — `api_admin_reinject_shell`  ✓ test_instances_endpoints_coverage.py
+- [x] `POST /instances/{job_id}/lock` — `api_lock_instance`  ✓ test_instances_endpoints_coverage.py
+- [x] `POST /instances/{job_id}/reset` — `api_reset_instance`  ✓ test_instances_endpoints_coverage.py
+- [x] `POST /instances/{job_id}/unlock` — `api_unlock_instance`  ✓ test_instances_endpoints_coverage.py
 
 ### `routes/notifications.py` (7)
-- [ ] `DELETE /api/notifications/push/subscription` — `api_delete_push_subscription`
-- [ ] `DELETE /api/notifications/{notification_id}` — `api_delete_notification`
-- [ ] `GET /api/notifications/push/subscription` — `api_get_push_subscription_status`
-- [ ] `GET /api/notifications/unread-count` — `api_notification_unread_count`
-- [ ] `POST /api/notifications/push/subscription` — `api_upsert_push_subscription`
-- [ ] `POST /api/notifications/read-all` — `api_mark_all_read`
-- [ ] `POST /api/notifications/{notification_id}/read` — `api_mark_notification_read`
+- [x] `DELETE /api/notifications/push/subscription` — `api_delete_push_subscription`  ✓ test_notifications_endpoints_coverage.py
+- [x] `DELETE /api/notifications/{notification_id}` — `api_delete_notification`  ✓ test_notifications_endpoints_coverage.py
+- [x] `GET /api/notifications/push/subscription` — `api_get_push_subscription_status`  ✓ test_notifications_endpoints_coverage.py
+- [x] `GET /api/notifications/unread-count` — `api_notification_unread_count`  ✓ test_notifications_endpoints_coverage.py
+- [x] `POST /api/notifications/push/subscription` — `api_upsert_push_subscription`  ✓ test_notifications_endpoints_coverage.py
+- [x] `POST /api/notifications/read-all` — `api_mark_all_read`  ✓ test_notifications_endpoints_coverage.py
+- [x] `POST /api/notifications/{notification_id}/read` — `api_mark_notification_read`  ✓ test_notifications_endpoints_coverage.py
 
 ### `routes/compliance.py` (6)
 - [ ] `GET /api/billing/gst-threshold/{provider_id}` — `api_provider_gst_threshold`
