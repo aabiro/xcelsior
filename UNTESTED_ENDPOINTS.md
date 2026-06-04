@@ -2,11 +2,11 @@
 
 _Regenerated 2026-06-04 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._
 
-**28 of 373 routes (7%)** and **17 of 51 CLI commands** (33%) have no test signal.
+**14 of 373 routes (3%)** and **17 of 51 CLI commands** (33%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (28 untested)
+## Routes (14 untested)
 
 ### `routes/admin.py` (0 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
@@ -169,12 +169,12 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/compliance/tax-rates` — `api_tax_rates`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/compliance/trust-tier-requirements` — `api_trust_tier_requirements`  ✓ test_compliance_endpoints_coverage.py
 
-### `routes/events.py` (4 untested)
-- [ ] `GET /api/audit/instance/{job_id}` — `api_instance_audit_trail`
-- [ ] `GET /api/audit/verify-chain` — `api_verify_event_chain`
-- [x] `GET /api/events` — `api_get_all_events`
-- [ ] `GET /api/events/leases/{job_id}` — `api_get_lease`
-- [ ] `GET /api/events/{entity_type}/{entity_id}` — `api_get_events`
+### `routes/events.py` (0 untested)
+- [x] `GET /api/audit/instance/{job_id}` — `api_instance_audit_trail`  ✓ test_events_endpoints_coverage.py
+- [x] `GET /api/audit/verify-chain` — `api_verify_event_chain`  ✓ test_events_endpoints_coverage.py
+- [x] `GET /api/events` — `api_get_all_events`  ✓ test_events_endpoints_coverage.py
+- [x] `GET /api/events/leases/{job_id}` — `api_get_lease`  ✓ test_events_endpoints_coverage.py
+- [x] `GET /api/events/{entity_type}/{entity_id}` — `api_get_events`  ✓ test_events_endpoints_coverage.py
 
 ### `routes/gpu.py` (0 untested)
 - [x] `GET /api/v2/gpu/available` — `api_gpu_available`
@@ -334,19 +334,19 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/notifications/{notification_id}` — `api_delete_notification`  ✓ test_notifications_endpoints_coverage.py
 - [x] `POST /api/notifications/{notification_id}/read` — `api_mark_notification_read`  ✓ test_notifications_endpoints_coverage.py
 
-### `routes/privacy.py` (5 untested)
-- [ ] `POST /api/privacy/config` — `api_save_privacy_config`
-- [ ] `GET /api/privacy/config/{org_id}` — `api_get_privacy_config`
-- [x] `POST /api/privacy/consent` — `api_record_consent`
-- [x] `GET /api/privacy/consent/{entity_id}` — `api_get_consents`
-- [x] `DELETE /api/privacy/consent/{entity_id}/{consent_type}` — `api_revoke_consent`
-- [ ] `POST /api/privacy/purge-expired` — `api_purge_expired`
-- [x] `GET /api/privacy/retention-policies` — `api_retention_policies`
-- [x] `GET /api/privacy/retention-summary` — `api_retention_summary`
-- [x] `POST /api/v2/privacy/consent` — `api_privacy_record_consent`
-- [ ] `DELETE /api/v2/privacy/consent/{purpose}` — `api_privacy_withdraw_consent`
-- [x] `GET /api/v2/privacy/consents` — `api_privacy_list_consents`
-- [ ] `POST /api/v2/privacy/erase` — `api_privacy_right_to_erasure`
+### `routes/privacy.py` (0 untested)
+- [x] `POST /api/privacy/config` — `api_save_privacy_config`  ✓ test_privacy_endpoints_coverage.py
+- [x] `GET /api/privacy/config/{org_id}` — `api_get_privacy_config`  ✓ test_privacy_endpoints_coverage.py
+- [x] `POST /api/privacy/consent` — `api_record_consent`  ✓ test_privacy_endpoints_coverage.py
+- [x] `GET /api/privacy/consent/{entity_id}` — `api_get_consents`  ✓ test_privacy_endpoints_coverage.py
+- [x] `DELETE /api/privacy/consent/{entity_id}/{consent_type}` — `api_revoke_consent`  ✓ test_privacy_endpoints_coverage.py
+- [x] `POST /api/privacy/purge-expired` — `api_purge_expired`  ✓ test_privacy_endpoints_coverage.py
+- [x] `GET /api/privacy/retention-policies` — `api_retention_policies`  ✓ test_privacy_endpoints_coverage.py
+- [x] `GET /api/privacy/retention-summary` — `api_retention_summary`  ✓ test_privacy_endpoints_coverage.py
+- [x] `POST /api/v2/privacy/consent` — `api_privacy_record_consent`  ✓ test_privacy_endpoints_coverage.py
+- [x] `DELETE /api/v2/privacy/consent/{purpose}` — `api_privacy_withdraw_consent`  ✓ test_privacy_endpoints_coverage.py
+- [x] `GET /api/v2/privacy/consents` — `api_privacy_list_consents`  ✓ test_privacy_endpoints_coverage.py
+- [x] `POST /api/v2/privacy/erase` — `api_privacy_right_to_erasure`  ✓ test_privacy_endpoints_coverage.py
 
 ### `routes/providers.py` (0 untested)
 - [x] `GET /api/providers` — `api_list_providers`  ✓ test_compliance_endpoints_coverage.py
@@ -419,13 +419,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [ ] `POST /api/transparency/legal-request/{request_id}/respond` — `api_respond_legal_request`
 - [x] `GET /api/transparency/report` — `api_transparency_report`
 
-### `routes/verification.py` (5 untested)
-- [ ] `POST /agent/verify` — `api_agent_verify`
-- [x] `GET /api/verified-hosts` — `api_verified_hosts`
-- [ ] `POST /api/verify/{host_id}` — `api_verify_host`
-- [ ] `POST /api/verify/{host_id}/approve` — `api_admin_approve_host`
-- [ ] `POST /api/verify/{host_id}/reject` — `api_admin_reject_host`
-- [ ] `GET /api/verify/{host_id}/status` — `api_verification_status`
+### `routes/verification.py` (0 untested)
+- [x] `POST /agent/verify` — `api_agent_verify`  ✓ test_verification_endpoints_coverage.py
+- [x] `GET /api/verified-hosts` — `api_verified_hosts`  ✓ test_verification_endpoints_coverage.py
+- [x] `POST /api/verify/{host_id}` — `api_verify_host`  ✓ test_verification_endpoints_coverage.py
+- [x] `POST /api/verify/{host_id}/approve` — `api_admin_approve_host`  ✓ test_verification_endpoints_coverage.py
+- [x] `POST /api/verify/{host_id}/reject` — `api_admin_reject_host`  ✓ test_verification_endpoints_coverage.py
+- [x] `GET /api/verify/{host_id}/status` — `api_verification_status`  ✓ test_verification_endpoints_coverage.py
 
 ### `routes/volumes.py` (0 untested)
 - [x] `POST /api/v2/admin/volumes/reopen-encrypted` — `api_admin_reopen_encrypted_volumes`
