@@ -69,6 +69,8 @@ plan.md
 
 # ── Reports (generated, not tracked) ─────────────────────────────────
 docs/
+!docs/site-audit-prompt.md
+!docs/site-audit-report*.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
