@@ -44,10 +44,12 @@ def _coverage_file_for(path: str, handler: str, corpus_by_file: dict[str, str]) 
 
 def _is_tested(path: str, handler: str, corpus: str, corpus_by_file: dict[str, str]) -> tuple[bool, str]:
     generic = re.sub(r"\{[^}/]+\}", "{*}", path)
+    path_base = path.split("{", 1)[0] if "{" in path else path
     if (
         path in corpus
         or generic in corpus
         or handler in corpus
+        or (path_base and path_base in corpus)
         or path.replace("{", "").replace("}", "") in corpus
     ):
         cov = _coverage_file_for(path, handler, corpus_by_file)
