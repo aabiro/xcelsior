@@ -1,20 +1,19 @@
-"use client";
+import { createTranslator } from "@/lib/i18n/server";
+import type { Locale } from "@/lib/locale";
 
-import { HydrationGuard } from "@/components/HydrationGuard";
-import { useLocale } from "@/lib/locale";
-
-export function PrivacyContent() {
-  const { t } = useLocale();
+export function PrivacyContent({ locale }: { locale: Locale }) {
+  const t = createTranslator(locale);
 
   return (
-    <HydrationGuard>
     <div className="mx-auto max-w-4xl px-6 py-24">
       <h1 className="text-4xl font-bold mb-2">{t("privacy.title")}</h1>
       <p className="text-sm text-text-muted mb-12">{t("privacy.effective")}</p>
 
       <div className="prose-dark space-y-10 text-text-secondary leading-relaxed text-sm">
         <Section title={`1. ${t("privacy.s1_title")}`}>
-          <p>{t("privacy.s1_p1")} {t("privacy.s1_p2")}</p>
+          <p>
+            {t("privacy.s1_p1")} {t("privacy.s1_p2")}
+          </p>
         </Section>
 
         <Section title={`2. ${t("privacy.s2_title")}`}>
@@ -116,7 +115,6 @@ export function PrivacyContent() {
         </Section>
       </div>
     </div>
-    </HydrationGuard>
   );
 }
 

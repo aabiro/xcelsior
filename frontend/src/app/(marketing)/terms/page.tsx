@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function TermsPage() {
-  return <TermsContent />;
+import { getServerLocale } from "@/lib/i18n/server";
+
+export default async function TermsPage() {
+  const locale = await getServerLocale();
+  return <TermsContent locale={locale} />;
 }
