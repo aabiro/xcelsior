@@ -1685,6 +1685,9 @@ def api_billing_setup_intent(request: Request):
         result = be.create_setup_intent(customer_id, email=user.get("email", ""))
     except RuntimeError as e:
         raise HTTPException(503, str(e))
+    except Exception as e:
+        # CI uses a placeholder sk_test key — map Stripe API failures to 503, not 500.
+        raise HTTPException(503, f"Stripe unavailable: {e}") from e
     return {"ok": True, **result}
 
 
