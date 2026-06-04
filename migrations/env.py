@@ -15,10 +15,12 @@ from alembic import context
 
 config = context.config
 
-# Override sqlalchemy.url from environment if available
-dsn = os.environ.get(
-    "XCELSIOR_POSTGRES_DSN",
-    os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url")),
+# Override sqlalchemy.url from environment if available (match db.resolve_postgres_dsn)
+dsn = (
+    os.environ.get("XCELSIOR_POSTGRES_DSN")
+    or os.environ.get("XCELSIOR_PG_DSN")
+    or os.environ.get("DATABASE_URL")
+    or config.get_main_option("sqlalchemy.url")
 )
 if dsn:
     # Ensure we use psycopg3 driver (postgresql+psycopg://), not psycopg2

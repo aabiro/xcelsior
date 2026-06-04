@@ -430,7 +430,11 @@ class DataLifecycleManager:
 
     def _cascade_delete(self, category: str, entity_id: str, entity_type: str):
         """Delete actual data from the appropriate data store."""
-        handler = self._purge_handlers.get(category)
+        try:
+            cat = DataCategory(category)
+        except ValueError:
+            cat = None
+        handler = self._purge_handlers.get(cat) if cat is not None else None
         if handler:
             handler(self, entity_id, entity_type)
         else:
@@ -808,10 +812,16 @@ class CryptoShredder:
     @contextmanager
     def _conn(self):
         from db import _get_pg_pool
+        from psycopg.rows import tuple_row
 
         pool = _get_pg_pool()
         conn = pool.getconn()
-        conn.row_factory = None
+        # This store reads rows positionally (row[0], row[1]), so it needs
+        # tuple rows. Save/restore the factory rather than leaving it mutated —
+        # the conn returns to a shared pool and the next caller would otherwise
+        # inherit it (the footgun db.auth_connection documents).
+        _prev_rf = conn.row_factory
+        conn.row_factory = tuple_row
         try:
             yield conn
             conn.commit()
@@ -819,6 +829,7 @@ class CryptoShredder:
             conn.rollback()
             raise
         finally:
+            conn.row_factory = _prev_rf
             pool.putconn(conn)
 
     def _ensure_table(self, conn):

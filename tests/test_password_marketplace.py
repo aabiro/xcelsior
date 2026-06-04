@@ -272,8 +272,11 @@ class TestMarketplaceSearch:
                 "country": "US",
             },
         ]
+        client.cookies.clear()
+        token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+        host_headers = {"Authorization": f"Bearer {token}"}
         for h in hosts:
-            r = client.put("/host", json=h)
+            r = client.put("/host", json=h, headers=host_headers)
             assert r.status_code == 200, f"Failed to register {h['host_id']}: {r.text}"
             # List on marketplace
             client.post(

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sqlite3
+from typing import Any
 import time
 import urllib.error
 import urllib.parse
@@ -274,7 +275,7 @@ def _should_provision_wallet(exc: Exception) -> bool:
     )
 
 
-def _wallet_rpc_call(method: str, params: list | None = None, timeout: float | None = None):
+def _wallet_rpc_call(method: str, params: list | None = None, timeout: float | None = None) -> Any:
     """Call the active wallet, provisioning a dedicated wallet if the default one is unusable."""
     global _active_wallet_name
 

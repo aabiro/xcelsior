@@ -23,6 +23,28 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Table is also created at runtime by db._ensure_pg_tables(); fresh
+    # alembic-only databases (e.g. CI) need the pre-variant schema first.
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS gpu_pricing (
+            id SERIAL PRIMARY KEY,
+            gpu_model TEXT NOT NULL,
+            vram_gb INTEGER NOT NULL,
+            tier TEXT NOT NULL DEFAULT 'standard',
+            pricing_mode TEXT NOT NULL DEFAULT 'on_demand',
+            base_rate_cad DOUBLE PRECISION NOT NULL,
+            priority_multiplier DOUBLE PRECISION DEFAULT 1.0,
+            sovereignty_premium DOUBLE PRECISION DEFAULT 0.0,
+            spot_discount DOUBLE PRECISION DEFAULT 0.0,
+            multi_gpu_discount_4 DOUBLE PRECISION DEFAULT 0.0,
+            multi_gpu_discount_8 DOUBLE PRECISION DEFAULT 0.0,
+            active BOOLEAN DEFAULT TRUE,
+            updated_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW()),
+            CONSTRAINT gpu_pricing_gpu_model_tier_pricing_mode_key
+                UNIQUE (gpu_model, tier, pricing_mode)
+        )
+        """)
+
     # New variant columns — default values make the migration safe on
     # existing rows but those rows are deleted below anyway.
     op.execute(

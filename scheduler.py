@@ -17,6 +17,7 @@ import urllib.request
 import uuid
 from contextlib import contextmanager
 from email.mime.text import MIMEText
+from typing import Any
 
 from db import (
     get_engine,
@@ -157,9 +158,22 @@ def _ensure_storage_tables(conn):
     pass
 
 
+def _active_backend() -> str:
+    """Runtime backend for scheduler persistence (honours CI/test env overrides)."""
+    return (os.environ.get("XCELSIOR_DB_BACKEND") or DB_BACKEND or "postgres").lower()
+
+
 @contextmanager
 def _db_connection():
-    """Shared DB connection wrapper using PostgreSQL pool."""
+    """Shared DB connection — SQLite in test/CI when configured, else PostgreSQL pool."""
+    backend = _active_backend()
+    if backend == "sqlite":
+        from db import sqlite_connection
+
+        with sqlite_connection() as conn:
+            yield conn
+        return
+
     from db import _get_pg_pool
     from psycopg.rows import dict_row
 
@@ -176,7 +190,14 @@ def _db_connection():
 
 @contextmanager
 def _atomic_mutation():
-    """Execute a mutation in a single PostgreSQL transaction."""
+    """Execute a mutation in a single transaction."""
+    backend = _active_backend()
+    if backend == "sqlite":
+        from db import sqlite_transaction
+
+        with sqlite_transaction() as conn:
+            yield conn
+        return
     with _db_connection() as conn:
         yield conn
 
@@ -187,19 +208,18 @@ def _namespace_key(path):
 
 def _load_legacy_namespace(conn, path):
     """Read namespace data from state table first, then fallback JSON."""
-    row = conn.execute(
-        "SELECT payload FROM state WHERE namespace = %s", (_namespace_key(path),)
-    ).fetchone()
-    if row:
-        try:
-            data = row["payload"]
-            return _coerce_list(data if isinstance(data, (list, dict)) else json.loads(data))
-        except json.JSONDecodeError:
-            pass
+    backend = _active_backend()
+    stored = DatabaseOps.get_state(conn, _namespace_key(path), backend=backend)
+    if stored is not None:
+        return _coerce_list(stored)
     return _read_legacy_json_file(path)
 
 
-def _decode_payload(payload):
+def _decode_payload(payload) -> Any:
+    # Returns decoded JSON — a dict for host/job records, occasionally a list,
+    # or None on failure. Typed Any (like json.loads) so record accessors such
+    # as host["status"] aren't mis-flagged as list-subscripts by the type
+    # checker; the JSONB payloads are genuinely heterogeneous.
     if isinstance(payload, (dict, list)):
         return payload
     try:
@@ -209,74 +229,19 @@ def _decode_payload(payload):
 
 
 def _upsert_job_row(conn, job):
-    from psycopg.types.json import Jsonb
-
-    job_id = str(job.get("job_id", "")).strip()
-    if not job_id:
-        return
-    status = str(job.get("status") or "queued")
-    priority = int(job.get("priority", 0) or 0)
-    submitted_at = float(job.get("submitted_at", time.time()) or time.time())
-    conn.execute(
-        """
-        INSERT INTO jobs(job_id, status, priority, submitted_at, host_id, payload)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT(job_id) DO UPDATE SET
-            status = excluded.status,
-            priority = excluded.priority,
-            submitted_at = excluded.submitted_at,
-            host_id = excluded.host_id,
-            payload = excluded.payload
-        """,
-        (
-            job_id,
-            status,
-            priority,
-            submitted_at,
-            job.get("host_id"),
-            Jsonb(job),
-        ),
-    )
+    DatabaseOps.upsert_job(conn, job, backend=_active_backend())
 
 
 def _upsert_host_row(conn, host):
-    from psycopg.types.json import Jsonb
-
-    host_id = str(host.get("host_id", "")).strip()
-    if not host_id:
-        return
-    status = str(host.get("status") or "active")
-    registered_at = float(host.get("registered_at", time.time()) or time.time())
-    conn.execute(
-        """
-        INSERT INTO hosts(host_id, status, registered_at, payload)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT(host_id) DO UPDATE SET
-            status = excluded.status,
-            registered_at = excluded.registered_at,
-            payload = excluded.payload
-        """,
-        (
-            host_id,
-            status,
-            registered_at,
-            Jsonb(host),
-        ),
-    )
+    DatabaseOps.upsert_host(conn, host, backend=_active_backend())
 
 
 def _get_job_by_id_conn(conn, job_id):
-    row = conn.execute("SELECT payload FROM jobs WHERE job_id = %s", (job_id,)).fetchone()
-    if not row:
-        return None
-    return _decode_payload(row["payload"])
+    return DatabaseOps.get_job(conn, job_id, backend=_active_backend())
 
 
 def _get_host_by_id_conn(conn, host_id):
-    row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
-    if not row:
-        return None
-    return _decode_payload(row["payload"])
+    return DatabaseOps.get_host(conn, host_id, backend=_active_backend())
 
 
 def _replace_jobs_in_conn(conn, jobs):
@@ -294,6 +259,9 @@ def _replace_hosts_in_conn(conn, hosts):
 
 
 def _load_jobs_from_conn(conn, status=None):
+    backend = _active_backend()
+    if backend == "sqlite":
+        return DatabaseOps.load_jobs(conn, status=status, backend=backend)
     if status:
         rows = conn.execute(
             """
@@ -319,6 +287,9 @@ def _load_jobs_from_conn(conn, status=None):
 
 
 def _load_hosts_from_conn(conn, active_only=False):
+    backend = _active_backend()
+    if backend == "sqlite":
+        return DatabaseOps.load_hosts(conn, active_only=active_only, backend=backend)
     if active_only:
         rows = conn.execute("""
             SELECT payload
@@ -408,16 +379,11 @@ def set_host_draining(host_id, draining=True):
 def _load_json(path):
     """Load persisted list data from SQLite, with one-time migration from JSON files."""
     namespace = _namespace_key(path)
+    backend = _active_backend()
     with _db_connection() as conn:
-        row = conn.execute(
-            "SELECT payload FROM state WHERE namespace = %s", (namespace,)
-        ).fetchone()
-        if row:
-            try:
-                data = row["payload"]
-                return _coerce_list(data if isinstance(data, (list, dict)) else json.loads(data))
-            except json.JSONDecodeError:
-                return []
+        stored = DatabaseOps.get_state(conn, namespace, backend=backend)
+        if stored is not None:
+            return _coerce_list(stored)
 
     payload = _read_legacy_json_file(path)
     if not payload:
@@ -428,16 +394,11 @@ def _load_json(path):
 
 
 def _save_json(path, data):
-    """Persist list data to PostgreSQL while preserving JSON-compatible interfaces."""
-    from psycopg.types.json import Jsonb
-
+    """Persist list data while preserving JSON-compatible interfaces."""
     namespace = _namespace_key(path)
+    backend = _active_backend()
     with _atomic_mutation() as conn:
-        conn.execute(
-            "INSERT INTO state(namespace, payload) VALUES (%s, %s) "
-            "ON CONFLICT(namespace) DO UPDATE SET payload = excluded.payload",
-            (namespace, Jsonb(data)),
-        )
+        DatabaseOps.upsert_state(conn, namespace, data, backend=backend)
 
     # Keep a legacy JSON mirror for backward compatibility/tests.
     dirpath = os.path.dirname(path)
@@ -994,7 +955,7 @@ def remove_host(host_id):
     """Host is dead. Remove it. No funeral."""
     with _atomic_mutation() as conn:
         _migrate_hosts_if_needed(conn)
-        conn.execute("DELETE FROM hosts WHERE host_id = %s", (host_id,))
+        DatabaseOps.delete_host(conn, host_id, backend=_active_backend())
 
     engine = get_engine()
     engine.mirror_to_secondary(DatabaseOps.delete_host, host_id)
@@ -1101,11 +1062,21 @@ def _requeue_dead_host_jobs(host_id: str, ip: str):
     retry tracking, and JSONB payload consistency.
     """
     try:
+        backend = _active_backend()
+        active_statuses = ("running", "starting", "assigned", "leased")
         with _db_connection() as conn:
-            jobs = conn.execute(
-                "SELECT job_id, payload->>'name' AS name FROM jobs WHERE host_id = %s AND status IN ('running', 'starting', 'assigned', 'leased')",
-                (host_id,),
-            ).fetchall()
+            if backend == "sqlite":
+                jobs = [
+                    {"job_id": j["job_id"], "name": j.get("name")}
+                    for j in DatabaseOps.load_jobs(conn, backend=backend)
+                    if j.get("host_id") == host_id and j.get("status") in active_statuses
+                ]
+            else:
+                jobs = conn.execute(
+                    "SELECT job_id, payload->>'name' AS name FROM jobs "
+                    "WHERE host_id = %s AND status IN ('running', 'starting', 'assigned', 'leased')",
+                    (host_id,),
+                ).fetchall()
         if not jobs:
             return
 
@@ -1586,7 +1557,8 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
     # ── v2.1: Record event + trigger billing/reputation ──
     try:
         sm = get_state_machine()
-        sm.transition(job_id, JobState(status), actor="scheduler")
+        if isinstance(old_status, str):
+            sm.transition(job_id, old_status, status, actor="scheduler")
     except Exception as exc:
         log.debug("Event record skip: %s", exc)
 
@@ -2416,11 +2388,21 @@ def bill_job(job_id):
 
     records = load_billing()
     # Atomic check-and-insert to prevent double-billing
+    backend = _active_backend()
+    billed_ns = f"billed:{job_id}"
     with _atomic_mutation() as conn:
-        cur = conn.execute(
-            "INSERT INTO state (namespace, payload) VALUES (%s, %s) ON CONFLICT (namespace) DO NOTHING",
-            (f"billed:{job_id}", "1"),
-        )
+        if backend == "sqlite":
+            cur = conn.execute(
+                "INSERT INTO state (namespace, payload) VALUES (?, ?) "
+                "ON CONFLICT (namespace) DO NOTHING",
+                (billed_ns, "1"),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO state (namespace, payload) VALUES (%s, %s) "
+                "ON CONFLICT (namespace) DO NOTHING",
+                (billed_ns, "1"),
+            )
         if cur.rowcount == 0:
             log.warning("BILLING SKIPPED job=%s already billed", job_id)
             return None
@@ -4324,7 +4306,7 @@ def allocate_jurisdiction_aware(job, hosts, constraint=None):
     # 2. Verification filter — only use verified hosts for production
     try:
         ve = get_verification_engine()
-        verified_ids = {h["host_id"] for h in ve.get_verified_hosts()}
+        verified_ids = set(ve.get_verified_hosts())
         verified_hosts = [h for h in hosts if h["host_id"] in verified_ids]
         if verified_hosts:
             hosts = verified_hosts
@@ -4616,10 +4598,13 @@ def process_webhook_inbox():
     with row lock (FOR UPDATE SKIP LOCKED) to prevent double processing.
     Called periodically by the background scheduler.
     """
-    try:
-        from stripe_connect import get_connect_engine
+    if _active_backend() == "sqlite":
+        return {"processed": 0, "errors": 0}
 
-        engine = get_connect_engine()
+    try:
+        from stripe_connect import get_stripe_manager
+
+        engine = get_stripe_manager()
     except Exception as e:
         log.debug("Stripe Connect not available: %s", e)
         return {"processed": 0, "errors": 0}

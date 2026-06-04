@@ -20,6 +20,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from typing import Any, cast
 
 log = logging.getLogger("xcelsior")
 
@@ -30,14 +31,22 @@ DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
 # Database backend: "sqlite", "postgres", or "dual" (dual-write migration mode)
 DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
 
+
+_DEFAULT_POSTGRES_DSN = "postgresql://xcelsior:xcelsior@localhost:5432/xcelsior"
+
+
+def resolve_postgres_dsn() -> str:
+    """Postgres DSN from env (CI sets XCELSIOR_POSTGRES_DSN or legacy XCELSIOR_PG_DSN)."""
+    return (
+        os.environ.get("XCELSIOR_POSTGRES_DSN")
+        or os.environ.get("XCELSIOR_PG_DSN")
+        or os.environ.get("DATABASE_URL")
+        or _DEFAULT_POSTGRES_DSN
+    )
+
+
 # PostgreSQL connection string (used when backend is "postgres" or "dual")
-POSTGRES_DSN = os.environ.get(
-    "XCELSIOR_POSTGRES_DSN",
-    os.environ.get(
-        "DATABASE_URL",
-        "postgresql://xcelsior:xcelsior@localhost:5432/xcelsior",
-    ),
-)
+POSTGRES_DSN = resolve_postgres_dsn()
 
 # During dual-write, which DB to read from: "sqlite" or "postgres"
 DUAL_READ_FROM = os.environ.get("XCELSIOR_DUAL_READ_FROM", "sqlite").lower()
@@ -114,11 +123,11 @@ def sqlite_transaction():
 
 # ── PostgreSQL Backend ────────────────────────────────────────────────
 
-_pg_pool = None
+_pg_pool: Any = None
 _pg_pool_lock = threading.Lock()
 
 
-def _get_pg_pool():
+def _get_pg_pool() -> Any:
     """Lazy-initialize PostgreSQL connection pool using psycopg3.
 
     Retries with exponential backoff if PG is temporarily unavailable
@@ -160,12 +169,8 @@ def _get_pg_pool():
 
         for attempt in range(1, max_attempts + 1):
             try:
-                # Re-read DSN at pool init time — module-scope POSTGRES_DSN
-                # may have been evaluated before dotenv loaded.
-                dsn = os.environ.get(
-                    "XCELSIOR_POSTGRES_DSN",
-                    os.environ.get("DATABASE_URL", POSTGRES_DSN),
-                )
+                # Re-read DSN at pool init (conftest may set vars after import).
+                dsn = resolve_postgres_dsn()
                 pool = ConnectionPool(
                     dsn,
                     min_size=2,
@@ -203,6 +208,8 @@ def _get_pg_pool():
                     delay,
                 )
                 time.sleep(delay)
+
+    raise RuntimeError("PostgreSQL pool initialization exited retry loop unexpectedly")
 
 
 # ── GPU Pricing seed data ─────────────────────────────────────────────
@@ -1125,7 +1132,10 @@ class PgEventBus:
                                 "ts": time.time(),
                             }
                         )
-                    conn.execute(f"NOTIFY {self.channel}, %s", (payload,))
+                    # pg_notify() binds channel + payload as parameters —
+                    # injection-safe and case-consistent with the quoted
+                    # sql.Identifier() used on the LISTEN side (start_pg_listen).
+                    conn.execute("SELECT pg_notify(%s, %s)", (self.channel, payload))
                     conn.commit()
             except Exception as e:
                 log.debug("PgEventBus notify failed: %s", e)
@@ -1360,7 +1370,7 @@ class UserStore:
         set_clause = ", ".join(f"{k} = %s" for k in fields)
         values = list(fields.values()) + [email]
         with auth_connection() as conn:
-            conn.execute(f"UPDATE users SET {set_clause} WHERE email = %s", values)
+            conn.execute(cast(Any, f"UPDATE users SET {set_clause} WHERE email = %s"), values)
 
     @staticmethod
     def set_admin(email: str, is_admin: int) -> None:
@@ -2089,12 +2099,13 @@ def start_pg_listen(callback, channel="xcelsior_events"):
             try:
                 # Dedicated connection for LISTEN (not from pool)
                 import psycopg
+                from psycopg import sql
 
-                conn = psycopg.connect(
-                    os.environ.get("XCELSIOR_PG_DSN") or POSTGRES_DSN,
-                    autocommit=True,
-                )
-                conn.execute(f"LISTEN {channel}")
+                conn = psycopg.connect(resolve_postgres_dsn(), autocommit=True)
+                # Compose the channel as an identifier rather than f-string
+                # interpolation — keeps it injection-safe and satisfies
+                # psycopg's LiteralString-typed query overload.
+                conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
                 log.info("PgEventBus: LISTEN started on channel '%s'", channel)
 
                 while True:
@@ -2322,7 +2333,10 @@ class OAuthStore:
             values.append(client_id)
             where = "client_id = %s"
         with auth_connection() as conn:
-            cur = conn.execute(f"UPDATE oauth_clients SET {set_clause} WHERE {where}", values)
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
             return cur.rowcount > 0
 
     @staticmethod

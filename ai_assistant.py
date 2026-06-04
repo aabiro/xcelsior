@@ -13,7 +13,7 @@ import uuid
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Callable, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
 import anthropic
 import httpx
@@ -1336,10 +1336,14 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
 
 
 def _tool_get_sla_terms(args: dict, _user: dict) -> dict:
-    from sla import SLA_TARGETS
+    from sla import SLA_TARGETS, SLATier
 
     tier = args.get("tier", "community")
-    targets = SLA_TARGETS.get(tier, SLA_TARGETS.get("community", {}))
+    try:
+        sla_tier = SLATier(tier)
+    except ValueError:
+        sla_tier = SLATier.COMMUNITY
+    targets = SLA_TARGETS[sla_tier]
     return {"tier": tier, "targets": targets}
 
 
@@ -1817,15 +1821,21 @@ def _tool_get_sla_status(args: dict, user: dict) -> dict:
 
             placeholders = ",".join(["%s"] * len(user_host_ids))
             monthly_rows = conn.execute(
-                f"SELECT host_id, month, tier, total_seconds, downtime_seconds, incidents, "
-                f"credit_pct, credit_cad, enforced FROM sla_monthly "
-                f"WHERE host_id IN ({placeholders}) ORDER BY month DESC LIMIT 30",
+                cast(
+                    Any,
+                    f"SELECT host_id, month, tier, total_seconds, downtime_seconds, incidents, "
+                    f"credit_pct, credit_cad, enforced FROM sla_monthly "
+                    f"WHERE host_id IN ({placeholders}) ORDER BY month DESC LIMIT 30",
+                ),
                 user_host_ids,
             ).fetchall()
             violation_rows = conn.execute(
-                f"SELECT host_id, violation_type, severity, metric_value, threshold, timestamp "
-                f"FROM sla_violations WHERE host_id IN ({placeholders}) "
-                f"ORDER BY timestamp DESC LIMIT 20",
+                cast(
+                    Any,
+                    f"SELECT host_id, violation_type, severity, metric_value, threshold, timestamp "
+                    f"FROM sla_violations WHERE host_id IN ({placeholders}) "
+                    f"ORDER BY timestamp DESC LIMIT 20",
+                ),
                 user_host_ids,
             ).fetchall()
         return {
@@ -2846,7 +2856,7 @@ journalctl -u xcelsior-worker -f    # live logs
 WHAT TO WATCH FOR:
 - First job arrival time: varies by demand. Consumer GPUs often get first job within 1 hour during peak hours (weekday 9am–6pm ET).
 - {_BASE_DOMAIN}/dashboard → Revenue tab: shows live earnings, uptime %, and booking history.
-- {_BASE_DOMAIN}/dashboard → My GPU: change rate, pause/resume, view reviews.
+- {_BASE_DOMAIN}/dashboard → My GPU: change rate, stop/start listing, view reviews.
 
 TIER EARNINGS NOTE:
 - Community: 100% of rate is yours minus Xcelsior 15% platform fee
@@ -3385,7 +3395,7 @@ FILES ON THEIR SYSTEM:
 
 DASHBOARD — {_BASE_DOMAIN}/dashboard has four key tabs:
 - **Revenue**: GPU earnings (live + historical, by job)
-- **My GPU**: manage listing — rate, pause/resume, view reviews, upgrade security tier
+- **My GPU**: manage listing — rate, stop/start, view reviews, upgrade security tier
 - **Instances**: their own active compute sessions (renter side)
 - **Billing**: wallet balance, top-up, transaction history
 
@@ -4314,8 +4324,10 @@ async def _stream_with_anthropic_provider(
             model=AI_MODEL,
             max_tokens=AI_MAX_TOKENS,
             system=system,
-            messages=messages,
-            tools=tools,
+            # list[dict] is loose vs the SDK's MessageParam/ToolParam TypedDicts;
+            # cast only these two so kwarg-name checking stays live on the call.
+            messages=cast("Any", messages),
+            tools=cast("Any", tools),
             stream=True,
         )
 

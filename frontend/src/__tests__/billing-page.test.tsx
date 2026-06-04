@@ -8,6 +8,11 @@ const apiMocks = vi.hoisted(() => ({
   fetchInvoices: vi.fn(),
   fetchUsageSummary: vi.fn(),
   fetchReservedPlans: vi.fn(),
+  fetchPaymentMethods: vi.fn(),
+  fetchAutoTopup: vi.fn(),
+  configureAutoTopup: vi.fn(),
+  createSetupIntent: vi.fn(),
+  deletePaymentMethod: vi.fn(),
   checkCryptoEnabled: vi.fn(),
   checkLightningEnabled: vi.fn(),
   resetWalletTestingState: vi.fn(),
@@ -52,6 +57,10 @@ vi.mock("@/components/billing/crypto-deposit-modal", () => ({
 
 vi.mock("@/components/billing/lightning-deposit-modal", () => ({
   LightningDepositModal: () => null,
+}));
+
+vi.mock("@/components/billing/payment-method-modal", () => ({
+  PaymentMethodModal: () => null,
 }));
 
 vi.mock("sonner", () => ({
@@ -109,6 +118,17 @@ describe("BillingPage free credits flow", () => {
       hosts_used: 0,
     });
     apiMocks.fetchReservedPlans.mockResolvedValue({});
+    apiMocks.fetchPaymentMethods.mockResolvedValue({ ok: true, payment_methods: [] });
+    apiMocks.fetchAutoTopup.mockResolvedValue({
+      ok: true,
+      auto_topup: {
+        enabled: false,
+        amount_cad: 25,
+        threshold_cad: 5,
+        payment_method_id: "",
+        has_payment_method: false,
+      },
+    });
     apiMocks.checkCryptoEnabled.mockResolvedValue({ ok: true, enabled: false });
     apiMocks.checkLightningEnabled.mockResolvedValue({ ok: true, enabled: false });
     apiMocks.checkFreeCreditsStatus.mockResolvedValue({ ok: true, claimed: false });

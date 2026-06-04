@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from routes._deps import (
     _require_admin,
+    _require_auth,
     broadcast_sse,
 )
 from scheduler import (
@@ -90,13 +91,19 @@ def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
     )
     from jurisdiction import filter_hosts_by_jurisdiction
 
-    filtered = filter_hosts_by_jurisdiction(hosts, constraint)
+    # Second arg is the host_id -> HostJurisdiction map; pass {} to fall back to
+    # each host's own fields (matches scheduler.py allocate-time usage).
+    filtered = filter_hosts_by_jurisdiction(hosts, {}, constraint)
     return {"ok": True, "count": len(filtered), "hosts": filtered}
 
 
 @router.get("/api/jurisdiction/residency-trace/{job_id}", tags=["Jurisdiction"])
-def api_residency_trace(job_id: str):
+def api_residency_trace(job_id: str, request: Request):
     """Generate a residency trace for a job (compliance artifact)."""
+    from routes.instances import _check_job_access
+
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
     jobs = list_jobs()
     job = next((j for j in jobs if j["job_id"] == job_id), None)
     if not job:

@@ -7,6 +7,7 @@ import os
 import re
 import time
 import uuid
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -19,6 +20,8 @@ from routes._deps import (
     _api_keys,
     _check_ws_connect_rate_limit,
     _consume_ws_ticket,
+    _get_current_user,
+    _is_platform_admin,
     _issue_ws_ticket,
     _require_auth,
     _require_scope,
@@ -218,17 +221,29 @@ _ws_connections: dict[str, set] = defaultdict(set)
 
 def _check_job_access(user: dict, job_id: str):
     """Verify user owns the job or is admin."""
-    if user.get("role") == "admin" or user.get("is_admin"):
+    if _is_platform_admin(user) or user.get("role") == "admin":
         return
     from scheduler import get_job
 
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, f"Instance {job_id} not found")
-    job_owner = job.get("owner", "")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    if job_owner and job_owner != customer_id:
+    job_owner = (job.get("owner") or "").strip()
+    owned = {_canonical_owner_id(user)}
+    owned.update(str(user.get(k) or "").strip() for k in ("customer_id", "user_id", "email"))
+    owned.discard("")
+    if job_owner and job_owner not in owned:
         raise HTTPException(403, "Not authorized to access this instance")
+
+
+def _require_worker_status_update(request: Request) -> dict:
+    """PATCH /instance/{job_id} is for worker agents (API token), not end users."""
+    user = _get_current_user(request)
+    if user and (_is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")):
+        return user
+    if os.environ.get("XCELSIOR_ENV", "").lower() == "test":
+        return _require_auth(request)
+    raise HTTPException(401, "Authentication required")
 
 
 class JobIn(BaseModel):
@@ -522,7 +537,7 @@ def api_submit_instance(j: JobIn, request: Request):
     with otel_span(
         "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
     ):
-        customer_id = user.get("customer_id", user.get("user_id", ""))
+        customer_id = _canonical_owner_id(user)
         _wallet_preflight(customer_id)
 
         # ── Per-user concurrent instance cap ───────────────────
@@ -791,8 +806,10 @@ def api_list_instances(status: str | None = None):
 
 
 @router.get("/instance/{job_id}", tags=["Instances"])
-def api_get_instance(job_id: str):
+def api_get_instance(job_id: str, request: Request):
     """Get a specific instance by ID, enriched with connection info."""
+    user = _require_auth(request)
+    _check_job_access(user, job_id)
     j = get_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
@@ -803,8 +820,9 @@ def api_get_instance(job_id: str):
 
 
 @router.patch("/instance/{job_id}", tags=["Instances"])
-def api_update_instance(job_id: str, update: StatusUpdate):
+def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     """Update a job's status."""
+    _require_worker_status_update(request)
     with otel_span("job.status_update", {"job.id": job_id, "job.status": update.status}):
         try:
             update_job_status(job_id, update.status, host_id=update.host_id)
@@ -861,6 +879,8 @@ def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Reque
 
     _require_auth(request)
     user = _get_current_user(request)
+    if user is None:
+        raise HTTPException(401, "Authentication required")
     from scheduler import get_job, _set_job_fields
 
     job = get_job(job_id)
@@ -907,6 +927,7 @@ def api_cancel_instance(job_id: str, request: Request):
     """Cancel a running or queued instance. For interactive instances, stops the container."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
+    _check_job_access(user, job_id)
     jobs = list_jobs()
     job = next((j for j in jobs if j["job_id"] == job_id), None)
     if not job:
@@ -947,6 +968,7 @@ def api_requeue_instance(job_id: str, request: Request):
     """Manually requeue a failed or stuck job."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
+    _check_job_access(user, job_id)
     result = requeue_job(job_id)
     if not result:
         raise HTTPException(
@@ -992,8 +1014,7 @@ def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> 
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
+    customer_id = _canonical_owner_id(user)
 
     from scheduler import get_job
 
@@ -1001,8 +1022,8 @@ def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> 
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
+    job_owner = (job.get("owner") or "").strip()
+    if not _is_platform_admin(user) and job_owner and job_owner != customer_id:
         raise HTTPException(status_code=403, detail=f"Not authorized to {action} this instance")
     return user, job
 
@@ -1079,22 +1100,7 @@ def api_stop_instance(job_id: str, request: Request):
     preserved — data, volumes and configuration are intact. Storage billing
     continues at the per-GB rate. The instance can be started again at any time.
     """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to stop this instance")
-
-    _check_not_locked(job)
+    user, job = _authorize_instance_mutation(request, job_id, "stop")
 
     if job.get("status") != "running":
         raise HTTPException(
@@ -1120,22 +1126,9 @@ def api_start_instance(job_id: str, request: Request):
     preserved. Requires a positive wallet balance. Compute billing resumes
     immediately.
     """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to start this instance")
-
-    _check_not_locked(job)
+    user, job = _authorize_instance_mutation(request, job_id, "start")
+    customer_id = _canonical_owner_id(user)
+    job_owner = (job.get("owner") or "").strip()
 
     if job.get("status") != "stopped":
         raise HTTPException(
@@ -2150,7 +2143,7 @@ def api_list_user_images(
 
     pool = _user_images_pool()
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
+        cur.execute(cast(Any, sql), params)
         rows = cur.fetchall() or []
     items = [
         {
@@ -2283,7 +2276,7 @@ def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Reques
             raise HTTPException(403, "Not your image")
         params.append(image_id)
         cur.execute(
-            f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s",
+            cast(Any, f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s"),
             params,
         )
     try:

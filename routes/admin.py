@@ -2,6 +2,7 @@
 
 import time
 import uuid
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -450,10 +451,10 @@ def api_admin_toggle_admin(email: str, request: Request):
 def api_admin_teams(request: Request):
     """List all teams with their members. Platform admin only."""
     _require_admin(request)
-    from db import get_db
+    from db import auth_connection
 
     teams = []
-    with get_db() as conn:
+    with auth_connection() as conn:
         rows = conn.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
         for row in rows:
             team = dict(row)
@@ -925,18 +926,21 @@ def api_admin_ai_conversations(
 
             # Count
             cnt = conn.execute(
-                f"SELECT COUNT(*) AS cnt FROM ai_conversations c WHERE {where_clause}",
+                cast(Any, f"SELECT COUNT(*) AS cnt FROM ai_conversations c WHERE {where_clause}"),
                 params,
             ).fetchone()
             ai_total = int(cnt["cnt"]) if cnt else 0
 
             # Fetch conversations
             ai_convs = conn.execute(
-                f"SELECT c.conversation_id, c.user_id, c.title, c.source, "
-                f"c.created_at, c.updated_at, c.message_count, "
-                f"c.total_input_tokens, c.total_output_tokens "
-                f"FROM ai_conversations c WHERE {where_clause} "
-                f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                cast(
+                    Any,
+                    f"SELECT c.conversation_id, c.user_id, c.title, c.source, "
+                    f"c.created_at, c.updated_at, c.message_count, "
+                    f"c.total_input_tokens, c.total_output_tokens "
+                    f"FROM ai_conversations c WHERE {where_clause} "
+                    f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                ),
                 params + [per_page, offset],
             ).fetchall()
 
@@ -946,10 +950,13 @@ def api_admin_ai_conversations(
             if cids:
                 placeholders = ",".join(["%s"] * len(cids))
                 msgs = conn.execute(
-                    f"SELECT conversation_id, role, content, tool_name, "
-                    f"tokens_in, tokens_out, created_at "
-                    f"FROM ai_messages WHERE conversation_id IN ({placeholders}) "
-                    f"ORDER BY created_at ASC",
+                    cast(
+                        Any,
+                        f"SELECT conversation_id, role, content, tool_name, "
+                        f"tokens_in, tokens_out, created_at "
+                        f"FROM ai_messages WHERE conversation_id IN ({placeholders}) "
+                        f"ORDER BY created_at ASC",
+                    ),
                     cids,
                 ).fetchall()
                 for m in msgs:
@@ -997,7 +1004,9 @@ def api_admin_ai_conversations(
             swhere_clause = " AND ".join(swhere)
 
             scnt = conn.execute(
-                f"SELECT COUNT(*) AS cnt FROM chat_conversations c WHERE {swhere_clause}",
+                cast(
+                    Any, f"SELECT COUNT(*) AS cnt FROM chat_conversations c WHERE {swhere_clause}"
+                ),
                 sparams,
             ).fetchone()
             support_total = int(scnt["cnt"]) if scnt else 0
@@ -1007,10 +1016,13 @@ def api_admin_ai_conversations(
 
             if s_limit > 0 and (source != "all" or len(conversations) < per_page):
                 sconvs = conn.execute(
-                    f"SELECT c.conversation_id, c.user_email, c.ip_hash, "
-                    f"c.created_at, c.updated_at "
-                    f"FROM chat_conversations c WHERE {swhere_clause} "
-                    f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                    cast(
+                        Any,
+                        f"SELECT c.conversation_id, c.user_email, c.ip_hash, "
+                        f"c.created_at, c.updated_at "
+                        f"FROM chat_conversations c WHERE {swhere_clause} "
+                        f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
+                    ),
                     sparams + [s_limit, s_offset],
                 ).fetchall()
 
@@ -1020,9 +1032,12 @@ def api_admin_ai_conversations(
                 if scids:
                     splaceholders = ",".join(["%s"] * len(scids))
                     smsgs = conn.execute(
-                        f"SELECT conversation_id, role, content, created_at "
-                        f"FROM chat_messages WHERE conversation_id IN ({splaceholders}) "
-                        f"ORDER BY created_at ASC",
+                        cast(
+                            Any,
+                            f"SELECT conversation_id, role, content, created_at "
+                            f"FROM chat_messages WHERE conversation_id IN ({splaceholders}) "
+                            f"ORDER BY created_at ASC",
+                        ),
                         scids,
                     ).fetchall()
                     for m in smsgs:

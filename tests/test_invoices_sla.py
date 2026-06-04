@@ -76,7 +76,8 @@ def _register_host(
     if versions is not None:
         data["versions"] = versions
     data.update(extra)
-    return client.put("/host", json=data)
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
+    return client.put("/host", json=data, headers={"Authorization": f"Bearer {token}"})
 
 
 @pytest.fixture(autouse=True)
@@ -109,9 +110,21 @@ def clean_data():
 class TestInvoiceList:
     """Tests for GET /api/billing/invoices/{customer_id}."""
 
-    def test_invoice_list_returns_ok(self):
+    @pytest.fixture
+    def invoice_auth(self):
+        email = f"invlist-{int(time.time() * 1000)}@xcelsior.ca"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "testpass123"},
+        ).json()
+        token = reg["access_token"]
+        customer_id = reg["user"]["customer_id"]
+        return customer_id, {"Authorization": f"Bearer {token}"}
+
+    def test_invoice_list_returns_ok(self, invoice_auth):
         """Basic call returns ok with invoices array."""
-        r = client.get("/api/billing/invoices/cust-test-001")
+        customer_id, headers = invoice_auth
+        r = client.get(f"/api/billing/invoices/{customer_id}", headers=headers)
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
@@ -119,35 +132,39 @@ class TestInvoiceList:
         assert isinstance(d["invoices"], list)
         assert "count" in d
 
-    def test_invoice_list_empty_no_usage(self):
+    def test_invoice_list_empty_no_usage(self, invoice_auth):
         """Customer with no usage should get empty invoices."""
-        r = client.get("/api/billing/invoices/nonexistent-customer-xyz")
+        customer_id, headers = invoice_auth
+        r = client.get(f"/api/billing/invoices/{customer_id}", headers=headers)
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
         assert d["count"] == 0
         assert d["invoices"] == []
 
-    def test_invoice_list_limit_param(self):
+    def test_invoice_list_limit_param(self, invoice_auth):
         """Limit parameter should be honoured."""
-        r = client.get("/api/billing/invoices/cust-test-001?limit=3")
+        customer_id, headers = invoice_auth
+        r = client.get(f"/api/billing/invoices/{customer_id}?limit=3", headers=headers)
         assert r.status_code == 200
         d = r.json()
         assert d["ok"] is True
         # Even if no usage, should still return ok
         assert isinstance(d["invoices"], list)
 
-    def test_invoice_list_default_limit_12(self):
+    def test_invoice_list_default_limit_12(self, invoice_auth):
         """Default limit should be 12 (max 12 invoices returned)."""
-        r = client.get("/api/billing/invoices/cust-test-001")
+        customer_id, headers = invoice_auth
+        r = client.get(f"/api/billing/invoices/{customer_id}", headers=headers)
         assert r.status_code == 200
         d = r.json()
         # Count should not exceed 12
         assert d["count"] <= 12
 
-    def test_invoice_fields_when_present(self):
+    def test_invoice_fields_when_present(self, invoice_auth):
         """Invoices should have required fields when they exist."""
-        r = client.get("/api/billing/invoices/cust-test-001?limit=6")
+        customer_id, headers = invoice_auth
+        r = client.get(f"/api/billing/invoices/{customer_id}?limit=6", headers=headers)
         d = r.json()
         for inv in d["invoices"]:
             assert "invoice_id" in inv

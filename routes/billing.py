@@ -6,6 +6,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -15,6 +16,7 @@ from routes._deps import (
     XCELSIOR_ENV,
     _USE_PERSISTENT_AUTH,
     _get_current_user,
+    _is_platform_admin,
     _merge_auth_user,
     _require_admin,
     _require_auth,
@@ -82,11 +84,32 @@ def _analytics_customer_scope(user: dict) -> str:
     return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "").strip()
 
 
+def _require_customer_access(request: Request, customer_id: str) -> dict:
+    """Authn + ownership guard for customer-scoped billing routes.
+
+    The caller may only act on their own customer_id; platform admins may act
+    on any. Without this, these routes were IDOR / unauthenticated — anyone
+    could read or mutate another customer's wallet, usage, or invoices by id
+    (customer_id is often the user's email — trivially guessable).
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    owned = {str(user.get(k) or "").strip() for k in ("customer_id", "user_id", "email")}
+    owned.discard("")
+    if customer_id not in owned and not _is_platform_admin(user):
+        raise HTTPException(403, "Forbidden")
+    return user
+
+
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
 def api_bill_instance(job_id: str, request: Request):
     """Bill a specific completed job."""
+    from routes._deps import _require_platform_worker
+
     user = _require_auth(request)
     _require_scope(user, "billing:write")
+    _require_platform_worker(user)
     with otel_span("billing.bill_job", {"job.id": job_id}):
         record = bill_job(job_id)
         if not record:
@@ -97,8 +120,7 @@ def api_bill_instance(job_id: str, request: Request):
 @router.post("/billing/bill-all", tags=["Billing"])
 def api_bill_all(request: Request):
     """Bill all unbilled completed jobs."""
-    user = _require_auth(request)
-    _require_scope(user, "billing:write")
+    _require_admin(request)
     try:
         bills = bill_all_completed()
     except Exception as exc:
@@ -108,8 +130,9 @@ def api_bill_all(request: Request):
 
 
 @router.get("/billing", tags=["Billing"])
-def api_billing():
-    """Get all billing records and total revenue."""
+def api_billing(request: Request):
+    """Get all billing records and total revenue (platform admin only)."""
+    _require_admin(request)
     records = load_billing()
     return {
         "records": records,
@@ -118,8 +141,9 @@ def api_billing():
 
 
 @router.get("/api/billing/wallet/{customer_id}", tags=["Billing"])
-def api_get_wallet(customer_id: str):
+def api_get_wallet(customer_id: str, request: Request):
     """Get credit wallet balance and status."""
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     wallet = be.get_wallet(customer_id)
     return {"ok": True, "wallet": wallet}
@@ -280,8 +304,9 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
 
 
 @router.post("/api/billing/wallet/{customer_id}/deposit", tags=["Billing"])
-def api_deposit(customer_id: str, req: DepositRequest):
+def api_deposit(customer_id: str, req: DepositRequest, request: Request):
     """Deposit credits into a customer wallet."""
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     result = be.deposit(customer_id, req.amount_cad, req.description)
     return {"ok": True, **result}
@@ -363,27 +388,32 @@ def api_free_credits_status(customer_id: str, request: Request):
 
 
 @router.get("/api/billing/wallet/{customer_id}/history", tags=["Billing"])
-def api_wallet_history(customer_id: str, limit: int = 50):
+def api_wallet_history(customer_id: str, request: Request, limit: int = 50):
     """Get transaction history for a wallet."""
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     history = be.get_wallet_history(customer_id, limit)
     return {"ok": True, "customer_id": customer_id, "transactions": history}
 
 
 @router.get("/api/billing/wallet/{customer_id}/depletion", tags=["Billing"])
-def api_wallet_depletion(customer_id: str):
+def api_wallet_depletion(customer_id: str, request: Request):
     """Get real-time balance depletion projection.
 
     Returns burn rate, seconds-to-zero, per-instance cost breakdown,
     and alert thresholds (T-30min, T-5min, T-0).
     """
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     return {"ok": True, **be.time_to_zero(customer_id)}
 
 
 @router.get("/api/billing/usage/{customer_id}", tags=["Billing"])
-def api_usage_summary(customer_id: str, period_start: float = 0, period_end: float = 0):
+def api_usage_summary(
+    customer_id: str, request: Request, period_start: float = 0, period_end: float = 0
+):
     """Get usage summary for a customer."""
+    _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
     if period_start == 0:
@@ -396,12 +426,14 @@ def api_usage_summary(customer_id: str, period_start: float = 0, period_end: flo
 @router.get("/api/billing/invoice/{customer_id}", tags=["Billing"])
 def api_generate_invoice(
     customer_id: str,
+    request: Request,
     customer_name: str = "",
     period_start: float = 0,
     period_end: float = 0,
     tax_rate: float = 0.13,
 ):
     """Generate an AI Compute Access Fund–aligned invoice."""
+    _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
     if period_start == 0:
@@ -414,6 +446,7 @@ def api_generate_invoice(
 @router.get("/api/billing/export/caf/{customer_id}", tags=["Billing"])
 def api_export_caf(
     customer_id: str,
+    request: Request,
     period_start: float = 0,
     period_end: float = 0,
     format: str = "json",
@@ -424,6 +457,7 @@ def api_export_caf(
     From REPORT_FEATURE_2.md: /billing/export?format=caf
     Supports json, csv, and html (print-ready claim form) formats.
     """
+    _require_customer_access(request, customer_id)
     if period_end == 0:
         period_end = time.time()
     if period_start == 0:
@@ -461,12 +495,13 @@ def api_export_caf(
 
 
 @router.get("/api/billing/invoices/{customer_id}", tags=["Billing"])
-def api_list_invoices(customer_id: str, limit: int = 12):
+def api_list_invoices(customer_id: str, request: Request, limit: int = 12):
     """List past invoices for a customer (monthly summaries).
 
     Generates monthly invoice stubs for the last N months showing
     total spend, tax, job count, and top GPUs used.
     """
+    _require_customer_access(request, customer_id)
     be = get_billing_engine()
     now = time.time()
     invoices = []
@@ -502,6 +537,7 @@ def api_list_invoices(customer_id: str, limit: int = 12):
 @router.get("/api/billing/invoice/{customer_id}/download", tags=["Billing"])
 def api_download_invoice(
     customer_id: str,
+    request: Request,
     format: str = "csv",
     period_start: float = 0,
     period_end: float = 0,
@@ -512,6 +548,7 @@ def api_download_invoice(
 
     Formats: csv (spreadsheet-ready), txt (printable receipt).
     """
+    _require_customer_access(request, customer_id)
     import io
     import csv as csv_mod
     from datetime import datetime
@@ -618,13 +655,17 @@ class RefundRequest(BaseModel):
 
 
 @router.post("/api/billing/refund", tags=["Billing"])
-def api_process_refund(req: RefundRequest):
+def api_process_refund(req: RefundRequest, request: Request):
     """Process a refund for a failed job.
 
     From REPORT_FEATURE_1.md:
     - Hardware error → full refund
     - User OOM (exit 137) → zero refund
     """
+    from routes.instances import _check_job_access
+
+    user = _require_auth(request)
+    _check_job_access(user, req.job_id)
     be = get_billing_engine()
     result = be.process_refund(req.job_id, req.exit_code, req.failure_reason)
     return {"ok": True, **result}
@@ -639,8 +680,9 @@ class CryptoDepositRequest(BaseModel):
 
 
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
-def api_crypto_deposit(req: CryptoDepositRequest):
+def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
     """Create a BTC deposit request. Returns address, amount, and QR data."""
+    _require_customer_access(request, req.customer_id)
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
     service_status = _btc_mod.get_service_status()
@@ -661,13 +703,14 @@ def api_crypto_deposit(req: CryptoDepositRequest):
 
 
 @router.get("/api/billing/crypto/deposit/{deposit_id}", tags=["Billing"])
-def api_crypto_deposit_status(deposit_id: str):
+def api_crypto_deposit_status(deposit_id: str, request: Request):
     """Poll deposit confirmation status."""
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
     dep = _btc_mod.get_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, dep["customer_id"])
     return {"ok": True, **dep}
 
 
@@ -684,10 +727,14 @@ def api_crypto_rate():
 
 
 @router.post("/api/billing/crypto/refresh/{deposit_id}", tags=["Billing"])
-def api_crypto_refresh(deposit_id: str):
+def api_crypto_refresh(deposit_id: str, request: Request):
     """Refresh an expired deposit with a new BTC/CAD rate."""
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
+    existing = _btc_mod.get_deposit(deposit_id)
+    if not existing:
+        raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, existing["customer_id"])
     dep = _btc_mod.refresh_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
@@ -758,6 +805,7 @@ def api_ln_check_deposit(deposit_id: str, request: Request):
     dep = _ln_mod.check_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
+    _require_customer_access(request, dep.get("customer_id", ""))
     return {"ok": True, **dep}
 
 
@@ -1178,15 +1226,18 @@ def api_usage_analytics(
     try:
         with billing._conn() as conn:
             rows = conn.execute(
-                f"SELECT {group_sql}, "
-                "COUNT(*) AS job_count, "
-                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost_cad, "
-                "ROUND(COALESCE(SUM(gpu_seconds), 0)::numeric, 0) AS total_gpu_seconds, "
-                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct, "
-                "COALESCE(SUM(is_canadian_compute), 0) AS canadian_jobs, "
-                "COUNT(*) - COALESCE(SUM(is_canadian_compute), 0) AS international_jobs "
-                f"FROM usage_meters WHERE {where_sql} "
-                "GROUP BY period ORDER BY period",
+                cast(
+                    Any,
+                    f"SELECT {group_sql}, "
+                    "COUNT(*) AS job_count, "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost_cad, "
+                    "ROUND(COALESCE(SUM(gpu_seconds), 0)::numeric, 0) AS total_gpu_seconds, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_gpu_util_pct, "
+                    "COALESCE(SUM(is_canadian_compute), 0) AS canadian_jobs, "
+                    "COUNT(*) - COALESCE(SUM(is_canadian_compute), 0) AS international_jobs "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY period ORDER BY period",
+                ),
                 params,
             ).fetchall()
 
@@ -1209,11 +1260,14 @@ def api_usage_analytics(
 
             # Summary
             summary_row = conn.execute(
-                "SELECT COUNT(*) AS total_jobs, "
-                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_spend, "
-                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
-                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
-                f"FROM usage_meters WHERE {where_sql}",
+                cast(
+                    Any,
+                    "SELECT COUNT(*) AS total_jobs, "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_spend, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
+                    f"FROM usage_meters WHERE {where_sql}",
+                ),
                 params,
             ).fetchone()
     except Exception as e:
@@ -1290,14 +1344,17 @@ def api_analytics_enhanced(
         with billing._conn() as conn:
             # ── 1. Cost-per-hour trend (daily avg cost per GPU hour) ──
             cph_rows = conn.execute(
-                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
-                "CASE WHEN SUM(gpu_seconds) > 0 "
-                "  THEN ROUND((SUM(total_cost_cad) / (SUM(gpu_seconds) / 3600.0))::numeric, 4) "
-                "  ELSE 0 END AS cost_per_hour, "
-                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
-                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend "
-                f"FROM usage_meters WHERE {where_sql} "
-                "GROUP BY date ORDER BY date",
+                cast(
+                    Any,
+                    "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                    "CASE WHEN SUM(gpu_seconds) > 0 "
+                    "  THEN ROUND((SUM(total_cost_cad) / (SUM(gpu_seconds) / 3600.0))::numeric, 4) "
+                    "  ELSE 0 END AS cost_per_hour, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY date ORDER BY date",
+                ),
                 params,
             ).fetchall()
             result["cost_per_hour_trend"] = [
@@ -1320,19 +1377,22 @@ def api_analytics_enhanced(
 
             # ── 3. Duration histogram (job duration buckets) ──
             dur_rows = conn.execute(
-                "SELECT "
-                "CASE "
-                "  WHEN duration_sec < 60 THEN '< 1 min' "
-                "  WHEN duration_sec < 300 THEN '1-5 min' "
-                "  WHEN duration_sec < 1800 THEN '5-30 min' "
-                "  WHEN duration_sec < 3600 THEN '30-60 min' "
-                "  WHEN duration_sec < 14400 THEN '1-4 hr' "
-                "  ELSE '4+ hr' "
-                "END AS bucket, "
-                "COUNT(*) AS count, "
-                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost "
-                f"FROM usage_meters WHERE {where_sql} "
-                "GROUP BY bucket ORDER BY MIN(duration_sec)",
+                cast(
+                    Any,
+                    "SELECT "
+                    "CASE "
+                    "  WHEN duration_sec < 60 THEN '< 1 min' "
+                    "  WHEN duration_sec < 300 THEN '1-5 min' "
+                    "  WHEN duration_sec < 1800 THEN '5-30 min' "
+                    "  WHEN duration_sec < 3600 THEN '30-60 min' "
+                    "  WHEN duration_sec < 14400 THEN '1-4 hr' "
+                    "  ELSE '4+ hr' "
+                    "END AS bucket, "
+                    "COUNT(*) AS count, "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY bucket ORDER BY MIN(duration_sec)",
+                ),
                 params,
             ).fetchall()
             result["duration_histogram"] = [
@@ -1351,11 +1411,14 @@ def api_analytics_enhanced(
 
             # ── 5. Hourly heatmap (jobs by day-of-week + hour) ──
             heat_rows = conn.execute(
-                "SELECT EXTRACT(DOW FROM to_timestamp(started_at)) AS dow, "
-                "EXTRACT(HOUR FROM to_timestamp(started_at)) AS hour, "
-                "COUNT(*) AS count "
-                f"FROM usage_meters WHERE {where_sql} "
-                "GROUP BY dow, hour ORDER BY dow, hour",
+                cast(
+                    Any,
+                    "SELECT EXTRACT(DOW FROM to_timestamp(started_at)) AS dow, "
+                    "EXTRACT(HOUR FROM to_timestamp(started_at)) AS hour, "
+                    "COUNT(*) AS count "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY dow, hour ORDER BY dow, hour",
+                ),
                 params,
             ).fetchall()
             result["hourly_heatmap"] = [
@@ -1366,20 +1429,26 @@ def api_analytics_enhanced(
             # ── 6. Top hosts used (or top customers if admin) ──
             if is_admin:
                 top_rows = conn.execute(
-                    "SELECT owner AS entity, COUNT(*) AS job_count, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
-                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
-                    f"FROM usage_meters WHERE {where_sql} "
-                    "GROUP BY owner ORDER BY total_cost DESC LIMIT 10",
+                    cast(
+                        Any,
+                        "SELECT owner AS entity, COUNT(*) AS job_count, "
+                        "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                        "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
+                        f"FROM usage_meters WHERE {where_sql} "
+                        "GROUP BY owner ORDER BY total_cost DESC LIMIT 10",
+                    ),
                     params,
                 ).fetchall()
             else:
                 top_rows = conn.execute(
-                    "SELECT host_id AS entity, COUNT(*) AS job_count, "
-                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
-                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
-                    f"FROM usage_meters WHERE {where_sql} "
-                    "GROUP BY host_id ORDER BY job_count DESC LIMIT 10",
+                    cast(
+                        Any,
+                        "SELECT host_id AS entity, COUNT(*) AS job_count, "
+                        "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                        "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours "
+                        f"FROM usage_meters WHERE {where_sql} "
+                        "GROUP BY host_id ORDER BY job_count DESC LIMIT 10",
+                    ),
                     params,
                 ).fetchall()
             result["top_entities"] = [
@@ -1394,12 +1463,15 @@ def api_analytics_enhanced(
 
             # ── 7. Sovereignty summary ──
             sov_row = conn.execute(
-                "SELECT "
-                "COUNT(*) AS total, "
-                "SUM(CASE WHEN is_canadian_compute = 1 THEN 1 ELSE 0 END) AS canadian, "
-                "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS ca_spend, "
-                "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS intl_spend "
-                f"FROM usage_meters WHERE {where_sql}",
+                cast(
+                    Any,
+                    "SELECT "
+                    "COUNT(*) AS total, "
+                    "SUM(CASE WHEN is_canadian_compute = 1 THEN 1 ELSE 0 END) AS canadian, "
+                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS ca_spend, "
+                    "ROUND(COALESCE(SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS intl_spend "
+                    f"FROM usage_meters WHERE {where_sql}",
+                ),
                 params,
             ).fetchone()
             total_jobs_sov = int(sov_row["total"]) if sov_row else 0
@@ -1417,15 +1489,18 @@ def api_analytics_enhanced(
 
             # ── 8. GPU model performance breakdown ──
             gpu_perf_rows = conn.execute(
-                "SELECT gpu_model, COUNT(*) AS jobs, "
-                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
-                "ROUND(COALESCE(AVG(duration_sec / 60.0), 0)::numeric, 1) AS avg_duration_min, "
-                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
-                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
-                "ROUND(COALESCE(AVG(CASE WHEN gpu_seconds > 0 "
-                "  THEN total_cost_cad / (gpu_seconds / 3600.0) ELSE 0 END), 0)::numeric, 4) AS avg_cost_per_hour "
-                f"FROM usage_meters WHERE {where_sql} "
-                "GROUP BY gpu_model ORDER BY total_cost DESC LIMIT 12",
+                cast(
+                    Any,
+                    "SELECT gpu_model, COUNT(*) AS jobs, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
+                    "ROUND(COALESCE(AVG(duration_sec / 60.0), 0)::numeric, 1) AS avg_duration_min, "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_cost, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                    "ROUND(COALESCE(AVG(CASE WHEN gpu_seconds > 0 "
+                    "  THEN total_cost_cad / (gpu_seconds / 3600.0) ELSE 0 END), 0)::numeric, 4) AS avg_cost_per_hour "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY gpu_model ORDER BY total_cost DESC LIMIT 12",
+                ),
                 params,
             ).fetchall()
             result["gpu_performance"] = [
@@ -1511,13 +1586,16 @@ def api_analytics_enhanced(
 
             # ── 11. Peak usage periods ──
             peak_rows = conn.execute(
-                "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
-                "COUNT(*) AS jobs, "
-                "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
-                "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend, "
-                "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
-                f"FROM usage_meters WHERE {where_sql} "
-                "GROUP BY date ORDER BY jobs DESC LIMIT 5",
+                cast(
+                    Any,
+                    "SELECT to_char(to_timestamp(started_at), 'YYYY-MM-DD') AS date, "
+                    "COUNT(*) AS jobs, "
+                    "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS gpu_hours, "
+                    "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS spend, "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
+                    f"FROM usage_meters WHERE {where_sql} "
+                    "GROUP BY date ORDER BY jobs DESC LIMIT 5",
+                ),
                 params,
             ).fetchall()
             result["peak_days"] = [
@@ -1555,13 +1633,13 @@ def api_billing_configure_topup(body: AutoTopupConfig, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     be = get_billing_engine()
-    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "")))
+    customer_id = _analytics_customer_scope(user)
     be.configure_auto_topup(
         customer_id=customer_id,
         enabled=body.enabled,
         amount_cad=body.amount_cad,
         threshold_cad=body.threshold_cad,
-        payment_method_id=body.stripe_payment_method_id,
+        stripe_payment_method_id=body.stripe_payment_method_id,
     )
     return {"ok": True, "auto_topup": body.model_dump()}
 
@@ -1573,13 +1651,69 @@ def api_billing_get_topup(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     be = get_billing_engine()
-    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "")))
-    wallet = be.get_or_create_wallet(customer_id)
+    customer_id = _analytics_customer_scope(user)
+    wallet = be.get_wallet(customer_id)
+    payment_method_id = (wallet.get("stripe_payment_method_id") or "").strip()
     return {
         "ok": True,
         "auto_topup": {
             "enabled": bool(wallet.get("auto_topup_enabled", False)),
-            "amount_cad": wallet.get("auto_topup_amount", 0),
-            "threshold_cad": wallet.get("auto_topup_threshold", 0),
+            "amount_cad": wallet.get("auto_topup_amount_cad", 0),
+            "threshold_cad": wallet.get("auto_topup_threshold_cad", 0),
+            "payment_method_id": payment_method_id,
+            "has_payment_method": bool(payment_method_id),
         },
     }
+
+
+# ── Saved payment methods (Stripe SetupIntent — backs auto-top-up) ──────────
+
+
+@router.post("/api/billing/setup-intent", tags=["Billing"])
+def api_billing_setup_intent(request: Request):
+    """Create a Stripe SetupIntent so the client can save a card off-session.
+
+    Returns a client_secret for Stripe Elements `confirmCardSetup`. The saved
+    card can then be selected for wallet auto-top-up.
+    """
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.create_setup_intent(customer_id, email=user.get("email", ""))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        # CI uses a placeholder sk_test key — map Stripe API failures to 503, not 500.
+        raise HTTPException(503, f"Stripe unavailable: {e}") from e
+    return {"ok": True, **result}
+
+
+@router.get("/api/billing/payment-methods", tags=["Billing"])
+def api_billing_list_payment_methods(request: Request):
+    """List the customer's saved card payment methods."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    return {"ok": True, "payment_methods": be.list_payment_methods(customer_id)}
+
+
+@router.delete("/api/billing/payment-methods/{payment_method_id}", tags=["Billing"])
+def api_billing_detach_payment_method(payment_method_id: str, request: Request):
+    """Detach a saved card. Disables auto-top-up if it was the default method."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.detach_payment_method(customer_id, payment_method_id)
+    except ValueError:
+        raise HTTPException(404, "Payment method not found")
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    return result
