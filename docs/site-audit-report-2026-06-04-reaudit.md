@@ -12,9 +12,9 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 
 ## Executive summary
 
-1. **Deployed 2026-06-04** (`8c75878` on `main`) — Blue-green deploy to https://xcelsior.ca succeeded. Post-deploy probes confirm **F-001**, **F-002** (API), and **F-005** (GPU canonical + sitemap) are **cleared on production**.
-2. **Pre-deploy MCP (same day)** — Second chrome-devtools crawl (before deploy) matched the morning baseline: `/api/auth/me` **401** on all routes, `/hosts` **401** on GPU page, wrong canonicals, ~760–813 KB marketing JS, high TBT.
-3. **Perf (F-003)** — Bundle split is deployed; **re-run `audit-performance.mjs`** to measure JS/TBT improvement (not re-crawled in this pass).
+1. **Deployed 2026-06-04** (`7741b59` on `main`) — Blue-green deploy succeeded. Post-deploy probes confirm **F-001**, **F-002** (API), and **F-005** (GPU canonical + sitemap) are **cleared on production**.
+2. **Perf (F-003) — measured post-deploy** — `audit-performance.mjs` (2026-06-04): marketing JS on `/` dropped from **~812 KB → ~374 KB**; desktop TBT on `/` from **9166 ms → 5772 ms** (see table below).
+3. **Hydration (F-004)** — Theme/locale/download fixes in `609ab21`; legal pages wrapped in `7741b59`. MCP spot-check: `/blog` and `/download` clear; re-verify `/privacy` and `/terms` after latest deploy.
 4. **Test coverage** — `UNTESTED_ENDPOINTS.md`: **0** HTTP routes and **0** CLI commands without test signal.
 
 ### Post-deploy P1 status
@@ -24,19 +24,28 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 | F-001 | **Fixed** | `GET /api/auth/me` → `200` + `user: null` |
 | F-002 | **Fixed** (verify UI in browser) | `/api/v2/gpu/available` → `200`; marketing defers auth probe |
 | F-005 | **Fixed** (GPU + sitemap) | GPU canonical `https://xcelsior.ca/gpu-availability`; sitemap lists `/download` + `/gpu-availability` |
-| F-003 | **Deployed — measure** | WalletConnect off marketing; lazy chat/PWA/GTM |
-| F-004 | **Needs MCP confirm** | Hydration #418 — spot-check `/blog` after deploy |
+| F-003 | **Improved (post-deploy MCP)** | `/` JS ~374 KB (was ~812 KB); TBT ~5772 ms (was ~9166 ms) |
+| F-004 | **Mostly fixed** | `/blog`, `/download` clear; `/privacy`, `/terms` patched in `7741b59` |
 
-### Production signals (MCP desktop, 2026-06-04)
+### Post-deploy performance (MCP `perf-all.json`, 2026-06-04)
 
-| Signal | `/` | `/gpu-availability` |
-|--------|------|------------------------|
-| `/api/auth/me` | 401 | 401 |
-| `/hosts?active_only` | — | 401 |
-| Console errors | 1 | 1 |
-| Canonical | / | / |
+| Route | Pre-deploy TBT | Post-deploy TBT | Δ TBT | Post-deploy JS |
+|-------|---------------:|----------------:|------:|---------------:|
+| `/` | 9166 ms | 5772 ms | -3394 | 374 KB |
+| `/blog` | 13662 ms | 5548 ms | -8114 | 313 KB |
+| `/download` | 9721 ms | 5429 ms | -4292 | 316 KB |
+| `/privacy` | 9239 ms | 5742 ms | -3497 | 313 KB |
+| `/terms` | 9209 ms | 5454 ms | -3755 | 313 KB |
 
-Desktop `/`: TBT **9166** ms, JS **812** KB. Slow 4G `/pricing`: TBT **52596** ms.
+Desktop `/` (pre-deploy crawl): TBT **9166** ms, JS **812** KB. Slow 4G `/pricing` (pre-deploy): TBT **52596** ms.
+
+### Production API signals (post-deploy curl, 2026-06-04)
+
+| Signal | Status |
+|--------|--------|
+| `/api/auth/me` (logged out) | 200 + `user: null` |
+| `/api/v2/gpu/available` | 200 |
+| GPU canonical | `https://xcelsior.ca/gpu-availability` |
 
 ---
 
@@ -123,8 +132,8 @@ Full tables: baseline § Health Snapshot; re-audit § Health Snapshot in `site-a
 
 ### Remaining follow-up
 
-- **F-003** — Run `node /tmp/xcelsior-audit/audit-performance.mjs` after cache warm-up; compare First Load JS vs pre-deploy (~812 KB on `/`).
-- **F-004** — Confirm React #418 cleared on `/blog`, `/download`, `/privacy`, `/terms` via `audit-routes.mjs`.
+- **F-004** — Re-run `node /tmp/xcelsior-audit/audit-hydration-spot.mjs` after `7741b59` deploy; expect all four routes clean.
+- **F-003** — TBT still high (~5–6 s desktop); further code-splitting / third-party deferral if needed.
 - **F-014–F-021** — Still open in repo (contrast, JSON-LD, blog dates, etc.).
 - **Authenticated dashboard** — Out of scope; needs credentials.
 
