@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MapPin, Menu, X } from "lucide-react";
@@ -23,6 +23,15 @@ export function Navbar() {
   const { t } = useLocale();
   const pathname = usePathname();
 
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   const isActive = (href: string) => {
     if (!pathname || href.startsWith("http")) return false;
     if (href === "/") return pathname === "/";
@@ -31,15 +40,15 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-navy/80 backdrop-blur-lg">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-        <Link href="/" className="flex items-center gap-2">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-4 sm:px-6">
+        <Link href="/" className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className="hidden dark:block h-11" width={160} height={44} fetchPriority="high" />
+          <img src="/xcelsior-logo-wordmark-iconbg.svg" alt="Xcelsior" className="hidden dark:block h-9 w-auto max-w-[7.5rem] sm:h-11 sm:max-w-none" width={160} height={44} fetchPriority="high" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className="block dark:hidden h-11" width={160} height={44} fetchPriority="high" />
-              <span className="-ml-2 rounded bg-accent-red/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-red">
-                Beta
-              </span>
+          <img src="/xcelsior-logo-wordmark-iconbg-light.svg" alt="Xcelsior" className="block h-9 w-auto max-w-[7.5rem] sm:h-11 sm:max-w-none dark:hidden" width={160} height={44} fetchPriority="high" />
+          <span className="shrink-0 rounded bg-accent-red/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-300">
+            Beta
+          </span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-8">
@@ -60,30 +69,35 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <span className="hidden lg:flex items-center gap-1 text-xs text-text-muted">
             <MapPin className="h-3 w-3" />
             {t("nav.canadian_owned")}
           </span>
-          <LocaleToggle />
-          <ThemeToggle />
+          <div className="hidden md:flex items-center gap-2">
+            <LocaleToggle />
+            <ThemeToggle />
+          </div>
           <div className="hidden sm:block h-5 w-px bg-border" />
           <Link
             href="/login"
-            className="hidden sm:inline text-sm text-text-secondary hover:text-text-primary transition-colors"
+            className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap px-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
             {t("nav.sign_in")}
           </Link>
           <Link
             href="/register"
-            className="hidden sm:inline-flex h-9 items-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
+            className="hidden sm:inline-flex min-h-11 items-center whitespace-nowrap rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
           >
             {t("nav.get_started")}
           </Link>
           {/* Mobile hamburger */}
           <button
-            className="md:hidden flex items-center justify-center h-10 w-10 rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+            type="button"
+            className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
             onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            aria-controls="mobile-nav-menu"
             aria-label={open ? "Close menu" : "Open menu"}
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -95,6 +109,7 @@ export function Navbar() {
       <AnimatePresence>
         {open && (
           <motion.nav
+            id="mobile-nav-menu"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -105,8 +120,8 @@ export function Navbar() {
               {navKeys.map((l) => {
                 const active = isActive(l.href);
                 const mobileClass = active
-                  ? "rounded-lg px-3 py-2.5 text-sm text-text-primary font-semibold bg-surface-hover border-l-2 border-accent-red"
-                  : "rounded-lg px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors";
+                  ? "flex min-h-11 items-center rounded-lg px-3 text-sm text-text-primary font-semibold bg-surface-hover border-l-2 border-accent-red"
+                  : "flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors";
                 return l.external ? (
                   <a
                     key={l.href}
@@ -135,14 +150,14 @@ export function Navbar() {
                 <Link
                   href="/login"
                   onClick={() => setOpen(false)}
-                  className="rounded-lg px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                  className="flex min-h-11 items-center rounded-lg px-3 text-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
                 >
                   {t("nav.sign_in")}
                 </Link>
                 <Link
                   href="/register"
                   onClick={() => setOpen(false)}
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent-red px-4 text-sm font-medium text-white hover:bg-accent-red-hover transition-colors"
                 >
                   {t("nav.get_started")}
                 </Link>

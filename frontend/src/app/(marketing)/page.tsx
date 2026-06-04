@@ -57,11 +57,13 @@ export default function HomePage() {
             </motion.div>
 
             <motion.h1 variants={fadeUp} custom={1} className="text-5xl font-bold leading-[1.08] tracking-tight md:text-6xl lg:text-7xl">
-              {t("home.hero_line1")}
+              <span>{t("home.hero_line1")}</span>
               <br />
+              <span>
               {t("home.hero_line2")}{" "}
               <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
                 {t("home.hero_accent")}
+              </span>
               </span>
             </motion.h1>
 

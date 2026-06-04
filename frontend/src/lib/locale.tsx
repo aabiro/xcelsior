@@ -49,7 +49,8 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   const t = useCallback(
     (key: string, vars?: Record<string, string | number>): string => {
-      let str = dictionaries[locale][key] ?? dictionaries.en[key] ?? key;
+      const activeLocale = mounted ? locale : "en";
+      let str = dictionaries[activeLocale][key] ?? dictionaries.en[key] ?? key;
       if (vars) {
         for (const [k, v] of Object.entries(vars)) {
           str = str.replaceAll(`{${k}}`, String(v));
@@ -57,7 +58,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
       }
       return str;
     },
-    [locale],
+    [locale, mounted],
   );
 
   return (

@@ -3,6 +3,17 @@ import type { NextRequest } from "next/server";
 
 const AUTH_COOKIE = "xcelsior_session";
 
+const NO_STORE_PATHS = new Set([
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/setup-2fa",
+  "/verify-email",
+  "/accept-invite",
+  "/~offline",
+]);
+
 const CSP_HEADER =
   "default-src 'self'; " +
   "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://static.cloudflareinsights.com 'unsafe-inline'; " +
@@ -38,6 +49,9 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next();
   response.headers.set("Content-Security-Policy", CSP_HEADER);
+  if (NO_STORE_PATHS.has(pathname) || pathname.startsWith("/dashboard")) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+  }
   return response;
 }
 

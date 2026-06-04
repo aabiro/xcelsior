@@ -153,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check session on mount — cookie is sent automatically
   useEffect(() => {
     getMe()
-      .then((res) => setUser(res.user))
+      .then((res) => setUser(res.user ?? null))
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);

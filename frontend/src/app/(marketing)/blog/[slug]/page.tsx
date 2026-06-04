@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
+import { formatBlogDate } from "@/lib/format-date";
 import { ArrowLeft, Calendar, Tag } from "lucide-react";
 import type { Metadata } from "next";
 
@@ -16,9 +17,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const post = getPostBySlug(slug);
   if (!post) return { title: "Post Not Found" };
+  const description =
+    post.description.length > 160 ? `${post.description.slice(0, 157)}...` : post.description;
   return {
     title: post.title,
-    description: post.description,
+    description,
+    alternates: { canonical: `https://xcelsior.ca/blog/${slug}` },
     openGraph: {
       title: post.title,
       description: post.description,
@@ -70,11 +74,7 @@ export default async function BlogPostPage({ params }: Props) {
           <div className="flex items-center gap-3 text-sm text-text-muted mb-4">
             <span className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" />
-              {new Date(post.date).toLocaleDateString("en-CA", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
+              {formatBlogDate(post.date, "en")}
             </span>
             <span>&middot;</span>
             <span>{post.author}</span>

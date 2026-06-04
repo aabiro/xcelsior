@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Calendar, Tag } from "lucide-react";
 import { useLocale } from "@/lib/locale";
+import { formatBlogDate } from "@/lib/format-date";
 import type { BlogPost } from "@/lib/blog";
 
 export function BlogContent({ posts }: { posts: BlogPost[] }) {
@@ -30,11 +31,7 @@ export function BlogContent({ posts }: { posts: BlogPost[] }) {
                 <div className="flex items-center gap-3 text-xs text-text-muted mb-3">
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    {new Date(post.date).toLocaleDateString(locale === "fr" ? "fr-CA" : "en-CA", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
+                    {formatBlogDate(post.date, locale)}
                   </span>
                   <span>&middot;</span>
                   <span>{post.author}</span>
