@@ -1162,12 +1162,21 @@ def api_auth_me(request: Request):
 
     Returns ``user: null`` when no session is present (HTTP 200) so public
     marketing pages can probe session state without console 401 noise.
+    Invalid or machine credentials still return 401/403.
     """
-    from routes._deps import _get_current_user
+    from routes._deps import _AUTH_COOKIE_NAME, _get_current_user
+
+    auth = request.headers.get("authorization", "")
+    bearer = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    cookie = request.cookies.get(_AUTH_COOKIE_NAME, "")
+    if not bearer and not cookie:
+        return {"ok": True, "user": None}
 
     user = _get_current_user(request)
     if not user:
-        return {"ok": True, "user": None}
+        raise HTTPException(401, "Not authenticated")
+    if user.get("auth_type") == "client_credentials":
+        raise HTTPException(403, "Interactive user authentication required")
 
     email = user["email"]
     if _USE_PERSISTENT_AUTH:
