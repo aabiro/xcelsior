@@ -81,7 +81,8 @@ jobs:
           --health-retries 5
     env:
       XCELSIOR_ENV: test
-      XCELSIOR_API_TOKEN: ""
+      XCELSIOR_BASE_URL: http://localhost:9501
+      XCELSIOR_API_TOKEN: test-token-not-for-production
       # Full suite expects migrated Postgres tables (billing_cycles, sessions, …).
       XCELSIOR_DB_BACKEND: postgres
       XCELSIOR_POSTGRES_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"

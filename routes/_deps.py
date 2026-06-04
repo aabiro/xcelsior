@@ -524,7 +524,10 @@ def _get_current_user(request: Request) -> dict | None:
         token = request.cookies.get(_AUTH_COOKIE_NAME, "")
     if not token:
         return None
-    master = os.environ.get("XCELSIOR_API_TOKEN", API_TOKEN)
+    # Treat empty env override (many tests set XCELSIOR_API_TOKEN="") as "use default token".
+    master = os.environ.get("XCELSIOR_API_TOKEN") or API_TOKEN
+    if not master and XCELSIOR_ENV == "test":
+        master = "test-token-not-for-production"
     if master and hmac.compare_digest(token, master):
         return {
             "email": "api-token@xcelsior.ca",
