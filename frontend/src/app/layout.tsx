@@ -3,9 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Toaster } from "sonner";
 import { Providers } from "./providers";
-import { DesktopAppRuntime } from "@/components/DesktopAppRuntime";
-import { InstallBanner } from "@/components/InstallBanner";
-import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
+import { RootClientWidgets } from "@/components/RootClientWidgets";
 import "./globals.css";
 
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
@@ -105,14 +103,13 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://docs.xcelsior.ca" />
-        <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
         {GA_ID && (
           <>
             <Script
               src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-              strategy="afterInteractive"
+              strategy="lazyOnload"
             />
-            <Script id="gtag-init" strategy="afterInteractive">
+            <Script id="gtag-init" strategy="lazyOnload">
               {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{anonymize_ip:true});`}
             </Script>
           </>
@@ -153,9 +150,7 @@ export default function RootLayout({
       >
         <Providers>
           {children}
-          <DesktopAppRuntime />
-          <InstallBanner />
-          <ServiceWorkerRegistrar />
+          <RootClientWidgets />
         </Providers>
         <Toaster
           position="bottom-right"

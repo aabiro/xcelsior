@@ -2,11 +2,11 @@
 
 _Regenerated 2026-06-04 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._
 
-**3 of 373 routes (0%)** and **17 of 51 CLI commands** (33%) have no test signal.
+**0 of 373 routes (0%)** and **0 of 51 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (3 untested)
+## Routes (0 untested)
 
 ### `routes/admin.py` (0 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
@@ -217,13 +217,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /compute-score/{host_id}` — `api_get_compute_score`
 - [x] `GET /compute-scores` — `api_list_compute_scores`  ✓ test_hosts_endpoints_coverage.py
-- [x] `PUT /host` — `api_register_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `PUT /host` — `api_register_host`  ✓ test_jurisdiction_endpoints_coverage.py
 - [x] `GET /host/{host_id}` — `api_get_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `DELETE /host/{host_id}` — `api_remove_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /host/{host_id}/drain` — `api_drain_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /host/{host_id}/maintenance` — `api_host_maintenance`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /host/{host_id}/undrain` — `api_undrain_host`  ✓ test_hosts_endpoints_coverage.py
-- [x] `GET /hosts` — `api_list_hosts`  ✓ test_hosts_endpoints_coverage.py
+- [x] `GET /hosts` — `api_list_hosts`  ✓ test_jurisdiction_endpoints_coverage.py
 - [x] `POST /hosts/check` — `api_check_hosts`  ✓ test_hosts_endpoints_coverage.py
 
 ### `routes/inference.py` (0 untested)
@@ -272,22 +272,22 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /instances/{job_id}/terminate` — `api_terminate_instance`  ✓ test_instances_endpoints_coverage.py
 - [x] `POST /instances/{job_id}/unlock` — `api_unlock_instance`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /internal/route/{slug}/{port}` — `api_internal_route`
-- [x] `POST /queue/process` — `api_process_queue`
+- [x] `POST /queue/process` — `api_process_queue`  ✓ test_jurisdiction_endpoints_coverage.py
 - [x] `GET /tiers` — `api_list_tiers`
 - [x] `GET /user-images` — `api_list_user_images`
 - [x] `PATCH /user-images/{image_id}` — `api_patch_user_image`
 - [x] `DELETE /user-images/{image_id}` — `api_delete_user_image`
 - [x] `POST /user-images/{image_id}/complete` — `api_user_image_complete`
 
-### `routes/jurisdiction.py` (3 untested)
-- [ ] `POST /api/jurisdiction/hosts` — `api_jurisdiction_hosts`
+### `routes/jurisdiction.py` (0 untested)
+- [x] `POST /api/jurisdiction/hosts` — `api_jurisdiction_hosts`  ✓ test_jurisdiction_endpoints_coverage.py
 - [x] `GET /api/jurisdiction/residency-trace/{job_id}` — `api_residency_trace`
-- [ ] `POST /api/queue/process-sovereign` — `api_process_queue_sovereign`
+- [x] `POST /api/queue/process-sovereign` — `api_process_queue_sovereign`  ✓ test_jurisdiction_endpoints_coverage.py
 - [x] `GET /api/trust-tiers` — `api_trust_tiers`
 - [x] `GET /canada` — `api_canada_status`
 - [x] `PUT /canada` — `api_set_canada`
 - [x] `GET /hosts/ca` — `api_list_canadian_hosts`
-- [ ] `POST /queue/process/ca` — `api_process_queue_ca`
+- [x] `POST /queue/process/ca` — `api_process_queue_ca`  ✓ test_jurisdiction_endpoints_coverage.py
 
 ### `routes/marketplace.py` (0 untested)
 - [x] `POST /api/v2/marketplace/allocate` — `api_marketplace_allocate`
@@ -443,7 +443,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}` — `api_volume_snapshot_delete`  ✓ test_volumes_endpoints_coverage.py
 - [x] `POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore` — `api_volume_snapshot_restore`  ✓ test_volumes_endpoints_coverage.py
 
-## CLI commands (17 untested)
+## CLI commands (0 untested)
 
 - [x] `autoscale` — `cmd_autoscale`
 - [x] `bill` — `cmd_bill`
@@ -455,14 +455,14 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `config` — `cmd_config`
 - [x] `deposit` — `cmd_deposit`
 - [x] `failover` — `cmd_failover`
-- [ ] `health-start` — `cmd_health_start`
-- [ ] `host-accept` — `cmd_host_accept`
-- [ ] `host-add` — `cmd_host_add`
-- [ ] `host-add-ca` — `cmd_host_add_ca`
-- [ ] `host-profile` — `cmd_host_profile`
-- [ ] `host-rm` — `cmd_host_rm`
+- [x] `health-start` — `cmd_health_start`
+- [x] `host-accept` — `cmd_host_accept`
+- [x] `host-add` — `cmd_host_add`
+- [x] `host-add-ca` — `cmd_host_add_ca`
+- [x] `host-profile` — `cmd_host_profile`
+- [x] `host-rm` — `cmd_host_rm`
 - [x] `hosts` — `cmd_hosts`
-- [ ] `hosts-ca` — `cmd_hosts_ca`
+- [x] `hosts-ca` — `cmd_hosts_ca`
 - [x] `invoice` — `cmd_invoice`
 - [x] `job` — `cmd_job`
 - [x] `jobs` — `cmd_jobs`
@@ -471,28 +471,28 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `logout` — `cmd_logout`
 - [x] `market` — `cmd_market`
 - [x] `market-list` — `cmd_market_list`
-- [ ] `market-stats` — `cmd_market_stats`
-- [ ] `market-unlist` — `cmd_market_unlist`
+- [x] `market-stats` — `cmd_market_stats`
+- [x] `market-unlist` — `cmd_market_unlist`
 - [x] `ping` — `cmd_ping`
 - [x] `pool` — `cmd_pool`
-- [ ] `pool-add` — `cmd_pool_add`
-- [ ] `pool-rm` — `cmd_pool_rm`
+- [x] `pool-add` — `cmd_pool_add`
+- [x] `pool-rm` — `cmd_pool_rm`
 - [x] `process` — `cmd_process`
-- [ ] `provider-info` — `cmd_provider_info`
-- [ ] `provider-register` — `cmd_provider_register`
+- [x] `provider-info` — `cmd_provider_info`
+- [x] `provider-register` — `cmd_provider_register`
 - [x] `reputation` — `cmd_reputation`
 - [x] `requeue` — `cmd_requeue`
 - [x] `revenue` — `cmd_revenue`
 - [x] `run` — `cmd_run`
 - [x] `serve` — `cmd_serve`
 - [x] `sla` — `cmd_sla`
-- [ ] `slurm-cancel` — `cmd_slurm_cancel`
+- [x] `slurm-cancel` — `cmd_slurm_cancel`
 - [x] `slurm-status` — `cmd_slurm_status`
-- [ ] `slurm-submit` — `cmd_slurm_submit`
+- [x] `slurm-submit` — `cmd_slurm_submit`
 - [x] `ssh-keygen` — `cmd_ssh_keygen`
-- [ ] `ssh-pubkey` — `cmd_ssh_pubkey`
+- [x] `ssh-pubkey` — `cmd_ssh_pubkey`
 - [x] `tiers` — `cmd_tiers`
-- [ ] `token-gen` — `cmd_token_gen`
+- [x] `token-gen` — `cmd_token_gen`
 - [x] `verify` — `cmd_verify`
 - [x] `wallet` — `cmd_wallet`
 - [x] `whoami` — `cmd_whoami`

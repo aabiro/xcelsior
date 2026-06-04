@@ -10,7 +10,9 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { getMe, logout as apiLogout, refreshToken } from "@/lib/api";
+import { needsSessionOnMount } from "@/lib/session-routes";
 
 /** Revoke the session server-side then redirect to the login page. */
 function forceLogout(reason: string) {
@@ -67,9 +69,11 @@ const AuthContext = createContext<AuthState>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => needsSessionOnMount(null));
   const [sessionExpiring, setSessionExpiring] = useState(false);
+  const sessionFetched = useRef(false);
 
   // Track last user activity timestamp (ms)
   // useRef seeds this once on first render and ignores the value thereafter,
@@ -150,13 +154,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshToken().catch(() => {});
   }, [resetIdleTimers]);
 
-  // Check session on mount — cookie is sent automatically
+  // Probe session only on routes that need it (dashboard, login redirect, etc.)
   useEffect(() => {
+    if (!needsSessionOnMount(pathname)) {
+      if (!sessionFetched.current) {
+        setLoading(false);
+      }
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
     getMe()
-      .then((res) => setUser(res.user ?? null))
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((res) => {
+        if (!cancelled) setUser(res.user ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+          sessionFetched.current = true;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   // Periodic session keepalive — refresh token every 10 minutes
   useEffect(() => {
