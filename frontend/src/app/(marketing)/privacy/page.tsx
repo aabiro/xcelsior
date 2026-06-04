@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function PrivacyPage() {
-  return <PrivacyContent />;
+import { getServerLocale } from "@/lib/i18n/server";
+
+export default async function PrivacyPage() {
+  const locale = await getServerLocale();
+  return <PrivacyContent locale={locale} />;
 }

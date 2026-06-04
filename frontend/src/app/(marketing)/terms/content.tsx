@@ -1,13 +1,10 @@
-"use client";
+import { createTranslator } from "@/lib/i18n/server";
+import type { Locale } from "@/lib/locale";
 
-import { HydrationGuard } from "@/components/HydrationGuard";
-import { useLocale } from "@/lib/locale";
-
-export function TermsContent() {
-  const { t } = useLocale();
+export function TermsContent({ locale }: { locale: Locale }) {
+  const t = createTranslator(locale);
 
   return (
-    <HydrationGuard>
     <div className="mx-auto max-w-4xl px-6 py-24">
       <h1 className="text-4xl font-bold mb-2">{t("terms.title")}</h1>
       <p className="text-sm text-text-muted mb-12">{t("terms.effective")}</p>
@@ -150,7 +147,6 @@ export function TermsContent() {
         </Section>
       </div>
     </div>
-    </HydrationGuard>
   );
 }
 

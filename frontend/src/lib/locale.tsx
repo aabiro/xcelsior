@@ -35,6 +35,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     const stored = localStorage.getItem("xcelsior-locale") as Locale | null;
     if (stored === "en" || stored === "fr") {
       setLocale(stored);
+      document.cookie = `xcelsior-locale=${stored};path=/;max-age=31536000;SameSite=Lax`;
     }
     setMounted(true);
   }, []);
@@ -43,6 +44,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     if (!mounted) return;
     document.documentElement.lang = locale;
     localStorage.setItem("xcelsior-locale", locale);
+    document.cookie = `xcelsior-locale=${locale};path=/;max-age=31536000;SameSite=Lax`;
   }, [locale, mounted]);
 
   const toggleLocale = useCallback(
