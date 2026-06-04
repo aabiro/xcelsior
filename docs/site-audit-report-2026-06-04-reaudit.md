@@ -14,7 +14,7 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 
 1. **Deployed 2026-06-04** (`a98e2db` API + frontend on `main`) — Post-deploy probes confirm **F-001**, **F-002** (API), and **F-005** (GPU canonical + sitemap) are **cleared on production**.
 2. **Perf (F-003) — measured post-deploy** — `audit-performance.mjs` (2026-06-04): marketing JS on `/` dropped from **~812 KB → ~374 KB**; desktop TBT on `/` from **9166 ms → 5772 ms** (see table below).
-3. **Hydration (F-004)** — Theme/locale/download (`609ab21`), legal SSR (`fd750a2`), layout theme script removed (pending deploy). MCP: `/blog` + `/download` clear; `/privacy` + `/terms` under investigation.
+3. **Hydration (F-004)** — Marketing chrome fixes deployed (`d56c5b5`–`e5823ee`): theme script removed, footer logo classes, client legal pages, chat skipped on legal. MCP still reports #418 on `/privacy` and `/terms` only; other routes clean.
 4. **Test coverage** — `UNTESTED_ENDPOINTS.md`: **0** HTTP routes and **0** CLI commands without test signal.
 
 ### Post-deploy P1 status
@@ -25,7 +25,7 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 | F-002 | **Fixed** (verify UI in browser) | `/api/v2/gpu/available` → `200`; marketing defers auth probe |
 | F-005 | **Fixed** (GPU + sitemap) | GPU canonical `https://xcelsior.ca/gpu-availability`; sitemap lists `/download` + `/gpu-availability` |
 | F-003 | **Improved (post-deploy MCP)** | `/` JS ~374 KB (was ~812 KB); TBT ~5772 ms (was ~9166 ms) |
-| F-004 | **Verify after deploy** | `/blog`, `/download` clear; legal pages client-rendered (`6575d08`) + layout theme fix (`d56c5b5`) |
+| F-004 | **Partial** | `/blog`, `/download`, `/about`, `/support` clear (MCP); `/privacy`, `/terms` still log React #418 in MCP (cosmetic; repro in dev build) |
 
 ### Post-deploy performance (MCP `perf-all.json`, 2026-06-04)
 
