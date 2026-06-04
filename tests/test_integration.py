@@ -62,18 +62,9 @@ def _reset_state():
 
 def _admit_host(host_id):
     """Mark a registered host as admitted and active so allocate() will pick it."""
-    with scheduler._atomic_mutation() as conn:
-        row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
-        if row:
-            data = (
-                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
-            )
-            data["admitted"] = True
-            data["status"] = "active"
-            conn.execute(
-                "UPDATE hosts SET status = 'active', payload = %s WHERE host_id = %s",
-                (_json.dumps(data), host_id),
-            )
+    from tests._db_helpers import admit_test_host
+
+    admit_test_host(host_id, active=True)
 
 
 def test_job_lifecycle_and_billing_via_api():

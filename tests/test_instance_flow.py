@@ -105,21 +105,9 @@ def _register_host(host_id, vram=24.0, cost=0.50, ip="10.0.0.1", gpu="RTX 4090")
 
 def _admit_host(host_id):
     """Admit a host so it can receive jobs."""
-    with scheduler._atomic_mutation() as conn:
-        row = conn.execute(
-            "SELECT payload FROM hosts WHERE host_id = %s",
-            (host_id,),
-        ).fetchone()
-        if row:
-            data = (
-                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
-            )
-            data["admitted"] = True
-            data["status"] = "active"
-            conn.execute(
-                "UPDATE hosts SET status = 'active', payload = %s WHERE host_id = %s",
-                (_json.dumps(data), host_id),
-            )
+    from tests._db_helpers import admit_test_host
+
+    admit_test_host(host_id, active=True)
 
 
 def _submit_job(name="test-job", vram=8, tier="on-demand", host_id=None):
