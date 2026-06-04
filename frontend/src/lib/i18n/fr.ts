@@ -231,7 +231,7 @@ const fr: Record<string, string> = {
   /* ── Politique de confidentialité ────────────────────────────────────── */
   "privacy.title": "Politique de confidentialité",
   "privacy.meta_desc": "Comment Xcelsior Computing Inc. recueille, utilise et protège vos renseignements personnels en vertu de la LPRPDE et des lois provinciales canadiennes sur la vie privée.",
-  "privacy.effective": "Date d'entrée en vigueur : 1er janvier 2025 · Dernière mise à jour : 1er mars 2026",
+  "privacy.effective": "Date d'entrée en vigueur : 1er janvier 2025 - Dernière mise à jour : 1er mars 2026",
   "privacy.s1_title": "Introduction",
   "privacy.s1_p1": "Xcelsior Computing Inc. (« Xcelsior », « nous ») est une entreprise incorporée au Canada qui exploite une place de marché de calcul GPU à xcelsior.ca.",
   "privacy.s1_p2": "La présente politique de confidentialité explique comment nous recueillons, utilisons, divulguons et protégeons vos renseignements personnels conformément à la Loi sur la protection des renseignements personnels et les documents électroniques (LPRPDE) et aux lois provinciales applicables en matière de vie privée.",
@@ -290,7 +290,7 @@ const fr: Record<string, string> = {
   /* ── Conditions d'utilisation ────────────────────────────────────────── */
   "terms.title": "Conditions d'utilisation",
   "terms.meta_desc": "Conditions régissant votre utilisation de la place de marché de calcul GPU Xcelsior. Juridiction canadienne, facturation en $ CA et résolution des litiges.",
-  "terms.effective": "Date d'entrée en vigueur : 1er janvier 2025 · Dernière mise à jour : 1er mars 2026",
+  "terms.effective": "Date d'entrée en vigueur : 1er janvier 2025 - Dernière mise à jour : 1er mars 2026",
   "terms.s1_title": "Acceptation des conditions",
   "terms.s1_p1": "En créant un compte ou en utilisant tout service Xcelsior, vous acceptez les présentes conditions d'utilisation (« conditions »). Si vous n'êtes pas d'accord, n'utilisez pas la plateforme. Les présentes conditions constituent un accord juridiquement contraignant entre vous et Xcelsior Computing Inc., une société constituée en vertu des lois du Canada.",
   "terms.s2_title": "Définitions",

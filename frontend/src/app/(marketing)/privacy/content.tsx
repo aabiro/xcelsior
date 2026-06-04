@@ -1,11 +1,13 @@
 "use client";
 
+import { HydrationGuard } from "@/components/HydrationGuard";
 import { useLocale } from "@/lib/locale";
 
 export function PrivacyContent() {
   const { t } = useLocale();
 
   return (
+    <HydrationGuard>
     <div className="mx-auto max-w-4xl px-6 py-24">
       <h1 className="text-4xl font-bold mb-2">{t("privacy.title")}</h1>
       <p className="text-sm text-text-muted mb-12">{t("privacy.effective")}</p>
@@ -114,6 +116,7 @@ export function PrivacyContent() {
         </Section>
       </div>
     </div>
+    </HydrationGuard>
   );
 }
 

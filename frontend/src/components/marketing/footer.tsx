@@ -122,7 +122,7 @@ export function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border pt-8 md:flex-row">
           <p className="text-xs text-text-muted">
-            {t("footer.copyright", { year: new Date().getFullYear() })}
+            {t("footer.copyright", { year: 2026 })}
           </p>
           <p className="text-xs text-text-muted">
             {t("footer.hydro")}
