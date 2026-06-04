@@ -12,9 +12,9 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 
 ## Executive summary
 
-1. **Deployed 2026-06-04** (`7741b59` on `main`) — Blue-green deploy succeeded. Post-deploy probes confirm **F-001**, **F-002** (API), and **F-005** (GPU canonical + sitemap) are **cleared on production**.
+1. **Deployed 2026-06-04** (`a98e2db` API + frontend on `main`) — Post-deploy probes confirm **F-001**, **F-002** (API), and **F-005** (GPU canonical + sitemap) are **cleared on production**.
 2. **Perf (F-003) — measured post-deploy** — `audit-performance.mjs` (2026-06-04): marketing JS on `/` dropped from **~812 KB → ~374 KB**; desktop TBT on `/` from **9166 ms → 5772 ms** (see table below).
-3. **Hydration (F-004)** — Theme/locale/download fixes in `609ab21`; legal pages wrapped in `7741b59`. MCP spot-check: `/blog` and `/download` clear; re-verify `/privacy` and `/terms` after latest deploy.
+3. **Hydration (F-004)** — Theme/locale/download (`609ab21`), legal SSR (`fd750a2`), layout theme script removed (pending deploy). MCP: `/blog` + `/download` clear; `/privacy` + `/terms` under investigation.
 4. **Test coverage** — `UNTESTED_ENDPOINTS.md`: **0** HTTP routes and **0** CLI commands without test signal.
 
 ### Post-deploy P1 status
@@ -25,7 +25,7 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 | F-002 | **Fixed** (verify UI in browser) | `/api/v2/gpu/available` → `200`; marketing defers auth probe |
 | F-005 | **Fixed** (GPU + sitemap) | GPU canonical `https://xcelsior.ca/gpu-availability`; sitemap lists `/download` + `/gpu-availability` |
 | F-003 | **Improved (post-deploy MCP)** | `/` JS ~374 KB (was ~812 KB); TBT ~5772 ms (was ~9166 ms) |
-| F-004 | **Fixed (server components)** | `/blog`, `/download` client fixes (`609ab21`); legal pages SSR in `fd750a2` |
+| F-004 | **Mostly fixed** | `/blog`, `/download` clear; legal SSR `fd750a2`; footer/theme hydration fix pending deploy |
 
 ### Post-deploy performance (MCP `perf-all.json`, 2026-06-04)
 
@@ -44,6 +44,7 @@ Desktop `/` (pre-deploy crawl): TBT **9166** ms, JS **812** KB. Slow 4G `/pricin
 | Signal | Status |
 |--------|--------|
 | `/api/auth/me` (logged out) | 200 + `user: null` |
+| `/api/auth/me` (invalid bearer) | 401 |
 | `/api/v2/gpu/available` | 200 |
 | GPU canonical | `https://xcelsior.ca/gpu-availability` |
 
@@ -132,7 +133,7 @@ Full tables: baseline § Health Snapshot; re-audit § Health Snapshot in `site-a
 
 ### Remaining follow-up
 
-- **F-004** — Re-run `node /tmp/xcelsior-audit/audit-hydration-spot.mjs` after `7741b59` deploy; expect all four routes clean.
+- **F-004** — Deploy layout/footer/theme hydration fix; re-run `node /tmp/xcelsior-audit/audit-hydration-spot.mjs`.
 - **F-003** — TBT still high (~5–6 s desktop); further code-splitting / third-party deferral if needed.
 - **F-014–F-021** — Still open in repo (contrast, JSON-LD, blog dates, etc.).
 - **Authenticated dashboard** — Out of scope; needs credentials.

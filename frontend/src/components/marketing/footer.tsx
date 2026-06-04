@@ -19,7 +19,7 @@ export function Footer() {
                 alt="Xcelsior"
                 width={160}
                 height={44}
-                className="h-11 w-auto block dark:block hidden"
+                className="h-11 w-auto hidden dark:block"
                 priority
               />
               <Image
