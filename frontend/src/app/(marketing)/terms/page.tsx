@@ -19,9 +19,9 @@ export const metadata: Metadata = {
   },
 };
 
-import { getServerLocale } from "@/lib/i18n/server";
+/** Static legal page — avoids dynamic cookies() RSC/hydration edge cases. */
+export const dynamic = "force-static";
 
-export default async function TermsPage() {
-  const locale = await getServerLocale();
-  return <TermsContent locale={locale} />;
+export default function TermsPage() {
+  return <TermsContent locale="en" />;
 }
