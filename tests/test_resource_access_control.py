@@ -139,9 +139,14 @@ def test_provider_register_email_mismatch_forbidden(two_users):
 
 
 def test_provider_earnings_forbidden_cross_account(two_users):
+    import time
+
+    from db import UserStore
+    from stripe_connect import get_stripe_manager
+
     user_a, user_b = two_users
     provider_id = f"prov-{uuid.uuid4().hex[:8]}"
-    client.post(
+    reg = client.post(
         "/api/providers/register",
         json={
             "provider_id": provider_id,
@@ -152,6 +157,34 @@ def test_provider_earnings_forbidden_cross_account(two_users):
         },
         headers=user_a["headers"],
     )
+    if reg.status_code != 200:
+        # CI has no .env.test Stripe key — seed provider row so access control is testable.
+        now = time.time()
+        mgr = get_stripe_manager()
+        with mgr._conn() as conn:
+            conn.execute(
+                """INSERT INTO provider_accounts
+                   (provider_id, provider_type, stripe_account_id, status,
+                    corporation_name, business_number, gst_hst_number,
+                    email, legal_name, country, province, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'CA', %s, %s)
+                   ON CONFLICT (provider_id) DO NOTHING""",
+                (
+                    provider_id,
+                    "individual",
+                    "",
+                    "onboarding",
+                    "",
+                    "",
+                    "",
+                    user_a["email"],
+                    "Test Provider",
+                    "ON",
+                    now,
+                ),
+            )
+            conn.commit()
+        UserStore.update_user(user_a["email"], {"provider_id": provider_id, "role": "provider"})
     r = client.get(
         f"/api/providers/{provider_id}/earnings",
         headers=user_b["headers"],

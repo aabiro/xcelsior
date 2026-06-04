@@ -45,7 +45,7 @@ def client():
 @pytest.fixture
 def auth_headers():
     """Bearer token that resolves to admin user."""
-    token = os.environ.get("XCELSIOR_API_TOKEN", "test-token-not-for-production")
+    token = os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production"
     return {"Authorization": f"Bearer {token}"}
 
 

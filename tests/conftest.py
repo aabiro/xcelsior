@@ -30,6 +30,28 @@ if os.environ.get("CI"):
     os.environ["XCELSIOR_DB_BACKEND"] = "postgres"
     os.environ["XCELSIOR_BG_TASKS"] = "false"
 
+# .env.test is gitignored — GitHub Actions has no local secrets file. These defaults
+# must be set before any test module imports api (e.g. test_auto_launch), otherwise
+# cookies use secure+production domain (BASE_URL defaults to https://xcelsior.ca) and
+# TestClient never sends session cookies; Stripe/OAuth/feature flags stay off.
+_TEST_ENV_DEFAULTS = {
+    "XCELSIOR_BASE_URL": "http://localhost:9501",
+    "XCELSIOR_API_TOKEN": "test-token-not-for-production",
+    "FEATURE_AI_ASSISTANT": "true",
+    "GOOGLE_CLIENT_ID": "test-google-client-id",
+    "GOOGLE_CLIENT_SECRET": "test-google-client-secret",
+    "GITHUB_CLIENT_ID": "test-github-client-id",
+    "GITHUB_CLIENT_SECRET": "test-github-client-secret",
+    "HUGGINGFACE_CLIENT_ID": "test-hf-client-id",
+    "HUGGINGFACE_CLIENT_SECRET": "test-hf-client-secret",
+    # Enables STRIPE_ENABLED; retrieve/detach map Stripe errors to 404 in tests.
+    "XCELSIOR_STRIPE_SECRET_KEY": "sk_test_ci_placeholder_not_for_production",
+    "XCELSIOR_MAX_TOTAL_STORAGE_GB": "100",
+    "XCELSIOR_MAX_VOLUME_GB": "2000",
+}
+for _key, _val in _TEST_ENV_DEFAULTS.items():
+    os.environ.setdefault(_key, _val)
+
 # B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
 # Tests that hit /agent/* endpoints without a bearer token need this flag
 # set regardless of which .env was loaded. Also pin XCELSIOR_ENV=test so
