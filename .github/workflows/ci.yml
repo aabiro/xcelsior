@@ -113,6 +113,12 @@ jobs:
         env:
           PGPASSWORD: test
         run: bash scripts/ci_bootstrap_pg_schema.sh
+      - name: Optional Stripe key (repository secret)
+        # Uses XCELSIOR_STRIPE_SECRET_KEY only — no separate STRIPE_TEST_SECRET_KEY.
+        run: |
+          if [ -n "${{ secrets.XCELSIOR_STRIPE_SECRET_KEY }}" ]; then
+            echo "XCELSIOR_STRIPE_SECRET_KEY=${{ secrets.XCELSIOR_STRIPE_SECRET_KEY }}" >> "$GITHUB_ENV"
+          fi
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target
         # mappings (quick / ai / billing / security / e2e / live) and

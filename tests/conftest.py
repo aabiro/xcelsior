@@ -52,6 +52,10 @@ _TEST_ENV_DEFAULTS = {
 for _key, _val in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _val)
 
+# Empty string from CI env blocks setdefault — treat as unset for optional secrets.
+if not (os.environ.get("XCELSIOR_STRIPE_SECRET_KEY") or "").strip():
+    os.environ["XCELSIOR_STRIPE_SECRET_KEY"] = _TEST_ENV_DEFAULTS["XCELSIOR_STRIPE_SECRET_KEY"]
+
 # B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
 # Tests that hit /agent/* endpoints without a bearer token need this flag
 # set regardless of which .env was loaded. Also pin XCELSIOR_ENV=test so
