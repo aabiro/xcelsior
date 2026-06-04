@@ -2,11 +2,11 @@
 
 _Regenerated 2026-06-04 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._
 
-**31 of 373 routes (8%)** and **17 of 51 CLI commands** (33%) have no test signal.
+**28 of 373 routes (7%)** and **17 of 51 CLI commands** (33%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (31 untested)
+## Routes (28 untested)
 
 ### `routes/admin.py` (0 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
@@ -88,13 +88,13 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /oauth/device/authorize` — `oauth_device_authorize`  ✓ test_auth_endpoints_coverage.py
 - [x] `POST /oauth/token` — `oauth_token`
 
-### `routes/autoscale.py` (3 untested)
-- [ ] `POST /autoscale/cycle` — `api_autoscale_cycle`
-- [ ] `POST /autoscale/down` — `api_autoscale_down`
-- [x] `POST /autoscale/pool` — `api_add_to_pool`
-- [x] `GET /autoscale/pool` — `api_get_pool`
+### `routes/autoscale.py` (0 untested)
+- [x] `POST /autoscale/cycle` — `api_autoscale_cycle`  ✓ test_autoscale_endpoints_coverage.py
+- [x] `POST /autoscale/down` — `api_autoscale_down`  ✓ test_autoscale_endpoints_coverage.py
+- [x] `POST /autoscale/pool` — `api_add_to_pool`  ✓ test_autoscale_endpoints_coverage.py
+- [x] `GET /autoscale/pool` — `api_get_pool`  ✓ test_autoscale_endpoints_coverage.py
 - [x] `DELETE /autoscale/pool/{host_id}` — `api_remove_from_pool`
-- [ ] `POST /autoscale/up` — `api_autoscale_up`
+- [x] `POST /autoscale/up` — `api_autoscale_up`  ✓ test_autoscale_endpoints_coverage.py
 
 ### `routes/billing.py` (0 untested)
 - [x] `GET /api/analytics/enhanced` — `api_analytics_enhanced`
@@ -429,19 +429,19 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 ### `routes/volumes.py` (0 untested)
 - [x] `POST /api/v2/admin/volumes/reopen-encrypted` — `api_admin_reopen_encrypted_volumes`
-- [x] `POST /api/v2/volumes` — `api_volume_create`
-- [x] `GET /api/v2/volumes` — `api_volume_list`
+- [x] `POST /api/v2/volumes` — `api_volume_create`  ✓ test_volumes_endpoints_coverage.py
+- [x] `GET /api/v2/volumes` — `api_volume_list`  ✓ test_volumes_endpoints_coverage.py
 - [x] `GET /api/v2/volumes/available` — `api_volumes_available`
-- [x] `GET /api/v2/volumes/{volume_id}` — `api_volume_get`
-- [x] `PATCH /api/v2/volumes/{volume_id}` — `api_volume_rename`
-- [x] `DELETE /api/v2/volumes/{volume_id}` — `api_volume_delete`
-- [x] `POST /api/v2/volumes/{volume_id}/attach` — `api_volume_attach`
-- [x] `POST /api/v2/volumes/{volume_id}/detach` — `api_volume_detach`
-- [x] `POST /api/v2/volumes/{volume_id}/retry` — `api_volume_retry_provision`
-- [x] `POST /api/v2/volumes/{volume_id}/snapshots` — `api_volume_snapshot_create`
-- [x] `GET /api/v2/volumes/{volume_id}/snapshots` — `api_volume_snapshot_list`
-- [x] `DELETE /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}` — `api_volume_snapshot_delete`
-- [x] `POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore` — `api_volume_snapshot_restore`
+- [x] `GET /api/v2/volumes/{volume_id}` — `api_volume_get`  ✓ test_volumes_endpoints_coverage.py
+- [x] `PATCH /api/v2/volumes/{volume_id}` — `api_volume_rename`  ✓ test_volumes_endpoints_coverage.py
+- [x] `DELETE /api/v2/volumes/{volume_id}` — `api_volume_delete`  ✓ test_volumes_endpoints_coverage.py
+- [x] `POST /api/v2/volumes/{volume_id}/attach` — `api_volume_attach`  ✓ test_volumes_endpoints_coverage.py
+- [x] `POST /api/v2/volumes/{volume_id}/detach` — `api_volume_detach`  ✓ test_volumes_endpoints_coverage.py
+- [x] `POST /api/v2/volumes/{volume_id}/retry` — `api_volume_retry_provision`  ✓ test_volumes_endpoints_coverage.py
+- [x] `POST /api/v2/volumes/{volume_id}/snapshots` — `api_volume_snapshot_create`  ✓ test_volumes_endpoints_coverage.py
+- [x] `GET /api/v2/volumes/{volume_id}/snapshots` — `api_volume_snapshot_list`  ✓ test_volumes_endpoints_coverage.py
+- [x] `DELETE /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}` — `api_volume_snapshot_delete`  ✓ test_volumes_endpoints_coverage.py
+- [x] `POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore` — `api_volume_snapshot_restore`  ✓ test_volumes_endpoints_coverage.py
 
 ## CLI commands (17 untested)
 
