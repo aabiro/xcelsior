@@ -19,9 +19,6 @@ export const metadata: Metadata = {
   },
 };
 
-/** Static legal page — avoids dynamic cookies() RSC/hydration edge cases. */
-export const dynamic = "force-static";
-
 export default function TermsPage() {
-  return <TermsContent locale="en" />;
+  return <TermsContent />;
 }

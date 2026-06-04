@@ -1,8 +1,9 @@
-import { createTranslator } from "@/lib/i18n/server";
-import type { Locale } from "@/lib/locale";
+"use client";
 
-export function TermsContent({ locale }: { locale: Locale }) {
-  const t = createTranslator(locale);
+import { useLocale } from "@/lib/locale";
+
+export function TermsContent() {
+  const { t } = useLocale();
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-24">
