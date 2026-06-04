@@ -5,20 +5,22 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DepositModal } from "@/components/billing/deposit-modal";
 import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
+import { PaymentMethodModal } from "@/components/billing/payment-method-modal";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
-  Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw,
+  Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw, Trash2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { Wallet, WalletTransaction, Invoice, ReservedCommitment } from "@/lib/api";
+import type { Wallet, WalletTransaction, Invoice, ReservedCommitment, SavedPaymentMethod } from "@/lib/api";
 import { toast } from "sonner";
 import { AnimatePresence, animate, motion, type AnimationPlaybackControls } from "framer-motion";
 
@@ -26,6 +28,30 @@ const FREE_CREDIT_AMOUNT = 10;
 const FREE_CREDIT_TRANSFER_DURATION_S = 2.2;
 const FREE_CREDIT_TRANSFER_DURATION_MS = FREE_CREDIT_TRANSFER_DURATION_S * 1000;
 const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
+
+// Reserved-commitment pricing is intentionally hidden from the UI for now. The
+// backend endpoints (/api/pricing/reserved-plans, /api/pricing/reserve) remain
+// live, so the feature can be re-enabled by flipping this flag back to true.
+// See roadmap UI-5.2. When false, the page skips the reserved-plan fetches and
+// hides the "Reserved Plans" + "Active Commitments" sections entirely.
+const RESERVED_PLANS_ENABLED = false;
+
+// Refunds are credited to the wallet ledger as `tx_type = 'refund'` with a
+// description like "Refund for job <id> (<classification>)" (see
+// billing.py process_refund/_credit_wallet). Map the classification to a
+// human-readable reason and whether it was the host's fault vs. user error.
+const REFUND_REASONS: Record<string, { label: string; hostFault: boolean }> = {
+  hardware_error: { label: "Hardware failure", hostFault: true },
+  gpu_error: { label: "GPU / CUDA error", hostFault: true },
+  network_error: { label: "Network timeout", hostFault: true },
+  unknown: { label: "Under review", hostFault: false },
+};
+
+function parseRefundReason(description?: string): { label: string; hostFault: boolean } {
+  const match = description?.match(/\(([^)]+)\)\s*$/);
+  const key = match?.[1] ?? "";
+  return REFUND_REASONS[key] ?? { label: "Refund", hostFault: false };
+}
 const DEFAULT_BTC_STATUS = {
   enabled: false,
   available: false,
@@ -73,6 +99,15 @@ export default function BillingPage() {
     active_count: number; total_count: number;
     realized_savings_cad: number; projected_monthly_savings_cad: number;
   } | null>(null);
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [showAddCard, setShowAddCard] = useState(false);
+  const [autoTopup, setAutoTopup] = useState<{
+    enabled: boolean;
+    amount_cad: number;
+    threshold_cad: number;
+    payment_method_id: string;
+  }>({ enabled: false, amount_cad: 25, threshold_cad: 5, payment_method_id: "" });
+  const [savingTopup, setSavingTopup] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showDeposit, setShowDeposit] = useState(false);
   const searchParams = useSearchParams();
@@ -112,8 +147,10 @@ export default function BillingPage() {
         api.fetchWalletHistory(customerId),
         api.fetchInvoices(customerId),
         api.fetchUsageSummary(customerId),
-        api.fetchReservedPlans(),
-        api.fetchReservations(customerId),
+        RESERVED_PLANS_ENABLED ? api.fetchReservedPlans() : Promise.resolve({}),
+        RESERVED_PLANS_ENABLED
+          ? api.fetchReservations(customerId)
+          : Promise.resolve({ reservations: [] as ReservedCommitment[], summary: null }),
       ]);
       if (walletRes.status === "fulfilled") setWallet(walletRes.value.wallet);
       if (histRes.status === "fulfilled") setTransactions(histRes.value.transactions || []);
@@ -163,6 +200,72 @@ export default function BillingPage() {
   }, [stopWalletAnimation]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Saved cards + auto-reload config are session-scoped (derived from the
+  // authenticated user server-side), so they don't take customerId.
+  const loadPaymentMethods = useCallback(async () => {
+    if (!customerId) return;
+    const [pmRes, topupRes] = await Promise.allSettled([
+      api.fetchPaymentMethods(),
+      api.fetchAutoTopup(),
+    ]);
+    let cards: SavedPaymentMethod[] = [];
+    if (pmRes.status === "fulfilled") {
+      cards = pmRes.value.payment_methods || [];
+      setPaymentMethods(cards);
+    }
+    if (topupRes.status === "fulfilled") {
+      const at = topupRes.value.auto_topup;
+      setAutoTopup({
+        enabled: at.enabled,
+        amount_cad: at.amount_cad || 25,
+        threshold_cad: at.threshold_cad || 5,
+        // Fall back to the first saved card so the selector isn't empty.
+        payment_method_id: at.payment_method_id || cards[0]?.id || "",
+      });
+    }
+  }, [customerId]);
+
+  useEffect(() => { loadPaymentMethods(); }, [loadPaymentMethods]);
+
+  const handleSaveAutoTopup = useCallback(
+    async (next: Partial<typeof autoTopup>) => {
+      const merged = { ...autoTopup, ...next };
+      if (merged.enabled && !merged.payment_method_id) {
+        toast.error("Add and select a card before enabling auto-reload");
+        return;
+      }
+      setSavingTopup(true);
+      try {
+        await api.configureAutoTopup({
+          enabled: merged.enabled,
+          amount_cad: merged.amount_cad,
+          threshold_cad: merged.threshold_cad,
+          stripe_payment_method_id: merged.payment_method_id,
+        });
+        setAutoTopup(merged);
+        toast.success("Auto-reload settings saved");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not save auto-reload");
+      } finally {
+        setSavingTopup(false);
+      }
+    },
+    [autoTopup],
+  );
+
+  const handleDeleteCard = useCallback(
+    async (id: string) => {
+      try {
+        await api.deletePaymentMethod(id);
+        toast.success("Card removed");
+        await loadPaymentMethods();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not remove card");
+      }
+    },
+    [loadPaymentMethods],
+  );
 
   // Check crypto payment rails together so the funding section does not pop in later.
   useEffect(() => {
@@ -838,7 +941,7 @@ export default function BillingPage() {
           )}
 
           {/* Reserved Plans */}
-          {reservedTiers && (
+          {RESERVED_PLANS_ENABLED && reservedTiers && (
             <div>
               <h2 className="text-lg font-semibold mb-3">{t("dash.billing.reserved_plans")}</h2>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -894,7 +997,7 @@ export default function BillingPage() {
           )}
 
           {/* Active Commitments + savings */}
-          {reservations.length > 0 && (
+          {RESERVED_PLANS_ENABLED && reservations.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold">Active Commitments</h2>
@@ -963,6 +1066,144 @@ export default function BillingPage() {
             </div>
           )}
 
+          {/* Payment Methods & Auto-reload */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-text-muted" /> Payment Methods
+              </CardTitle>
+              <CardDescription>Saved cards and automatic top-ups</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {paymentMethods.length === 0 ? (
+                <p className="text-sm text-text-muted">No saved cards yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {paymentMethods.map((pm) => (
+                    <label
+                      key={pm.id}
+                      className="flex cursor-pointer items-center justify-between rounded-lg border border-border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="default-card"
+                          checked={autoTopup.payment_method_id === pm.id}
+                          onChange={() =>
+                            setAutoTopup((s) => ({ ...s, payment_method_id: pm.id }))
+                          }
+                          className="h-4 w-4 accent-ice-blue"
+                        />
+                        <CreditCard className="h-4 w-4 text-text-muted" />
+                        <div>
+                          <p className="text-sm font-medium capitalize">
+                            {pm.brand || "Card"} •••• {pm.last4}
+                          </p>
+                          <p className="text-xs text-text-muted">
+                            Expires {pm.exp_month}/{pm.exp_year}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDeleteCard(pm.id);
+                        }}
+                        className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-background hover:text-accent-red"
+                        aria-label="Remove card"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setShowAddCard(true)}>
+                <Plus className="h-3.5 w-3.5" /> Add card
+              </Button>
+
+              {/* Auto-reload */}
+              <div className="space-y-3 rounded-lg border border-border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-ice-blue" />
+                    <div>
+                      <p className="text-sm font-medium">Auto-reload</p>
+                      <p className="text-xs text-text-muted">
+                        Top up automatically when your balance runs low
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoTopup.enabled}
+                    disabled={paymentMethods.length === 0 || savingTopup}
+                    onClick={() => handleSaveAutoTopup({ enabled: !autoTopup.enabled })}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      autoTopup.enabled ? "bg-ice-blue" : "bg-border"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        autoTopup.enabled ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reload-amount" className="text-xs text-text-secondary">
+                      Reload amount (CAD)
+                    </Label>
+                    <Input
+                      id="reload-amount"
+                      type="number"
+                      min="5"
+                      max="10000"
+                      value={autoTopup.amount_cad}
+                      onChange={(e) =>
+                        setAutoTopup((s) => ({ ...s, amount_cad: Number(e.target.value) }))
+                      }
+                      className="font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reload-threshold" className="text-xs text-text-secondary">
+                      When balance below (CAD)
+                    </Label>
+                    <Input
+                      id="reload-threshold"
+                      type="number"
+                      min="0"
+                      max="10000"
+                      value={autoTopup.threshold_cad}
+                      onChange={(e) =>
+                        setAutoTopup((s) => ({ ...s, threshold_cad: Number(e.target.value) }))
+                      }
+                      className="font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-text-muted">
+                    {paymentMethods.length === 0
+                      ? "Add a card to enable auto-reload."
+                      : "Charged to your selected card above."}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => handleSaveAutoTopup({})}
+                    disabled={savingTopup || paymentMethods.length === 0}
+                  >
+                    {savingTopup ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Invoices */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -1012,6 +1253,65 @@ export default function BillingPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Refunds — credited automatically for host-side job failures */}
+          {(() => {
+            const refunds = transactions.filter((tx) => tx.type === "refund");
+            if (refunds.length === 0) return null;
+            const total = refunds.reduce((sum, tx) => sum + tx.amount_cad, 0);
+            return (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <RotateCcw className="h-4 w-4 text-emerald" /> Refunds
+                    </CardTitle>
+                    <CardDescription>
+                      Automatic credits for host-side job failures
+                    </CardDescription>
+                  </div>
+                  <span className="font-mono text-sm font-medium text-emerald">
+                    +${total.toFixed(2)} refunded
+                  </span>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {refunds.map((tx) => {
+                      const reason = parseRefundReason(tx.description);
+                      return (
+                        <div
+                          key={tx.tx_id}
+                          className="flex items-center justify-between rounded-lg border border-border p-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <RotateCcw className="h-4 w-4 text-emerald" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium">{reason.label}</p>
+                                <Badge
+                                  variant={reason.hostFault ? "active" : "default"}
+                                  className="text-[10px]"
+                                >
+                                  {reason.hostFault ? "Host fault" : "Partial"}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-text-muted">
+                                {tx.created_at ? new Date(tx.created_at).toLocaleString() : "—"}
+                                {tx.job_id && <span className="ml-2">· Job {tx.job_id.slice(0, 8)}</span>}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="font-mono text-sm font-medium text-emerald">
+                            +${tx.amount_cad.toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Transaction History */}
           <Card>
@@ -1147,6 +1447,14 @@ export default function BillingPage() {
             setShowDeposit(false);
             load();
           }}
+        />
+      )}
+
+      {/* Add Card Modal (Stripe SetupIntent) */}
+      {showAddCard && (
+        <PaymentMethodModal
+          onClose={() => setShowAddCard(false)}
+          onSuccess={() => loadPaymentMethods()}
         />
       )}
 

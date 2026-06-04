@@ -60,12 +60,13 @@ def test_banner_init_script_is_locked_v1(source: str) -> None:
 # ---------------------------------------------------------------------------
 
 FINAL_SUMMARY_V1 = (
-    # (template, is_f_string)
-    ("[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s))", True),
+    # (template, is_f_string) — v2 adds password-auth messaging
+    ("[xcelsior] Terminal ready — SSH enabled ({len(keys)} key(s) + password)", True),
     (
-        "[xcelsior] Terminal ready — add SSH keys at xcelsior.ca/dashboard/settings to enable direct SSH",
+        "[xcelsior] Terminal ready — SSH enabled (password on dashboard; add a key at Settings → SSH Keys for passwordless login)",
         False,
     ),
+    ("[xcelsior] Terminal ready — SSH daemon up but no credentials set", False),
     ("[xcelsior] Terminal ready — web terminal only (sshd failed to start)", False),
     ("[xcelsior] Terminal ready — web terminal only (image has no sshd)", False),
     ("[xcelsior] SSH setup timed out — web terminal still works", False),
@@ -91,7 +92,7 @@ NOTE_STRINGS_V1 = (
     "Installing OpenSSH server in container (one-time setup)…",
     "OpenSSH server installed",
     "SSH daemon ready — connections accepted",
-    "SSH daemon started (add keys to connect)",
+    "SSH daemon started — password available on dashboard",
 )
 
 
@@ -108,7 +109,7 @@ def test_note_strings_are_locked_v1(source: str) -> None:
 #    this marker will leave the test suite pointing at the wrong baseline.
 # ---------------------------------------------------------------------------
 
-TERMINAL_UI_VERSION = "v1"
+TERMINAL_UI_VERSION = "v2"
 
 
 def test_version_marker_present(source: str) -> None:

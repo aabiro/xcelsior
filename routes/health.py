@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import secrets
+from typing import Any
 import threading
 import time
 from pathlib import Path
@@ -561,7 +562,7 @@ class VersionReport(BaseModel):
 @router.get("/healthz", tags=["Infrastructure"])
 def healthz():
     """Health check — verifies database connectivity and returns real system status."""
-    checks = {"env": XCELSIOR_ENV}
+    checks: dict[str, Any] = {"env": XCELSIOR_ENV}
     try:
         from db import _get_pg_pool
         from psycopg.rows import dict_row
@@ -702,9 +703,9 @@ def metrics_prometheus():
 
     # GPU telemetry if available
     try:
-        from nvml_telemetry import get_all_gpu_stats
+        from nvml_telemetry import collect_all_gpus
 
-        gpu_stats = get_all_gpu_stats()
+        gpu_stats = collect_all_gpus()
         if gpu_stats:
             lines.extend(
                 [

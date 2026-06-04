@@ -579,7 +579,7 @@ def slurm_submit_cli(job_dict, profile=None, dry_run=False):
     xcelsior_id = result.get("xcelsior_job_id", "?")
     register_slurm_job(xcelsior_id, slurm_id)
 
-    meta = result.get("metadata", {})
+    meta: dict = result.get("metadata", {})
     return (
         f"Submitted to Slurm: {slurm_id}\n"
         f"  Xcelsior job: {xcelsior_id}\n"

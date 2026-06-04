@@ -7,7 +7,7 @@ Automated tests covering the full instance lifecycle:
 Failure scenarios:
   worker death → lease expiry → requeue
   host offline → failover
-  wallet empty → pause → resume
+  wallet empty → stop → start
 
 Docker compose smoke test (requires Docker — skipped in CI by default).
 """
@@ -105,21 +105,9 @@ def _register_host(host_id, vram=24.0, cost=0.50, ip="10.0.0.1", gpu="RTX 4090")
 
 def _admit_host(host_id):
     """Admit a host so it can receive jobs."""
-    with scheduler._atomic_mutation() as conn:
-        row = conn.execute(
-            "SELECT payload FROM hosts WHERE host_id = %s",
-            (host_id,),
-        ).fetchone()
-        if row:
-            data = (
-                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
-            )
-            data["admitted"] = True
-            data["status"] = "active"
-            conn.execute(
-                "UPDATE hosts SET status = 'active', payload = %s WHERE host_id = %s",
-                (_json.dumps(data), host_id),
-            )
+    from tests._db_helpers import admit_test_host
+
+    admit_test_host(host_id, active=True)
 
 
 def _submit_job(name="test-job", vram=8, tier="on-demand", host_id=None):
@@ -576,11 +564,11 @@ class TestHostOfflineFailover:
         assert result is None  # rejected
 
 
-class TestWalletEmptyPauseResume:
-    """Wallet empty → pause → top-up → resume."""
+class TestWalletEmptyStopStart:
+    """Wallet empty → stop → top-up → start (pause/resume routes were removed)."""
 
-    def test_pause_and_resume(self):
-        """Pause a running instance, then resume it."""
+    def test_stop_and_start(self):
+        """Stop a running instance, then start it again."""
         _reset_state()
         _register_host("pr-h1", vram=24)
         _admit_host("pr-h1")
@@ -595,21 +583,19 @@ class TestWalletEmptyPauseResume:
         inst = _get_instance(job_id)
         assert inst["status"] == "running"
 
-        # Pause
-        pause_resp = client.post(f"/instances/{job_id}/pause")
-        assert pause_resp.status_code == 200
-        assert pause_resp.json().get("ok") is True
+        stop_resp = client.post(f"/instances/{job_id}/stop")
+        assert stop_resp.status_code == 200
+        assert stop_resp.json().get("ok") is True
 
         inst = _get_instance(job_id)
-        assert inst["status"] in ("user_paused", "paused_low_balance")
+        assert inst["status"] == "stopped"
 
-        # Resume (patch run_job to avoid SSH failure overwriting status)
         from unittest.mock import patch
 
         with patch("scheduler.run_job", return_value="fake-container-id"):
-            resume_resp = client.post(f"/instances/{job_id}/resume")
-        assert resume_resp.status_code == 200
-        assert resume_resp.json().get("ok") is True
+            start_resp = client.post(f"/instances/{job_id}/start")
+        assert start_resp.status_code == 200
+        assert start_resp.json().get("ok") is True
 
         inst = _get_instance(job_id)
         assert inst["status"] == "running"
@@ -677,8 +663,8 @@ class TestWalletEmptyPauseResume:
         )
         assert resp.status_code == 402
 
-    def test_resume_with_no_funds_rejected(self):
-        """Resume should fail if wallet is empty."""
+    def test_start_with_no_funds_rejected(self):
+        """Start should fail if wallet is empty."""
         _reset_state()
         _register_host("rf-h1", vram=24)
         _admit_host("rf-h1")
@@ -691,8 +677,7 @@ class TestWalletEmptyPauseResume:
 
         _set_status(job_id, "running", host_id="rf-h1")
 
-        # Pause first
-        client.post(f"/instances/{job_id}/pause")
+        client.post(f"/instances/{job_id}/stop")
 
         # Drain wallet
         from billing import get_billing_engine
@@ -702,13 +687,8 @@ class TestWalletEmptyPauseResume:
         if wallet["balance_cad"] > 0:
             be.charge("anonymous", wallet["balance_cad"], job_id="drain3", description="drain")
 
-        # Resume should fail (insufficient balance)
-        resume_resp = client.post(f"/instances/{job_id}/resume")
-        assert resume_resp.status_code in (200, 400, 402)
-        data = resume_resp.json()
-        # Either HTTP error or {resumed: false, reason: "insufficient_balance"}
-        if resume_resp.status_code == 200:
-            assert data.get("resumed") is False or data.get("ok") is False
+        start_resp = client.post(f"/instances/{job_id}/start")
+        assert start_resp.status_code == 402
 
 
 # ══════════════════════════════════════════════════════════════════════

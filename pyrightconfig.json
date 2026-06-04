@@ -1,0 +1,28 @@
+{
+  "include": ["."],
+  "exclude": [
+    "venv",
+    "node_modules",
+    "frontend",
+    "**/__pycache__",
+    "tests",
+    "migrations",
+    "desktop",
+    "wizard",
+    "fern",
+    "sprites",
+    "checkpoints",
+    "artifacts",
+    "data",
+    "scripts",
+    "**/.*"
+  ],
+  "typeCheckingMode": "off",
+  "reportCallIssue": "error",
+  "reportArgumentType": "error",
+  "reportAttributeAccessIssue": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalSubscript": "error",
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false
+}

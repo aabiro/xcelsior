@@ -39,8 +39,32 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose config -q
 
+  typecheck:
+    # Zero-tolerance gate on pyright reportCallIssue + reportArgumentType +
+    # reportAttributeAccessIssue — the wrong-kwarg / wrong-arg / wrong-type /
+    # missing-symbol class of bug (e.g. passing customer_id= when the param is
+    # user=, None into a str param, or importing a name that doesn't exist).
+    # All backlogs are cleared, so scripts/pyright_gate.py fails on ANY finding
+    # (it filters only the psycopg dynamic-SQL LiteralString noise). Deps +
+    # pyright are pinned so the result matches local.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install deps + pyright
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyright==1.1.410
+      - name: Wrong-call / wrong-arg gate (pyright)
+        run: python scripts/pyright_gate.py
+
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     needs: lint
     services:
       postgres:
@@ -57,9 +81,18 @@ jobs:
           --health-retries 5
     env:
       XCELSIOR_ENV: test
-      XCELSIOR_API_TOKEN: ""
-      XCELSIOR_DB_BACKEND: sqlite
+      XCELSIOR_BASE_URL: http://localhost:9501
+      XCELSIOR_API_TOKEN: test-token-not-for-production
+      # Full suite expects migrated Postgres tables (billing_cycles, sessions, …).
+      XCELSIOR_DB_BACKEND: postgres
+      XCELSIOR_POSTGRES_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
       XCELSIOR_PG_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
+      XCELSIOR_PG_POOL_SIZE: "40"
+      XCELSIOR_BG_TASKS: "false"
+      XCELSIOR_SCHEDULER_URL: "http://127.0.0.1:9501"
+      XCELSIOR_RATE_LIMIT_REQUESTS: "10000"
+      XCELSIOR_AUTH_RATE_LIMIT_REQUESTS: "10000"
+      # Honor pyproject timeout=180 (func_only); do not override with a lower cap.
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -71,6 +104,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-timeout
+      - name: Cache Postgres schema (migrations)
+        uses: actions/cache@v4
+        with:
+          path: ci-cache/pg_schema.sql
+          key: pg-schema-${{ hashFiles('migrations/versions/**', 'migrations/env.py', 'alembic.ini') }}
+      - name: Bootstrap Postgres schema
+        env:
+          PGPASSWORD: test
+        run: bash scripts/ci_bootstrap_pg_schema.sh
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target
         # mappings (quick / ai / billing / security / e2e / live) and

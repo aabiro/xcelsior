@@ -210,7 +210,8 @@ class RedisAuthCache:
 
     def incr(self, key: str, ttl: int) -> int:
         try:
-            value = int(self._client.incr(key))
+            raw = self._client.incr(key)
+            value = int(raw) if isinstance(raw, int) else int(str(raw))
             if value == 1:
                 self._client.expire(key, max(1, ttl))
             return value

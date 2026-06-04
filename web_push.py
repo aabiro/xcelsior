@@ -132,7 +132,7 @@ def _notification_payload(notification: dict[str, Any]) -> str:
     )
 
 
-def _status_code(exc: WebPushException) -> int | None:
+def _status_code(exc: Any) -> int | None:
     response = getattr(exc, "response", None)
     return getattr(response, "status_code", None)
 
@@ -150,7 +150,7 @@ def deliver_web_push_notification(user_email: str, notification: dict[str, Any])
         return
 
     payload = _notification_payload(notification)
-    vapid_claims = {"sub": VAPID_SUBJECT}
+    vapid_claims: dict[str, str | int] = {"sub": VAPID_SUBJECT}
 
     for subscription in subscriptions:
         endpoint = subscription["endpoint"]

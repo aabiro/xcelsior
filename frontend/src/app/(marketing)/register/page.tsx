@@ -35,6 +35,7 @@ function RegisterPageContent() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
@@ -42,7 +43,7 @@ function RegisterPageContent() {
   const [resendSuccess, setResendSuccess] = useState(false);
   const passwordValidation = getPasswordValidation(password);
   const matchingPasswords = passwordsMatch(password, confirmPassword);
-  const canSubmit = Boolean(email) && passwordValidation.isValid && matchingPasswords;
+  const canSubmit = Boolean(email) && passwordValidation.isValid && matchingPasswords && agreedToTerms;
   const passwordRequirements = [
     { key: "length", label: t("auth.pw_min"), satisfied: passwordValidation.hasValidLength },
     { key: "letter", label: t("auth.pw_rule_letter"), satisfied: passwordValidation.hasLetter },
@@ -65,6 +66,10 @@ function RegisterPageContent() {
     e.preventDefault();
     if (!passwordValidation.isValid || !matchingPasswords) {
       setError(password !== confirmPassword ? t("auth.reset_mismatch") : t("auth.pw_policy_error"));
+      return;
+    }
+    if (!agreedToTerms) {
+      setError(t("auth.register_agree_error"));
       return;
     }
     setError("");
@@ -272,6 +277,25 @@ function RegisterPageContent() {
             </div>
           </div>
           <PasswordRequirements items={passwordRequirements} />
+          <label htmlFor="agree-terms" className="flex items-start gap-2.5 text-sm text-text-secondary cursor-pointer">
+            <input
+              id="agree-terms"
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-background/40 text-ice-blue accent-ice-blue focus:ring-ice-blue/40"
+            />
+            <span>
+              {t("auth.register_agree_prefix")}{" "}
+              <Link href="/terms" target="_blank" className="text-ice-blue hover:underline">
+                {t("footer.terms")}
+              </Link>{" "}
+              {t("auth.register_agree_and")}{" "}
+              <Link href="/privacy" target="_blank" className="text-ice-blue hover:underline">
+                {t("footer.privacy")}
+              </Link>
+            </span>
+          </label>
           <Button type="submit" className="w-full" disabled={loading || !canSubmit}>
             {loading ? t("auth.register_loading") : t("auth.register_button")}
           </Button>

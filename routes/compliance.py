@@ -3,10 +3,13 @@
 import os
 import time
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _require_admin,
+    _require_auth,
+    _require_scope,
     log,
 )
 from db import UserStore
@@ -34,11 +37,7 @@ def api_gst_threshold_status(request: Request):
     - `threshold_cad`: the $30,000 statutory limit
     - `quarters_assessed`: number of quarters with data
     """
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "compliance:read")
+    _require_admin(request)
     billing = get_billing_engine()
     now = time.time()
     # Look back 4 quarters (~365 days)
@@ -83,7 +82,7 @@ def api_gst_threshold_status(request: Request):
 
 
 @router.get("/api/billing/gst-threshold/{provider_id}", tags=["Compliance"])
-def api_provider_gst_threshold(provider_id: str):
+def api_provider_gst_threshold(provider_id: str, request: Request):
     """Check whether a specific provider has exceeded the $30,000 GST/HST
     small-supplier threshold based on their historical payouts.
 
@@ -91,6 +90,9 @@ def api_provider_gst_threshold(provider_id: str):
     for GST/HST. The simplified regime is recommended for non-resident
     providers serving Canadians.
     """
+    from routes.providers import _require_provider_access
+
+    _require_provider_access(request, provider_id)
     billing = get_billing_engine()
     now = time.time()
     one_year_ago = now - (365.25 * 86400)

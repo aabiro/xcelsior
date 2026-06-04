@@ -11,7 +11,10 @@ from pydantic import BaseModel, Field
 
 from routes._deps import (
     _get_current_user,
+    _is_platform_admin,
     _require_auth,
+    _require_inference_job_access,
+    _require_scope,
     broadcast_sse,
     otel_span,
 )
@@ -28,6 +31,12 @@ from inference_store import (
 from inference import get_inference_engine
 
 router = APIRouter()
+
+
+def _require_inference_endpoint_access(user: dict, ep: dict) -> None:
+    owner_id = user.get("user_id", user.get("email", ""))
+    if ep.get("owner_id") != owner_id and not _is_platform_admin(user):
+        raise HTTPException(403, "Forbidden")
 
 
 # ── Model: InferenceRequest ──
@@ -52,11 +61,11 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     Schedules a short-lived GPU job that runs the specified model on the
     provided inputs. Returns a job_id to poll for results.
     """
-    from routes._deps import _require_scope
+    from routes.instances import _canonical_owner_id
 
     user = _require_auth(request)
     _require_scope(user, "inference:write")
-    customer_id = user.get("customer_id", user.get("email", "anon"))
+    customer_id = _canonical_owner_id(user) or "anon"
     inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
 
     # Wallet pre-flight
@@ -92,11 +101,9 @@ def api_inference_submit(req: InferenceRequest, request: Request):
 @router.get("/api/inference/{job_id}", tags=["Inference"])
 def api_inference_result(job_id: str, request: Request):
     """Get inference results for a submitted request."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "inference:read")
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
+    _require_inference_job_access(user, job_id)
     result = get_inference_result(job_id)
     if result:
         return {"ok": True, "status": "completed", **result}
@@ -123,11 +130,8 @@ def api_inference_result(job_id: str, request: Request):
 @router.get("/api/inference/models/available", tags=["Inference"])
 def api_inference_models(request: Request):
     """List available inference models and their resource requirements."""
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "inference:read")
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
     models = [
         {
             "name": "distilbert-base-uncased-finetuned-sst-2-english",
@@ -179,8 +183,11 @@ class InferenceResultCallback(BaseModel):
 
 
 @router.post("/api/inference/{job_id}/result", tags=["Inference"])
-def api_inference_post_result(job_id: str, body: InferenceResultCallback):
+def api_inference_post_result(job_id: str, body: InferenceResultCallback, request: Request):
     """Worker callback: post inference results. Internal use."""
+    from routes.instances import _require_worker_status_update
+
+    _require_worker_status_update(request)
     store_inference_result(
         job_id=job_id,
         outputs=body.outputs,
@@ -340,8 +347,11 @@ def api_v1_inference_async(body: V1InferenceRequest, request: Request):
 
 
 @router.get("/v1/inference/{job_id}", tags=["Inference v2"])
-def api_v1_inference_poll(job_id: str):
+def api_v1_inference_poll(job_id: str, request: Request):
     """Poll for inference results by job_id."""
+    user = _require_auth(request)
+    _require_scope(user, "inference:read")
+    _require_inference_job_access(user, job_id)
     result = get_inference_result(job_id)
     if result:
         return {
@@ -442,6 +452,7 @@ def api_inference_get_endpoint(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     return {"ok": True, "endpoint": ep}
 
 
@@ -455,6 +466,7 @@ def api_inference_endpoint_health(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     health = ie.get_endpoint_health(endpoint_id)
     return {"ok": True, "health": health}
 
@@ -469,6 +481,7 @@ def api_inference_endpoint_usage(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     usage = ie.get_endpoint_usage(endpoint_id)
     return {"ok": True, "usage": usage}
 
@@ -480,6 +493,10 @@ def api_inference_delete_endpoint(endpoint_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     ie = get_inference_engine()
+    ep = ie.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+    _require_inference_endpoint_access(user, ep)
     ie.delete_endpoint(endpoint_id)
     return {"ok": True}
 
@@ -517,7 +534,7 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
         max_tokens=body.max_tokens,
         temperature=body.temperature,
         stream=body.stream,
-        customer_id=customer_id,
+        user=customer_id,
     )
     result = ie.submit_request(inf_req)
     if not result:
@@ -551,7 +568,9 @@ def api_inference_complete(request_id: str, request: Request):
         body = {}
     ie.complete_request(
         request_id=request_id,
-        output_text=body.get("output_text", ""),
+        outputs=body.get("outputs") or [body.get("output_text", "")],
+        model=body.get("model", ""),
+        worker_id=body.get("worker_id", ""),
         input_tokens=body.get("input_tokens", 0),
         output_tokens=body.get("output_tokens", 0),
         latency_ms=body.get("latency_ms", 0),

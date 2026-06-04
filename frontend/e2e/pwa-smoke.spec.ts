@@ -26,8 +26,8 @@ test("desktop PWA exposes manifest metadata and registers the service worker", a
   expect(manifest.scope).toBe("/");
   expect(manifest.shortcuts).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ url: "/dashboard" }),
       expect.objectContaining({ url: "/dashboard/marketplace" }),
+      expect.objectContaining({ url: "/dashboard/instances" }),
       expect.objectContaining({ url: "/dashboard/billing" }),
     ]),
   );

@@ -39,7 +39,7 @@ def api_request_upload(req: UploadRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.request_upload(req.job_id, req.filename, atype, rpolicy)
+    result = mgr.request_upload(atype, req.job_id, req.filename, residency=rpolicy)
     return {"ok": True, **result}
 
 
@@ -67,7 +67,7 @@ def api_request_download(req: DownloadRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     mgr = get_artifact_manager()
-    result = mgr.request_download(req.job_id, req.filename, atype)
+    result = mgr.download_url_for(atype, req.job_id, req.filename)
     return {"ok": True, **result}
 
 
@@ -80,6 +80,9 @@ def api_list_artifacts(job_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, job_id)
     mgr = get_artifact_manager()
     artifacts = mgr.get_job_artifacts(job_id)
     return {"ok": True, "job_id": job_id, "artifacts": artifacts}
@@ -98,6 +101,9 @@ def api_artifact_expiry(job_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:read")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, job_id)
     try:
         am = get_artifact_manager()
         arts = am.get_job_artifacts(job_id)

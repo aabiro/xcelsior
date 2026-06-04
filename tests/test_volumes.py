@@ -94,6 +94,7 @@ class TestVolumeEngineCreate:
             engine.create_volume("user-1", "neg", -5)
 
     def test_create_capacity_exceeded(self, monkeypatch):
+        monkeypatch.setattr("volumes.MAX_TOTAL_STORAGE_GB", 100)
         engine = self._make_engine(
             monkeypatch,
             conn_rows=[

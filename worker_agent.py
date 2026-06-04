@@ -589,7 +589,7 @@ except ImportError:
     return None
 
 
-def run_network_benchmark(scheduler_url: str = None):
+def run_network_benchmark(scheduler_url: str | None = None):
     """Benchmark network quality to the scheduler (throughput, jitter, loss).
 
     Returns dict with throughput_mbps, jitter_ms, packet_loss_pct.
@@ -804,6 +804,8 @@ def _api_headers():
 
 def _api_url(path):
     """Build absolute API URL."""
+    if not SCHEDULER_URL:
+        raise RuntimeError("XCELSIOR_SCHEDULER_URL is not set")
     return f"{SCHEDULER_URL.rstrip('/')}{path}"
 
 
@@ -1046,6 +1048,7 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "stop_container",
         "pause_container",
         "start_container",
+        "reset_container",  # P2 — fresh /workspace, preserve volumes
         "snapshot_container",
     }
 )
@@ -2945,12 +2948,12 @@ def run_job(job):
         if is_interactive:
             log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
             # --- Interactive terminal UI (stdout banner + status notes) ---
-            # This whole section is LOCKED at TERMINAL_UI_VERSION = "v1" per
+            # This whole section is LOCKED at TERMINAL_UI_VERSION = "v2" per
             # user approval on 2026-04-22. Do not edit the echo lines, the
             # final 'Terminal ready …' summary lines, or the 'Tip:'/'SSH
             # daemon …'/'OpenSSH server …' notes without bumping the version
             # marker AND updating tests/test_terminal_ui_v1.py in lockstep.
-            TERMINAL_UI_VERSION = "v1"  # noqa: F841 — referenced by tests via regex
+            TERMINAL_UI_VERSION = "v2"  # noqa: F841 — referenced by tests via regex
             # Override entrypoint with an init script that prints startup info
             # (forwarded to UI via LogForwarder) then keeps the container alive.
             init_script = (

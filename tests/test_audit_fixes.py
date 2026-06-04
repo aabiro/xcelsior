@@ -51,18 +51,9 @@ def clean_data():
 
 
 def _admit_host(host_id):
-    import json as _json
+    from tests._db_helpers import admit_test_host
 
-    with scheduler._atomic_mutation() as conn:
-        row = conn.execute("SELECT payload FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
-        if row:
-            data = (
-                row["payload"] if isinstance(row["payload"], dict) else _json.loads(row["payload"])
-            )
-            data["admitted"] = True
-            conn.execute(
-                "UPDATE hosts SET payload = %s WHERE host_id = %s", (_json.dumps(data), host_id)
-            )
+    admit_test_host(host_id)
 
 
 # ── ALLOCATE BLOCKED throttle ────────────────────────────────────────

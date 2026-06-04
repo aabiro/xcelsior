@@ -56,6 +56,7 @@ class TestOpenTelemetryIntegration:
 
         assert hasattr(api, "_OTEL_ENABLED")
         assert isinstance(api._OTEL_ENABLED, bool)
+        assert api._OTEL_ENABLED is True
 
     def test_otel_tracer_attribute(self):
         """_otel_tracer is defined (may be None if OTel not installed)."""
@@ -76,7 +77,8 @@ class TestOpenTelemetryIntegration:
         text = source.read_text()
         assert "TraceContextTextMapPropagator" in text
         assert "W3CBaggagePropagator" in text
-        assert "set_global_textmap" in text
+        assert "from opentelemetry.propagate import set_global_textmap" in text
+        assert "trace.propagation.tracecontext" in text
 
     def test_custom_spans_in_endpoints(self):
         """Key endpoints have otel_span() calls."""

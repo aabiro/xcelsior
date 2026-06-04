@@ -92,7 +92,7 @@ def cmd_jobs(args):
     if not jobs:
         print("No jobs.")
         return
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Jobs")
         table.add_column("Status", style="bold")
         table.add_column("Job ID")
@@ -182,7 +182,7 @@ def cmd_hosts(args):
     if not hosts:
         print("No hosts.")
         return
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Hosts")
         table.add_column("Status", style="bold")
         table.add_column("Host ID")
@@ -393,7 +393,7 @@ def cmd_market(args):
     if not listings:
         print("No listings.")
         return
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Marketplace")
         table.add_column("Host ID")
         table.add_column("GPU")
@@ -490,7 +490,7 @@ def cmd_builds(args):
 def cmd_tiers(args):
     """List available priority tiers."""
     tiers = list_tiers()
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Priority Tiers")
         table.add_column("Tier", style="bold")
         table.add_column("Priority", justify="right")
@@ -550,15 +550,18 @@ def cmd_verify(args):
     from verification import get_verification_engine
 
     ve = get_verification_engine()
-    status = ve.get_host_status(args.host_id)
-    if not status:
+    v = ve.store.get_verification(args.host_id)
+    if not v:
         print(f"No verification record for host {args.host_id}")
         return
     print(f"Host: {args.host_id}")
-    print(f"  State: {status.get('state', 'unknown')}")
-    print(f"  Score: {status.get('overall_score', 0)}")
-    for check, result in status.get("checks", {}).items():
-        print(f"  {check}: {result}")
+    print(f"  State: {v.state}")
+    print(f"  Score: {v.overall_score}")
+    for check in v.checks:
+        name = check.get("check_name", "?")
+        outcome = "PASS" if check.get("passed") else "FAIL"
+        details = check.get("details", "")
+        print(f"  {name}: {outcome}{' — ' + details if details else ''}")
 
 
 def cmd_wallet(args):
@@ -588,13 +591,14 @@ def cmd_invoice(args):
     from billing import get_billing_engine
 
     be = get_billing_engine()
-    invoice = be.generate_invoice(args.customer_id)
+    # Full-history invoice (period 0 → now); name blank, tax auto-detected by province.
+    invoice = be.generate_invoice(args.customer_id, "", 0, time.time())
     print(f"Invoice for {args.customer_id}:")
-    print(f"  Subtotal: ${invoice.get('subtotal_cad', 0):.2f}")
-    print(f"  Tax:      ${invoice.get('tax_cad', 0):.2f}")
-    print(f"  Total:    ${invoice.get('total_cad', 0):.2f}")
-    for line in invoice.get("lines", []):
-        print(f"    {line.get('description', '')}: ${line.get('amount_cad', 0):.2f}")
+    print(f"  Subtotal: ${invoice.subtotal_cad:.2f}")
+    print(f"  Tax:      ${invoice.tax_amount_cad:.2f}")
+    print(f"  Total:    ${invoice.total_cad:.2f}")
+    for line in invoice.line_items:
+        print(f"    {line.get('description', '')}: ${line.get('subtotal_cad', 0):.2f}")
 
 
 def cmd_sla(args):
@@ -664,7 +668,7 @@ def cmd_leaderboard(args):
 
     re = get_reputation_engine()
     lb = re.get_leaderboard(entity_type=args.type, limit=args.limit)
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title=f"Reputation Leaderboard (top {args.limit} {args.type}s)")
         table.add_column("#", justify="right")
         table.add_column("Entity ID")
@@ -690,16 +694,16 @@ def cmd_leaderboard(args):
 def cmd_compliance(args):
     """Show province compliance matrix and tax rates."""
     from billing import PROVINCE_TAX_RATES
-    from jurisdiction import PROVINCE_COMPLIANCE
+    from jurisdiction import PROVINCE_COMPLIANCE, Province
 
-    if RICH_AVAILABLE:
+    if console is not None:
         table = Table(title="Province Compliance Matrix")
         table.add_column("Province")
         table.add_column("Tax Rate", justify="right")
         table.add_column("Residency Req.", justify="center")
         table.add_column("PIA Required", justify="center")
         for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-            comp = PROVINCE_COMPLIANCE.get(prov, {})
+            comp = PROVINCE_COMPLIANCE.get(Province(prov), {})
             residency = comp.get("residency_required", False)
             pia = comp.get("pia_required", False)
             table.add_row(
@@ -714,7 +718,7 @@ def cmd_compliance(args):
         print(f"  {'Province':<6} {'Tax Rate':>10} {'Residency':>12} {'PIA Required':>14}")
         print(f"  {'─'*6} {'─'*10} {'─'*12} {'─'*14}")
         for prov, rate in sorted(PROVINCE_TAX_RATES.items()):
-            comp = PROVINCE_COMPLIANCE.get(prov, {})
+            comp = PROVINCE_COMPLIANCE.get(Province(prov), {})
             residency = comp.get("residency_required", False)
             pia = comp.get("pia_required", False)
             print(
@@ -734,7 +738,7 @@ def cmd_host_profile(args):
 
     if not args.profile:
         profiles = list_host_profiles()
-        if RICH_AVAILABLE:
+        if console is not None:
             table = Table(title="Host Profiles")
             table.add_column("Profile")
             table.add_column("GPU")
@@ -815,7 +819,7 @@ def cmd_host_accept(args):
 
     if args.json:
         print(json.dumps(report, indent=2))
-    elif RICH_AVAILABLE:
+    elif console is not None:
         title = f"Host Acceptance: {report['host_id']}"
         table = Table(title=title)
         table.add_column("Check")
@@ -1131,7 +1135,7 @@ def cmd_config(args):
         if not cfg:
             print("No config set. Use 'xcelsior config set <key> <value>' to configure.")
             return
-        if RICH_AVAILABLE:
+        if console is not None:
             table = Table(title="~/.xcelsior/config.toml")
             table.add_column("Key", style="cyan")
             table.add_column("Value", style="green")

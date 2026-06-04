@@ -40,7 +40,7 @@ def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "verification:write")
     ve = get_verification_engine()
-    result = ve.run_verification(host_id, req.gpu_info, req.network_info)
+    result = ve.run_verification(host_id, {**req.gpu_info, **req.network_info})
     return {"ok": True, "host_id": host_id, "verification": result}
 
 
@@ -166,9 +166,7 @@ def api_agent_verify(payload: VerificationReportPayload):
     result = ve.run_verification(payload.host_id, payload.report)
 
     # Wire verification → reputation: grant HARDWARE_AUDIT points on pass
-    if result.state == "verified" or (
-        hasattr(result.state, "value") and result.state.value == "verified"
-    ):
+    if result.state == "verified" or getattr(result.state, "value", None) == "verified":
         try:
             re = get_reputation_engine()
             re.add_verification(payload.host_id, VerificationType.HARDWARE_AUDIT)
@@ -179,7 +177,7 @@ def api_agent_verify(payload: VerificationReportPayload):
     return {
         "ok": True,
         "host_id": payload.host_id,
-        "state": result.state.value if hasattr(result.state, "value") else str(result.state),
+        "state": getattr(result.state, "value", str(result.state)),
         "score": result.overall_score,
         "checks": result.checks,
         "gpu_fingerprint": result.gpu_fingerprint,

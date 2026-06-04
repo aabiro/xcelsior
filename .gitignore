@@ -141,6 +141,9 @@ skills-lock.json
 # ── macOS resource forks ─────────────────────────────────────────────────
 ._*
 
+# ── CI artifacts (local schema cache mirror) ─────────────────────────────
+ci-cache/
+
 # ── Stray files ──────────────────────────────────────────────────────────
 tatus\ --short
 et

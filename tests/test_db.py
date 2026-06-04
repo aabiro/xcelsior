@@ -471,7 +471,22 @@ class TestPgListenDsnSelection:
 
         captured = {}
 
+        class _FakeSql:
+            @staticmethod
+            def SQL(_template):
+                class _Query:
+                    def format(self, _ident):
+                        return "LISTEN xcelsior_events"
+
+                return _Query()
+
+            class Identifier:
+                def __init__(self, name):
+                    self.name = name
+
         class FakePsycopg:
+            sql = _FakeSql
+
             @staticmethod
             def connect(dsn, autocommit):
                 captured["dsn"] = dsn
@@ -488,7 +503,7 @@ class TestPgListenDsnSelection:
                 self.target()
 
         monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
-        monkeypatch.setattr(db_mod, "POSTGRES_DSN", "postgresql://primary-dsn")
+        monkeypatch.setenv("XCELSIOR_POSTGRES_DSN", "postgresql://primary-dsn")
         monkeypatch.delenv("XCELSIOR_PG_DSN", raising=False)
         monkeypatch.setattr(db_mod.threading, "Thread", ImmediateThread)
         monkeypatch.setattr(db_mod.time, "sleep", lambda _: (_ for _ in ()).throw(StopIteration))
@@ -505,7 +520,22 @@ class TestPgListenDsnSelection:
 
         captured = {}
 
+        class _FakeSql:
+            @staticmethod
+            def SQL(_template):
+                class _Query:
+                    def format(self, _ident):
+                        return "LISTEN xcelsior_events"
+
+                return _Query()
+
+            class Identifier:
+                def __init__(self, name):
+                    self.name = name
+
         class FakePsycopg:
+            sql = _FakeSql
+
             @staticmethod
             def connect(dsn, autocommit):
                 captured["dsn"] = dsn
@@ -519,7 +549,7 @@ class TestPgListenDsnSelection:
                 self.target()
 
         monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
-        monkeypatch.setattr(db_mod, "POSTGRES_DSN", "postgresql://primary-dsn")
+        monkeypatch.delenv("XCELSIOR_POSTGRES_DSN", raising=False)
         monkeypatch.setenv("XCELSIOR_PG_DSN", "postgresql://legacy-override")
         monkeypatch.setattr(db_mod.threading, "Thread", ImmediateThread)
         monkeypatch.setattr(db_mod.time, "sleep", lambda _: (_ for _ in ()).throw(StopIteration))

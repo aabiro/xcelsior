@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("xcelsior")
 
@@ -396,7 +396,7 @@ class StorageClient:
 # based on residency policy.
 
 
-_CACHE_AUTO = object()  # sentinel: auto-detect cache from env
+_CACHE_AUTO: Any = object()  # sentinel: auto-detect cache from env
 
 
 class ArtifactManager:
@@ -483,6 +483,21 @@ class ArtifactManager:
                 return self.cache.generate_download_url(key)
 
         return self.primary.generate_download_url(key)
+
+    def download_url_for(
+        self,
+        artifact_type: str,
+        job_id: str,
+        filename: str,
+        prefer_cache: bool = True,
+    ) -> dict:
+        """Presigned download URL for an artifact, addressed by its structured key.
+
+        Builds the same key as ``request_upload`` (``_make_key``) so uploads and
+        downloads stay consistent.
+        """
+        key = self._make_key(artifact_type, job_id, filename)
+        return self.request_download(key, prefer_cache=prefer_cache)
 
     def get_job_artifacts(self, job_id: str) -> list[dict]:
         """List all artifacts for a job."""

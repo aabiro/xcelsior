@@ -11,8 +11,9 @@ import pytest
 _tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_btc_test_")
 _tmpdir = _tmp_ctx.name
 
-# Ensure BTC is enabled for tests
-os.environ["XCELSIOR_DB_BACKEND"] = "sqlite"
+# Ensure BTC is enabled for tests (local sqlite; CI uses postgres from workflow).
+if not os.environ.get("CI"):
+    os.environ["XCELSIOR_DB_BACKEND"] = "sqlite"
 os.environ["XCELSIOR_DB_PATH"] = os.path.join(_tmpdir, "xcelsior_btc_test.db")
 os.environ["XCELSIOR_BTC_ENABLED"] = "true"
 os.environ["XCELSIOR_BTC_RPC_HOST"] = "127.0.0.1"
