@@ -331,9 +331,9 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"    # Jaeger UI
-      - "4317:4317"      # OTLP gRPC receiver
-      - "4318:4318"      # OTLP HTTP receiver
+      - "127.0.0.1:16686:16686"    # Jaeger UI (localhost only)
+      - "127.0.0.1:4317:4317"      # OTLP gRPC (API uses host network → 127.0.0.1:4317)
+      - "127.0.0.1:4318:4318"      # OTLP HTTP
     volumes:
       - jaeger-data:/badger
     restart: unless-stopped
