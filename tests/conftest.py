@@ -25,10 +25,10 @@ if os.path.exists(_env_test):
 else:
     load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=False)
 
-# CI job env must win over .env.test (which defaults to postgres).
+# CI job env must win over .env.test (workflow sets postgres + limits).
 if os.environ.get("CI"):
-    os.environ["XCELSIOR_DB_BACKEND"] = os.environ.get("XCELSIOR_DB_BACKEND", "sqlite")
-    os.environ["XCELSIOR_BG_TASKS"] = "false"
+    os.environ.setdefault("XCELSIOR_DB_BACKEND", "postgres")
+    os.environ.setdefault("XCELSIOR_BG_TASKS", "false")
 
 # B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
 # Tests that hit /agent/* endpoints without a bearer token need this flag
