@@ -503,7 +503,7 @@ class TestPgListenDsnSelection:
                 self.target()
 
         monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
-        monkeypatch.setattr(db_mod, "POSTGRES_DSN", "postgresql://primary-dsn")
+        monkeypatch.setenv("XCELSIOR_POSTGRES_DSN", "postgresql://primary-dsn")
         monkeypatch.delenv("XCELSIOR_PG_DSN", raising=False)
         monkeypatch.setattr(db_mod.threading, "Thread", ImmediateThread)
         monkeypatch.setattr(db_mod.time, "sleep", lambda _: (_ for _ in ()).throw(StopIteration))
@@ -549,7 +549,7 @@ class TestPgListenDsnSelection:
                 self.target()
 
         monkeypatch.setattr(db_mod, "DB_BACKEND", "postgres")
-        monkeypatch.setattr(db_mod, "POSTGRES_DSN", "postgresql://primary-dsn")
+        monkeypatch.delenv("XCELSIOR_POSTGRES_DSN", raising=False)
         monkeypatch.setenv("XCELSIOR_PG_DSN", "postgresql://legacy-override")
         monkeypatch.setattr(db_mod.threading, "Thread", ImmediateThread)
         monkeypatch.setattr(db_mod.time, "sleep", lambda _: (_ for _ in ()).throw(StopIteration))

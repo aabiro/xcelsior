@@ -31,14 +31,22 @@ DEFAULT_DB_FILE = os.path.join(os.path.dirname(__file__), "xcelsior.db")
 # Database backend: "sqlite", "postgres", or "dual" (dual-write migration mode)
 DB_BACKEND = os.environ.get("XCELSIOR_DB_BACKEND", "postgres").lower()
 
+
+_DEFAULT_POSTGRES_DSN = "postgresql://xcelsior:xcelsior@localhost:5432/xcelsior"
+
+
+def resolve_postgres_dsn() -> str:
+    """Postgres DSN from env (CI sets XCELSIOR_POSTGRES_DSN or legacy XCELSIOR_PG_DSN)."""
+    return (
+        os.environ.get("XCELSIOR_POSTGRES_DSN")
+        or os.environ.get("XCELSIOR_PG_DSN")
+        or os.environ.get("DATABASE_URL")
+        or _DEFAULT_POSTGRES_DSN
+    )
+
+
 # PostgreSQL connection string (used when backend is "postgres" or "dual")
-POSTGRES_DSN = os.environ.get(
-    "XCELSIOR_POSTGRES_DSN",
-    os.environ.get(
-        "DATABASE_URL",
-        "postgresql://xcelsior:xcelsior@localhost:5432/xcelsior",
-    ),
-)
+POSTGRES_DSN = resolve_postgres_dsn()
 
 # During dual-write, which DB to read from: "sqlite" or "postgres"
 DUAL_READ_FROM = os.environ.get("XCELSIOR_DUAL_READ_FROM", "sqlite").lower()
@@ -161,12 +169,8 @@ def _get_pg_pool() -> Any:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                # Re-read DSN at pool init time — module-scope POSTGRES_DSN
-                # may have been evaluated before dotenv loaded.
-                dsn = os.environ.get(
-                    "XCELSIOR_POSTGRES_DSN",
-                    os.environ.get("DATABASE_URL", POSTGRES_DSN),
-                )
+                # Re-read DSN at pool init (conftest may set vars after import).
+                dsn = resolve_postgres_dsn()
                 pool = ConnectionPool(
                     dsn,
                     min_size=2,
@@ -2097,10 +2101,7 @@ def start_pg_listen(callback, channel="xcelsior_events"):
                 import psycopg
                 from psycopg import sql
 
-                conn = psycopg.connect(
-                    os.environ.get("XCELSIOR_PG_DSN") or POSTGRES_DSN,
-                    autocommit=True,
-                )
+                conn = psycopg.connect(resolve_postgres_dsn(), autocommit=True)
                 # Compose the channel as an identifier rather than f-string
                 # interpolation — keeps it injection-safe and satisfies
                 # psycopg's LiteralString-typed query overload.
