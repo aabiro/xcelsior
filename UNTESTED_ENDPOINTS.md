@@ -32,23 +32,23 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/v2/billing/auto-topup` — `api_billing_configure_topup`  ✓ test_billing_endpoints_coverage.py
 
 ### `routes/health.py` (17)
-- [ ] `GET /_internal/legacy-auth/verify` — `api_auth_verify_page`
+- [x] `GET /_internal/legacy-auth/verify` — `api_auth_verify_page`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /alerts/config` — `api_get_alert_config`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /api/alerts/config` — `api_get_alert_config_alias`  ✓ test_health_endpoints_coverage.py
-- [ ] `GET /api/slurm/instances` — `api_slurm_list_instances`
-- [ ] `GET /api/ssh/pubkey` — `api_get_pubkey`
-- [ ] `GET /builds` — `api_list_builds`
-- [ ] `GET /legacy/{path:path}` — `legacy_dashboard`
+- [x] `GET /api/slurm/instances` — `api_slurm_list_instances`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /api/ssh/pubkey` — `api_get_pubkey`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /builds` — `api_list_builds`  ✓ test_health_endpoints_coverage.py
+- [x] `GET /legacy/{path:path}` — `legacy_dashboard`  ✓ test_health_endpoints_coverage.py
 - [x] `GET /llms.txt` — `api_llms_txt`  ✓ test_health_endpoints_coverage.py
-- [ ] `GET /ssh/pubkey` — `api_get_pubkey`
-- [ ] `POST /_internal/legacy-auth/device` — `api_auth_device_code`
-- [ ] `POST /_internal/legacy-auth/token` — `api_auth_device_token`
-- [ ] `POST /_internal/legacy-auth/verify` — `api_auth_verify_device`
-- [ ] `POST /build` — `api_build_image`
-- [ ] `POST /build/{model}/dockerfile` — `api_generate_dockerfile`
-- [ ] `POST /ssh/keygen` — `api_generate_ssh_key`
-- [ ] `PUT /alerts/config` — `api_set_alert_config`
-- [ ] `PUT /api/alerts/config` — `api_set_alert_config_alias`
+- [x] `GET /ssh/pubkey` — `api_get_pubkey`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /_internal/legacy-auth/device` — `api_auth_device_code`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /_internal/legacy-auth/token` — `api_auth_device_token`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /_internal/legacy-auth/verify` — `api_auth_verify_device`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /build` — `api_build_image`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /build/{model}/dockerfile` — `api_generate_dockerfile`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /ssh/keygen` — `api_generate_ssh_key`  ✓ test_health_endpoints_coverage.py
+- [x] `PUT /alerts/config` — `api_set_alert_config`  ✓ test_health_endpoints_coverage.py
+- [x] `PUT /api/alerts/config` — `api_set_alert_config_alias`  ✓ test_health_endpoints_coverage.py
 
 ### `routes/mfa.py` (15)
 - [x] `DELETE /api/auth/mfa/all` — `api_mfa_disable_all`  ✓ test_auth_endpoints_coverage.py
@@ -107,15 +107,15 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `PUT /api/users/me/preferences` — `api_set_user_preferences`  ✓ test_auth_endpoints_coverage.py
 
 ### `routes/chat.py` (9)
-- [ ] `DELETE /api/ai/conversations/{conversation_id}` — `api_ai_delete_conversation`
-- [ ] `GET /api/ai/conversations` — `api_ai_list_conversations`
-- [ ] `GET /api/ai/conversations/{conversation_id}` — `api_ai_get_conversation`
-- [ ] `GET /api/ai/suggestions` — `api_ai_suggestions`
-- [ ] `GET /api/chat/conversations` — `api_chat_conversations`
-- [ ] `POST /api/ai/analytics` — `api_ai_analytics_chat`
-- [ ] `POST /api/ai/chat` — `api_ai_chat`
-- [ ] `POST /api/ai/confirm` — `api_ai_confirm`
-- [ ] `POST /api/chat/feedback` — `api_chat_feedback`
+- [x] `DELETE /api/ai/conversations/{conversation_id}` — `api_ai_delete_conversation`  ✓ test_chat_endpoints_coverage.py
+- [x] `GET /api/ai/conversations` — `api_ai_list_conversations`  ✓ test_chat_endpoints_coverage.py
+- [x] `GET /api/ai/conversations/{conversation_id}` — `api_ai_get_conversation`  ✓ test_chat_endpoints_coverage.py
+- [x] `GET /api/ai/suggestions` — `api_ai_suggestions`  ✓ test_chat_endpoints_coverage.py
+- [x] `GET /api/chat/conversations` — `api_chat_conversations`  ✓ test_chat_endpoints_coverage.py
+- [x] `POST /api/ai/analytics` — `api_ai_analytics_chat`  ✓ test_chat_endpoints_coverage.py
+- [x] `POST /api/ai/chat` — `api_ai_chat`  ✓ test_chat_endpoints_coverage.py
+- [x] `POST /api/ai/confirm` — `api_ai_confirm`  ✓ test_chat_endpoints_coverage.py
+- [x] `POST /api/chat/feedback` — `api_chat_feedback`  ✓ test_chat_endpoints_coverage.py
 
 ### `routes/providers.py` (9)
 - [x] `GET /api/providers` — `api_list_providers`  ✓ test_providers_endpoints_coverage.py

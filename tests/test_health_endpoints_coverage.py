@@ -54,11 +54,122 @@ def test_api_alerts_config_alias():
     assert "config" in r.json()
 
 
-def test_ssh_pubkey_unauthenticated():
-    r = client.get("/api/ssh/pubkey")
-    assert r.status_code in (401, 403, 200)
-
-
-def test_builds_list_requires_auth():
+def test_builds_list():
     r = client.get("/builds")
+    assert r.status_code == 200
+    assert "builds" in r.json()
+
+
+def test_legacy_auth_verify_page():
+    r = client.get("/_internal/legacy-auth/verify")
+    assert r.status_code == 200
+    assert "text/html" in (r.headers.get("content-type") or "")
+    assert "Device" in r.text or "device" in r.text.lower()
+
+
+def test_legacy_dashboard():
+    r = client.get("/legacy/settings")
+    assert r.status_code == 200
+    assert "text/html" in (r.headers.get("content-type") or "")
+
+
+def test_legacy_auth_device_flow():
+    r = client.post("/_internal/legacy-auth/device")
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("device_code")
+    assert body.get("user_code")
+
+    r_poll = client.post(
+        "/_internal/legacy-auth/token",
+        json={
+            "device_code": body["device_code"],
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        },
+    )
+    assert r_poll.status_code in (428, 410)
+
+    r_verify = client.post(
+        "/_internal/legacy-auth/verify",
+        json={"user_code": "ZZZZ-ZZZZ"},
+    )
+    assert r_verify.status_code in (404, 410)
+
+
+def test_ssh_pubkey_aliases():
+    for path in ("/ssh/pubkey", "/api/ssh/pubkey"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert "public_key" in r.json()
+
+
+def test_ssh_keygen_requires_auth():
+    r = client.post("/ssh/keygen")
     assert r.status_code in (401, 403, 200)
+
+
+def test_ssh_keygen_authenticated():
+    import uuid
+
+    email = f"healthcov-{uuid.uuid4().hex[:8]}@xcelsior.ca"
+    client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "StrongPass123!", "name": "Health"},
+    )
+    login = client.post(
+        "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    r = client.post("/ssh/keygen", headers=headers)
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert r.json().get("public_key")
+
+
+def test_build_dockerfile_preview():
+    r = client.post("/build/tiny-model/dockerfile")
+    assert r.status_code == 200
+    assert "dockerfile" in r.json()
+
+
+def test_build_image_mocked(monkeypatch):
+    import routes.health as health_mod
+
+    monkeypatch.setattr(
+        health_mod,
+        "build_and_push",
+        lambda *a, **k: {"built": True, "model": "mock-model", "image": "mock:latest"},
+    )
+    r = client.post(
+        "/build",
+        json={"model": "mock-model", "base_image": "python:3.11-slim", "push": False},
+    )
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+
+def test_alerts_config_admin_put():
+    r = client.put(
+        "/alerts/config",
+        headers=_admin_headers(),
+        json={"email_enabled": False},
+    )
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+
+def test_api_alerts_config_admin_put_alias():
+    r = client.put(
+        "/api/alerts/config",
+        headers=_admin_headers(),
+        json={"telegram_enabled": False},
+    )
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+
+def test_slurm_instances_admin():
+    r = client.get("/api/slurm/instances", headers=_admin_headers())
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+    assert "jobs" in r.json()
