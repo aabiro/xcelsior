@@ -51,36 +51,36 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [ ] `PUT /api/alerts/config` — `api_set_alert_config_alias`
 
 ### `routes/mfa.py` (15)
-- [ ] `DELETE /api/auth/mfa/all` — `api_mfa_disable_all`
-- [ ] `DELETE /api/auth/mfa/sms` — `api_mfa_sms_disable`
-- [ ] `DELETE /api/auth/mfa/totp` — `api_mfa_totp_disable`
-- [ ] `POST /api/auth/mfa/backup-codes/regenerate` — `api_mfa_regenerate_backup_codes`
-- [ ] `POST /api/auth/mfa/passkey/authenticate-complete` — `api_mfa_passkey_authenticate_complete`
-- [ ] `POST /api/auth/mfa/passkey/authenticate-options` — `api_mfa_passkey_authenticate_options`
-- [ ] `POST /api/auth/mfa/passkey/delete` — `api_mfa_passkey_delete`
-- [ ] `POST /api/auth/mfa/passkey/register-complete` — `api_mfa_passkey_register_complete`
-- [ ] `POST /api/auth/mfa/passkey/register-options` — `api_mfa_passkey_register_options`
-- [ ] `POST /api/auth/mfa/sms/send` — `api_mfa_sms_send_login`
-- [ ] `POST /api/auth/mfa/sms/setup` — `api_mfa_sms_setup`
-- [ ] `POST /api/auth/mfa/sms/verify` — `api_mfa_sms_verify`
-- [ ] `POST /api/auth/mfa/totp/setup` — `api_mfa_totp_setup`
-- [ ] `POST /api/auth/mfa/totp/verify` — `api_mfa_totp_verify`
-- [ ] `POST /api/auth/mfa/verify` — `api_mfa_verify_login`
+- [x] `DELETE /api/auth/mfa/all` — `api_mfa_disable_all`  ✓ test_auth_endpoints_coverage.py
+- [x] `DELETE /api/auth/mfa/sms` — `api_mfa_sms_disable`  ✓ test_auth_endpoints_coverage.py
+- [x] `DELETE /api/auth/mfa/totp` — `api_mfa_totp_disable`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/backup-codes/regenerate` — `api_mfa_regenerate_backup_codes`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/passkey/authenticate-complete` — `api_mfa_passkey_authenticate_complete`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/passkey/authenticate-options` — `api_mfa_passkey_authenticate_options`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/passkey/delete` — `api_mfa_passkey_delete`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/passkey/register-complete` — `api_mfa_passkey_register_complete`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/passkey/register-options` — `api_mfa_passkey_register_options`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/sms/send` — `api_mfa_sms_send_login`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/sms/setup` — `api_mfa_sms_setup`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/sms/verify` — `api_mfa_sms_verify`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/totp/setup` — `api_mfa_totp_setup`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/totp/verify` — `api_mfa_totp_verify`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/mfa/verify` — `api_mfa_verify_login`  ✓ test_auth_endpoints_coverage.py
 
 ### `routes/admin.py` (13)
-- [ ] `DELETE /api/admin/teams/{team_id}/members/{email}` — `api_admin_remove_team_member`
-- [ ] `GET /api/admin/activity` — `api_admin_activity`
-- [ ] `GET /api/admin/ai-conversations` — `api_admin_ai_conversations`
-- [ ] `GET /api/admin/ai-stats` — `api_admin_ai_stats`
-- [ ] `GET /api/admin/infrastructure` — `api_admin_infrastructure`
-- [ ] `GET /api/admin/overview` — `api_admin_overview`
-- [ ] `GET /api/admin/revenue` — `api_admin_revenue`
-- [ ] `GET /api/admin/teams` — `api_admin_teams`
-- [ ] `GET /api/admin/users` — `api_admin_users`
-- [ ] `GET /api/admin/verification-queue` — `api_admin_verification_queue`
-- [ ] `POST /api/admin/agent/rollout` — `api_admin_agent_rollout`
-- [ ] `POST /api/admin/users/{email}/role` — `api_admin_set_user_role`
-- [ ] `POST /api/admin/users/{email}/toggle-admin` — `api_admin_toggle_admin`
+- [x] `DELETE /api/admin/teams/{team_id}/members/{email}` — `api_admin_remove_team_member`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/ai-conversations` — `api_admin_ai_conversations`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/ai-stats` — `api_admin_ai_stats`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/infrastructure` — `api_admin_infrastructure`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/overview` — `api_admin_overview`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/revenue` — `api_admin_revenue`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/teams` — `api_admin_teams`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/users` — `api_admin_users`  ✓ test_admin_endpoints_coverage.py
+- [x] `GET /api/admin/verification-queue` — `api_admin_verification_queue`  ✓ test_admin_endpoints_coverage.py
+- [x] `POST /api/admin/agent/rollout` — `api_admin_agent_rollout`  ✓ test_admin_endpoints_coverage.py
+- [x] `POST /api/admin/users/{email}/role` — `api_admin_set_user_role`  ✓ test_admin_endpoints_coverage.py
+- [x] `POST /api/admin/users/{email}/toggle-admin` — `api_admin_toggle_admin`  ✓ test_admin_endpoints_coverage.py
 
 ### `routes/stripe_connect_v2.py` (11)
 - [ ] `GET /api/connect/accounts` — `list_connected_accounts`
@@ -96,15 +96,15 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [ ] `POST /api/connect/webhooks` — `handle_thin_webhook`
 
 ### `routes/auth.py` (9)
-- [ ] `DELETE /api/auth/sessions/{token_prefix}` — `api_auth_revoke_session`
-- [ ] `GET /api/auth/oauth/{provider}/callback` — `api_auth_oauth_callback`
-- [ ] `GET /api/auth/sessions` — `api_auth_list_sessions`
-- [ ] `GET /api/users/me/preferences` — `api_get_user_preferences`
-- [ ] `POST /api/auth/logout` — `api_auth_logout`
-- [ ] `POST /api/auth/resend-verification` — `api_auth_resend_verification`
-- [ ] `POST /api/oauth/clients/{client_id}/rotate-secret` — `api_rotate_oauth_client_secret`
-- [ ] `POST /oauth/device/authorize` — `oauth_device_authorize`
-- [ ] `PUT /api/users/me/preferences` — `api_set_user_preferences`
+- [x] `DELETE /api/auth/sessions/{token_prefix}` — `api_auth_revoke_session`  ✓ test_auth_endpoints_coverage.py
+- [x] `GET /api/auth/oauth/{provider}/callback` — `api_auth_oauth_callback`  ✓ test_auth_endpoints_coverage.py
+- [x] `GET /api/auth/sessions` — `api_auth_list_sessions`  ✓ test_auth_endpoints_coverage.py
+- [x] `GET /api/users/me/preferences` — `api_get_user_preferences`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/logout` — `api_auth_logout`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/auth/resend-verification` — `api_auth_resend_verification`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /api/oauth/clients/{client_id}/rotate-secret` — `api_rotate_oauth_client_secret`  ✓ test_auth_endpoints_coverage.py
+- [x] `POST /oauth/device/authorize` — `oauth_device_authorize`  ✓ test_auth_endpoints_coverage.py
+- [x] `PUT /api/users/me/preferences` — `api_set_user_preferences`  ✓ test_auth_endpoints_coverage.py
 
 ### `routes/chat.py` (9)
 - [ ] `DELETE /api/ai/conversations/{conversation_id}` — `api_ai_delete_conversation`
@@ -118,15 +118,15 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [ ] `POST /api/chat/feedback` — `api_chat_feedback`
 
 ### `routes/providers.py` (9)
-- [ ] `GET /api/providers` — `api_list_providers`
-- [ ] `GET /api/providers/{provider_id}` — `api_get_provider`
-- [ ] `GET /api/providers/{provider_id}/earnings` — `api_provider_earnings`
-- [ ] `POST /api/providers/register` — `api_register_provider`
-- [ ] `POST /api/providers/webhook` — `api_stripe_webhook`
-- [ ] `POST /api/providers/{provider_id}/abandon-onboarding` — `api_abandon_onboarding`
-- [ ] `POST /api/providers/{provider_id}/incorporation` — `api_upload_incorporation`
-- [ ] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`
-- [ ] `POST /api/providers/{provider_id}/resume-onboarding` — `api_resume_onboarding`
+- [x] `GET /api/providers` — `api_list_providers`  ✓ test_providers_endpoints_coverage.py
+- [x] `GET /api/providers/{provider_id}` — `api_get_provider`  ✓ test_providers_endpoints_coverage.py
+- [x] `GET /api/providers/{provider_id}/earnings` — `api_provider_earnings`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/register` — `api_register_provider`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/webhook` — `api_stripe_webhook`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/abandon-onboarding` — `api_abandon_onboarding`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/incorporation` — `api_upload_incorporation`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/resume-onboarding` — `api_resume_onboarding`  ✓ test_providers_endpoints_coverage.py
 
 ### `routes/instances.py` (7)
 - [ ] `GET /api/images/templates` — `api_image_templates`
