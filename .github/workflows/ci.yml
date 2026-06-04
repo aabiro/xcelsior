@@ -83,6 +83,7 @@ jobs:
       XCELSIOR_ENV: test
       XCELSIOR_API_TOKEN: ""
       XCELSIOR_DB_BACKEND: sqlite
+      XCELSIOR_POSTGRES_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
       XCELSIOR_PG_DSN: "postgresql://xcelsior:test@localhost:5432/xcelsior_test"
       XCELSIOR_BG_TASKS: "false"
       # Honor pyproject timeout=180 (func_only); do not override with a lower cap.
