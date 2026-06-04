@@ -24,9 +24,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem("xcelsior-theme") as Theme | null;
-    if (stored === "light" || stored === "dark") {
-      setTheme(stored);
-    }
+    const initial: Theme = stored === "light" || stored === "dark" ? stored : "dark";
+    setTheme(initial);
+    const root = document.documentElement;
+    root.classList.remove("dark", "light");
+    root.classList.add(initial);
     setMounted(true);
   }, []);
 

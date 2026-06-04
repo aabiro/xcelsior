@@ -16,6 +16,9 @@ async function get(path, opts = {}) {
 
 async function main() {
   const authMe = await get("/api/auth/me");
+  const authMeInvalid = await get("/api/auth/me", {
+    headers: { Authorization: "Bearer invalid-token" },
+  });
   const gpuApi = await get("/api/v2/gpu/available");
   const homeHtml = (await get("/")).body;
   const gpuHtml = (await get("/gpu-availability")).body;
@@ -33,6 +36,7 @@ async function main() {
       status: authMe.status,
       body: typeof authMe.body === "object" ? authMe.body : String(authMe.body).slice(0, 200),
     },
+    authMeInvalidBearer: { status: authMeInvalid.status },
     gpuApi: { status: gpuApi.status },
     marketingNoAuthProbe:
       authMe.status === 200 &&
