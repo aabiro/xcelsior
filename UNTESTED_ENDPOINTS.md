@@ -2,11 +2,11 @@
 
 _Regenerated 2026-06-04 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._
 
-**14 of 373 routes (3%)** and **17 of 51 CLI commands** (33%) have no test signal.
+**8 of 373 routes (2%)** and **17 of 51 CLI commands** (33%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (14 untested)
+## Routes (8 untested)
 
 ### `routes/admin.py` (0 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
@@ -55,7 +55,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /.well-known/oauth-authorization-server` — `oauth_authorization_server_metadata`
 - [x] `POST /api/auth/change-password` — `api_auth_change_password`
 - [x] `POST /api/auth/device` — `oauth_device_authorize_compat`
-- [x] `POST /api/auth/login` — `api_auth_login`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /api/auth/login` — `api_auth_login`  ✓ test_teams_endpoints_coverage.py
 - [x] `POST /api/auth/logout` — `api_auth_logout`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/me` — `api_auth_me`  ✓ test_chat_endpoints_coverage.py
 - [x] `PATCH /api/auth/me` — `api_auth_update_profile`  ✓ test_chat_endpoints_coverage.py
@@ -66,7 +66,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/auth/password-reset` — `api_auth_password_reset`
 - [x] `POST /api/auth/password-reset/confirm` — `api_auth_password_reset_confirm`
 - [x] `POST /api/auth/refresh` — `api_auth_refresh`
-- [x] `POST /api/auth/register` — `api_auth_register`  ✓ test_health_endpoints_coverage.py
+- [x] `POST /api/auth/register` — `api_auth_register`  ✓ test_teams_endpoints_coverage.py
 - [x] `POST /api/auth/resend-verification` — `api_auth_resend_verification`  ✓ test_auth_endpoints_coverage.py
 - [x] `GET /api/auth/sessions` — `api_auth_list_sessions`  ✓ test_auth_endpoints_coverage.py
 - [x] `DELETE /api/auth/sessions/{token_prefix}` — `api_auth_revoke_session`  ✓ test_auth_endpoints_coverage.py
@@ -180,7 +180,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/v2/gpu/available` — `api_gpu_available`
 
 ### `routes/health.py` (0 untested)
-- [x] `GET /` — `root`  ✓ test_stripe_connect_v2_endpoints_coverage.py
+- [x] `GET /` — `root`  ✓ test_teams_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/device` — `api_auth_verify_device`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/token` — `api_auth_verify_page`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/verify` — `_require_provider_or_admin`  ✓ test_health_endpoints_coverage.py
@@ -213,18 +213,18 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /ssh/pubkey` — `api_generate_token`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /token/generate` — `api_auth_device_token`
 
-### `routes/hosts.py` (2 untested)
-- [ ] `POST /api/hosts/register` — `api_register_host_web`
+### `routes/hosts.py` (0 untested)
+- [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /compute-score/{host_id}` — `api_get_compute_score`
-- [x] `GET /compute-scores` — `api_list_compute_scores`
-- [x] `PUT /host` — `api_register_host`
-- [x] `GET /host/{host_id}` — `api_get_host`
-- [x] `DELETE /host/{host_id}` — `api_remove_host`
-- [x] `POST /host/{host_id}/drain` — `api_drain_host`
-- [x] `GET /host/{host_id}/maintenance` — `api_host_maintenance`
-- [x] `POST /host/{host_id}/undrain` — `api_undrain_host`
-- [x] `GET /hosts` — `api_list_hosts`
-- [ ] `POST /hosts/check` — `api_check_hosts`
+- [x] `GET /compute-scores` — `api_list_compute_scores`  ✓ test_hosts_endpoints_coverage.py
+- [x] `PUT /host` — `api_register_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `GET /host/{host_id}` — `api_get_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `DELETE /host/{host_id}` — `api_remove_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /host/{host_id}/drain` — `api_drain_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `GET /host/{host_id}/maintenance` — `api_host_maintenance`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /host/{host_id}/undrain` — `api_undrain_host`  ✓ test_hosts_endpoints_coverage.py
+- [x] `GET /hosts` — `api_list_hosts`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /hosts/check` — `api_check_hosts`  ✓ test_hosts_endpoints_coverage.py
 
 ### `routes/inference.py` (0 untested)
 - [x] `POST /api/inference` — `api_inference_submit`
@@ -400,24 +400,24 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /connect/storefront` — `storefront_page`  ✓ test_stripe_connect_v2_endpoints_coverage.py
 - [x] `GET /connect/success` — `success_page`  ✓ test_stripe_connect_v2_endpoints_coverage.py
 
-### `routes/teams.py` (2 untested)
-- [x] `POST /api/teams` — `api_create_team`
-- [ ] `GET /api/teams/invite/{token}` — `api_accept_team_invite`
-- [ ] `POST /api/teams/invite/{token}/accept` — `api_accept_invite_authenticated`
+### `routes/teams.py` (0 untested)
+- [x] `POST /api/teams` — `api_create_team`  ✓ test_teams_endpoints_coverage.py
+- [x] `GET /api/teams/invite/{token}` — `api_accept_team_invite`  ✓ test_teams_endpoints_coverage.py
+- [x] `POST /api/teams/invite/{token}/accept` — `api_accept_invite_authenticated`  ✓ test_teams_endpoints_coverage.py
 - [x] `GET /api/teams/me` — `api_my_teams`
-- [x] `GET /api/teams/{team_id}` — `api_get_team`
-- [x] `DELETE /api/teams/{team_id}` — `api_delete_team`
-- [x] `POST /api/teams/{team_id}/members` — `api_add_team_member`
-- [x] `DELETE /api/teams/{team_id}/members/{email}` — `api_remove_team_member`
-- [x] `PATCH /api/teams/{team_id}/members/{email}` — `api_update_team_member_role`
+- [x] `GET /api/teams/{team_id}` — `api_get_team`  ✓ test_teams_endpoints_coverage.py
+- [x] `DELETE /api/teams/{team_id}` — `api_delete_team`  ✓ test_teams_endpoints_coverage.py
+- [x] `POST /api/teams/{team_id}/members` — `api_add_team_member`  ✓ test_teams_endpoints_coverage.py
+- [x] `DELETE /api/teams/{team_id}/members/{email}` — `api_remove_team_member`  ✓ test_teams_endpoints_coverage.py
+- [x] `PATCH /api/teams/{team_id}/members/{email}` — `api_update_team_member_role`  ✓ test_teams_endpoints_coverage.py
 
 ### `routes/terminal.py` (0 untested)
 - [x] `POST /api/terminal/ticket` — `api_terminal_ticket`
 
-### `routes/transparency.py` (2 untested)
-- [ ] `POST /api/transparency/legal-request` — `api_record_legal_request`
-- [ ] `POST /api/transparency/legal-request/{request_id}/respond` — `api_respond_legal_request`
-- [x] `GET /api/transparency/report` — `api_transparency_report`
+### `routes/transparency.py` (0 untested)
+- [x] `POST /api/transparency/legal-request` — `api_record_legal_request`  ✓ test_transparency_endpoints_coverage.py
+- [x] `POST /api/transparency/legal-request/{request_id}/respond` — `api_respond_legal_request`  ✓ test_transparency_endpoints_coverage.py
+- [x] `GET /api/transparency/report` — `api_transparency_report`  ✓ test_transparency_endpoints_coverage.py
 
 ### `routes/verification.py` (0 untested)
 - [x] `POST /agent/verify` — `api_agent_verify`  ✓ test_verification_endpoints_coverage.py
