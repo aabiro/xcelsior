@@ -517,6 +517,7 @@ const en: Record<string, string> = {
   "download.hero_title": "Get the desktop app",
   "download.hero_subtitle": "A native wrapper around the same Xcelsior you already use. Adds tray notifications, auto-updates, deep links, and launch-on-login. The web app stays the product - this just makes it feel like part of your OS.",
   "download.primary_cta": "Download",
+  "download.primary_generic": "Download desktop app",
   "download.primary_for": "Download for {platform}",
   "download.build_note": "Built with Tauri 2. The binary is about 15 MB. Your OS may ask you to allow an unsigned app on first launch.",
   "download.section_what_adds": "What it adds",

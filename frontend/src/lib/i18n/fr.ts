@@ -517,6 +517,7 @@ const fr: Record<string, string> = {
   "download.hero_title": "Obtenez l'application de bureau",
   "download.hero_subtitle": "Une enveloppe native autour du même Xcelsior que vous utilisez deja. Elle ajoute des notifications système, des mises à jour automatiques, des liens profonds et le lancement à l'ouverture de session. L'application web reste le produit - cela l'intègre juste mieux à votre OS.",
   "download.primary_cta": "Télécharger",
+  "download.primary_generic": "Télécharger l'application de bureau",
   "download.primary_for": "Télécharger pour {platform}",
   "download.build_note": "Construit avec Tauri 2. Le binaire pèse environ 15 Mo. Votre système peut demander d'autoriser une application non signée au premier lancement.",
   "download.section_what_adds": "Ce que ça ajoute",

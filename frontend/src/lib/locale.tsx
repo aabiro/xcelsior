@@ -8,6 +8,8 @@ export type Locale = "en" | "fr";
 
 interface LocaleContextValue {
   locale: Locale;
+  /** Locale safe for SSR + hydration (en until client has read storage). */
+  displayLocale: Locale;
   toggleLocale: () => void;
   t: (key: string, vars?: Record<string, string | number>) => string;
 }
@@ -16,6 +18,7 @@ const dictionaries = { en, fr } as const;
 
 const LocaleContext = createContext<LocaleContextValue>({
   locale: "en",
+  displayLocale: "en",
   toggleLocale: () => {},
   t: (key: string) => key,
 });
@@ -61,8 +64,10 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     [locale, mounted],
   );
 
+  const displayLocale = mounted ? locale : "en";
+
   return (
-    <LocaleContext.Provider value={{ locale, toggleLocale, t }}>
+    <LocaleContext.Provider value={{ locale, displayLocale, toggleLocale, t }}>
       {children}
     </LocaleContext.Provider>
   );

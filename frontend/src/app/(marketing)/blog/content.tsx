@@ -7,7 +7,7 @@ import { formatBlogDate } from "@/lib/format-date";
 import type { BlogPost } from "@/lib/blog";
 
 export function BlogContent({ posts }: { posts: BlogPost[] }) {
-  const { t, locale } = useLocale();
+  const { t, displayLocale } = useLocale();
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-24">
@@ -31,7 +31,7 @@ export function BlogContent({ posts }: { posts: BlogPost[] }) {
                 <div className="flex items-center gap-3 text-xs text-text-muted mb-3">
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    {formatBlogDate(post.date, locale)}
+                    {formatBlogDate(post.date, displayLocale)}
                   </span>
                   <span>&middot;</span>
                   <span>{post.author}</span>

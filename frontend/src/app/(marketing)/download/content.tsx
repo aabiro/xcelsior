@@ -98,7 +98,7 @@ const DESKTOP_FEATURES = [
 ];
 
 export function DownloadContent() {
-  const [detected, setDetected] = useState<Platform>("unknown");
+  const [detected, setDetected] = useState<Platform | null>(null);
   const { t } = useLocale();
 
   useEffect(() => {
@@ -106,9 +106,11 @@ export function DownloadContent() {
   }, []);
 
   const primary =
-    detected === "unknown"
+    detected == null || detected === "unknown"
       ? PLATFORMS[0]
       : PLATFORMS.find((p) => p.id === detected) ?? PLATFORMS[0];
+  const platformLabel =
+    detected == null ? t("download.primary_generic") : primary.label;
   const others = PLATFORMS.filter((p) => p.id !== primary.id);
 
   return (
@@ -166,7 +168,9 @@ export function DownloadContent() {
             </div>
             <div className="flex-1">
               <p className="text-xl font-semibold">
-                {t("download.primary_for", { platform: primary.label })}
+                {detected == null
+                  ? platformLabel
+                  : t("download.primary_for", { platform: platformLabel })}
               </p>
               <p className="text-sm text-text-secondary">{primary.desc}</p>
             </div>
