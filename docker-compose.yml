@@ -327,7 +327,7 @@ services:
 
   # ── Observability: Jaeger (OpenTelemetry traces) ───────────────────
   jaeger:
-    image: jaegertracing/jaeger:2
+    image: jaegertracing/jaeger:2.6.0
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
