@@ -185,6 +185,28 @@ PY
     success "Host $host_id is safe for maintenance"
 }
 
+repair_nginx_systemd() {
+    # Ensure nginx is managed by systemd (not an orphan master from a failed start).
+    log "Repairing nginx systemd unit..."
+    ssh_cmd << 'EOF'
+set -e
+if systemctl is-active --quiet nginx; then
+  echo "nginx already active under systemd"
+  exit 0
+fi
+if [ -f /var/run/nginx.pid ]; then
+  sudo kill -QUIT "$(cat /var/run/nginx.pid)" 2>/dev/null || true
+fi
+sleep 2
+sudo pkill -QUIT nginx 2>/dev/null || true
+sleep 1
+sudo systemctl reset-failed nginx 2>/dev/null || true
+sudo systemctl start nginx
+systemctl is-active --quiet nginx
+EOF
+    success "nginx running under systemd"
+}
+
 install_nginx_configs() {
     log "Installing nginx site configs..."
 
@@ -207,7 +229,12 @@ sudo ln -sf /etc/nginx/sites-available/headscale-http /etc/nginx/sites-enabled/h
 sudo ln -sf /etc/nginx/sites-available/docs-xcelsior /etc/nginx/sites-enabled/docs-xcelsior
 sudo ln -sf /etc/nginx/sites-available/downloads-xcelsior /etc/nginx/sites-enabled/downloads-xcelsior
 sudo nginx -t
-sudo systemctl reload nginx
+if systemctl is-active --quiet nginx; then
+  sudo systemctl reload nginx
+else
+  sudo systemctl reset-failed nginx 2>/dev/null || true
+  sudo systemctl start nginx
+fi
 EOF
     success "Nginx configs installed"
 }
@@ -685,6 +712,15 @@ deploy_docker() {
     ssh_cmd "cd /opt/xcelsior && docker compose up -d --no-deps frontend" || error "Frontend restart failed"
     success "Frontend restarted"
 
+    log "Starting Jaeger (OTLP trace collector)..."
+    ssh_cmd "cd /opt/xcelsior && docker compose up -d jaeger" || warn "Jaeger failed to start — traces will not export"
+    ssh_cmd "curl -sf http://127.0.0.1:4317 >/dev/null 2>&1 || true"  # gRPC port open check via compose health
+    if ssh_cmd "docker ps --format '{{.Names}}' | grep -q jaeger"; then
+        success "Jaeger running (UI http://127.0.0.1:16686 on server)"
+    else
+        warn "Jaeger container not running — set OTEL_EXPORTER_OTLP_ENDPOINT after fixing"
+    fi
+
     # Final health check — whichever port is now live
     local final_port final_colour
     final_colour=$(ssh_cmd "cat $state_file 2>/dev/null || echo green")
@@ -826,6 +862,11 @@ stop_test_local() {
 # ── Health Check ──────────────────────────────────────────────────────
 health_check() {
     log "Running health checks..."
+
+    if ! ssh_cmd "systemctl is-active --quiet nginx"; then
+        warn "nginx not active under systemd — attempting repair"
+        repair_nginx_systemd || warn "nginx repair failed"
+    fi
     
     # Public check via nginx / Cloudflare with a short retry window after restarts
     local public_ok=false
@@ -870,6 +911,7 @@ ${CYAN}Usage:${NC}
   $0 --ssl              Setup SSL certificates
   $0 --rollback         Rollback to previous backup
   $0 --health           Run health checks
+  $0 --fix-infra        Repair nginx systemd + start Jaeger on prod (no full deploy)
   $0 --post-merge       Deploy main + migrations + health + post_merge_smoke.sh
   $0 --smoke            Run post_merge_smoke.sh locally (no deploy)
   $0 --systemd          Deploy using systemd instead of Docker
@@ -975,6 +1017,22 @@ main() {
         --health)
             check_ssh
             health_check
+            ;;
+        --fix-infra)
+            TARGET_ENV="prod"
+            resolve_env
+            check_ssh
+            repair_nginx_systemd
+            install_nginx_configs
+            ssh_cmd "cd /opt/xcelsior && docker compose pull jaeger 2>/dev/null; docker compose up -d jaeger" \
+                || warn "Jaeger start failed"
+            health_check
+            log "OTEL in API logs:"
+            ssh_cmd "docker ps --format '{{.Names}}' | grep -E 'api|jaeger'" || true
+            ssh_cmd "docker logs \$(docker ps --format '{{.Names}}' | grep api-blue | head -1) 2>&1 | grep OTEL | tail -3" \
+                || ssh_cmd "docker logs \$(docker ps --format '{{.Names}}' | grep -E '^xcelsior-api-' | grep -v blue | head -1) 2>&1 | grep OTEL | tail -3" \
+                || true
+            success "Infrastructure repair complete"
             ;;
         --smoke)
             bash "$SCRIPT_DIR/post_merge_smoke.sh"
