@@ -231,7 +231,7 @@ const en: Record<string, string> = {
   /* ── Privacy Policy ──────────────────────────────────────────────────── */
   "privacy.title": "Privacy Policy",
   "privacy.meta_desc": "How Xcelsior Computing Inc. collects, uses, and protects your personal information under PIPEDA and Canadian provincial privacy law.",
-  "privacy.effective": "Effective date: January 1, 2025 · Last updated: March 1, 2026",
+  "privacy.effective": "Effective date: January 1, 2025 - Last updated: March 1, 2026",
   "privacy.s1_title": "Introduction",
   "privacy.s1_p1": "Xcelsior Computing Inc. (\"Xcelsior\", \"we\", \"us\") is a Canadian-incorporated company that operates a GPU compute marketplace at xcelsior.ca.",
   "privacy.s1_p2": "This Privacy Policy explains how we collect, use, disclose, and protect your personal information in accordance with the Personal Information Protection and Electronic Documents Act (PIPEDA) and applicable provincial privacy legislation.",
@@ -290,7 +290,7 @@ const en: Record<string, string> = {
   /* ── Terms of Service ────────────────────────────────────────────────── */
   "terms.title": "Terms of Service",
   "terms.meta_desc": "Terms governing your use of the Xcelsior GPU compute marketplace. Canadian jurisdiction, CAD billing, and dispute resolution.",
-  "terms.effective": "Effective date: January 1, 2025 · Last updated: March 1, 2026",
+  "terms.effective": "Effective date: January 1, 2025 - Last updated: March 1, 2026",
   "terms.s1_title": "Acceptance of Terms",
   "terms.s1_p1": "By creating an account or using any Xcelsior service, you agree to these Terms of Service (\"Terms\"). If you do not agree, do not use the platform. These Terms constitute a legally binding agreement between you and Xcelsior Computing Inc., a corporation incorporated under the laws of Canada.",
   "terms.s2_title": "Definitions",
