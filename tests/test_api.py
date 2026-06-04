@@ -2003,10 +2003,12 @@ class TestUserAuth:
         assert d["user"]["is_admin"] is False
 
     def test_get_profile_unauthenticated(self):
-        """GET /api/auth/me without token returns 401."""
+        """GET /api/auth/me without token returns anonymous shape (no 401 noise)."""
         fresh = TestClient(app, cookies={})
         r = fresh.get("/api/auth/me")
-        assert r.status_code == 401
+        assert r.status_code == 200
+        assert r.json().get("ok") is True
+        assert r.json().get("user") is None
 
     def test_update_profile(self):
         """PATCH /api/auth/me updates profile fields."""

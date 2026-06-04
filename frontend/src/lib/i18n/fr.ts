@@ -172,6 +172,8 @@ const fr: Record<string, string> = {
   "pricing.badge": "🍁 Tous les prix sont en dollars canadiens",
   "pricing.title": "Tarification GPU",
   "pricing.subtitle": "Tarification transparente en $ CA. Pas de surprises de conversion USD. Admissible au Fonds fédéral d'accès à la puissance de calcul pour l'IA — économisez jusqu'à 67 %.",
+  "pricing.scroll_hint": "Faites défiler horizontalement pour voir les colonnes spot et réservé.",
+  "pricing.table_label": "Tableau des tarifs GPU",
   "pricing.col_gpu": "Modèle GPU",
   "pricing.col_vram": "VRAM",
   "pricing.col_ondemand": "À la demande",

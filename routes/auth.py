@@ -1160,9 +1160,14 @@ def api_auth_oauth_callback(provider: str, request: Request):
 def api_auth_me(request: Request):
     """Get the currently authenticated user's profile.
 
-    Requires Authorization: Bearer <token> header.
+    Returns ``user: null`` when no session is present (HTTP 200) so public
+    marketing pages can probe session state without console 401 noise.
     """
-    user = _require_user_grant(request)
+    from routes._deps import _get_current_user
+
+    user = _get_current_user(request)
+    if not user:
+        return {"ok": True, "user": None}
 
     email = user["email"]
     if _USE_PERSISTENT_AUTH:

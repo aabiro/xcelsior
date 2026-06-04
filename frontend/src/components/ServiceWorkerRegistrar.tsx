@@ -17,6 +17,11 @@ export function ServiceWorkerRegistrar() {
         updateViaCache: "none",
       });
 
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
+      await registration.update().catch(() => {});
+
       if (!("Notification" in window) || !("PushManager" in window) || Notification.permission !== "granted") {
         return;
       }

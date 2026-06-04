@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -98,10 +98,17 @@ const DESKTOP_FEATURES = [
 ];
 
 export function DownloadContent() {
-  const [detected] = useState<Platform>(() => detectPlatform());
+  const [detected, setDetected] = useState<Platform>("unknown");
   const { t } = useLocale();
 
-  const primary = PLATFORMS.find((p) => p.id === detected) ?? PLATFORMS[0];
+  useEffect(() => {
+    setDetected(detectPlatform());
+  }, []);
+
+  const primary =
+    detected === "unknown"
+      ? PLATFORMS[0]
+      : PLATFORMS.find((p) => p.id === detected) ?? PLATFORMS[0];
   const others = PLATFORMS.filter((p) => p.id !== primary.id);
 
   return (

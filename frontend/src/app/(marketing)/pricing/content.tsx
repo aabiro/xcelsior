@@ -51,9 +51,15 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
         </motion.p>
       </motion.div>
 
+      <p className="mb-3 text-center text-sm text-text-muted md:hidden" role="note">
+        {t("pricing.scroll_hint")}
+      </p>
+
       {/* GPU Pricing Table */}
       <motion.div
-        className="overflow-x-auto mb-20 rounded-xl border border-border bg-surface/50 backdrop-blur-sm"
+        className="overflow-x-auto mb-20 rounded-xl border border-border bg-surface/50 backdrop-blur-sm scroll-smooth"
+        tabIndex={0}
+        aria-label={t("pricing.table_label")}
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}

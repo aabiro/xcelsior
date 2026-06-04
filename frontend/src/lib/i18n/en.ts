@@ -172,6 +172,8 @@ const en: Record<string, string> = {
   "pricing.badge": "🍁 All prices in Canadian Dollars",
   "pricing.title": "GPU Pricing",
   "pricing.subtitle": "Transparent CAD pricing. No USD conversion surprises. Eligible for the federal AI Compute Access Fund — save up to 67%.",
+  "pricing.scroll_hint": "Swipe horizontally to see spot and reserved pricing columns.",
+  "pricing.table_label": "GPU pricing table",
   "pricing.col_gpu": "GPU Model",
   "pricing.col_vram": "VRAM",
   "pricing.col_ondemand": "On-Demand",

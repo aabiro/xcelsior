@@ -11,7 +11,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     <button
       onClick={toggleTheme}
       className={cn(
-        "relative flex h-10 w-10 items-center justify-center rounded-lg text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors",
+        "relative flex min-h-11 min-w-11 items-center justify-center rounded-lg text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors",
         className
       )}
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}

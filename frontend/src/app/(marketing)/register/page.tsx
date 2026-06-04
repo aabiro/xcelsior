@@ -281,6 +281,7 @@ function RegisterPageContent() {
             <input
               id="agree-terms"
               type="checkbox"
+              required
               checked={agreedToTerms}
               onChange={(e) => setAgreedToTerms(e.target.checked)}
               className="mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-background/40 text-ice-blue accent-ice-blue focus:ring-ice-blue/40"
