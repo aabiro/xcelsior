@@ -68,9 +68,11 @@ prompt.md
 plan.md
 
 # ── Reports (generated, not tracked) ─────────────────────────────────
-docs/
+docs/*
 !docs/site-audit-prompt.md
-!docs/site-audit-report*.md
+!docs/site-audit-report-2026-06-04.md
+!docs/site-audit-report-2026-06-04-reaudit.md
+!docs/site-audit-report-2026-06-04-reaudit-mcp.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json

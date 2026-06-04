@@ -45,14 +45,18 @@ const REMEDIATION = [
 
 function parseHealthTable(md) {
   const rows = [];
-  for (const line of md.split("\n")) {
+  const section = md.split("## Slow 4G")[0];
+  for (const line of section.split("\n")) {
     if (!line.startsWith("| /")) continue;
     const p = line.split("|").map((s) => s.trim());
     if (p.length < 10) continue;
+    const lcp = parseInt(p[4], 10);
+    const tbt = parseInt(p[6], 10);
+    if (!Number.isFinite(lcp) || !Number.isFinite(tbt)) continue;
     rows.push({
       route: p[1],
-      lcp: parseInt(p[4], 10) || null,
-      tbt: parseInt(p[6], 10) || null,
+      lcp,
+      tbt,
       js: p[7],
       failed: p[9],
     });
