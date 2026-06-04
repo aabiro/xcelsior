@@ -27,8 +27,8 @@ else:
 
 # CI job env must win over .env.test (workflow sets postgres + limits).
 if os.environ.get("CI"):
-    os.environ.setdefault("XCELSIOR_DB_BACKEND", "postgres")
-    os.environ.setdefault("XCELSIOR_BG_TASKS", "false")
+    os.environ["XCELSIOR_DB_BACKEND"] = "postgres"
+    os.environ["XCELSIOR_BG_TASKS"] = "false"
 
 # B1 — agent auth bypass is now an explicit opt-in (see routes/agent.py).
 # Tests that hit /agent/* endpoints without a bearer token need this flag
@@ -54,6 +54,9 @@ def _pin_test_auth_env(monkeypatch):
     monkeypatch.setenv("XCELSIOR_ENV", "test")
     monkeypatch.setattr(deps, "XCELSIOR_ENV", "test")
     monkeypatch.setattr(deps, "AUTH_REQUIRED", False)
+    # test_bitcoin.py sets sqlite at import; CI must stay on migrated Postgres.
+    if os.environ.get("CI"):
+        monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
 
 
 @pytest.fixture(autouse=True)
