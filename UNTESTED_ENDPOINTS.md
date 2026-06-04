@@ -2,11 +2,11 @@
 
 _Regenerated 2026-06-04 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._
 
-**8 of 373 routes (2%)** and **17 of 51 CLI commands** (33%) have no test signal.
+**3 of 373 routes (0%)** and **17 of 51 CLI commands** (33%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
-## Routes (8 untested)
+## Routes (3 untested)
 
 ### `routes/admin.py` (0 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
@@ -25,7 +25,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/admin/verification-queue` — `api_admin_verification_queue`  ✓ test_admin_endpoints_coverage.py
 - [x] `POST /api/admin/web-push/test-notification` — `api_admin_web_push_test_notification`
 
-### `routes/agent.py` (1 untested)
+### `routes/agent.py` (0 untested)
 - [x] `POST /agent/benchmark` — `api_agent_benchmark`
 - [x] `GET /agent/commands/{host_id}` — `api_agent_commands_drain`
 - [x] `POST /agent/lease/claim` — `api_agent_lease_claim`
@@ -37,19 +37,19 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /agent/preempt/{host_id}` — `api_agent_preempt`
 - [x] `POST /agent/preempt/{host_id}/{job_id}` — `api_schedule_preemption`
 - [x] `GET /agent/ssh-keys/{job_id}` — `api_agent_ssh_keys`
-- [ ] `POST /agent/ssh-status/{job_id}` — `api_agent_ssh_status`
+- [x] `POST /agent/ssh-status/{job_id}` — `api_agent_ssh_status`  ✓ test_agent_endpoints_coverage.py
 - [x] `POST /agent/telemetry` — `api_agent_telemetry`
 - [x] `GET /agent/telemetry/{host_id}` — `api_get_telemetry`
 - [x] `POST /agent/versions` — `api_agent_versions`
 - [x] `GET /agent/work/{host_id}` — `api_agent_work`
 - [x] `GET /api/telemetry/all` — `api_all_telemetry`
 
-### `routes/artifacts.py` (1 untested)
-- [x] `GET /api/artifacts` — `api_list_all_artifacts`
-- [ ] `POST /api/artifacts/download` — `api_request_download`
+### `routes/artifacts.py` (0 untested)
+- [x] `GET /api/artifacts` — `api_list_all_artifacts`  ✓ test_artifacts_endpoints_coverage.py
+- [x] `POST /api/artifacts/download` — `api_request_download`  ✓ test_artifacts_endpoints_coverage.py
 - [x] `POST /api/artifacts/upload` — `api_request_upload`
-- [x] `GET /api/artifacts/{job_id}` — `api_list_artifacts`
-- [x] `GET /api/artifacts/{job_id}/expiry` — `api_artifact_expiry`
+- [x] `GET /api/artifacts/{job_id}` — `api_list_artifacts`  ✓ test_artifacts_endpoints_coverage.py
+- [x] `GET /api/artifacts/{job_id}/expiry` — `api_artifact_expiry`  ✓ test_artifacts_endpoints_coverage.py
 
 ### `routes/auth.py` (0 untested)
 - [x] `GET /.well-known/oauth-authorization-server` — `oauth_authorization_server_metadata`
@@ -156,8 +156,8 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/chat/history/{conversation_id}` — `api_chat_history`
 - [x] `GET /api/chat/suggestions` — `api_chat_suggestions`
 
-### `routes/cloudburst.py` (1 untested)
-- [ ] `GET /api/v2/burst/status` — `api_burst_status`
+### `routes/cloudburst.py` (0 untested)
+- [x] `GET /api/v2/burst/status` — `api_burst_status`  ✓ test_cloudburst_endpoints_coverage.py
 
 ### `routes/compliance.py` (0 untested)
 - [x] `GET /api/billing/gst-threshold` — `api_gst_threshold_status`  ✓ test_compliance_endpoints_coverage.py
@@ -180,7 +180,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/v2/gpu/available` — `api_gpu_available`
 
 ### `routes/health.py` (0 untested)
-- [x] `GET /` — `root`  ✓ test_teams_endpoints_coverage.py
+- [x] `GET /` — `root`  ✓ test_sla_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/device` — `api_auth_verify_device`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/token` — `api_auth_verify_page`  ✓ test_health_endpoints_coverage.py
 - [x] `POST /_internal/legacy-auth/verify` — `_require_provider_or_admin`  ✓ test_health_endpoints_coverage.py
@@ -359,22 +359,22 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/resume-onboarding` — `api_resume_onboarding`  ✓ test_compliance_endpoints_coverage.py
 
-### `routes/reputation.py` (1 untested)
+### `routes/reputation.py` (0 untested)
 - [x] `GET /api/reputation/leaderboard` — `api_reputation_leaderboard`
-- [ ] `GET /api/reputation/me` — `api_reputation_me`
+- [x] `GET /api/reputation/me` — `api_reputation_me`  ✓ test_reputation_endpoints_coverage.py
 - [x] `POST /api/reputation/verify` — `api_grant_verification`
-- [x] `GET /api/reputation/{entity_id}` — `api_get_reputation`
-- [x] `GET /api/reputation/{entity_id}/breakdown` — `api_reputation_breakdown`
-- [x] `GET /api/reputation/{entity_id}/history` — `api_reputation_history`
+- [x] `GET /api/reputation/{entity_id}` — `api_get_reputation`  ✓ test_reputation_endpoints_coverage.py
+- [x] `GET /api/reputation/{entity_id}/breakdown` — `api_reputation_breakdown`  ✓ test_reputation_endpoints_coverage.py
+- [x] `GET /api/reputation/{entity_id}/history` — `api_reputation_history`  ✓ test_reputation_endpoints_coverage.py
 - [x] `GET /api/trust-tiers` — `api_trust_tiers`
 
-### `routes/sla.py` (1 untested)
+### `routes/sla.py` (0 untested)
 - [x] `GET /api/sla/downtimes` — `api_sla_active_downtimes`
 - [x] `POST /api/sla/enforce` — `api_sla_enforce`
 - [x] `GET /api/sla/hosts-summary` — `api_sla_hosts_summary`
 - [x] `GET /api/sla/targets` — `api_sla_targets`
-- [ ] `GET /api/sla/violations/{host_id}` — `api_sla_violations`
-- [x] `GET /api/sla/{host_id}` — `api_sla_status`
+- [x] `GET /api/sla/violations/{host_id}` — `api_sla_violations`  ✓ test_sla_endpoints_coverage.py
+- [x] `GET /api/sla/{host_id}` — `api_sla_status`  ✓ test_sla_endpoints_coverage.py
 
 ### `routes/spot.py` (0 untested)
 - [x] `GET /spot-prices` — `api_spot_prices`  ✓ test_marketplace_endpoints_coverage.py
