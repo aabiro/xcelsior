@@ -14,8 +14,8 @@ fi
 export CI="${CI:-true}"
 export XCELSIOR_ENV="${XCELSIOR_ENV:-test}"
 
-PYTEST_TARGETS=(
-  tests/test_billing_endpoints_coverage.py
+PYTEST_TARGETS=(tests/test_*_coverage.py)
+PYTEST_TARGETS+=(
   tests/test_resource_access_control.py
   tests/test_lifecycle.py
   "tests/test_instance_flow.py::TestWalletEmptyStopStart::test_stop_and_start"
