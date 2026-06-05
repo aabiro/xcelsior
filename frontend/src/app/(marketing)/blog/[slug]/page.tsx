@@ -45,12 +45,7 @@ export default async function BlogPostPage({ params }: Props) {
     description: post.description,
     datePublished: post.date,
     author: { "@type": "Person", name: post.author },
-    publisher: {
-      "@type": "Organization",
-      name: "Xcelsior Computing Inc.",
-      url: "https://xcelsior.ca",
-      logo: { "@type": "ImageObject", url: "https://xcelsior.ca/xcelsior_icon_512x512.png" },
-    },
+    publisher: { "@id": "https://xcelsior.ca/#organization" },
     mainEntityOfPage: `https://xcelsior.ca/blog/${slug}`,
     keywords: post.tags.join(", "),
     image: post.image ? `https://xcelsior.ca${post.image}` : `https://xcelsior.ca/blog/${slug}/opengraph-image`,

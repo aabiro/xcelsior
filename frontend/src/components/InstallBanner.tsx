@@ -35,9 +35,16 @@ export function InstallBanner() {
   const { t } = useLocale();
   const pathname = usePathname();
   const isDashboard = pathname?.startsWith("/dashboard");
+  const allowPromo =
+    pathname === "/" ||
+    pathname?.startsWith("/dashboard") ||
+    pathname?.startsWith("/pricing") ||
+    pathname?.startsWith("/gpu-availability") ||
+    pathname?.startsWith("/features") ||
+    pathname?.startsWith("/download");
 
   useEffect(() => {
-    if (isInstalled) return;
+    if (!allowPromo || isInstalled) return;
 
     // Bump visit count
     const visits = parseInt(localStorage.getItem(LS_VISITS) || "0", 10) + 1;
@@ -75,7 +82,7 @@ export function InstallBanner() {
       setVariant("default");
       setShow(true);
     }
-  }, [canInstall, isDesktopDevice, isInstalled]);
+  }, [allowPromo, canInstall, isDesktopDevice, isInstalled]);
 
   const handleInstall = async () => {
     const outcome = await promptToInstall();

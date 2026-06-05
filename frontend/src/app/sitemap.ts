@@ -1,6 +1,13 @@
 import type { MetadataRoute } from "next";
 import { getAllPosts } from "@/lib/blog";
 
+/** Parse YYYY-MM-DD as local noon UTC to avoid timezone lastmod drift (F-021). */
+function postLastModified(isoDate: string): Date {
+  const [y, m, d] = isoDate.split("-").map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return new Date(isoDate);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+}
+
 const BASE_URL = "https://xcelsior.ca";
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -22,7 +29,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const blogPosts: MetadataRoute.Sitemap = getAllPosts().map((post) => ({
     url: `${BASE_URL}/blog/${post.slug}`,
-    lastModified: new Date(post.date),
+    lastModified: postLastModified(post.date),
     changeFrequency: "monthly" as const,
     priority: 0.6,
   }));

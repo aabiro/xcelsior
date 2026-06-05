@@ -2,6 +2,12 @@ import { getAllPosts } from "@/lib/blog";
 
 const BASE_URL = "https://xcelsior.ca";
 
+function postPubDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return new Date(isoDate).toUTCString();
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).toUTCString();
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -21,7 +27,7 @@ export function GET() {
       <link>${BASE_URL}/blog/${post.slug}</link>
       <guid isPermaLink="true">${BASE_URL}/blog/${post.slug}</guid>
       <description>${escapeXml(post.description)}</description>
-      <pubDate>${new Date(post.date).toUTCString()}</pubDate>
+      <pubDate>${postPubDate(post.date)}</pubDate>
       <author>hello@xcelsior.ca (${escapeXml(post.author)})</author>${
         post.tags.length
           ? post.tags.map((t) => `\n      <category>${escapeXml(t)}</category>`).join("")
