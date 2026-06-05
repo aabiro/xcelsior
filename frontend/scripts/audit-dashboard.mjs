@@ -48,6 +48,7 @@ async function login(page, base, email, password) {
   const loginRes = await page.request.post(`${base}/api/auth/login`, {
     data: { email, password },
     headers: { "Content-Type": "application/json" },
+    timeout: Number(process.env.AUDIT_FETCH_TIMEOUT_MS || 30000),
   });
   const body = await loginRes.json().catch(() => ({}));
   if (!loginRes.ok()) {
