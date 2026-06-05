@@ -144,7 +144,7 @@ Re-run: `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1 CI=true node /tmp/xcelsior-au
 - **F-003** — Further JS splitting if targeting sub-2s desktop TBT / acceptable mobile INP.
 - **Authenticated dashboard** — MCP crawl needs test credentials (not in repo).
 - **Cloudflare optional** — Scrape Shield → disable Email Obfuscation if plaintext mailto in View Source is required.
-- **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` (~33 min; see `/tmp/run-tests-*.log`).
+- **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` → **2863 passed**, 6 skipped (2026-06-05, ~27 min).
 
 ---
 
