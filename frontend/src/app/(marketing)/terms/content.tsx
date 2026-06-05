@@ -31,7 +31,8 @@ export function TermsContent() {
             {t("terms.s3_p1")}{" "}
             <ObfuscationSafeMailto href="mailto:security@xcelsior.ca" className="text-ice-blue hover:underline">
               security@xcelsior.ca
-            </ObfuscationSafeMailto>
+            </ObfuscationSafeMailto>{" "}
+            {t("terms.s3_p1_suffix")}
           </p>
         </Section>
 

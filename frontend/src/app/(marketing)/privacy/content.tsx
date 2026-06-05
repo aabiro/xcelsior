@@ -80,7 +80,8 @@ export function PrivacyContent() {
             {t("privacy.s8_contact")}{" "}
             <ObfuscationSafeMailto href="mailto:privacy@xcelsior.ca" className="text-ice-blue hover:underline">
               privacy@xcelsior.ca
-            </ObfuscationSafeMailto>
+            </ObfuscationSafeMailto>{" "}
+            {t("privacy.s8_contact_suffix")}
           </p>
         </Section>
 
