@@ -151,10 +151,23 @@ bash scripts/run_audit_dashboard.sh    # Playwright UI crawl, or API probe via S
 
 Artifacts: `/tmp/xcelsior-audit/raw/dashboard-all.json` (UI) or `dashboard-api.json` (API).
 
-### Remaining follow-up
+### Production outage — redo when back up (2026-06-05)
 
+Origin went unreachable mid-audit: Cloudflare **522** on public routes, **SSH timeout** to `149.28.121.61`, ping 100% loss. Last partial post-deploy: **5/51 passed** (46× HTTP 522). Audit creds in `.env.audit` are provisioned; origin login was **200** before outage.
+
+**One command when healthy:**
+
+```bash
+bash scripts/redo_when_prod_up.sh          # full: post-deploy, CLI, hydration, dashboard, perf MCP
+bash scripts/redo_when_prod_up.sh --quick  # skip perf MCP (~5 min)
+```
+
+Prerequisites: `curl -sf https://xcelsior.ca/healthz` returns 200. Dashboard step needs `.env.audit` (from `bash scripts/provision_audit_user.sh`).
+
+### Remaining follow-up (after prod recovery)
+
+- **Re-verify prod** — `bash scripts/redo_when_prod_up.sh`
 - **F-003** — Further JS splitting if targeting sub-2s desktop TBT / acceptable mobile INP.
-- **Dashboard UI MCP** — run `run_audit_dashboard.sh` when Cloudflare/public origin is healthy.
 - **Cloudflare optional** — Scrape Shield → disable Email Obfuscation if plaintext mailto in View Source is required.
 - **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` → **2863 passed**, 6 skipped (2026-06-05, ~27 min).
 
@@ -163,10 +176,13 @@ Artifacts: `/tmp/xcelsior-audit/raw/dashboard-all.json` (UI) or `dashboard-api.j
 ## Regenerate this report
 
 ```bash
+bash scripts/redo_when_prod_up.sh
+
+# Or step-by-step:
 node scripts/post_deploy_audit_check.mjs > /tmp/post-deploy-check.json
 node scripts/audit_cli_coverage.mjs > /tmp/cli-coverage.json
 REVERIFY_JSON=/tmp/post-deploy-check.json node scripts/generate_reaudit_report.mjs
-
 BASE_URL=https://xcelsior.ca node frontend/scripts/hydration-repro.mjs
+bash scripts/run_audit_dashboard.sh
 CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1 CI=true node /tmp/xcelsior-audit/audit-performance.mjs
 ```
