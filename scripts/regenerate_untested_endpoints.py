@@ -88,16 +88,31 @@ def _parse_routes() -> dict[str, list[tuple[str, str, str, bool, str]]]:
     return by_file
 
 
-def _parse_cli_commands(corpus: str) -> list[tuple[str, str, bool]]:
+def _load_cli_test_corpus() -> str:
+    parts: list[str] = []
+    for path in sorted(TESTS_DIR.glob("test_cli*.py")):
+        try:
+            parts.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+    return "\n".join(parts)
+
+
+def _parse_cli_commands(_corpus: str) -> list[tuple[str, str, bool]]:
     cli = PROJECT / "cli.py"
     if not cli.exists():
         return []
     text = cli.read_text(encoding="utf-8", errors="replace")
+    cli_corpus = _load_cli_test_corpus()
     commands: list[tuple[str, str, bool]] = []
     for m in CLI_CMD_RE.finditer(text):
         handler = m.group(1)
         name = handler[4:].replace("_", "-")  # cmd_host_add -> host-add
-        tested = handler in corpus or name in corpus
+        tested = (
+            f"def test_{handler}" in cli_corpus
+            or f"cli.{handler}" in cli_corpus
+            or f"test_cmd_{handler[4:]}" in cli_corpus
+        )
         commands.append((name, handler, tested))
     return sorted(commands, key=lambda x: x[0])
 
@@ -112,7 +127,8 @@ def _render(by_file: dict[str, list], cli_commands: list[tuple[str, str, bool]])
         "",
         f"_Regenerated {date.today().isoformat()} by `scripts/regenerate_untested_endpoints.py`: "
         "a route/CLI command counts as covered when **either** its path (prefix before `{…}`) "
-        "**or** its handler function name appears anywhere under `tests/`._",
+        "**or** its handler function name appears anywhere under `tests/`._ "
+        "CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._",
         "",
         f"**{untested_routes} of {total} routes ({100 * untested_routes // max(total, 1)}%)** "
         f"and **{untested_cli} of {len(cli_commands)} CLI commands** "
