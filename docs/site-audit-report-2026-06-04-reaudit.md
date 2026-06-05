@@ -13,7 +13,7 @@ Raw MCP artifacts: `/tmp/xcelsior-audit/raw/`, screenshots: `/tmp/xcelsior-audit
 ## Executive summary
 
 1. **Deployed 2026-06-05** (`eb338b2` frontend) — Post-deploy probes confirm **F-001**, **F-002**, **F-005**, and **F-004** (legal hydration) are **cleared on production**.
-2. **Perf (F-003) — measured 2026-06-04** — Marketing JS on `/` **~374 KB** (was ~812 KB); desktop TBT **~5.7 s** (was ~9.2 s). Still above target; further splitting optional.
+2. **Perf (F-003) — measured 2026-06-05** — Marketing JS on `/` **~374 KB** (was ~812 KB); desktop TBT **~7.2 s** on `/` (was ~9.2 s pre-remediation). Still above target; further splitting optional.
 3. **Hydration (F-004) — fixed 2026-06-05** — React #418 on `/privacy` and `/terms` was **Cloudflare Email Obfuscation** rewriting mailto text after SSR. Fixed with post-mount mailto rendering and i18n string splits (`ObfuscationSafeMailto`, commits `8357133`, `eb338b2`). Repro: `frontend/scripts/hydration-repro.mjs`, `hydration-diff.mjs`.
 4. **F-014–F-021 backlog** — Shipped in `181ad74` (contrast, JSON-LD `@id`, blog dates, install-banner allowlist, privacy third-party disclosure).
 
@@ -100,22 +100,40 @@ node frontend/scripts/hydration-diff.mjs   # SSR vs client text diff
 
 ## Post-deploy verification (2026-06-05)
 
-| Check | Result |
-|-------|--------|
-| `GET /api/auth/me` (logged out) | 200 — `{"ok":true,"user":null}` |
-| `GET /api/auth/me` (invalid bearer) | 401 |
-| `GET /api/v2/gpu/available` | 200 |
-| Sitemap has /gpu-availability | yes |
-| Sitemap has /download | yes |
-| GPU page canonical | https://xcelsior.ca/gpu-availability |
-| Hydration `/privacy`, `/terms` | OK (`hydration-repro.mjs`) |
-| SSR legal pages omit raw emails | OK (no `privacy@` in HTML before hydration) |
+Automated **51/51** checks: `node scripts/post_deploy_audit_check.mjs` → `/tmp/post-deploy-check.json`
+
+| Area | Result |
+|------|--------|
+| Public routes (22) | All `200` |
+| `/dashboard` gated | Redirect/auth as expected |
+| `/nonexistent-bogus-404` | `404` |
+| Auth API | `/api/auth/me` anon `200` + `user:null`; invalid bearer `401`; machine bearer not session |
+| GPU / hosts | `/api/v2/gpu/available` `200`; `/hosts` `401`/`403` |
+| SEO | robots + sitemap + feed + canonicals + manifest |
+| Security headers | HSTS, CSP, XCTO, Referrer-Policy, Permissions-Policy |
+| F-004 / F-017 | Legal titles, JSON-LD, third-party disclosure, obfuscation-safe SSR |
+| Hydration (Playwright) | `/about`, `/support`, `/privacy`, `/terms`, `/blog` OK (`hydration-repro.mjs`) |
+
+### CLI coverage (51/51)
+
+- **Pytest smoke:** `tests/test_cli_commands_coverage.py` — all `cmd_*` handlers (incl. `run`, `serve`)
+- **Help + test signal:** `node scripts/audit_cli_coverage.mjs` → `/tmp/cli-coverage.json`
+
+Regenerate worklist: `python3 scripts/regenerate_untested_endpoints.py` → **0/51** CLI untested.
+
+### F-003 perf (partial MCP re-run 2026-06-05)
+
+`audit-performance.mjs` refreshed desktop rows in `/tmp/xcelsior-audit/raw/perf-all.json` (mobile slow-4G pass interrupted). Spot-check desktop unthrottled:
+
+```bash
+node -e "const p=require('/tmp/xcelsior-audit/raw/perf-all.json'); const r=p.find(x=>x.routePath==='/'&&x.condition.name==='desktop-unthrottled'); console.log(r.metrics.vitals, Math.round(r.metrics.resources.jsTransfer/1024)+'KB')"
+```
 
 ### Remaining follow-up
 
-- **F-003** — TBT still ~5–6 s desktop; re-run `/tmp/xcelsior-audit/audit-performance.mjs` after major JS changes.
+- **F-003** — Finish full `audit-performance.mjs` mobile slow-4G matrix (~15 min MCP).
 - **Authenticated dashboard** — MCP crawl needs test credentials.
-- **Deploy script** — `health_check()` now reads `/opt/xcelsior/.deploy_colour` (was typo `.deploy-colour`).
+- **Cloudflare optional** — Scrape Shield → disable Email Obfuscation if plaintext mailto in View Source is required.
 
 ---
 
@@ -123,7 +141,9 @@ node frontend/scripts/hydration-diff.mjs   # SSR vs client text diff
 
 ```bash
 node scripts/post_deploy_audit_check.mjs > /tmp/post-deploy-check.json
-REVERIFY_JSON=/tmp/post-deploy-check.json node scripts/generate_reaudit_report.mjs  # if extending generator
+node scripts/audit_cli_coverage.mjs > /tmp/cli-coverage.json
+REVERIFY_JSON=/tmp/post-deploy-check.json node scripts/generate_reaudit_report.mjs
 
 BASE_URL=https://xcelsior.ca node frontend/scripts/hydration-repro.mjs
+CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1 CI=true node /tmp/xcelsior-audit/audit-performance.mjs
 ```

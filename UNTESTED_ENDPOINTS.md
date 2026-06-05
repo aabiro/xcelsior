@@ -1,6 +1,6 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-06-04 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._
+_Regenerated 2026-06-05 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
 **0 of 373 routes (0%)** and **0 of 51 CLI commands** (0%) have no test signal.
 
