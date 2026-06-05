@@ -889,7 +889,7 @@ health_check() {
 
     log "API health:"
     local live_colour live_port
-    live_colour=$(ssh_cmd "tr -d '[:space:]' </opt/xcelsior/.deploy-colour 2>/dev/null || echo green")
+    live_colour=$(ssh_cmd "tr -d '[:space:]' </opt/xcelsior/.deploy_colour 2>/dev/null || echo green")
     if [[ "$live_colour" == "blue" ]]; then live_port=9501; else live_port=9500; fi
     if ssh_cmd "curl -sf http://127.0.0.1:$live_port/healthz" &>/dev/null; then
         success "API healthy on port $live_port ($live_colour)"
