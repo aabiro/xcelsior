@@ -1,7 +1,11 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 /**
- * Mailto links on pages behind Cloudflare Email Obfuscation: CF rewrites
- * addresses in the HTML stream after SSR, which triggers React #418 text mismatches.
- * suppressHydrationWarning keeps hydration aligned with the obfuscated DOM.
+ * Cloudflare Email Obfuscation rewrites mailto text in the HTML edge response
+ * after SSR, causing React #418 on legal pages. Render link text only after mount
+ * so server HTML and the initial hydration pass stay aligned.
  */
 export function ObfuscationSafeMailto({
   href,
@@ -12,8 +16,22 @@ export function ObfuscationSafeMailto({
   children: React.ReactNode;
   className?: string;
 }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <span className={className} aria-hidden="true">
+        {"\u00a0"}
+      </span>
+    );
+  }
+
   return (
-    <a href={href} className={className} suppressHydrationWarning>
+    <a href={href} className={className}>
       {children}
     </a>
   );
