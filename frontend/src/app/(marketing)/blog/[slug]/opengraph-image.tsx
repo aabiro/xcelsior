@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
+import { formatBlogDate } from "@/lib/format-date";
 
 export const alt = "Xcelsior Blog";
 export const size = { width: 1200, height: 630 };
@@ -15,13 +16,7 @@ export default async function BlogOG({ params }: { params: Promise<{ slug: strin
 
   const title = post?.title ?? "Blog";
   const author = post?.author ?? "Xcelsior Team";
-  const date = post?.date
-    ? new Date(post.date).toLocaleDateString("en-CA", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    : "";
+  const date = post?.date ? formatBlogDate(post.date, "en") : "";
   const tags = post?.tags?.slice(0, 3) ?? [];
 
   return new ImageResponse(

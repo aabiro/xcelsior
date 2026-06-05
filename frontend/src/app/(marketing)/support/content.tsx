@@ -185,7 +185,7 @@ export function SupportContent() {
         <p className="text-text-secondary mb-6">{t("support.cta")}</p>
         <Link
           href="/pricing"
-          className="inline-flex items-center gap-2 rounded-lg bg-accent-cyan px-6 py-3 text-sm font-semibold text-white hover:bg-accent-cyan/90 transition-colors"
+          className="inline-flex items-center gap-2 rounded-lg bg-accent-cyan px-6 py-3 text-sm font-semibold text-navy hover:bg-accent-cyan/90 transition-colors"
         >
           {t("support.cta_button")}
         </Link>

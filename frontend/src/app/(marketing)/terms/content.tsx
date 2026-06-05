@@ -1,5 +1,6 @@
 "use client";
 
+import { ObfuscationSafeMailto } from "@/components/marketing/ObfuscationSafeMailto";
 import { useLocale } from "@/lib/locale";
 
 export function TermsContent() {
@@ -28,9 +29,9 @@ export function TermsContent() {
         <Section title={`3. ${t("terms.s3_title")}`}>
           <p>
             {t("terms.s3_p1")}{" "}
-            <a href="mailto:security@xcelsior.ca" className="text-ice-blue hover:underline">
+            <ObfuscationSafeMailto href="mailto:security@xcelsior.ca" className="text-ice-blue hover:underline">
               security@xcelsior.ca
-            </a>
+            </ObfuscationSafeMailto>
           </p>
         </Section>
 
@@ -141,9 +142,9 @@ export function TermsContent() {
           <p>
             {t("terms.s15_p1")}
             <br />
-            <a href="mailto:legal@xcelsior.ca" className="text-ice-blue hover:underline">
+            <ObfuscationSafeMailto href="mailto:legal@xcelsior.ca" className="text-ice-blue hover:underline">
               {t("terms.s15_email")}
-            </a>
+            </ObfuscationSafeMailto>
           </p>
         </Section>
       </div>

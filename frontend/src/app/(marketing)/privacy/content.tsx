@@ -1,5 +1,6 @@
 "use client";
 
+import { ObfuscationSafeMailto } from "@/components/marketing/ObfuscationSafeMailto";
 import { useLocale } from "@/lib/locale";
 
 export function PrivacyContent() {
@@ -77,9 +78,9 @@ export function PrivacyContent() {
           </ul>
           <p className="mt-3">
             {t("privacy.s8_contact")}{" "}
-            <a href="mailto:privacy@xcelsior.ca" className="text-ice-blue hover:underline">
+            <ObfuscationSafeMailto href="mailto:privacy@xcelsior.ca" className="text-ice-blue hover:underline">
               privacy@xcelsior.ca
-            </a>
+            </ObfuscationSafeMailto>
           </p>
         </Section>
 
@@ -87,8 +88,10 @@ export function PrivacyContent() {
           <ul className="list-disc pl-5 space-y-2">
             <li>{t("privacy.s9_p1")}</li>
             <li>{t("privacy.s9_p2")}</li>
+            <li>{t("privacy.s9_p3")}</li>
+            <li>{t("privacy.s9_p4")}</li>
           </ul>
-          <p className="mt-3">{t("privacy.s9_p3")}</p>
+          <p className="mt-3">{t("privacy.s9_p5")}</p>
         </Section>
 
         <Section title={`10. ${t("privacy.s10_title")}`}>
@@ -107,9 +110,9 @@ export function PrivacyContent() {
           <p>
             {t("privacy.s13_p1")}
             <br />
-            <a href="mailto:privacy@xcelsior.ca" className="text-ice-blue hover:underline">
+            <ObfuscationSafeMailto href="mailto:privacy@xcelsior.ca" className="text-ice-blue hover:underline">
               {t("privacy.s13_email")}
-            </a>
+            </ObfuscationSafeMailto>
             <br />
             {t("privacy.s13_p2")}
           </p>

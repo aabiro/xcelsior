@@ -30,7 +30,7 @@ export function SovereigntyContent() {
       >
         <motion.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-red/30 bg-accent-red/10 px-4 py-1.5 backdrop-blur-sm">
           <Shield className="h-3.5 w-3.5 text-accent-red" />
-          <span className="text-xs font-medium text-accent-red">{t("sov.badge")}</span>
+          <span className="text-xs font-medium text-red-100">{t("sov.badge")}</span>
         </motion.div>
         <motion.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl lg:text-6xl">
           {t("sov.title")}
