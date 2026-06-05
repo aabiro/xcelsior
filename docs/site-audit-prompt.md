@@ -40,7 +40,11 @@ You have the chrome-devtools MCP server available, which drives a real Chrome br
   - /privacy , /terms  (PIPEDA / legal)
   - /gpu-availability  (real-time data page)
 - Auth flow routes (render + validation, logged-out): /login, /register, /forgot-password, /reset-password, /setup-2fa, /verify-email, /accept-invite
-- Gated: /dashboard (note redirect when logged-out; audit authed separately if creds available)
+- Gated: /dashboard (note redirect when logged-out; audit authed separately — see below)
+
+**Authenticated dashboard (optional):** provision creds with `bash scripts/provision_audit_user.sh`
+(uses `site-audit@xcelsior.ca` → `.env.audit`, gitignored). Then:
+`bash scripts/run_audit_dashboard.sh` or `node frontend/scripts/audit-dashboard.mjs`.
 - Special: /feed.xml (RSS), /~offline (PWA offline), /sitemap.xml, /robots.txt
 - Conditions: each page (a) unthrottled and (b) under "Slow 4G" + 4× CPU. Device matrix: 360×800, 375×667, 390×844, 430×932, 768×1024, 1280×800; spot-check one mobile LANDSCAPE.
 

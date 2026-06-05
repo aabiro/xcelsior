@@ -139,10 +139,22 @@ Regenerate worklist: `python3 scripts/regenerate_untested_endpoints.py` → **0/
 
 Re-run: `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1 CI=true node /tmp/xcelsior-audit/audit-performance.mjs`
 
+### Dashboard audit credentials (MCP / Playwright)
+
+Dedicated read-only audit account (submitter, no MFA, email verified):
+
+```bash
+cp .env.audit.example .env.audit   # or let provision script write it
+bash scripts/provision_audit_user.sh   # creates site-audit@xcelsior.ca on prod DB
+bash scripts/run_audit_dashboard.sh    # Playwright UI crawl, or API probe via SSH tunnel
+```
+
+Artifacts: `/tmp/xcelsior-audit/raw/dashboard-all.json` (UI) or `dashboard-api.json` (API).
+
 ### Remaining follow-up
 
 - **F-003** — Further JS splitting if targeting sub-2s desktop TBT / acceptable mobile INP.
-- **Authenticated dashboard** — MCP crawl needs test credentials (not in repo).
+- **Dashboard UI MCP** — run `run_audit_dashboard.sh` when Cloudflare/public origin is healthy.
 - **Cloudflare optional** — Scrape Shield → disable Email Obfuscation if plaintext mailto in View Source is required.
 - **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` → **2863 passed**, 6 skipped (2026-06-05, ~27 min).
 
