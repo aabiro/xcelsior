@@ -1,6 +1,6 @@
 # Xcelsior — Site Audit Re-Audit Report
 
-Date: 2026-06-05 (updated)  
+Date: 2026-06-05 (verified)
 Target: https://xcelsior.ca  
 Deploy status: **Deployed** — `eb338b2` on production (frontend hydration + F-014–F-021 backlog)
 
@@ -121,19 +121,30 @@ Automated **51/51** checks: `node scripts/post_deploy_audit_check.mjs` → `/tmp
 
 Regenerate worklist: `python3 scripts/regenerate_untested_endpoints.py` → **0/51** CLI untested.
 
-### F-003 perf (partial MCP re-run 2026-06-05)
+### F-003 perf (MCP `perf-all.json`, 2026-06-05)
 
-`audit-performance.mjs` refreshed desktop rows in `/tmp/xcelsior-audit/raw/perf-all.json` (mobile slow-4G pass interrupted). Spot-check desktop unthrottled:
+30 rows: **22** desktop unthrottled + **8** mobile slow 4G / 4× CPU (key routes). Marketing JS **~307–374 KB** (was ~760–812 KB). TBT improved vs baseline but still high on mobile.
 
-```bash
-node -e "const p=require('/tmp/xcelsior-audit/raw/perf-all.json'); const r=p.find(x=>x.routePath==='/'&&x.condition.name==='desktop-unthrottled'); console.log(r.metrics.vitals, Math.round(r.metrics.resources.jsTransfer/1024)+'KB')"
-```
+| Route | Desktop TBT | Desktop JS | Mobile slow-4G TBT |
+|-------|------------:|-----------:|-------------------:|
+| `/` | 7168 ms | 374 KB | 30747 ms |
+| `/pricing` | 6043 ms | 374 KB | 30940 ms |
+| `/blog` | 4398 ms | 353 KB | 28058 ms |
+| `/download` | 4911 ms | 359 KB | 28469 ms |
+| `/privacy` | 5720 ms | 341 KB | — |
+| `/terms` | 5610 ms | 337 KB | — |
+| `/gpu-availability` | 4968 ms | 359 KB | 28093 ms |
+| `/login` | — | — | 25141 ms |
+| `/register` | — | — | 24913 ms |
+
+Re-run: `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1 CI=true node /tmp/xcelsior-audit/audit-performance.mjs`
 
 ### Remaining follow-up
 
-- **F-003** — Finish full `audit-performance.mjs` mobile slow-4G matrix (~15 min MCP).
-- **Authenticated dashboard** — MCP crawl needs test credentials.
+- **F-003** — Further JS splitting if targeting sub-2s desktop TBT / acceptable mobile INP.
+- **Authenticated dashboard** — MCP crawl needs test credentials (not in repo).
 - **Cloudflare optional** — Scrape Shield → disable Email Obfuscation if plaintext mailto in View Source is required.
+- **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` (~33 min; see `/tmp/run-tests-*.log`).
 
 ---
 
