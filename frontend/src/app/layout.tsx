@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
-import { Toaster } from "sonner";
 import { Providers } from "./providers";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
+import { ClientToaster } from "@/components/ClientToaster";
 import "./globals.css";
 
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
@@ -149,22 +149,7 @@ export default function RootLayout({
           {children}
           <RootClientWidgets />
         </Providers>
-        <Toaster
-          position="bottom-right"
-          theme="dark"
-          closeButton
-          toastOptions={{
-            duration: 5000,
-            style: {
-              background: "#1e293b",
-              border: "1px solid #334155",
-              color: "#f8fafc",
-            },
-            classNames: {
-              closeButton: "xcelsior-toast-dismiss",
-            },
-          }}
-        />
+        <ClientToaster />
       </body>
     </html>
   );

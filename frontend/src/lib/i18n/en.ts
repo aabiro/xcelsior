@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Xcelsior — English Dictionary
+   Xcelsior — English Dictionary (source of truth)
    ~700 keys · flat dot-notation · used by locale.tsx t() function
+   After edits run: node scripts/split-i18n.mjs
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const en: Record<string, string> = {

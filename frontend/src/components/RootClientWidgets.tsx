@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 
 const DesktopAppRuntime = dynamic(
   () => import("@/components/DesktopAppRuntime").then((m) => ({ default: m.DesktopAppRuntime })),
@@ -19,9 +20,12 @@ const ServiceWorkerRegistrar = dynamic(
 );
 
 export function RootClientWidgets() {
+  const pathname = usePathname();
+  const onDashboard = Boolean(pathname?.startsWith("/dashboard"));
+
   return (
     <>
-      <DesktopAppRuntime />
+      {onDashboard ? <DesktopAppRuntime /> : null}
       <InstallBanner />
       <ServiceWorkerRegistrar />
     </>

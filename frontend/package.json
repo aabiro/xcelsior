@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "concurrently -p none \"serwist build serwist.config.mjs --watch\" \"next dev\"",
-    "build": "next build && serwist build serwist.config.mjs",
+    "build": "node scripts/split-i18n.mjs && next build && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
