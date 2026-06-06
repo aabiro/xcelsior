@@ -276,6 +276,30 @@ def test_wallet_deposit_forbidden_cross_account(two_users):
     assert r.status_code == 403
 
 
+def test_billing_payment_rate_limit(auth, monkeypatch):
+    """Payment-intent spam is throttled per customer."""
+    import routes._deps as deps_mod
+
+    monkeypatch.setattr(deps_mod, "_BILLING_PAYMENT_RATE_LIMIT_REQUESTS", 2)
+    monkeypatch.setattr(deps_mod, "_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC", 300)
+    deps_mod._BILLING_PAYMENT_RATE_BUCKETS.clear()
+
+    email, headers = auth
+    for _ in range(2):
+        r = client.post(
+            "/api/billing/payment-intent",
+            json={"customer_id": email, "amount_cad": 10},
+            headers=headers,
+        )
+        assert r.status_code in OK_OR_HANDLED
+    r = client.post(
+        "/api/billing/payment-intent",
+        json={"customer_id": email, "amount_cad": 10},
+        headers=headers,
+    )
+    assert r.status_code == 429
+
+
 def test_wallet_deposit_blocked_in_production(two_users, monkeypatch):
     """Production must not credit wallets without payment proof (Stripe/PayPal/crypto)."""
     import routes.billing as billing_mod
