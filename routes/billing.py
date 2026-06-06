@@ -195,10 +195,68 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
 
 _PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
 _PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
+_PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID", "")
 _PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox")  # sandbox | live
 _PAYPAL_BASE = (
     "https://api-m.paypal.com" if _PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
 )
+
+
+def _paypal_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def _paypal_get_order(order_id: str, token: str | None = None) -> dict:
+    token = token or _paypal_access_token()
+    resp = httpx.get(
+        f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}",
+        headers=_paypal_headers(token),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _paypal_credit_capture(
+    customer_id: str,
+    order_id: str,
+    amount_cad: float,
+    capture_id: str,
+) -> dict:
+    be = get_billing_engine()
+    return be.deposit(
+        customer_id,
+        amount_cad,
+        f"PayPal deposit ({capture_id})",
+        idempotency_key=f"paypal-{order_id}",
+    )
+
+
+def _paypal_capture_order(order_id: str, token: str | None = None) -> dict:
+    """Capture an approved PayPal order. Returns order JSON on success."""
+    token = token or _paypal_access_token()
+    order = _paypal_get_order(order_id, token)
+    status = order.get("status", "")
+    if status == "COMPLETED":
+        return order
+    if status != "APPROVED":
+        raise HTTPException(400, f"PayPal order status: {status or 'unknown'}")
+    cap_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
+        headers=_paypal_headers(token),
+        timeout=15,
+    )
+    if cap_resp.status_code >= 400:
+        log.error("PayPal capture failed for %s: %s", order_id, cap_resp.text)
+        raise HTTPException(502, "PayPal capture failed")
+    data = cap_resp.json()
+    if data.get("status") != "COMPLETED":
+        raise HTTPException(400, f"PayPal order status: {data.get('status', 'unknown')}")
+    return data
 
 
 def _paypal_access_token() -> str:
@@ -284,38 +342,126 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
 
-    token = _paypal_access_token()
-    cap_resp = httpx.post(
-        f"{_PAYPAL_BASE}/v2/checkout/orders/{req.order_id}/capture",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        timeout=15,
-    )
-    if cap_resp.status_code >= 400:
-        log.error("PayPal capture failed: %s", cap_resp.text)
-        raise HTTPException(502, "PayPal capture failed")
-
-    data = cap_resp.json()
-    if data.get("status") != "COMPLETED":
-        raise HTTPException(400, f"PayPal order status: {data.get('status', 'unknown')}")
-
-    # Extract captured amount
+    data = _paypal_capture_order(req.order_id)
     capture = data["purchase_units"][0]["payments"]["captures"][0]
     amount_cad = float(capture["amount"]["value"])
     paypal_id = capture["id"]
-
-    # Credit wallet
-    be = get_billing_engine()
-    result = be.deposit(
-        req.customer_id,
-        amount_cad,
-        f"PayPal deposit ({paypal_id})",
-        idempotency_key=f"paypal-{req.order_id}",
-    )
+    result = _paypal_credit_capture(req.customer_id, req.order_id, amount_cad, paypal_id)
     log.info("PayPal deposit: %s → $%.2f CAD (capture %s)", req.customer_id, amount_cad, paypal_id)
     return {"ok": True, "balance_cad": result["balance_cad"], "amount_cad": amount_cad}
+
+
+def _paypal_verify_webhook_signature(request: Request, event: dict) -> bool:
+    """Verify PayPal webhook via REST verify-webhook-signature."""
+    if not _PAYPAL_WEBHOOK_ID:
+        log.warning("PAYPAL_WEBHOOK_ID unset — rejecting webhook")
+        return False
+    transmission_id = request.headers.get("paypal-transmission-id", "")
+    transmission_time = request.headers.get("paypal-transmission-time", "")
+    transmission_sig = request.headers.get("paypal-transmission-sig", "")
+    cert_url = request.headers.get("paypal-cert-url", "")
+    auth_algo = request.headers.get("paypal-auth-algo", "")
+    if not all((transmission_id, transmission_time, transmission_sig, cert_url, auth_algo)):
+        return False
+    token = _paypal_access_token()
+    verify_resp = httpx.post(
+        f"{_PAYPAL_BASE}/v1/notifications/verify-webhook-signature",
+        headers=_paypal_headers(token),
+        json={
+            "auth_algo": auth_algo,
+            "cert_url": cert_url,
+            "transmission_id": transmission_id,
+            "transmission_sig": transmission_sig,
+            "transmission_time": transmission_time,
+            "webhook_id": _PAYPAL_WEBHOOK_ID,
+            "webhook_event": event,
+        },
+        timeout=15,
+    )
+    if verify_resp.status_code >= 400:
+        log.error("PayPal webhook verify HTTP %s: %s", verify_resp.status_code, verify_resp.text[:300])
+        return False
+    return verify_resp.json().get("verification_status") == "SUCCESS"
+
+
+def _paypal_handle_order_approved(resource: dict) -> None:
+    order_id = resource.get("id", "")
+    if not order_id or resource.get("status") != "APPROVED":
+        return
+    purchase_units = resource.get("purchase_units") or []
+    customer_id = (purchase_units[0].get("custom_id") if purchase_units else "") or ""
+    if not customer_id:
+        log.warning("PayPal ORDER.APPROVED missing custom_id for order %s", order_id)
+        return
+    try:
+        data = _paypal_capture_order(order_id)
+    except HTTPException as exc:
+        if exc.status_code == 400:
+            log.info("PayPal order %s not capturable (status may have advanced)", order_id)
+            return
+        raise
+    capture = data["purchase_units"][0]["payments"]["captures"][0]
+    amount_cad = float(capture["amount"]["value"])
+    _paypal_credit_capture(customer_id, order_id, amount_cad, capture["id"])
+    log.info("PayPal webhook capture: %s → $%.2f CAD (order %s)", customer_id, amount_cad, order_id)
+
+
+def _paypal_handle_capture_completed(resource: dict) -> None:
+    capture_id = resource.get("id", "")
+    amount = resource.get("amount") or {}
+    amount_cad = float(amount.get("value") or 0)
+    order_id = (
+        (resource.get("supplementary_data") or {})
+        .get("related_ids", {})
+        .get("order_id", "")
+    )
+    if not order_id or amount_cad <= 0:
+        return
+    order = _paypal_get_order(order_id)
+    purchase_units = order.get("purchase_units") or []
+    customer_id = (purchase_units[0].get("custom_id") if purchase_units else "") or ""
+    if not customer_id:
+        log.warning("PayPal CAPTURE.COMPLETED missing custom_id for order %s", order_id)
+        return
+    _paypal_credit_capture(customer_id, order_id, amount_cad, capture_id)
+    log.info(
+        "PayPal webhook credit: %s → $%.2f CAD (capture %s order %s)",
+        customer_id,
+        amount_cad,
+        capture_id,
+        order_id,
+    )
+
+
+@router.post("/api/billing/paypal/webhook", tags=["Billing"])
+async def api_paypal_webhook(request: Request):
+    """PayPal webhook receiver — backup capture/credit when client capture fails."""
+    if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
+        raise HTTPException(503, "PayPal is not configured")
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+    if not _paypal_verify_webhook_signature(request, event):
+        raise HTTPException(400, "Invalid PayPal webhook signature")
+
+    event_type = event.get("event_type", "")
+    resource = event.get("resource") or {}
+    try:
+        if event_type == "CHECKOUT.ORDER.APPROVED":
+            _paypal_handle_order_approved(resource)
+        elif event_type == "PAYMENT.CAPTURE.COMPLETED":
+            _paypal_handle_capture_completed(resource)
+        elif event_type in ("PAYMENT.CAPTURE.DENIED", "PAYMENT.CAPTURE.REFUNDED"):
+            log.info("PayPal webhook %s resource_id=%s", event_type, resource.get("id", ""))
+        else:
+            log.debug("PayPal webhook ignored: %s", event_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("PayPal webhook handler failed (%s): %s", event_type, exc)
+        raise HTTPException(500, "Webhook processing failed") from exc
+    return {"ok": True}
 
 
 @router.post("/api/billing/wallet/{customer_id}/deposit", tags=["Billing"])
