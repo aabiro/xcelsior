@@ -59,6 +59,14 @@ _AUTH_RATE_LIMIT_REQUESTS = int(os.environ.get("XCELSIOR_AUTH_RATE_LIMIT_REQUEST
 _AUTH_RATE_LIMIT_WINDOW_SEC = 300
 _AUTH_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
 
+_BILLING_PAYMENT_RATE_LIMIT_REQUESTS = int(
+    os.environ.get("XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_REQUESTS", "20")
+)
+_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC = int(
+    os.environ.get("XCELSIOR_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC", "300")
+)
+_BILLING_PAYMENT_RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+
 _WS_CONNECT_RATE_LIMIT_REQUESTS = int(
     os.environ.get("XCELSIOR_WS_CONNECT_RATE_LIMIT_REQUESTS", "60")
 )
@@ -120,6 +128,7 @@ PUBLIC_PATHS = {
     "/api/billing/crypto/rate",
     "/api/billing/lightning/enabled",
     "/api/billing/lightning/rate",
+    "/api/billing/paypal/enabled",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
@@ -332,6 +341,23 @@ def _check_auth_rate_limit(request: Request) -> None:
         bucket.popleft()
     if len(bucket) >= _AUTH_RATE_LIMIT_REQUESTS:
         raise HTTPException(429, "Too many attempts. Please try again later.")
+    bucket.append(now)
+
+
+def _check_billing_payment_rate_limit(customer_id: str, action: str) -> None:
+    """Per-customer rate limit for deposit/payment intent endpoints."""
+    if _BILLING_PAYMENT_RATE_LIMIT_REQUESTS <= 0:
+        return
+    now = time.time()
+    key = f"{customer_id}:{action}"
+    bucket = _BILLING_PAYMENT_RATE_BUCKETS[key]
+    while bucket and bucket[0] <= now - _BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC:
+        bucket.popleft()
+    if len(bucket) >= _BILLING_PAYMENT_RATE_LIMIT_REQUESTS:
+        raise HTTPException(
+            429,
+            "Too many payment attempts. Please wait a few minutes and try again.",
+        )
     bucket.append(now)
 
 

@@ -101,6 +101,46 @@ class TestUsageMeter:
 # ── DB-Dependent Tests ───────────────────────────────────────────────
 
 
+class TestStripeWebhookDepositIdempotency:
+    """Stripe payment_intent.succeeded must credit wallet once per event_id."""
+
+    @pg
+    def test_duplicate_stripe_event_single_credit(self):
+        import secrets
+
+        from stripe_connect import StripeConnectManager
+
+        be = _engine()
+        customer_id = f"pay-test-stripe-wh-{secrets.token_hex(4)}"
+        stripe_intent_id = f"pi_stripe_{secrets.token_hex(6)}"
+        be.get_wallet(customer_id)
+
+        mgr = StripeConnectManager()
+        with mgr._conn() as conn:
+            conn.execute(
+                """INSERT INTO payment_intents
+                   (intent_id, customer_id, amount_cents, currency, status,
+                    stripe_intent_id, description, created_at)
+                   VALUES (%s, %s, %s, 'cad', 'created', %s, %s, %s)""",
+                (
+                    f"pi_local_{secrets.token_hex(6)}",
+                    customer_id,
+                    500,
+                    stripe_intent_id,
+                    "test",
+                    time.time(),
+                ),
+            )
+
+        event_data = {"id": stripe_intent_id}
+        event_id = f"evt_{secrets.token_hex(8)}"
+        mgr._handle_payment_succeeded(event_data, event_id)
+        mgr._handle_payment_succeeded(event_data, event_id)
+
+        wallet = be.get_wallet(customer_id)
+        assert wallet["balance_cad"] == pytest.approx(5.00, abs=0.01)
+
+
 class TestDepositIdempotency:
     """Verify idempotent deposits via idempotency_key."""
 

@@ -21,6 +21,7 @@ from routes._deps import (
     _require_admin,
     _require_auth,
     _require_scope,
+    _check_billing_payment_rate_limit,
     _users_db,
     broadcast_sse,
     log,
@@ -182,6 +183,7 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     """
     user = _require_customer_access(request, req.customer_id)
     _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "payment-intent")
     if req.amount_cad < 1 or req.amount_cad > 10000:
         raise HTTPException(400, "Amount must be between $1 and $10,000 CAD")
     mgr = get_stripe_manager()
@@ -233,6 +235,7 @@ def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
     """Create a PayPal order for depositing compute credits."""
     user = _require_customer_access(request, req.customer_id)
     _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-create-order")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
     if req.amount_cad < 5 or req.amount_cad > 10000:
@@ -277,6 +280,7 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
     """Capture a PayPal order and credit the wallet."""
     user = _require_customer_access(request, req.customer_id)
     _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-capture-order")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
 
@@ -322,7 +326,14 @@ def api_deposit(customer_id: str, req: DepositRequest, request: Request):
     crypto/Lightning — not this direct credit endpoint.
     """
     user = _require_customer_access(request, customer_id)
+    _check_billing_payment_rate_limit(customer_id, "wallet-deposit")
     if not _allow_direct_wallet_deposit(user):
+        log.warning(
+            "billing.direct_deposit_blocked customer_id=%s user_id=%s amount_cad=%.2f",
+            customer_id,
+            user.get("user_id", ""),
+            req.amount_cad,
+        )
         raise HTTPException(
             403,
             "Direct wallet deposits are disabled. Use Stripe, PayPal, or crypto to add credits.",
@@ -702,7 +713,9 @@ class CryptoDepositRequest(BaseModel):
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
 def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
     """Create a BTC deposit request. Returns address, amount, and QR data."""
-    _require_customer_access(request, req.customer_id)
+    user = _require_customer_access(request, req.customer_id)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "crypto-deposit")
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
         raise HTTPException(503, "Bitcoin deposits are not enabled")
     service_status = _btc_mod.get_service_status()
@@ -798,8 +811,9 @@ def api_ln_enabled():
 @router.post("/api/billing/lightning/deposit", tags=["Billing"])
 def api_ln_create_deposit(req: LnDepositRequest, request: Request):
     """Create a Lightning invoice for depositing CAD credits."""
-    user = _require_auth(request)
+    user = _require_customer_access(request, req.customer_id)
     _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "lightning-deposit")
     if not _ln_mod or not _ln_mod.LN_ENABLED:
         raise HTTPException(503, "Lightning deposits are not enabled")
     try:
