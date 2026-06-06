@@ -3,32 +3,11 @@
  * Production post-deploy checks — stdout JSON for generate_reaudit_report.mjs
  * 51 named checks: public routes, API/auth, SEO, security headers, content probes.
  */
-const BASE = process.env.AUDIT_BASE || "https://xcelsior.ca";
-const FETCH_TIMEOUT_MS = Number(process.env.AUDIT_FETCH_TIMEOUT_MS || 20000);
+import { auditBase, auditFetchText as fetchText, auditFetchJson as fetchJson } from "./audit-http.mjs";
+
+const BASE = auditBase();
 const INVALID_JWT_BEARER =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhdWRpdC1jaGVjayJ9.invalid";
-
-function fetchOpts(opts = {}) {
-  return { ...opts, signal: opts.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS) };
-}
-
-async function fetchText(path, opts = {}) {
-  const res = await fetch(BASE + path, fetchOpts({ redirect: "manual", ...opts }));
-  const text = await res.text();
-  return { status: res.status, text, headers: Object.fromEntries(res.headers) };
-}
-
-async function fetchJson(path, opts = {}) {
-  const res = await fetch(BASE + path, fetchOpts(opts));
-  const text = await res.text();
-  let body = text;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    /* html */
-  }
-  return { status: res.status, body, headers: Object.fromEntries(res.headers) };
-}
 
 function canon(html) {
   const m = String(html).match(/rel="canonical" href="([^"]+)"/);

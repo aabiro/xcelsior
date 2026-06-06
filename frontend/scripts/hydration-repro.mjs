@@ -6,17 +6,24 @@
  * - Local prod:         BASE_URL=http://127.0.0.1:3457  (next build && next start)
  * - Production:         BASE_URL=https://xcelsior.ca    (#418 on /privacy,/terms is often
  *                       Cloudflare Email Obfuscation — see hydration-diff.mjs)
+ * - Tailscale origin:   AUDIT_ORIGIN_IP=100.64.0.1 BASE_URL=https://xcelsior.ca
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.BASE_URL || "http://127.0.0.1:3456";
+const BASE = process.env.BASE_URL || "https://xcelsior.ca";
+const ORIGIN_IP = process.env.AUDIT_ORIGIN_IP || "";
 const ROUTES = ["/about", "/support", "/privacy", "/terms", "/blog"];
 
 const NOISE =
   /webpack-hmr|WebSocket connection|eval\(\) is not supported|Download the React DevTools/i;
 
 async function main() {
-  const browser = await chromium.launch({ headless: true });
+  const launchArgs = [];
+  if (ORIGIN_IP) {
+    const host = new URL(BASE).hostname;
+    launchArgs.push(`--host-resolver-rules=MAP ${host} ${ORIGIN_IP}`);
+  }
+  const browser = await chromium.launch({ headless: true, args: launchArgs });
   const context = await browser.newContext({ bypassCSP: true });
 
   for (const routePath of ROUTES) {
