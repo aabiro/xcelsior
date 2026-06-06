@@ -84,6 +84,13 @@ def _analytics_customer_scope(user: dict) -> str:
     return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "").strip()
 
 
+def _allow_direct_wallet_deposit(user: dict) -> bool:
+    """Credit wallet without payment proof — test/dev sandboxes and platform admins only."""
+    if XCELSIOR_ENV in ("test", "dev", "development"):
+        return True
+    return _is_platform_admin(user)
+
+
 def _require_customer_access(request: Request, customer_id: str) -> dict:
     """Authn + ownership guard for customer-scoped billing routes.
 
@@ -167,12 +174,14 @@ class PaymentIntentRequest(BaseModel):
 
 
 @router.post("/api/billing/payment-intent", tags=["Billing"])
-def api_create_payment_intent(req: PaymentIntentRequest):
+def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     """Create a Stripe PaymentIntent for depositing compute credits.
 
     Returns client_secret for front-end Stripe Elements confirmation.
     On payment_intent.succeeded webhook the wallet is credited automatically.
     """
+    user = _require_customer_access(request, req.customer_id)
+    _require_scope(user, "billing:write")
     if req.amount_cad < 1 or req.amount_cad > 10000:
         raise HTTPException(400, "Amount must be between $1 and $10,000 CAD")
     mgr = get_stripe_manager()
@@ -222,7 +231,8 @@ def api_paypal_enabled():
 @router.post("/api/billing/paypal/create-order", tags=["Billing"])
 def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
     """Create a PayPal order for depositing compute credits."""
-    _require_auth(request)
+    user = _require_customer_access(request, req.customer_id)
+    _require_scope(user, "billing:write")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
     if req.amount_cad < 5 or req.amount_cad > 10000:
@@ -265,7 +275,8 @@ def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
 @router.post("/api/billing/paypal/capture-order", tags=["Billing"])
 def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
     """Capture a PayPal order and credit the wallet."""
-    user = _require_auth(request)
+    user = _require_customer_access(request, req.customer_id)
+    _require_scope(user, "billing:write")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
         raise HTTPException(503, "PayPal is not configured")
 
@@ -305,8 +316,17 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
 
 @router.post("/api/billing/wallet/{customer_id}/deposit", tags=["Billing"])
 def api_deposit(customer_id: str, req: DepositRequest, request: Request):
-    """Deposit credits into a customer wallet."""
-    _require_customer_access(request, customer_id)
+    """Deposit credits into a customer wallet.
+
+    Production deposits must flow through Stripe webhooks, PayPal capture, or
+    crypto/Lightning — not this direct credit endpoint.
+    """
+    user = _require_customer_access(request, customer_id)
+    if not _allow_direct_wallet_deposit(user):
+        raise HTTPException(
+            403,
+            "Direct wallet deposits are disabled. Use Stripe, PayPal, or crypto to add credits.",
+        )
     be = get_billing_engine()
     result = be.deposit(customer_id, req.amount_cad, req.description)
     return {"ok": True, **result}

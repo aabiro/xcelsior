@@ -5,7 +5,13 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { createPaymentIntent, depositWallet, checkPayPalEnabled, createPayPalOrder, capturePayPalOrder } from "@/lib/api";
+import {
+  createPaymentIntent,
+  fetchWallet,
+  checkPayPalEnabled,
+  createPayPalOrder,
+  capturePayPalOrder,
+} from "@/lib/api";
 import { toast } from "sonner";
 import { X, CreditCard, Loader2, CheckCircle, ShieldCheck } from "lucide-react";
 
@@ -39,7 +45,23 @@ const CARD_ELEMENT_OPTIONS = {
   },
 };
 
-/* ── Amount selector (shared between Stripe and direct flows) ──────── */
+async function pollWalletBalance(
+  customerId: string,
+  previousBalance: number,
+  expectedIncrease: number,
+  maxAttempts = 24,
+): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const { wallet } = await fetchWallet(customerId);
+    if (wallet.balance_cad >= previousBalance + expectedIncrease - 0.01) {
+      return wallet.balance_cad;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("Payment received but wallet not credited yet. Please refresh in a moment.");
+}
+
+/* ── Amount selector (shared between Stripe and PayPal-only flows) ── */
 
 function AmountStep({
   amount,
@@ -48,6 +70,7 @@ function AmountStep({
   numericAmount,
   onCancel,
   onContinue,
+  continueLabel,
 }: {
   amount: string;
   setAmount: (v: string) => void;
@@ -55,6 +78,7 @@ function AmountStep({
   numericAmount: number;
   onCancel: () => void;
   onContinue: () => void;
+  continueLabel?: string;
 }) {
   return (
     <>
@@ -101,10 +125,48 @@ function AmountStep({
       <div className="flex gap-3">
         <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
         <Button variant="success" className="flex-1" onClick={onContinue} disabled={!isValid}>
-          Continue — ${isValid ? numericAmount.toFixed(2) : "0.00"}
+          {continueLabel ?? `Continue — $${isValid ? numericAmount.toFixed(2) : "0.00"}`}
         </Button>
       </div>
     </>
+  );
+}
+
+function ModalShell({
+  onClose,
+  subtitle,
+  children,
+}: {
+  onClose: () => void;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald/10">
+              <CreditCard className="h-5 w-5 text-emerald" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Add Credits</h2>
+              <p className="text-xs text-text-muted">{subtitle}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-text-muted hover:bg-background hover:text-text-primary transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -126,10 +188,8 @@ function PayPalButton({
   const handlePayPal = async () => {
     setLoading(true);
     try {
-      // 1. Create order on backend
       const { order_id } = await createPayPalOrder(customerId, amountCad);
 
-      // 2. Open PayPal approval popup
       const approvalUrl = `https://www.${
         process.env.NEXT_PUBLIC_PAYPAL_MODE === "live" ? "" : "sandbox."
       }paypal.com/checkoutnow?token=${order_id}`;
@@ -141,18 +201,15 @@ function PayPalButton({
         return;
       }
 
-      // 3. Poll for popup close (user approved or cancelled)
       const poll = setInterval(async () => {
         if (!popup.closed) return;
         clearInterval(poll);
 
-        // Try to capture — PayPal will fail if user cancelled
         try {
           const result = await capturePayPalOrder(customerId, order_id);
           toast.success(`$${result.amount_cad.toFixed(2)} CAD added via PayPal`);
           onSuccess(result.balance_cad);
         } catch {
-          // User likely cancelled the PayPal flow
           toast.info("PayPal payment was not completed");
         } finally {
           setLoading(false);
@@ -184,71 +241,88 @@ function PayPalButton({
   );
 }
 
-/* ── Direct deposit (no Stripe) ────────────────────────────────────── */
+/* ── PayPal-only flow when Stripe is not configured ──────────────── */
 
-function DirectDepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
+function PayPalOnlyDepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
   const [amount, setAmount] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [step, setStep] = useState<"amount" | "success">("amount");
+  const [step, setStep] = useState<"amount" | "pay" | "success" | "unavailable">("amount");
+  const [paypalAvailable, setPaypalAvailable] = useState<boolean | null>(null);
 
   const numericAmount = parseFloat(amount);
   const isValid = !isNaN(numericAmount) && numericAmount >= 5 && numericAmount <= 10000;
 
-  const handleDeposit = useCallback(async () => {
-    if (!isValid || submitting) return;
-    setSubmitting(true);
-    try {
-      const res = await depositWallet(customerId, numericAmount);
-      toast.success(`$${numericAmount.toFixed(2)} CAD added to wallet`);
-      setStep("success");
-      setTimeout(() => onSuccess(res.balance_cad), 1200);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Deposit failed");
-    } finally {
-      setSubmitting(false);
-    }
-  }, [customerId, numericAmount, isValid, submitting, onSuccess]);
+  useEffect(() => {
+    checkPayPalEnabled()
+      .then((r) => {
+        setPaypalAvailable(r.enabled);
+        if (!r.enabled) setStep("unavailable");
+      })
+      .catch(() => {
+        setPaypalAvailable(false);
+        setStep("unavailable");
+      });
+  }, []);
+
+  if (step === "unavailable" || paypalAvailable === false) {
+    return (
+      <ModalShell onClose={onClose} subtitle="Payments unavailable">
+        <p className="text-sm text-text-secondary mb-4">
+          Card payments are not configured and PayPal is unavailable. Please contact support to add credits.
+        </p>
+        <Button variant="outline" className="w-full" onClick={onClose}>Close</Button>
+      </ModalShell>
+    );
+  }
+
+  if (paypalAvailable === null) {
+    return (
+      <ModalShell onClose={onClose} subtitle="Loading payment options">
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-text-muted" />
+        </div>
+      </ModalShell>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald/10">
-              <CreditCard className="h-5 w-5 text-emerald" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">Add Credits</h2>
-              <p className="text-xs text-text-muted">
-                {step === "amount" ? "Choose deposit amount" : "Payment complete"}
-              </p>
-            </div>
+    <ModalShell onClose={onClose} subtitle={step === "success" ? "Payment complete" : "Pay with PayPal"}>
+      {step === "success" ? (
+        <div className="flex flex-col items-center py-8">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10 mb-4">
+            <CheckCircle className="h-8 w-8 text-emerald" />
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-text-muted hover:bg-background hover:text-text-primary transition-colors">
-            <X className="h-4 w-4" />
-          </button>
+          <p className="text-lg font-semibold">Payment Successful</p>
+          <p className="text-sm text-text-muted mt-1">${numericAmount.toFixed(2)} CAD has been added to your wallet</p>
         </div>
-
-        {step === "success" ? (
-          <div className="flex flex-col items-center py-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10 mb-4">
-              <CheckCircle className="h-8 w-8 text-emerald" />
-            </div>
-            <p className="text-lg font-semibold">Payment Successful</p>
-            <p className="text-sm text-text-muted mt-1">${numericAmount.toFixed(2)} CAD has been added to your wallet</p>
+      ) : step === "amount" ? (
+        <AmountStep
+          amount={amount}
+          setAmount={setAmount}
+          isValid={isValid}
+          numericAmount={numericAmount}
+          onCancel={onClose}
+          onContinue={() => setStep("pay")}
+        />
+      ) : (
+        <>
+          <div className="mb-4 rounded-lg border border-border bg-background p-3 flex items-center justify-between">
+            <span className="text-sm text-text-secondary">Deposit amount</span>
+            <span className="text-lg font-bold font-mono">${numericAmount.toFixed(2)} CAD</span>
           </div>
-        ) : (
-          <AmountStep
-            amount={amount}
-            setAmount={setAmount}
-            isValid={isValid}
-            numericAmount={numericAmount}
-            onCancel={onClose}
-            onContinue={handleDeposit}
+          <PayPalButton
+            customerId={customerId}
+            amountCad={numericAmount}
+            onSuccess={(balance) => {
+              setStep("success");
+              setTimeout(() => onSuccess(balance), 1200);
+            }}
           />
-        )}
-      </div>
-    </div>
+          <Button variant="outline" className="w-full mt-3" onClick={() => setStep("amount")}>
+            Back
+          </Button>
+        </>
+      )}
+    </ModalShell>
   );
 }
 
@@ -281,22 +355,15 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
     if (!isValid || submitting) return;
 
     if (!stripe || !elements) {
-      setSubmitting(true);
-      try {
-        const res = await depositWallet(customerId, numericAmount);
-        toast.success(`$${numericAmount.toFixed(2)} CAD added to wallet`);
-        setStep("success");
-        setTimeout(() => onSuccess(res.balance_cad), 1200);
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Deposit failed");
-      } finally {
-        setSubmitting(false);
-      }
+      toast.error("Card payments are still loading. Please try again in a moment.");
       return;
     }
 
     setSubmitting(true);
     try {
+      const baseline = await fetchWallet(customerId);
+      const previousBalance = baseline.wallet.balance_cad;
+
       const { intent } = await createPaymentIntent(customerId, numericAmount);
       const clientSecret = intent.client_secret;
       if (!clientSecret) {
@@ -317,10 +384,10 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
       }
 
       if (paymentIntent?.status === "succeeded") {
-        try { await depositWallet(customerId, numericAmount); } catch { /* webhook will handle */ }
+        const newBalance = await pollWalletBalance(customerId, previousBalance, numericAmount);
         toast.success(`$${numericAmount.toFixed(2)} CAD added to wallet`);
         setStep("success");
-        setTimeout(() => onSuccess(numericAmount), 1200);
+        setTimeout(() => onSuccess(newBalance), 1200);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Payment failed");
@@ -330,127 +397,108 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
   }, [stripe, elements, customerId, numericAmount, isValid, submitting, onSuccess]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald/10">
-              <CreditCard className="h-5 w-5 text-emerald" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">Add Credits</h2>
-              <p className="text-xs text-text-muted">
-                {step === "amount" ? "Choose deposit amount" : step === "pay" ? "Enter payment details" : "Payment complete"}
-              </p>
+    <ModalShell
+      onClose={onClose}
+      subtitle={
+        step === "amount" ? "Choose deposit amount" : step === "pay" ? "Enter payment details" : "Payment complete"
+      }
+    >
+      {step === "success" ? (
+        <div className="flex flex-col items-center py-8">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10 mb-4">
+            <CheckCircle className="h-8 w-8 text-emerald" />
+          </div>
+          <p className="text-lg font-semibold">Payment Successful</p>
+          <p className="text-sm text-text-muted mt-1">
+            ${numericAmount.toFixed(2)} CAD has been added to your wallet
+          </p>
+        </div>
+      ) : step === "amount" ? (
+        <AmountStep
+          amount={amount}
+          setAmount={setAmount}
+          isValid={isValid}
+          numericAmount={numericAmount}
+          onCancel={onClose}
+          onContinue={handleProceedToPay}
+        />
+      ) : (
+        <>
+          <div className="mb-4 rounded-lg border border-border bg-background p-3 flex items-center justify-between">
+            <span className="text-sm text-text-secondary">Deposit amount</span>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold font-mono">${numericAmount.toFixed(2)}</span>
+              <span className="text-xs text-text-muted">CAD</span>
+              <button onClick={() => setStep("amount")} className="text-xs text-ice hover:underline ml-1">
+                Change
+              </button>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-text-muted hover:bg-background hover:text-text-primary transition-colors">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {step === "success" ? (
-          <div className="flex flex-col items-center py-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald/10 mb-4">
-              <CheckCircle className="h-8 w-8 text-emerald" />
+          <div className="mb-4">
+            <Label className="mb-2 block text-text-secondary text-xs">Card details</Label>
+            <div className="rounded-lg border border-border bg-background p-3.5">
+              <CardElement
+                options={CARD_ELEMENT_OPTIONS}
+                onChange={(e) => setCardComplete(e.complete)}
+              />
             </div>
-            <p className="text-lg font-semibold">Payment Successful</p>
-            <p className="text-sm text-text-muted mt-1">
-              ${numericAmount.toFixed(2)} CAD has been added to your wallet
+          </div>
+
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-ice/5 border border-ice/10 p-3">
+            <ShieldCheck className="h-4 w-4 text-ice mt-0.5 shrink-0" />
+            <p className="text-xs text-text-secondary">
+              Payments are processed securely. Card details never touch our servers.
             </p>
           </div>
-        ) : step === "amount" ? (
-          <AmountStep
-            amount={amount}
-            setAmount={setAmount}
-            isValid={isValid}
-            numericAmount={numericAmount}
-            onCancel={onClose}
-            onContinue={handleProceedToPay}
-          />
-        ) : (
-          <>
-            {/* Amount summary */}
-            <div className="mb-4 rounded-lg border border-border bg-background p-3 flex items-center justify-between">
-              <span className="text-sm text-text-secondary">Deposit amount</span>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-bold font-mono">${numericAmount.toFixed(2)}</span>
-                <span className="text-xs text-text-muted">CAD</span>
-                <button onClick={() => setStep("amount")} className="text-xs text-ice hover:underline ml-1">
-                  Change
-                </button>
-              </div>
-            </div>
-            <div className="mb-4">
-              <Label className="mb-2 block text-text-secondary text-xs">Card details</Label>
-              <div className="rounded-lg border border-border bg-background p-3.5">
-                <CardElement
-                  options={CARD_ELEMENT_OPTIONS}
-                  onChange={(e) => setCardComplete(e.complete)}
-                />
-              </div>
-            </div>
 
-            <div className="mb-4 flex items-start gap-2 rounded-lg bg-ice/5 border border-ice/10 p-3">
-              <ShieldCheck className="h-4 w-4 text-ice mt-0.5 shrink-0" />
-              <p className="text-xs text-text-secondary">
-                Payments are processed securely. Card details never touch our servers.
-              </p>
-            </div>
-
-            {paypalAvailable && (
-              <div className="mb-6 rounded-xl border border-border/70 bg-background/70 p-4">
-                <div className="mb-3 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-border" />
-                  <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
-                    Or use PayPal
-                  </span>
-                  <div className="h-px flex-1 bg-border" />
-                </div>
-                <PayPalButton
-                  customerId={customerId}
-                  amountCad={numericAmount}
-                  onSuccess={(balance) => {
-                    setStep("success");
-                    setTimeout(() => onSuccess(balance), 1200);
-                  }}
-                  disabled={submitting}
-                />
-                <p className="mt-3 text-xs text-text-secondary">
-                  Prefer PayPal? Complete the same top-up in a separate PayPal window.
-                </p>
+          {paypalAvailable && (
+            <div className="mb-6 rounded-xl border border-border/70 bg-background/70 p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
+                  Or use PayPal
+                </span>
+                <div className="h-px flex-1 bg-border" />
               </div>
-            )}
-
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setStep("amount")} disabled={submitting}>
-                Back
-              </Button>
-              <Button
-                variant="success"
-                className="flex-1"
-                onClick={handlePayment}
-                disabled={!cardComplete || submitting}
-              >
-                {submitting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
-                ) : (
-                  <>Pay ${numericAmount.toFixed(2)} CAD</>
-                )}
-              </Button>
+              <PayPalButton
+                customerId={customerId}
+                amountCad={numericAmount}
+                onSuccess={(balance) => {
+                  setStep("success");
+                  setTimeout(() => onSuccess(balance), 1200);
+                }}
+                disabled={submitting}
+              />
             </div>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => setStep("amount")} disabled={submitting}>
+              Back
+            </Button>
+            <Button
+              variant="success"
+              className="flex-1"
+              onClick={handlePayment}
+              disabled={!cardComplete || submitting}
+            >
+              {submitting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</>
+              ) : (
+                <>Pay ${numericAmount.toFixed(2)} CAD</>
+              )}
+            </Button>
+          </div>
+        </>
+      )}
+    </ModalShell>
   );
 }
 
 export function DepositModal(props: DepositModalProps) {
   const stripe = getStripePromise();
   if (!stripe) {
-    return <DirectDepositForm {...props} />;
+    return <PayPalOnlyDepositForm {...props} />;
   }
   return (
     <Elements stripe={stripe}>

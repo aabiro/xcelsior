@@ -178,10 +178,33 @@ def test_setup_intent(auth):
 
 
 def test_payment_intent(auth):
-    _, headers = auth
-    r = client.post("/api/billing/payment-intent", json={"amount_cad": 10}, headers=headers)
+    email, headers = auth
+    r = client.post(
+        "/api/billing/payment-intent",
+        json={"customer_id": email, "amount_cad": 10},
+        headers=headers,
+    )
     # Reachable + handled; must not 500 (422 = validation, 402/503 = stripe state).
     assert r.status_code in OK_OR_HANDLED
+
+
+def test_payment_intent_requires_auth():
+    fresh = TestClient(app)
+    r = fresh.post(
+        "/api/billing/payment-intent",
+        json={"customer_id": "victim@example.com", "amount_cad": 10},
+    )
+    assert r.status_code == 401
+
+
+def test_payment_intent_forbidden_cross_account(two_users):
+    user_a, user_b = two_users
+    r = client.post(
+        "/api/billing/payment-intent",
+        json={"customer_id": user_b["customer_id"], "amount_cad": 10},
+        headers=user_a["headers"],
+    )
+    assert r.status_code == 403
 
 
 # ── Regression: detach must verify ownership + handle Stripe errors ────
@@ -251,3 +274,20 @@ def test_wallet_deposit_forbidden_cross_account(two_users):
         headers=user_a["headers"],
     )
     assert r.status_code == 403
+
+
+def test_wallet_deposit_blocked_in_production(two_users, monkeypatch):
+    """Production must not credit wallets without payment proof (Stripe/PayPal/crypto)."""
+    import routes.billing as billing_mod
+
+    monkeypatch.setattr(billing_mod, "XCELSIOR_ENV", "production")
+    user_a, _ = two_users
+    r = client.post(
+        f"/api/billing/wallet/{user_a['customer_id']}/deposit",
+        json={"amount_cad": 10.0, "description": "probe"},
+        headers=user_a["headers"],
+    )
+    assert r.status_code == 403
+    body = r.json()
+    message = body.get("detail") or body.get("error", {}).get("message", "")
+    assert "disabled" in str(message).lower()
