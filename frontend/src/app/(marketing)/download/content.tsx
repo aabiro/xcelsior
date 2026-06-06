@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { m } from "@/components/marketing/motion";
 import {
   Download,
   Monitor,
@@ -125,37 +125,37 @@ export function DownloadContent() {
       />
 
       {/* Hero */}
-      <motion.div
+      <m.div
         className="relative text-center mb-20"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.h1
+        <m.h1
           variants={fadeUp}
           custom={0}
           className="text-4xl font-bold md:text-5xl"
         >
           {t("download.hero_title")}
-        </motion.h1>
-        <motion.p
+        </m.h1>
+        <m.p
           variants={fadeUp}
           custom={1}
           className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto"
         >
           {t("download.hero_subtitle")}
-        </motion.p>
-      </motion.div>
+        </m.p>
+      </m.div>
 
       {/* Download cards */}
-      <motion.div
+      <m.div
         className="relative mb-24"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
         {/* Primary download */}
-        <motion.div variants={fadeUp} custom={2} className="mb-8">
+        <m.div variants={fadeUp} custom={2} className="mb-8">
           <a
             href={`${DOWNLOAD_BASE}/${primary.file}`}
             className="group glow-card flex flex-col items-center gap-4 rounded-xl p-8 text-center sm:flex-row sm:text-left"
@@ -178,10 +178,10 @@ export function DownloadContent() {
               {t("download.primary_cta")}
             </span>
           </a>
-        </motion.div>
+        </m.div>
 
         {/* Other platforms */}
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={3}
           className="grid grid-cols-1 gap-4 sm:grid-cols-2"
@@ -207,22 +207,22 @@ export function DownloadContent() {
               <ChevronRight className="h-4 w-4 text-text-muted group-hover:text-text-secondary transition-colors" />
             </a>
           ))}
-        </motion.div>
+        </m.div>
 
-        <motion.p
+        <m.p
           variants={fadeUp}
           custom={4}
           className="mt-4 text-center text-xs text-text-muted"
         >
           {t("download.build_note")}
-        </motion.p>
+        </m.p>
 
         {/* macOS Gatekeeper workaround — shown to everyone (macOS users see it
             prominently; others can still reference it). Until we ship a signed +
             notarized build via an Apple Developer ID, macOS quarantines our DMG
             and shows "Xcelsior is damaged and can't be opened." The file is
             fine — it just isn't notarized yet. */}
-        <motion.details
+        <m.details
           variants={fadeUp}
           custom={5}
           open={detected === "macos"}
@@ -262,38 +262,38 @@ export function DownloadContent() {
               once we ship a signed build.
             </p>
           </div>
-        </motion.details>
-      </motion.div>
+        </m.details>
+      </m.div>
 
       {/* What the desktop app does */}
-      <motion.div
+      <m.div
         className="relative mb-24"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.h2
+        <m.h2
           variants={fadeUp}
           custom={0}
           className="text-2xl font-bold mb-2"
         >
           {t("download.section_what_adds")}
-        </motion.h2>
-        <motion.p
+        </m.h2>
+        <m.p
           variants={fadeUp}
           custom={1}
           className="text-text-secondary mb-10 max-w-xl"
         >
           {t("download.section_what_adds_desc")}
-        </motion.p>
-        <motion.div
+        </m.p>
+        <m.div
           className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true }}
         >
           {DESKTOP_FEATURES.map((f, idx) => (
-            <motion.div
+            <m.div
               key={f.titleKey}
               variants={fadeUp}
               custom={idx}
@@ -311,19 +311,19 @@ export function DownloadContent() {
               <p className="text-sm text-text-secondary leading-relaxed">
                 {t(f.descKey)}
               </p>
-            </motion.div>
+            </m.div>
           ))}
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
 
       {/* Mobile section */}
-      <motion.div
+      <m.div
         className="relative"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={0}
           className="glow-card rounded-xl p-8 sm:p-10"
@@ -363,10 +363,10 @@ export function DownloadContent() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* CTA */}
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={1}
           className="mt-12 text-center"
@@ -388,8 +388,8 @@ export function DownloadContent() {
               {t("download.footer_signin")}
             </Link>
           </div>
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
     </div>
   );
 }

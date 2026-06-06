@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Shield, AlertTriangle, CheckCircle, XCircle, ArrowRight, MapPin } from "lucide-react";
-import { motion } from "framer-motion";
+import { m } from "@/components/marketing/motion";
 import { Button } from "@/components/ui/button";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useLocale } from "@/lib/locale";
@@ -22,32 +22,32 @@ export function SovereigntyContent() {
   return (
     <div className="mx-auto max-w-7xl px-6 py-28">
       {/* Hero */}
-      <motion.div
+      <m.div
         className="text-center mb-20"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-red/30 bg-accent-red/10 px-4 py-1.5 backdrop-blur-sm">
+        <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-red/30 bg-accent-red/10 px-4 py-1.5 backdrop-blur-sm">
           <Shield className="h-3.5 w-3.5 text-accent-red" />
           <span className="text-xs font-medium text-red-100">{t("sov.badge")}</span>
-        </motion.div>
-        <motion.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl lg:text-6xl">
+        </m.div>
+        <m.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl lg:text-6xl">
           {t("sov.title")}
-        </motion.h1>
-        <motion.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary max-w-3xl mx-auto">
+        </m.h1>
+        <m.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary max-w-3xl mx-auto">
           {t("sov.subtitle")}
-        </motion.p>
-      </motion.div>
+        </m.p>
+      </m.div>
 
       {/* Comparison */}
-      <motion.div
+      <m.div
         className="grid grid-cols-1 gap-8 md:grid-cols-2 mb-20"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={0}
           className="glow-card rounded-xl p-8"
@@ -67,9 +67,9 @@ export function SovereigntyContent() {
             <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_google")} logo="google-cloud" />
             <Row icon={XCircle} color="text-accent-red" text={t("sov.residency_azure")} logo="azure" />
           </ul>
-        </motion.div>
+        </m.div>
 
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={1}
           className="glow-card rounded-xl p-8 ring-1 ring-emerald/30"
@@ -90,11 +90,11 @@ export function SovereigntyContent() {
             <Row icon={CheckCircle} color="text-emerald" text={t("sov.sovereignty_i3")} />
             <Row icon={CheckCircle} color="text-emerald" text={t("sov.sovereignty_i4")} />
           </ul>
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
 
       {/* CLOUD Act Section */}
-      <motion.div
+      <m.div
         className="glow-card rounded-xl p-8 md:p-12 mb-20"
         style={{ "--glow-color": "rgba(0,212,255,0.08)" } as React.CSSProperties}
         initial={{ opacity: 0, y: 20 }}
@@ -109,11 +109,11 @@ export function SovereigntyContent() {
         <p className="text-text-secondary leading-relaxed">
           {t("sov.cloud_p2")}
         </p>
-      </motion.div>
+      </m.div>
 
       {/* Province Compliance */}
       <div className="mb-20">
-        <motion.h2
+        <m.h2
           className="text-2xl font-bold text-center mb-12"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -121,8 +121,8 @@ export function SovereigntyContent() {
           transition={{ duration: 0.5 }}
         >
           {t("sov.province_title")}
-        </motion.h2>
-        <motion.div
+        </m.h2>
+        <m.div
           className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
           initial="hidden"
           whileInView="visible"
@@ -134,26 +134,26 @@ export function SovereigntyContent() {
           <ProvinceCard i={3} province={t("sov.prov_ns")} law={t("sov.prov_ns_law")} description={t("sov.prov_ns_desc")} />
           <ProvinceCard i={4} province={t("sov.prov_fed")} law={t("sov.prov_fed_law")} description={t("sov.prov_fed_desc")} />
           <ProvinceCard i={5} province={t("sov.prov_all")} law={t("sov.prov_all_law")} description={t("sov.prov_all_desc")} />
-        </motion.div>
+        </m.div>
       </div>
 
       {/* CTA */}
-      <motion.div
+      <m.div
         className="text-center"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.h2 variants={fadeUp} custom={0} className="text-3xl font-bold mb-4">{t("sov.cta_title")}</motion.h2>
-        <motion.p variants={fadeUp} custom={1} className="text-text-secondary mb-8">{t("sov.cta_desc")}</motion.p>
-        <motion.div variants={fadeUp} custom={2}>
+        <m.h2 variants={fadeUp} custom={0} className="text-3xl font-bold mb-4">{t("sov.cta_title")}</m.h2>
+        <m.p variants={fadeUp} custom={1} className="text-text-secondary mb-8">{t("sov.cta_desc")}</m.p>
+        <m.div variants={fadeUp} custom={2}>
           <Link href="/register">
             <Button size="lg" className="text-base px-10 shadow-lg shadow-accent-cyan/10">
               {t("sov.cta_button")} <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
     </div>
   );
 }
@@ -177,7 +177,7 @@ function Row({ icon: Icon, color, text, logo }: { icon: typeof CheckCircle; colo
 
 function ProvinceCard({ i, province, law, description }: { i: number; province: string; law: string; description: string }) {
   return (
-    <motion.div
+    <m.div
       variants={fadeUp}
       custom={i}
       className="group glow-card rounded-xl p-5"
@@ -189,6 +189,6 @@ function ProvinceCard({ i, province, law, description }: { i: number; province: 
       </div>
       <p className="text-sm font-medium text-accent-gold mb-1">{law}</p>
       <p className="text-xs text-text-secondary leading-relaxed">{description}</p>
-    </motion.div>
+    </m.div>
   );
 }

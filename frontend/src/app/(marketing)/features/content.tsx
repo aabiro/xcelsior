@@ -1,7 +1,7 @@
 "use client";
 
 import { Shield, Zap, Scale, Server, BadgeCheck, BarChart3, Globe, Leaf, DollarSign, Lock, FileCheck, Users } from "lucide-react";
-import { motion } from "framer-motion";
+import { m } from "@/components/marketing/motion";
 import { useLocale } from "@/lib/locale";
 
 const fadeUp = {
@@ -46,24 +46,24 @@ export function FeaturesContent() {
         backgroundSize: "60px 60px",
       }} />
 
-      <motion.div
+      <m.div
         className="relative text-center mb-16"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.h1 variants={fadeUp} custom={0} className="text-4xl font-bold md:text-5xl">
+        <m.h1 variants={fadeUp} custom={0} className="text-4xl font-bold md:text-5xl">
           {t("features.title_1")}{" "}
           <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
             {t("features.title_accent")}
           </span>
-        </motion.h1>
-        <motion.p variants={fadeUp} custom={1} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
+        </m.h1>
+        <m.p variants={fadeUp} custom={1} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
           {t("features.subtitle")}
-        </motion.p>
-      </motion.div>
+        </m.p>
+      </m.div>
 
-      <motion.div
+      <m.div
         className="relative grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
         initial="hidden"
         whileInView="visible"
@@ -72,7 +72,7 @@ export function FeaturesContent() {
         {featureKeys.map((f, idx) => {
           const colors = categoryColors[f.cat] ?? { bg: "bg-accent-cyan/10", text: "text-accent-cyan", glow: "rgba(0,212,255,0.08)" };
           return (
-            <motion.div
+            <m.div
               key={f.title}
               variants={fadeUp}
               custom={idx}
@@ -89,10 +89,10 @@ export function FeaturesContent() {
               </div>
               <h3 className="mb-2 text-lg font-semibold">{t(f.title)}</h3>
               <p className="text-sm text-text-secondary leading-relaxed">{t(f.desc)}</p>
-            </motion.div>
+            </m.div>
           );
         })}
-      </motion.div>
+      </m.div>
     </div>
   );
 }
