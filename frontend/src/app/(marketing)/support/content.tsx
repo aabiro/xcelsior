@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { MessageCircle, Mail, BookOpen, Shield, Clock, Headphones } from "lucide-react";
-import { motion } from "framer-motion";
+import { m } from "@/components/marketing/motion";
 import { useLocale } from "@/lib/locale";
 
 const fadeUp = {
@@ -47,13 +47,13 @@ export function SupportContent() {
   return (
     <div className="mx-auto max-w-7xl px-6 py-28">
       {/* Hero */}
-      <motion.div
+      <m.div
         className="text-center mb-20"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={0}
           className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-cyan/30 bg-accent-cyan/10 px-4 py-1.5 backdrop-blur-sm"
@@ -62,34 +62,34 @@ export function SupportContent() {
           <span className="text-xs font-medium text-accent-cyan">
             {t("support.badge")}
           </span>
-        </motion.div>
+        </m.div>
 
-        <motion.h1
+        <m.h1
           variants={fadeUp}
           custom={1}
           className="text-4xl font-bold md:text-5xl lg:text-6xl"
         >
           {t("support.title")}
-        </motion.h1>
+        </m.h1>
 
-        <motion.p
+        <m.p
           variants={fadeUp}
           custom={2}
           className="mt-6 text-lg text-text-secondary max-w-3xl mx-auto leading-relaxed"
         >
           {t("support.subtitle")}
-        </motion.p>
-      </motion.div>
+        </m.p>
+      </m.div>
 
       {/* Support Channels */}
-      <motion.div
+      <m.div
         className="grid gap-8 md:grid-cols-3 mb-20"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
         {channels.map((ch, i) => (
-          <motion.div
+          <m.div
             key={ch.type}
             variants={fadeUp}
             custom={i}
@@ -132,18 +132,18 @@ export function SupportContent() {
                 {t(ch.actionKey)}
               </a>
             )}
-          </motion.div>
+          </m.div>
         ))}
-      </motion.div>
+      </m.div>
 
       {/* Info Cards */}
-      <motion.div
+      <m.div
         className="grid gap-6 md:grid-cols-2 mb-20"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={0}
           className="glow-card rounded-xl p-8"
@@ -156,9 +156,9 @@ export function SupportContent() {
           <p className="text-text-secondary text-sm leading-relaxed">
             {t("support.hours_desc")}
           </p>
-        </motion.div>
+        </m.div>
 
-        <motion.div
+        <m.div
           variants={fadeUp}
           custom={1}
           className="glow-card rounded-xl p-8"
@@ -171,11 +171,11 @@ export function SupportContent() {
           <p className="text-text-secondary text-sm leading-relaxed">
             {t("support.security_desc")}
           </p>
-        </motion.div>
-      </motion.div>
+        </m.div>
+      </m.div>
 
       {/* CTA */}
-      <motion.div
+      <m.div
         className="text-center"
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -189,7 +189,7 @@ export function SupportContent() {
         >
           {t("support.cta_button")}
         </Link>
-      </motion.div>
+      </m.div>
     </div>
   );
 }

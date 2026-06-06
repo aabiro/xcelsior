@@ -16,7 +16,7 @@ import {
   MapPin,
   Check,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { m } from "@/components/marketing/motion";
 import { Button } from "@/components/ui/button";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useLocale } from "@/lib/locale";
@@ -44,19 +44,19 @@ export default function HomePage() {
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 py-28 md:py-40">
-          <motion.div
+          <m.div
             className="max-w-3xl"
             initial="hidden"
             animate="visible"
           >
-            <motion.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
+            <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
               <MapPin className="h-3 w-3 text-accent-gold" />
               <span className="text-xs font-medium text-accent-gold">
                 {t("home.badge")}
               </span>
-            </motion.div>
+            </m.div>
 
-            <motion.h1 variants={fadeUp} custom={1} className="text-5xl font-bold leading-[1.08] tracking-tight md:text-6xl lg:text-7xl">
+            <m.h1 variants={fadeUp} custom={1} className="text-5xl font-bold leading-[1.08] tracking-tight md:text-6xl lg:text-7xl">
               <span>{t("home.hero_line1")}</span>
               <br />
               <span>
@@ -65,13 +65,13 @@ export default function HomePage() {
                 {t("home.hero_accent")}
               </span>
               </span>
-            </motion.h1>
+            </m.h1>
 
-            <motion.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary leading-relaxed max-w-2xl">
+            <m.p variants={fadeUp} custom={2} className="mt-6 text-lg text-text-secondary leading-relaxed max-w-2xl">
               {t("home.hero_desc")}
-            </motion.p>
+            </m.p>
 
-            <motion.div variants={fadeUp} custom={3} className="mt-10 flex flex-wrap gap-4">
+            <m.div variants={fadeUp} custom={3} className="mt-10 flex flex-wrap gap-4">
               <Link href="/register">
                 <Button size="lg" className="text-base px-8 shadow-lg shadow-accent-cyan/10">
                   {t("home.cta_start")}
@@ -83,9 +83,9 @@ export default function HomePage() {
                   {t("home.cta_pricing")}
                 </Button>
               </Link>
-            </motion.div>
+            </m.div>
 
-            <motion.div variants={fadeUp} custom={4} className="mt-14 flex flex-wrap gap-8 text-sm text-text-secondary">
+            <m.div variants={fadeUp} custom={4} className="mt-14 flex flex-wrap gap-8 text-sm text-text-secondary">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-gold/10">
                   <DollarSign className="h-3.5 w-3.5 text-accent-gold" />
@@ -104,8 +104,8 @@ export default function HomePage() {
                 </div>
                 {t("home.stat_hydro")}
               </div>
-            </motion.div>
-          </motion.div>
+            </m.div>
+          </m.div>
         </div>
       </section>
 
@@ -113,21 +113,21 @@ export default function HomePage() {
       <div className="brand-line" />
       <section className="bg-navy py-28">
         <div className="mx-auto max-w-7xl px-6">
-          <motion.div
+          <m.div
             className="text-center mb-16"
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
           >
-            <motion.h2 variants={fadeUp} custom={0} className="text-3xl font-bold md:text-4xl">
+            <m.h2 variants={fadeUp} custom={0} className="text-3xl font-bold md:text-4xl">
               {t("home.why_title")}
-            </motion.h2>
-            <motion.p variants={fadeUp} custom={1} className="mt-4 text-text-secondary max-w-2xl mx-auto">
+            </m.h2>
+            <m.p variants={fadeUp} custom={1} className="mt-4 text-text-secondary max-w-2xl mx-auto">
               {t("home.why_desc")}
-            </motion.p>
-          </motion.div>
+            </m.p>
+          </m.div>
 
-          <motion.div
+          <m.div
             className="grid grid-cols-1 gap-8 md:grid-cols-3"
             initial="hidden"
             whileInView="visible"
@@ -136,7 +136,7 @@ export default function HomePage() {
             <ValueCard i={0} icon={Shield} title={t("home.val_sovereignty_title")} description={t("home.val_sovereignty_desc")} glowColor="rgba(220,38,38,0.12)" accent="accent-red" />
             <ValueCard i={1} icon={Scale} title={t("home.val_compliance_title")} description={t("home.val_compliance_desc")} glowColor="rgba(245,158,11,0.12)" accent="accent-gold" />
             <ValueCard i={2} icon={Zap} title={t("home.val_pricing_title")} description={t("home.val_pricing_desc")} glowColor="rgba(16,185,129,0.12)" accent="emerald" />
-          </motion.div>
+          </m.div>
         </div>
       </section>
 
@@ -149,7 +149,7 @@ export default function HomePage() {
         }} />
 
         <div className="relative mx-auto max-w-7xl px-6">
-          <motion.h2
+          <m.h2
             className="text-3xl font-bold text-center mb-16 md:text-4xl"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -157,8 +157,8 @@ export default function HomePage() {
             transition={{ duration: 0.5 }}
           >
             {t("home.built_title")}
-          </motion.h2>
-          <motion.div
+          </m.h2>
+          <m.div
             className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
             initial="hidden"
             whileInView="visible"
@@ -170,14 +170,14 @@ export default function HomePage() {
             <FeatureCard i={3} icon={Globe} title={t("home.feat_jurisdiction_title")} description={t("home.feat_jurisdiction_desc")} />
             <FeatureCard i={4} icon={DollarSign} title={t("home.feat_spot_title")} description={t("home.feat_spot_desc")} />
             <FeatureCard i={5} icon={Leaf} title={t("home.feat_green_title")} description={t("home.feat_green_desc")} />
-          </motion.div>
+          </m.div>
         </div>
       </section>
 
       {/* ── Comparison ────────────────────────────────────────────────── */}
       <section className="border-t border-border bg-navy py-28">
         <div className="mx-auto max-w-7xl px-6">
-          <motion.h2
+          <m.h2
             className="text-3xl font-bold text-center mb-16 md:text-4xl"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -185,8 +185,8 @@ export default function HomePage() {
             transition={{ duration: 0.5 }}
           >
             {t("home.compare_title")}
-          </motion.h2>
-          <motion.div
+          </m.h2>
+          <m.div
             className="overflow-x-auto rounded-xl border border-border bg-surface/50 backdrop-blur-sm"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -228,7 +228,7 @@ export default function HomePage() {
                 <CompRow feature={t("home.cmp_green")} xcelsior={t("home.cmp_green_x")} aws={t("home.cmp_green_aws")} vast={t("home.cmp_green_vast")} runpod={t("home.cmp_green_rp")} />
               </tbody>
             </table>
-          </motion.div>
+          </m.div>
         </div>
       </section>
 
@@ -242,31 +242,31 @@ export default function HomePage() {
           <div className="absolute right-[20%] bottom-[15%] h-64 w-64 rounded-full bg-accent-violet/8 blur-[100px] animate-[aurora-drift_8s_ease-in-out_infinite_3s]" />
         </div>
 
-        <motion.div
+        <m.div
           className="relative mx-auto max-w-3xl px-6 text-center"
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true }}
         >
-          <motion.h2 variants={fadeUp} custom={0} className="text-4xl font-bold md:text-5xl lg:text-6xl">
+          <m.h2 variants={fadeUp} custom={0} className="text-4xl font-bold md:text-5xl lg:text-6xl">
             {t("home.cta_title_1")}
             <br />
             <span className="bg-gradient-to-r from-accent-cyan via-accent-violet to-accent-red bg-clip-text text-transparent">
               {t("home.cta_title_2")}
             </span>
-          </motion.h2>
-          <motion.p variants={fadeUp} custom={1} className="mt-6 text-lg text-text-secondary max-w-xl mx-auto">
+          </m.h2>
+          <m.p variants={fadeUp} custom={1} className="mt-6 text-lg text-text-secondary max-w-xl mx-auto">
             {t("home.cta_desc")}
-          </motion.p>
-          <motion.div variants={fadeUp} custom={2} className="mt-10">
+          </m.p>
+          <m.div variants={fadeUp} custom={2} className="mt-10">
             <Link href="/register">
               <Button variant="gold" size="lg" className="text-base px-10 shadow-lg shadow-accent-gold/15">
                 {t("home.cta_button")}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       </section>
     </>
   );
@@ -288,7 +288,7 @@ function ValueCard({
   i: number;
 }) {
   return (
-    <motion.div
+    <m.div
       variants={fadeUp}
       custom={i}
       className="glow-card rounded-xl p-8"
@@ -301,7 +301,7 @@ function ValueCard({
       </div>
       <h3 className="mb-2 text-xl font-semibold">{title}</h3>
       <p className="text-sm text-text-secondary leading-relaxed">{description}</p>
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -317,7 +317,7 @@ function FeatureCard({
   i: number;
 }) {
   return (
-    <motion.div
+    <m.div
       variants={fadeUp}
       custom={i}
       className="group glow-card rounded-xl p-6"
@@ -327,7 +327,7 @@ function FeatureCard({
       </div>
       <h3 className="mb-1 font-semibold">{title}</h3>
       <p className="text-sm text-text-secondary leading-relaxed">{description}</p>
-    </motion.div>
+    </m.div>
   );
 }
 

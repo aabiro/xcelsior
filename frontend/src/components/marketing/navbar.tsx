@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MapPin, Menu, X } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "@/components/marketing/motion";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { LocaleToggle } from "@/components/ui/locale-toggle";
 import { useLocale } from "@/lib/locale";
@@ -108,7 +108,7 @@ export function Navbar() {
       {/* Mobile menu */}
       <AnimatePresence>
         {open && (
-          <motion.nav
+          <m.nav
             id="mobile-nav-menu"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -163,7 +163,7 @@ export function Navbar() {
                 </Link>
               </div>
             </div>
-          </motion.nav>
+          </m.nav>
         )}
       </AnimatePresence>
     </header>

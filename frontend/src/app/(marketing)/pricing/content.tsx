@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Check, DollarSign } from "lucide-react";
-import { motion } from "framer-motion";
+import { m } from "@/components/marketing/motion";
 import { SavingsCalculator } from "./calculator";
 import { useLocale } from "@/lib/locale";
 
@@ -31,32 +31,32 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
   return (
     <div className="mx-auto max-w-7xl px-6 py-28">
       {/* Header */}
-      <motion.div
+      <m.div
         className="text-center mb-16"
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
       >
-        <motion.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
+        <m.div variants={fadeUp} custom={0} className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-gold/30 bg-accent-gold/10 px-4 py-1.5 backdrop-blur-sm">
           <DollarSign className="h-3 w-3 text-accent-gold" />
           <span className="text-xs font-medium text-accent-gold">
             {t("pricing.badge")}
           </span>
-        </motion.div>
-        <motion.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl">
+        </m.div>
+        <m.h1 variants={fadeUp} custom={1} className="text-4xl font-bold md:text-5xl">
           {t("pricing.title")}
-        </motion.h1>
-        <motion.p variants={fadeUp} custom={2} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
+        </m.h1>
+        <m.p variants={fadeUp} custom={2} className="mt-4 text-lg text-text-secondary max-w-2xl mx-auto">
           {t("pricing.subtitle")}
-        </motion.p>
-      </motion.div>
+        </m.p>
+      </m.div>
 
       <p className="mb-3 text-center text-sm text-text-muted md:hidden" role="note">
         {t("pricing.scroll_hint")}
       </p>
 
       {/* GPU Pricing Table */}
-      <motion.div
+      <m.div
         className="overflow-x-auto mb-20 rounded-xl border border-border bg-surface/50 backdrop-blur-sm scroll-smooth"
         tabIndex={0}
         aria-label={t("pricing.table_label")}
@@ -89,10 +89,10 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
             ))}
           </tbody>
         </table>
-      </motion.div>
+      </m.div>
 
       {/* AI Compute Fund Callout */}
-      <motion.div
+      <m.div
         className="glow-card rounded-xl p-8 md:p-12 mb-20"
         style={{ "--glow-color": "rgba(245,158,11,0.12)" } as React.CSSProperties}
         initial={{ opacity: 0, y: 20 }}
@@ -124,10 +124,10 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
             <p className="text-xs text-text-muted">{t("pricing.fund_effective_unit")}</p>
           </div>
         </div>
-      </motion.div>
+      </m.div>
 
       {/* Plans */}
-      <motion.div
+      <m.div
         className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-20"
         initial="hidden"
         whileInView="visible"
@@ -162,7 +162,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
           unit=""
           features={[t("pricing.tier_sovereign_i1"), t("pricing.tier_sovereign_i2"), t("pricing.tier_sovereign_i3"), t("pricing.tier_sovereign_i4")]}
         />
-      </motion.div>
+      </m.div>
 
       {/* Savings Calculator */}
       <div className="mb-20">
@@ -171,7 +171,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
       </div>
 
       {/* CTA */}
-      <motion.div
+      <m.div
         className="text-center"
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -183,7 +183,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
             {t("pricing.cta_start")} <ArrowRight className="h-4 w-4" />
           </Button>
         </Link>
-      </motion.div>
+      </m.div>
     </div>
   );
 }
@@ -210,7 +210,7 @@ function PlanCard({
   badge?: string;
 }) {
   return (
-    <motion.div
+    <m.div
       variants={fadeUp}
       custom={i}
       className={`glow-card rounded-xl p-8 relative ${highlighted ? "ring-1 ring-accent-gold/40 brand-top-accent" : ""}`}
@@ -244,6 +244,6 @@ function PlanCard({
           {t("pricing.cta_get_started")}
         </Button>
       </Link>
-    </motion.div>
+    </m.div>
   );
 }
