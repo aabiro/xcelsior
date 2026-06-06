@@ -2,8 +2,8 @@
 
 Date: **2026-06-06** (verification run)  
 Target: https://xcelsior.ca  
-Local `main`: `ef6ff30`  
-Production (est.): `5212499+ (F-003 deployed; ef6ff30 not yet deployed)`
+Local `main`: `05dbb0b`  
+Production (est.): `05dbb0b`
 
 This is the **third verification pass** — synthesizing automated script output after VPS recovery (2026-06-05). It supersedes the stale generator output in `site-audit-report-2026-06-04-reaudit.md` and consolidates:
 
@@ -23,13 +23,13 @@ Raw artifacts: `/tmp/xcelsior-audit/raw/` (perf, dashboard, desktop), `/tmp/post
 2. **P1 findings cleared on prod** — F-001, F-002, F-004, F-005 verified via **51/51** post-deploy checks and **5/5** hydration routes.
 3. **F-003 improved, not done** — Marketing JS **~374 KB** on `/` (was **~812 KB**); desktop TBT **~7.2 s** (was **~9.2 s**). Mobile slow-4G TBT still **25–31 s** on key routes.
 4. **Dashboard coverage complete** — Playwright authenticated crawl **10/10** routes (hardened audit script, `ef6ff30`).
-5. **Pending deploy** — `ef6ff30` (F-003 phase 2 deferrals, security auth gaps, audit hardening) is on `main` but not yet on production.
+5. **Deploy status** — `05dbb0b` deployed to production (2026-06-06).
 
 ### Verification matrix (2026-06-06)
 
 | Suite | Result | Artifact |
 |-------|--------|----------|
-| Post-deploy checks | **51/51** passed at 2026-06-06T03:08:22.356Z | `/tmp/post-deploy-check.json` |
+| Post-deploy checks | **51/51** passed at 2026-06-06T03:33:41.832Z | `/tmp/post-deploy-check.json` |
 | CLI coverage | **51/51** passed at 2026-06-06T03:12:21.001Z | `/tmp/cli-coverage.json` |
 | Hydration repro | **5/5** routes clean | `frontend/scripts/hydration-repro.mjs` |
 | Dashboard Playwright | **10/10** passed at 2026-06-06T03:13:16.854Z (1 nav warnings) | `/tmp/xcelsior-audit/raw/dashboard-all.json` |
@@ -66,7 +66,7 @@ Raw artifacts: `/tmp/xcelsior-audit/raw/` (perf, dashboard, desktop), `/tmp/post
 |----|-----|-----------|-----|------|
 | F-001 | P1 | 5fc95d3 | 200 + user:null; defer /api/auth/me on marketing | prod ✓ |
 | F-002 | P1 | 5fc95d3 | Public GPU endpoint; honest degraded UI | prod ✓ |
-| F-003 | P1 | dfeff69,5212499,ef6ff30 | i18n split, lazy framer-motion, idle PWA/chat/toaster | prod partial (ef6ff30 pending) |
+| F-003 | P1 | dfeff69,5212499,ef6ff30 | i18n split, lazy framer-motion, idle PWA/chat/toaster | prod ✓ |
 | F-004 | P1 | eb338b2 | CF email obfuscation hydration; ObfuscationSafeMailto | prod ✓ |
 | F-005 | P1 | 5fc95d3 | Per-route canonicals; sitemap download + gpu-availability | prod ✓ |
 | F-006 | P1 | 5fc95d3 | Deduped security headers at app layer | prod ✓ |
@@ -103,7 +103,7 @@ Raw artifacts: `/tmp/xcelsior-audit/raw/` (perf, dashboard, desktop), `/tmp/post
 
 Desktop `/`: JS **374 KB** vs baseline **812 KB** (−438 KB, −54%).
 
-**F-003 phase 2** (`ef6ff30`, pending deploy): idle-defer PWA widgets, lazy `DeferredClientToaster`, hardened dashboard audit script.
+**F-003 phase 2** (`ef6ff30`, deployed): idle-defer PWA widgets, lazy `DeferredClientToaster`, hardened dashboard audit script.
 
 ---
 
@@ -138,15 +138,6 @@ Routes probed: `/dashboard`, `/dashboard/instances`, `/dashboard/hosts`, `/dashb
 
 ---
 
-## Commits on `main` not yet on production
-
-- `ef6ff30 fix(audit,perf,security): harden dashboard audit, F-003 deferrals, auth gaps`
-- `cca6b09 fix(deploy): headscale ACL apply uses file mode restart`
-- `91dd440 infra: add headscale SSH ACL for xcelsior@ → linuxuser on tag:xcelsior`
-- `20691ec fix(audit): run prod checks via Tailscale when public CF is down`
-
----
-
 ## Regenerate this report
 
 ```bash
@@ -165,8 +156,9 @@ REVERIFY_JSON=/tmp/post-deploy-check.json node scripts/generate_reaudit_report.m
 
 ## Recommended next steps
 
-1. **Deploy `ef6ff30`** — `bash scripts/deploy.sh` with `frontend_build=true`
-2. **Re-run perf MCP** after deploy — expect marginal TBT improvement from phase-2 deferrals
+1. **Re-run perf MCP** — compare post-`ef6ff30` TBT vs `perf-all.json` baseline (2026-06-05)
+2. **Monitor** — `bash scripts/redo_when_prod_up.sh --quick` after material changes
 3. **F-003 target** — sub-2 s desktop TBT / acceptable mobile INP (optional further splitting)
 4. **Full CI** — `CI=true XCELSIOR_ENV=test bash run-tests.sh` (2863 passed, 6 skipped as of 2026-06-05)
 5. **Cloudflare optional** — disable Email Obfuscation if legal pages need plaintext mailto in HTML source
+
