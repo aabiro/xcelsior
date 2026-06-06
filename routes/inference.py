@@ -521,7 +521,10 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
     Routes to a serverless inference endpoint running the requested model.
     """
     user = _get_current_user(request)
-    customer_id = user.get("user_id", user.get("email", "anon")) if user else "anon"
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "inference:write")
+    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "anon")))
 
     ie = get_inference_engine()
     from inference import InferenceRequest as InfReq
@@ -561,6 +564,9 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
 @router.post("/api/v2/inference/complete/{request_id}", tags=["Inference v2"])
 def api_inference_complete(request_id: str, request: Request):
     """Worker callback: mark inference request as completed with results."""
+    from routes.instances import _require_worker_status_update
+
+    _require_worker_status_update(request)
     ie = get_inference_engine()
     try:
         body = json.loads(request._body) if hasattr(request, "_body") else {}

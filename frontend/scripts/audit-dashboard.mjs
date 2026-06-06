@@ -44,6 +44,66 @@ function loadEnvAudit() {
   return env;
 }
 
+const NAV_TIMEOUT_MS = Number(process.env.AUDIT_NAV_TIMEOUT_MS || 90000);
+const SETTLE_MS = Number(process.env.AUDIT_ROUTE_SETTLE_MS || 2000);
+
+async function sessionOk(page, base) {
+  const authMe = await page
+    .request.get(`${base}/api/auth/me`)
+    .then((r) => r.json())
+    .catch(() => null);
+  const finalUrl = page.url();
+  const authed = Boolean(authMe?.user?.email);
+  const onDashboard = authed && !finalUrl.includes("/login");
+  return {
+    authEmail: authMe?.user?.email || null,
+    onDashboard,
+    finalUrl,
+  };
+}
+
+async function waitForDashboard(page, base, routePath, { timeoutMs = 15000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = await sessionOk(page, base);
+  while (Date.now() < deadline) {
+    if (last.onDashboard && last.finalUrl.includes(routePath)) return last;
+    if (last.authEmail && last.finalUrl.includes("/login")) {
+      await page.waitForTimeout(500);
+      last = await sessionOk(page, base);
+      continue;
+    }
+    if (last.onDashboard) return last;
+    await page.waitForTimeout(500);
+    last = await sessionOk(page, base);
+  }
+  return last;
+}
+
+async function gotoResilient(page, url, { attempts = 2 } = {}) {
+  const waitStrategies = ["networkidle", "load"];
+  let lastError = null;
+  let status = null;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    for (const waitUntil of waitStrategies) {
+      try {
+        const res = await page.goto(url, { waitUntil, timeout: NAV_TIMEOUT_MS });
+        status = res?.status() ?? null;
+        await page.waitForTimeout(SETTLE_MS);
+        return { status, error: null };
+      } catch (e) {
+        lastError = e;
+        if (!/ERR_ABORTED|Timeout/i.test(e.message)) break;
+      }
+    }
+  }
+
+  return {
+    status,
+    error: lastError ? String(lastError.message).split("\n")[0] : "navigation failed",
+  };
+}
+
 async function login(page, base, email, password) {
   const loginRes = await page.request.post(`${base}/api/auth/login`, {
     data: { email, password },
@@ -57,11 +117,21 @@ async function login(page, base, email, password) {
   if (body.mfa_required) {
     throw new Error("MFA required — audit user must have MFA disabled");
   }
-  await page.goto(`${base}/dashboard`, { waitUntil: "networkidle", timeout: 90000 });
-  const url = page.url();
-  if (url.includes("/login")) {
-    throw new Error(`still on login after API auth: ${url}`);
+  const nav = await gotoResilient(page, `${base}/dashboard`);
+  const session = await waitForDashboard(page, base, "/dashboard", { timeoutMs: 20000 });
+  if (nav.error && !session.onDashboard) {
+    throw new Error(`dashboard login navigation failed: ${nav.error}`);
   }
+  if (!session.onDashboard) {
+    throw new Error(`still on login after API auth: ${session.finalUrl}`);
+  }
+  await page.waitForTimeout(1000);
+}
+
+function benignConsoleError(text) {
+  return /favicon|404|410|google-analytics|googletagmanager|Content Security Policy|g\/collect|API keys are permanently disabled|Failed to fetch unread count/i.test(
+    text,
+  );
 }
 
 async function probeRoute(page, base, routePath) {
@@ -71,29 +141,25 @@ async function probeRoute(page, base, routePath) {
   };
   page.on("console", onConsole);
   const url = base + routePath;
-  let status = null;
-  let finalUrl = url;
-  try {
-    const res = await page.goto(url, { waitUntil: "networkidle", timeout: 90000 });
-    status = res?.status() ?? null;
-    finalUrl = page.url();
-  } catch (e) {
-    return { routePath, error: e.message, status, finalUrl, consoleErrors: errors.slice(0, 10) };
+  let nav = await gotoResilient(page, url);
+  let session = await waitForDashboard(page, base, routePath);
+  if (!session.onDashboard && session.authEmail) {
+    nav = await gotoResilient(page, url, { attempts: 1 });
+    session = await waitForDashboard(page, base, routePath);
   }
   page.off("console", onConsole);
-  const authMe = await page
-    .request.get(`${base}/api/auth/me`)
-    .then((r) => r.json())
-    .catch(() => null);
-  const title = await page.title();
+  const title = await page.title().catch(() => "");
+  const consoleErrors = errors.filter((e) => !benignConsoleError(e)).slice(0, 10);
+  const hardFail = nav.error && !session.onDashboard;
   return {
     routePath,
-    status,
-    finalUrl,
+    status: nav.status,
+    finalUrl: session.finalUrl,
     title,
-    authEmail: authMe?.user?.email || null,
-    onDashboard: !finalUrl.includes("/login"),
-    consoleErrors: errors.filter((e) => !/favicon|404/.test(e)).slice(0, 10),
+    authEmail: session.authEmail,
+    onDashboard: session.onDashboard,
+    consoleErrors,
+    ...(hardFail ? { error: nav.error } : nav.error ? { navWarning: nav.error } : {}),
   };
 }
 

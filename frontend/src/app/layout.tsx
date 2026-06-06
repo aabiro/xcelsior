@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
-import { ClientToaster } from "@/components/ClientToaster";
+import { DeferredClientToaster } from "@/components/DeferredClientToaster";
 import "./globals.css";
 
 const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? "")
@@ -149,7 +149,7 @@ export default function RootLayout({
           {children}
           <RootClientWidgets />
         </Providers>
-        <ClientToaster />
+        <DeferredClientToaster />
       </body>
     </html>
   );

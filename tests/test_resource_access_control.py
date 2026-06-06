@@ -192,6 +192,36 @@ def test_provider_earnings_forbidden_cross_account(two_users):
     assert r.status_code == 403
 
 
+def test_events_entity_forbidden_cross_account(two_users):
+    user_a, user_b = two_users
+    job = client.post(
+        "/instance",
+        json={"name": "events-a", "vram_needed_gb": 1},
+        headers=user_a["headers"],
+    ).json()["instance"]
+    r = client.get(
+        f"/api/events/job/{job['job_id']}",
+        headers=user_b["headers"],
+    )
+    assert r.status_code == 403
+
+
+def test_api_inference_get_forbidden_cross_account(two_users):
+    user_a, user_b = two_users
+    submitted = client.post(
+        "/api/inference",
+        json={
+            "model": "distilbert-base-uncased-finetuned-sst-2-english",
+            "inputs": ["hello"],
+        },
+        headers=user_a["headers"],
+    )
+    assert submitted.status_code == 200, submitted.text[:200]
+    job_id = submitted.json()["job_id"]
+    r = client.get(f"/api/inference/{job_id}", headers=user_b["headers"])
+    assert r.status_code == 403
+
+
 def test_v1_inference_poll_forbidden_cross_account(two_users):
     user_a, user_b = two_users
     submitted = client.post(
@@ -210,13 +240,21 @@ def test_v1_inference_poll_forbidden_cross_account(two_users):
 
 def test_residency_trace_forbidden_cross_account(two_users):
     user_a, user_b = two_users
-    job = client.post(
+    created = client.post(
         "/instance",
         json={"name": "residency-a", "vram_needed_gb": 1},
         headers=user_a["headers"],
-    ).json()["instance"]
+    )
+    if created.status_code == 200:
+        job_id = created.json()["instance"]["job_id"]
+    else:
+        listed = client.get("/instance", headers=user_a["headers"])
+        assert listed.status_code == 200, listed.text[:200]
+        instances = listed.json().get("instances") or []
+        assert instances, "need an owned instance for residency IDOR test"
+        job_id = instances[0]["job_id"]
     r = client.get(
-        f"/api/jurisdiction/residency-trace/{job['job_id']}",
+        f"/api/jurisdiction/residency-trace/{job_id}",
         headers=user_b["headers"],
     )
     assert r.status_code == 403
