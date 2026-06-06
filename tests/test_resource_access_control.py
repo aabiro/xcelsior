@@ -248,7 +248,7 @@ def test_residency_trace_forbidden_cross_account(two_users):
     if created.status_code == 200:
         job_id = created.json()["instance"]["job_id"]
     else:
-        listed = client.get("/instance", headers=user_a["headers"])
+        listed = client.get("/instances", headers=user_a["headers"])
         assert listed.status_code == 200, listed.text[:200]
         instances = listed.json().get("instances") or []
         assert instances, "need an owned instance for residency IDOR test"
