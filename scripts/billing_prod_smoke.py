@@ -88,12 +88,17 @@ def main() -> int:
         except Exception:
             results[path] = {"status": r.status_code, "raw": r.text[:200]}
 
+    paypal_body = results.get("/api/billing/paypal/enabled", {})
+    paypal_on = paypal_body.get("enabled") if isinstance(paypal_body, dict) else False
+    results["paypal_enabled"] = paypal_on
+
     ok = (
         results["login"] == 200
         and results["wallet"] == 200
         and results["direct_deposit"] == 403
         and results["payment_intent"] != 401
         and results["payment_intent_idor"] == 403
+        and paypal_on is True
     )
     results["pass"] = ok
     print(json.dumps(results, indent=2))
