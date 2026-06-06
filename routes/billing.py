@@ -406,6 +406,32 @@ def _paypal_handle_order_approved(resource: dict) -> None:
     log.info("PayPal webhook capture: %s → $%.2f CAD (order %s)", customer_id, amount_cad, order_id)
 
 
+def _paypal_handle_order_completed(resource: dict) -> None:
+    """CHECKOUT.ORDER.COMPLETED — order finished; credit from embedded captures."""
+    order_id = resource.get("id", "")
+    purchase_units = resource.get("purchase_units") or []
+    if not purchase_units:
+        return
+    customer_id = purchase_units[0].get("custom_id", "") or ""
+    if not customer_id:
+        log.warning("PayPal ORDER.COMPLETED missing custom_id for order %s", order_id)
+        return
+    captures = (purchase_units[0].get("payments") or {}).get("captures") or []
+    for capture in captures:
+        if capture.get("status") != "COMPLETED":
+            continue
+        amount_cad = float((capture.get("amount") or {}).get("value") or 0)
+        if amount_cad <= 0:
+            continue
+        _paypal_credit_capture(customer_id, order_id, amount_cad, capture.get("id", ""))
+        log.info(
+            "PayPal ORDER.COMPLETED credit: %s → $%.2f CAD (order %s)",
+            customer_id,
+            amount_cad,
+            order_id,
+        )
+
+
 def _paypal_handle_capture_completed(resource: dict) -> None:
     capture_id = resource.get("id", "")
     amount = resource.get("amount") or {}
@@ -450,9 +476,17 @@ async def api_paypal_webhook(request: Request):
     try:
         if event_type == "CHECKOUT.ORDER.APPROVED":
             _paypal_handle_order_approved(resource)
+        elif event_type == "CHECKOUT.ORDER.COMPLETED":
+            _paypal_handle_order_completed(resource)
         elif event_type == "PAYMENT.CAPTURE.COMPLETED":
             _paypal_handle_capture_completed(resource)
-        elif event_type in ("PAYMENT.CAPTURE.DENIED", "PAYMENT.CAPTURE.REFUNDED"):
+        elif event_type in (
+            "PAYMENT.CAPTURE.DENIED",
+            "PAYMENT.CAPTURE.REFUNDED",
+            "PAYMENT.CAPTURE.REVERSED",
+            "CHECKOUT.ORDER.CANCELLED",
+            "CHECKOUT.PAYMENT-APPROVAL.REVERSED",
+        ):
             log.info("PayPal webhook %s resource_id=%s", event_type, resource.get("id", ""))
         else:
             log.debug("PayPal webhook ignored: %s", event_type)
