@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
 import type { Locale } from "@/lib/locale";
-import en from "@/lib/i18n/en";
-import fr from "@/lib/i18n/fr";
+import enPublic from "@/lib/i18n/en-public";
+import frPublic from "@/lib/i18n/fr-public";
 
-const dictionaries = { en, fr } as const;
+const dictionaries = { en: enPublic, fr: frPublic } as const;
 
 export async function getServerLocale(): Promise<Locale> {
   const jar = await cookies();
