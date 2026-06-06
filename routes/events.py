@@ -60,6 +60,7 @@ def api_instance_audit_trail(job_id: str, request: Request):
     lease renewal, billing event, ordered by time with tamper-evident hashes.
     """
     user = _require_auth(request)
+    _require_scope(user, "events:read")
     from routes.instances import _check_job_access
 
     _check_job_access(user, job_id)

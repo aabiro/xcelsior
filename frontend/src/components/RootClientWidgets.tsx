@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
 const DesktopAppRuntime = dynamic(
@@ -19,15 +20,35 @@ const ServiceWorkerRegistrar = dynamic(
   { ssr: false },
 );
 
+function useIdleReady(timeoutMs = 5000) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(() => setReady(true), { timeout: timeoutMs });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(() => setReady(true), Math.min(timeoutMs, 2500));
+    return () => window.clearTimeout(id);
+  }, [timeoutMs]);
+
+  return ready;
+}
+
 export function RootClientWidgets() {
   const pathname = usePathname();
   const onDashboard = Boolean(pathname?.startsWith("/dashboard"));
+  const pwaReady = useIdleReady(onDashboard ? 1500 : 5000);
 
   return (
     <>
       {onDashboard ? <DesktopAppRuntime /> : null}
-      <InstallBanner />
-      <ServiceWorkerRegistrar />
+      {pwaReady ? (
+        <>
+          <InstallBanner />
+          <ServiceWorkerRegistrar />
+        </>
+      ) : null}
     </>
   );
 }

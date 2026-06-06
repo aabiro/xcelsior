@@ -101,6 +101,17 @@ def test_inference_delete_endpoint(user_headers, endpoint_id):
     assert r.json().get("ok") is True
 
 
+def test_openai_chat_completions_requires_auth():
+    r = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "distilbert-base-uncased-finetuned-sst-2-english",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+    )
+    assert r.status_code == 401
+
+
 def test_openai_chat_completions(user_headers):
     r = client.post(
         "/v1/chat/completions",
