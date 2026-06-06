@@ -19,19 +19,38 @@ QUICK=false
 log() { echo "[redo-prod] $*"; }
 fail() { echo "[redo-prod] FAIL: $*" >&2; exit 1; }
 
+TAILSCALE_ORIGIN_IP="${AUDIT_ORIGIN_IP:-100.64.0.1}"
+USE_TAILSCALE_ORIGIN=false
+
 log "Checking public health ($BASE)..."
 PUB_CODE="$(curl -sf -m 25 -o /dev/null -w '%{http_code}' "$BASE/healthz" 2>/dev/null || echo 000)"
-if [[ "$PUB_CODE" != "200" ]]; then
-  fail "Public healthz returned $PUB_CODE (need 200). Retry when origin is back."
+if [[ "$PUB_CODE" == "200" ]]; then
+  log "Public OK ($PUB_CODE)"
+else
+  log "Public healthz returned $PUB_CODE — trying Tailscale origin ($TAILSCALE_ORIGIN_IP)..."
+  TS_CODE="$(curl -skf -m 15 --resolve "xcelsior.ca:443:${TAILSCALE_ORIGIN_IP}" \
+    -o /dev/null -w '%{http_code}' "$BASE/healthz" 2>/dev/null || echo 000)"
+  TS_API="$(curl -sf -m 10 -o /dev/null -w '%{http_code}' "http://${TAILSCALE_ORIGIN_IP}:9501/healthz" 2>/dev/null || echo 000)"
+  if [[ "$TS_CODE" == "200" || "$TS_API" == "200" ]]; then
+    export AUDIT_ORIGIN_IP="$TAILSCALE_ORIGIN_IP"
+    USE_TAILSCALE_ORIGIN=true
+    log "Origin reachable via Tailscale (nginx=$TS_CODE api=$TS_API) — audits use AUDIT_ORIGIN_IP"
+  else
+    fail "Public healthz=$PUB_CODE and Tailscale origin unreachable (nginx=$TS_CODE api=$TS_API)"
+  fi
 fi
-log "Public OK ($PUB_CODE)"
 
 if ssh -i "$SSH_KEY" -o ConnectTimeout=15 -o BatchMode=yes "$REMOTE_USER@$REMOTE_HOST" "echo ok" &>/dev/null; then
   ORIGIN_CODE="$(ssh -i "$SSH_KEY" "$REMOTE_USER@$REMOTE_HOST" \
     "curl -sf -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:9501/healthz" 2>/dev/null || echo 000)"
   log "SSH OK — origin API healthz: $ORIGIN_CODE"
+elif ssh -i "$SSH_KEY" -o ConnectTimeout=15 -o BatchMode=yes "$REMOTE_USER@$TAILSCALE_ORIGIN_IP" "echo ok" &>/dev/null; then
+  REMOTE_HOST="$TAILSCALE_ORIGIN_IP"
+  ORIGIN_CODE="$(ssh -i "$SSH_KEY" "$REMOTE_USER@$REMOTE_HOST" \
+    "curl -sf -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:9501/healthz" 2>/dev/null || echo 000)"
+  log "SSH via Tailscale IP OK — origin API healthz: $ORIGIN_CODE"
 else
-  log "SSH unreachable (optional) — continuing with public checks only"
+  log "SSH unreachable — continuing with HTTP audits only"
 fi
 
 cd "$PROJECT_DIR"
@@ -45,7 +64,11 @@ node scripts/audit_cli_coverage.mjs > /tmp/cli-coverage.json
 node -e "const j=require('/tmp/cli-coverage.json'); if(j.summary.failed) process.exit(1); console.log('  ', j.summary)"
 
 log "3/5 hydration repro..."
-BASE_URL="$BASE" node frontend/scripts/hydration-repro.mjs
+if [[ "$USE_TAILSCALE_ORIGIN" == "true" ]]; then
+  BASE_URL="$BASE" AUDIT_ORIGIN_IP="$TAILSCALE_ORIGIN_IP" node frontend/scripts/hydration-repro.mjs
+else
+  BASE_URL="$BASE" node frontend/scripts/hydration-repro.mjs
+fi
 
 if [[ -f "$PROJECT_DIR/.env.audit" ]]; then
   log "4/5 dashboard audit..."

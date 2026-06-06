@@ -31,7 +31,15 @@ if try_public; then
   exit $?
 fi
 
-echo "[audit] Public site unreachable (CF/origin) — API probe via SSH tunnel :$TUNNEL_PORT → 9501"
+TAILSCALE_ORIGIN_IP="${AUDIT_ORIGIN_IP:-100.64.0.1}"
+TS_API="$(curl -sf -m 10 -o /dev/null -w '%{http_code}' "http://${TAILSCALE_ORIGIN_IP}:9501/healthz" 2>/dev/null || echo 000)"
+if [[ "$TS_API" == "200" ]]; then
+  echo "[audit] Public down — API probe via Tailscale origin :9501"
+  AUDIT_BASE="http://${TAILSCALE_ORIGIN_IP}:9501" node "$PROJECT_DIR/scripts/audit_dashboard_api_check.mjs"
+  exit $?
+fi
+
+echo "[audit] Public site unreachable — API probe via SSH tunnel :$TUNNEL_PORT → 9501"
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -f -N \
   -L "$TUNNEL_PORT:127.0.0.1:9501" "$REMOTE_USER@$REMOTE_HOST"
 trap 'pkill -f "ssh.*-L $TUNNEL_PORT:127.0.0.1:9501" 2>/dev/null || true' EXIT
