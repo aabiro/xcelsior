@@ -1,0 +1,31 @@
+// Xcelsior tailnet ACL — apply on VPS: headscale policy set -f /etc/headscale/acl.json
+{
+  "groups": {
+    "group:admin": ["xcelsior@"]
+  },
+
+  "tagOwners": {
+    "tag:xcelsior": ["xcelsior@"]
+  },
+
+  "acls": [
+    { "action": "accept", "src": ["group:admin"], "dst": ["*:*"] },
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:xcelsior:*", "autogroup:self:*"] }
+  ],
+
+  // Tailscale SSH: allow xcelsior members → linuxuser on tagged VPS nodes
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["group:admin"],
+      "dst": ["tag:xcelsior"],
+      "users": ["linuxuser", "root"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["tag:xcelsior"],
+      "users": ["linuxuser"]
+    }
+  ]
+}
