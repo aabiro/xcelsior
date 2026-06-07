@@ -5,12 +5,17 @@
   },
 
   "tagOwners": {
-    "tag:xcelsior": ["xcelsior@"]
+    "tag:xcelsior": ["xcelsior@"],
+    "tag:mac-nfs": ["xcelsior@"]
   },
 
   "acls": [
     { "action": "accept", "src": ["group:admin"], "dst": ["*:*"] },
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:xcelsior:*", "autogroup:self:*"] }
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:xcelsior:*", "autogroup:self:*"] },
+    // VPS (tag:xcelsior) → Mac NFS appliance: SSH provision + NFS-Ganesha :12049
+    { "action": "accept", "src": ["tag:xcelsior"], "dst": ["tag:mac-nfs:22,12049"] },
+    // GPU workers (members) mount Mac NFS exports
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:mac-nfs:12049"] }
   ],
 
   // Tailscale SSH: allow xcelsior members → linuxuser on tagged VPS nodes

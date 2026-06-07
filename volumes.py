@@ -29,7 +29,15 @@ NFS_SERVER = os.environ.get("XCELSIOR_NFS_SERVER", "")
 # SSH target for provision/destroy (may differ from mount server when API colocates NFS).
 NFS_SSH_HOST = os.environ.get("XCELSIOR_NFS_SSH_HOST", "") or NFS_SERVER
 NFS_SSH_USER = os.environ.get("XCELSIOR_NFS_SSH_USER", "") or os.environ.get("XCELSIOR_SSH_USER", "aaryn")
+# When NFS is colocated in Docker, LUKS must run on the host (dm_mod) via SSH loopback.
+NFS_LUKS_SSH_HOST = os.environ.get("XCELSIOR_NFS_LUKS_SSH_HOST", "127.0.0.1")
+NFS_LUKS_SSH_USER = (
+    os.environ.get("XCELSIOR_NFS_LUKS_SSH_USER", "")
+    or os.environ.get("XCELSIOR_SSH_USER", "aaryn")
+)
 NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+# Optional remote command wrapper (Mac: docker exec xcelsior-mac-nfs sh -c).
+NFS_SSH_CMD_WRAP = os.environ.get("XCELSIOR_NFS_SSH_CMD_WRAP", "").strip()
 
 _LOCAL_NFS_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -72,6 +80,31 @@ class VolumeEngine:
     def _nfs_is_local_host(self, ip: str) -> bool:
         return ip.strip().lower() in _LOCAL_NFS_HOSTS
 
+    def _nfs_runs_privileged_local(self, ip: str) -> bool:
+        """True when LUKS/mount commands run locally as root (no sudo wrapper)."""
+        return self._nfs_is_local_host(ip) and NFS_SSH_USER == "root"
+
+    def _privileged(self, ip: str, cmd: str, *, user: str | None = None) -> str:
+        """Prefix privileged commands with sudo unless local root exec."""
+        stripped = cmd.strip()
+        if stripped.startswith("sudo "):
+            stripped = stripped[5:]
+        ssh_user = user or NFS_SSH_USER
+        if self._nfs_is_local_host(ip) and ssh_user == "root":
+            return stripped
+        return f"sudo {stripped}"
+
+    def _luks_ssh_host(self) -> str:
+        """SSH target for LUKS ops — host loopback when API/NFS are colocated in Docker."""
+        if self._nfs_is_local_host(NFS_SSH_HOST):
+            return NFS_LUKS_SSH_HOST
+        return NFS_SSH_HOST
+
+    def _luks_ssh_user(self) -> str:
+        if self._nfs_is_local_host(NFS_SSH_HOST):
+            return NFS_LUKS_SSH_USER
+        return NFS_SSH_USER
+
     def _nfs_ssh_user(self, ip: str) -> str:
         return NFS_SSH_USER if self._nfs_is_local_host(ip) or ip == NFS_SSH_HOST else NFS_SSH_USER
 
@@ -112,9 +145,26 @@ class VolumeEngine:
             return ["-i", SSH_KEY_PATH]
         return []
 
-    def _ssh_exec(self, ip: str, cmd: str, timeout: int = 30) -> tuple[int, str, str]:
+    def _wrap_remote_cmd(self, cmd: str) -> str:
+        """Apply optional SSH command wrapper (e.g. docker exec on Mac NFS appliance)."""
+        if not NFS_SSH_CMD_WRAP:
+            return cmd
+        inner = cmd.replace("'", "'\\''")
+        return f"{NFS_SSH_CMD_WRAP} '{inner}'"
+
+    def _ssh_exec(
+        self,
+        ip: str,
+        cmd: str,
+        timeout: int = 30,
+        *,
+        user: str | None = None,
+        force_ssh: bool = False,
+    ) -> tuple[int, str, str]:
         """Execute a command on the NFS host via SSH (or locally when colocated)."""
-        if self._nfs_is_local_host(ip):
+        ssh_user = user or NFS_SSH_USER
+        remote_cmd = self._wrap_remote_cmd(cmd)
+        if self._nfs_is_local_host(ip) and not force_ssh:
             return self._local_exec(cmd, timeout=timeout)
 
         full_cmd = [
@@ -128,8 +178,8 @@ class VolumeEngine:
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=5",
-            f"{NFS_SSH_USER}@{ip}",
-            cmd,
+            f"{ssh_user}@{ip}",
+            remote_cmd,
         ]
         try:
             result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
@@ -138,7 +188,14 @@ class VolumeEngine:
             return 255, "", f"ssh timeout after {timeout}s"
 
     def _ssh_exec_with_retry(
-        self, ip: str, cmd: str, *, max_retries: int = 3, timeout: int = 30
+        self,
+        ip: str,
+        cmd: str,
+        *,
+        max_retries: int = 3,
+        timeout: int = 30,
+        user: str | None = None,
+        force_ssh: bool = False,
     ) -> tuple[int, str, str]:
         """SSH exec with exponential backoff on timeout / connection refused.
 
@@ -147,7 +204,9 @@ class VolumeEngine:
         """
         delays = [2, 4, 8]  # seconds between retries
         for attempt in range(max_retries):
-            rc, out, err = self._ssh_exec(ip, cmd, timeout=timeout)
+            rc, out, err = self._ssh_exec(
+                ip, cmd, timeout=timeout, user=user, force_ssh=force_ssh
+            )
             # rc == 255 with specific stderr patterns = SSH-level failure (not remote cmd)
             ssh_transient = rc == 255 and (
                 "timeout" in err.lower()
@@ -172,14 +231,23 @@ class VolumeEngine:
     # ── SSH with stdin (for piping LUKS keys) ──────────────────────────
 
     def _ssh_exec_with_stdin(
-        self, ip: str, cmd: str, stdin_data: bytes, *, timeout: int = 60
+        self,
+        ip: str,
+        cmd: str,
+        stdin_data: bytes,
+        *,
+        timeout: int = 60,
+        user: str | None = None,
+        force_ssh: bool = False,
     ) -> tuple[int, str, str]:
         """SSH exec that pipes stdin_data to the remote command.
 
         Used for LUKS operations where the key must be piped via stdin
         (never written to disk on the remote host).
         """
-        if self._nfs_is_local_host(ip):
+        ssh_user = user or NFS_SSH_USER
+        remote_cmd = self._wrap_remote_cmd(cmd)
+        if self._nfs_is_local_host(ip) and not force_ssh:
             return self._local_exec(cmd, timeout=timeout, stdin_data=stdin_data)
 
         full_cmd = [
@@ -191,8 +259,8 @@ class VolumeEngine:
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=5",
-            f"{NFS_SSH_USER}@{ip}",
-            cmd,
+            f"{ssh_user}@{ip}",
+            remote_cmd,
         ]
         try:
             result = subprocess.run(
@@ -513,18 +581,24 @@ class VolumeEngine:
         safe_img = shlex.quote(img_path)
         mapper = f"xcelsior-vol-{volume_id[:12]}"
         safe_mapper = shlex.quote(mapper)
+        luks_host = self._luks_ssh_host()
+        luks_user = self._luks_ssh_user()
 
         # Step 0: Clean up stale LUKS state from any previous failed attempt
         self._ssh_exec_with_retry(
-            NFS_SSH_HOST,
-            f"sudo umount -l {safe_path} 2>/dev/null; "
-            f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true",
+            luks_host,
+            f"{self._privileged(luks_host, f'umount -l {safe_path}', user=luks_user)} 2>/dev/null; "
+            f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; true",
+            user=luks_user,
+            force_ssh=True,
         )
 
         # Step 1: Create sparse image file
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SSH_HOST,
+            luks_host,
             f"truncate -s {size_gb}G {safe_img}",
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("LUKS truncate failed for %s: %s", volume_id, err)
@@ -533,54 +607,90 @@ class VolumeEngine:
         # Step 2: luksFormat — key piped via stdin
         # --key-size 512 = AES-256-XTS (256-bit AES + 256-bit XTS tweak)
         rc, _, err = self._ssh_exec_with_stdin(
-            NFS_SSH_HOST,
-            f"sudo cryptsetup luksFormat --batch-mode --type luks2 "
-            f"--key-file /dev/stdin --key-size 512 "
-            f"--cipher aes-xts-plain64 --hash sha256 {safe_img}",
+            luks_host,
+            self._privileged(
+                luks_host,
+                f"cryptsetup luksFormat --batch-mode --type luks2 "
+                f"--key-file /dev/stdin --key-size 512 "
+                f"--cipher aes-xts-plain64 --hash sha256 {safe_img}",
+                user=luks_user,
+            ),
             raw_key,
             timeout=120,
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("LUKS luksFormat failed for %s: %s", volume_id, err)
-            self._ssh_exec_with_retry(NFS_SSH_HOST, f"rm -f {safe_img}")
+            self._ssh_exec_with_retry(
+                luks_host, f"rm -f {safe_img}", user=luks_user, force_ssh=True
+            )
             return False
 
         # Step 3: luksOpen — key piped via stdin
         rc, _, err = self._ssh_exec_with_stdin(
-            NFS_SSH_HOST,
-            f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
+            luks_host,
+            self._privileged(
+                luks_host,
+                f"cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
+                user=luks_user,
+            ),
             raw_key,
             timeout=60,
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("LUKS luksOpen failed for %s: %s", volume_id, err)
-            self._ssh_exec_with_retry(NFS_SSH_HOST, f"rm -f {safe_img}")
+            self._ssh_exec_with_retry(
+                luks_host, f"rm -f {safe_img}", user=luks_user, force_ssh=True
+            )
             return False
 
         # Step 4: mkfs.ext4
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SSH_HOST,
-            f"sudo mkfs.ext4 -q -L vol-{volume_id[:8]} /dev/mapper/{safe_mapper}",
+            luks_host,
+            self._privileged(
+                luks_host,
+                f"mkfs.ext4 -q -L vol-{volume_id[:8]} /dev/mapper/{safe_mapper}",
+                user=luks_user,
+            ),
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("LUKS mkfs failed for %s: %s", volume_id, err)
             self._ssh_exec_with_retry(
-                NFS_SSH_HOST, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}"
+                luks_host,
+                f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; rm -f {safe_img}",
+                user=luks_user,
+                force_ssh=True,
             )
             return False
 
-        # Step 5: Mount
+        # Step 5: Mount (chmod best-effort — LUKS rootfs may reject sticky bit)
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SSH_HOST,
-            f"mkdir -p {safe_path} && sudo mount /dev/mapper/{safe_mapper} {safe_path} && chmod 1777 {safe_path}",
+            luks_host,
+            f"mkdir -p {safe_path} && {self._privileged(luks_host, f'mount /dev/mapper/{safe_mapper} {safe_path}', user=luks_user)}",
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("LUKS mount failed for %s: %s", volume_id, err)
             self._ssh_exec_with_retry(
-                NFS_SSH_HOST,
-                f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}; rmdir {safe_path} 2>/dev/null",
+                luks_host,
+                f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; rm -f {safe_img}; rmdir {safe_path} 2>/dev/null",
+                user=luks_user,
+                force_ssh=True,
             )
             return False
+
+        self._ssh_exec_with_retry(
+            luks_host,
+            f"{self._privileged(luks_host, f'chmod 1777 {safe_path}', user=luks_user)} 2>/dev/null || chmod 1777 {safe_path} 2>/dev/null || true",
+            user=luks_user,
+            force_ssh=True,
+        )
 
         log.info(
             "Encrypted NFS storage created for volume %s: LUKS2 %dGB at %s:%s",
@@ -825,17 +935,29 @@ class VolumeEngine:
             safe_img = shlex.quote(img_path)
             mapper = f"xcelsior-vol-{volume_id[:12]}"
             safe_mapper = shlex.quote(mapper)
+            luks_host = self._luks_ssh_host()
+            luks_user = self._luks_ssh_user()
 
             # Unmount (lazy to handle busy)
-            self._ssh_exec_with_retry(NFS_SSH_HOST, f"sudo umount -l {safe_path} 2>/dev/null; true")
+            self._ssh_exec_with_retry(
+                luks_host,
+                f"{self._privileged(luks_host, f'umount -l {safe_path}', user=luks_user)} 2>/dev/null; true",
+                user=luks_user,
+                force_ssh=True,
+            )
             # Close LUKS device
             self._ssh_exec_with_retry(
-                NFS_SSH_HOST, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true"
+                luks_host,
+                f"{self._privileged(luks_host, f'cryptsetup luksClose {safe_mapper}', user=luks_user)} 2>/dev/null; true",
+                user=luks_user,
+                force_ssh=True,
             )
             # Remove backing image and mount point
             rc, _, err = self._ssh_exec_with_retry(
-                NFS_SSH_HOST,
+                luks_host,
                 f"rm -f {safe_img} && rmdir {safe_path} 2>/dev/null; true",
+                user=luks_user,
+                force_ssh=True,
             )
             if rc != 0:
                 log.error("NFS encrypted volume cleanup failed for %s: %s", volume_id, err)
@@ -883,12 +1005,20 @@ class VolumeEngine:
         safe_img = shlex.quote(img_path)
         safe_path = shlex.quote(vol_path)
         safe_mapper = shlex.quote(mapper)
+        luks_host = self._luks_ssh_host()
+        luks_user = self._luks_ssh_user()
 
         # luksOpen — key piped via stdin
         rc, _, err = self._ssh_exec_with_stdin(
-            NFS_SSH_HOST,
-            f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
+            luks_host,
+            self._privileged(
+                luks_host,
+                f"cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
+                user=luks_user,
+            ),
             raw_key,
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("luksOpen failed for %s: %s", volume_id, err)
@@ -896,8 +1026,10 @@ class VolumeEngine:
 
         # Mount
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SSH_HOST,
-            f"mkdir -p {safe_path} && sudo mount /dev/mapper/{safe_mapper} {safe_path}",
+            luks_host,
+            f"mkdir -p {safe_path} && {self._privileged(luks_host, f'mount /dev/mapper/{safe_mapper} {safe_path}', user=luks_user)}",
+            user=luks_user,
+            force_ssh=True,
         )
         if rc != 0:
             log.error("Mount failed for %s: %s", volume_id, err)

@@ -1,0 +1,20 @@
+# Run on Mac (InferenceData SSD mounted). Publishes NFS on host :2049 (Tailscale IP).
+services:
+  mac-nfs:
+    build: .
+    container_name: xcelsior-mac-nfs
+    hostname: xcelsior-nfs
+    privileged: true
+    restart: unless-stopped
+    # NFSv4 — macOS nfsd often owns :2049; publish on :12049 (set port=12049 in mount opts).
+    ports:
+      - "12049:2049"
+    volumes:
+      - ${INFERENCE_LUKS:-/Volumes/InferenceData/inference.luks}:/luks/inference.luks:rw
+      - ${INFERENCE_KEY:-/Users/aaryn/.config/xcelsior/inference.key}:/key/inference.key:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mountpoint -q /exports && test -d /exports/volumes"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
