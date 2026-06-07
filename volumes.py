@@ -47,9 +47,19 @@ _LOCAL_NFS_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 # timeo=600: 60-second initial RPC timeout (in deciseconds); retrans=3: 3 retries.
 # rsize/wsize=1M: large buffers for GPU checkpoint throughput.
 # _netdev: wait for network before mounting at boot.
-NFS_MOUNT_OPTS = (
+# Mac appliance: set XCELSIOR_NFS_MOUNT_OPTS with nfsvers=4.0,port=12049.
+_DEFAULT_NFS_MOUNT_OPTS = (
     "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"
 )
+NFS_MOUNT_OPTS = (
+    os.environ.get("XCELSIOR_NFS_MOUNT_OPTS", _DEFAULT_NFS_MOUNT_OPTS).strip()
+    or _DEFAULT_NFS_MOUNT_OPTS
+)
+
+
+def nfs_mount_fstype() -> str:
+    """Return ``mount -t`` filesystem type for the configured NFS_MOUNT_OPTS."""
+    return "nfs4" if "nfsvers=4" in NFS_MOUNT_OPTS else "nfs"
 
 
 class VolumeEngine:
@@ -84,13 +94,22 @@ class VolumeEngine:
         """True when LUKS/mount commands run locally as root (no sudo wrapper)."""
         return self._nfs_is_local_host(ip) and NFS_SSH_USER == "root"
 
+    def _runs_privileged_remotely(self, ip: str, *, user: str | None = None) -> bool:
+        """True when remote commands already run as root (colocated or docker wrap)."""
+        ssh_user = user or NFS_SSH_USER
+        if self._nfs_is_local_host(ip) and ssh_user == "root":
+            return True
+        # Mac NFS appliance: xcelsior-nfs-exec → docker exec as root.
+        if NFS_SSH_CMD_WRAP and ip == NFS_SSH_HOST:
+            return True
+        return False
+
     def _privileged(self, ip: str, cmd: str, *, user: str | None = None) -> str:
-        """Prefix privileged commands with sudo unless local root exec."""
+        """Prefix privileged commands with sudo unless already running as root."""
         stripped = cmd.strip()
         if stripped.startswith("sudo "):
             stripped = stripped[5:]
-        ssh_user = user or NFS_SSH_USER
-        if self._nfs_is_local_host(ip) and ssh_user == "root":
+        if self._runs_privileged_remotely(ip, user=user):
             return stripped
         return f"sudo {stripped}"
 
@@ -1336,9 +1355,10 @@ class VolumeEngine:
         safe_mount = shlex.quote(mount_path)
         safe_src = shlex.quote(nfs_src)
         ro_flag = ",ro" if mode == "ro" else ""
+        fstype = nfs_mount_fstype()
         cmd = (
             f"mkdir -p {safe_mount} && "
-            f"mount -t nfs -o {NFS_MOUNT_OPTS}{ro_flag} {safe_src} {safe_mount}"
+            f"mount -t {fstype} -o {NFS_MOUNT_OPTS}{ro_flag} {safe_src} {safe_mount}"
         )
         rc, _, stderr = self._ssh_exec_with_retry(host_ip, cmd)
         if rc != 0:

@@ -69,6 +69,25 @@ class TestNFSMountOpts:
         with open("scheduler.py") as f:
             source = f.read()
         assert "from volumes import NFS_MOUNT_OPTS" in source
+        assert "nfs_mount_fstype" in source
+
+    def test_nfs_mount_fstype_v4(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_NFS_MOUNT_OPTS", "tcp,nfsvers=4.0,port=12049")
+        import importlib
+        import volumes
+
+        importlib.reload(volumes)
+        assert volumes.nfs_mount_fstype() == "nfs4"
+        importlib.reload(volumes)  # restore defaults for other tests
+
+    def test_nfs_mount_opts_env_override(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_NFS_MOUNT_OPTS", "hard,tcp,nfsvers=4.0,port=12049")
+        import importlib
+        import volumes
+
+        importlib.reload(volumes)
+        assert "port=12049" in volumes.NFS_MOUNT_OPTS
+        importlib.reload(volumes)
 
     def test_no_soft_mounts_in_codebase(self):
         """Zero 'soft' NFS mount references in production code."""

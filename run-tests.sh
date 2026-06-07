@@ -131,6 +131,18 @@ case "${TARGET}" in
         )
         echo "▸ Running marketplace tests…"
         ;;
+    volumes)
+        PYTEST_ARGS=(
+            tests/test_team_tenancy_sweep.py
+            tests/test_volumes_endpoints_coverage.py
+            tests/test_volume_api.py
+            tests/test_volume_db.py
+            tests/test_volume_encryption.py
+            tests/test_volume_integration.py
+            tests/test_volume_nfs.py
+        )
+        echo "▸ Running volume + team tenancy tests…"
+        ;;
     e2e)
         PYTEST_ARGS=(tests/test_e2e.py)
         echo "▸ Running e2e tests (offline)…"
