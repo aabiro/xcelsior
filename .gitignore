@@ -76,6 +76,9 @@ docs/*
 !docs/site-audit-report-2026-06-04-reaudit.md
 !docs/site-audit-report-2026-06-04-reaudit-mcp.md
 !docs/site-audit-report-2026-06-06-post-recovery.md
+!docs/VOLUMES_RUNBOOK.md
+!docs/VOLUMES_COMPLETION_PLAN.md
+!docs/NEXT_PRIORITIES_ROADMAP.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
