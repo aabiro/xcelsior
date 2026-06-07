@@ -94,7 +94,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] `XCELSIOR_NFS_REQUIRED=true` fails readiness in production
 - [x] **Structured logs** for provision / attach / mount failures (grep-friendly — see runbook)
 - [x] **Runbook:** [`VOLUMES_RUNBOOK.md`](./VOLUMES_RUNBOOK.md)
-- [ ] **Alerts:** NFS SSH failures, high `error` volume count, export disk >80%
+- [~] **Alerts:** NFS SSH failures, high `error` volume count, export disk >80% — `check_mac_nfs_disk.sh` ready (2026-06-07)
 
 ### 1.7 Testing & E2E
 
@@ -106,8 +106,8 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **Staging E2E script** [`scripts/volumes_e2e_smoke.py`](../scripts/volumes_e2e_smoke.py)
   - [x] Create → list → get → launch with `volume_ids` → delete — PASS prod 2026-06-08
   - [x] `ops_infra_smoke.py` — PayPal + NFS + volume CRUD PASS
-  - [ ] Write file → restart instance → file persists → detach
-  - [ ] Encrypted volume round-trip
+  - [~] Write file → restart instance → file persists → detach — `--persist` smoke; skipped (no GPU host)
+  - [x] Encrypted volume round-trip — `--encrypted` PASS prod (2026-06-07)
 - [ ] **Post-deploy audit** includes `/dashboard/volumes` in Playwright crawl (already in dashboard audit list)
 
 ### 1.8 Acceptance criteria (volumes “done”)

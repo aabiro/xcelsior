@@ -1989,15 +1989,16 @@ def run_job(job, host, docker_image=None):
     nfs_server = job.get("nfs_server", "")
     nfs_path = job.get("nfs_path", "")
     nfs_mount = job.get("nfs_mount_point", "/mnt/xcelsior-nfs")
-    from volumes import NFS_MOUNT_OPTS
+    from volumes import NFS_MOUNT_OPTS, nfs_mount_fstype
 
     nfs_opts = NFS_MOUNT_OPTS
+    nfs_fstype = nfs_mount_fstype()
     if nfs_server and nfs_path:
         nfs_mount = nfs_mount or "/mnt/xcelsior-nfs"
         mount_cmd = (
             f"mkdir -p {shlex.quote(nfs_mount)} && "
             f"mountpoint -q {shlex.quote(nfs_mount)} || "
-            f"mount -t nfs -o {nfs_opts} "
+            f"mount -t {nfs_fstype} -o {nfs_opts} "
             f"{shlex.quote(nfs_server)}:{shlex.quote(nfs_path)} "
             f"{shlex.quote(nfs_mount)}"
         )
@@ -2038,7 +2039,7 @@ def run_job(job, host, docker_image=None):
             vol_mount_cmd = (
                 f"mkdir -p {shlex.quote(vol_host_mount)} && "
                 f"mountpoint -q {shlex.quote(vol_host_mount)} || "
-                f"mount -t nfs -o {nfs_opts} "
+                f"mount -t {nfs_fstype} -o {nfs_opts} "
                 f"{shlex.quote(vol_nfs_server)}:{shlex.quote(vol_nfs_path)} "
                 f"{shlex.quote(vol_host_mount)}"
             )

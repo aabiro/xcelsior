@@ -94,7 +94,12 @@ curl -s https://xcelsior.ca/readyz | jq .
 
 # Admin NFS config
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" https://xcelsior.ca/api/nfs/config | jq .
+
+# Mac InferenceData disk usage (warn 80%, crit 90% — exit 1/2)
+bash scripts/check_mac_nfs_disk.sh
 ```
+
+**Disk quota monitoring:** Run `check_mac_nfs_disk.sh` from cron or a monitoring agent (SSH to Mac required). Exit codes: `0` OK, `1` warn (≥80%), `2` crit (≥90%). Override thresholds with `WARN_PCT` / `CRIT_PCT`.
 
 **Log grep patterns:**
 
@@ -223,6 +228,15 @@ docker compose exec -T api-blue python scripts/fund_audit_wallet.py
 # NFS CRUD only (no wallet/GPU):
 python3 scripts/volumes_e2e_smoke.py --base-url https://xcelsior.ca --infra-only
 
+# LUKS encrypted volume provision + delete:
+python3 scripts/volumes_e2e_smoke.py --infra-only --encrypted
+
+# VPS→Mac NFS mount (simulates GPU worker mesh mount):
+python3 scripts/volumes_e2e_smoke.py --infra-only --worker-mount
+
+# Persist across stop/start (requires running GPU host; skips gracefully if queued):
+python3 scripts/volumes_e2e_smoke.py --infra-only --persist
+
 # Full path including instance launch (requires funded wallet):
 python3 scripts/volumes_e2e_smoke.py --base-url https://xcelsior.ca
 
@@ -242,4 +256,4 @@ python3 scripts/ops_infra_smoke.py
 
 ---
 
-*Last updated: 2026-06-08*
+*Last updated: 2026-06-07*

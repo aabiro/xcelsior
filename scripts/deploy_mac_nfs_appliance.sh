@@ -38,9 +38,14 @@ ssh_mac "mkdir -p ~/.local/bin
 cat > ~/.local/bin/xcelsior-nfs-exec <<'WRAP'
 #!/usr/bin/env bash
 # Run volume provision commands inside the LUKS+NFS appliance container.
+# docker exec -i forwards stdin for LUKS --key-file /dev/stdin.
 set -euo pipefail
 export PATH=\"/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin:\$PATH\"
-exec docker exec xcelsior-mac-nfs sh -c \"\$@\"
+if [ -t 0 ]; then
+  exec docker exec xcelsior-mac-nfs sh -c \"\$*\"
+else
+  exec docker exec -i xcelsior-mac-nfs sh -c \"\$*\"
+fi
 WRAP
 chmod +x ~/.local/bin/xcelsior-nfs-exec
 grep -q '.local/bin' ~/.zshrc 2>/dev/null || echo 'export PATH=\"\${HOME}/.local/bin:\${PATH}\"' >> ~/.zshrc"

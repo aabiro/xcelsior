@@ -25,7 +25,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 | NFS health in readiness | ✅ `nfs_storage_healthcheck` in `/readyz` (2026-06-07) |
 | Prod NFS configured | ✅ Mac appliance `100.64.0.3`, mode `full` (2026-06-08) |
 | E2E create → launch → delete | ✅ `volumes_e2e_smoke.py` + `ops_infra_smoke.py` PASS (2026-06-08) |
-| E2E persist across instance restart | ❌ not verified (write file → stop/start → read) |
+| E2E persist across instance restart | ⚠️ script ready; skipped when no GPU host (2026-06-07) |
 
 ---
 
@@ -85,7 +85,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Export directory `/exports/volumes` on LUKS ext4 (`inference.luks` on InferenceData SSD)
 - [x] Mesh-only access — Headscale ACL `100.64.0.0/10` in `ganesha.conf` + `tag:xcelsior` / `autogroup:member` rules
 - [x] Published on host `:12049` (container `:2049`); mount opts `nfsvers=4.0,port=12049`
-- [ ] Disk quota monitoring (alert at 80% / 90%)
+- [x] Disk quota monitoring (alert at 80% / 90%) — `scripts/check_mac_nfs_disk.sh` (2026-06-07)
 
 ### B.2 LUKS prerequisites (encrypted volumes default ON in UI)
 
@@ -93,7 +93,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Bulk LUKS: `inference.luks` + keyfile `~/.config/xcelsior/inference.key`
 - [x] Per-volume LUKS via `xcelsior-nfs-exec` inside appliance (API SSH → Mac → docker exec)
 - [ ] Sudoers on Mac host (not needed — commands run inside privileged container)
-- [ ] Encrypted volume round-trip E2E in prod
+- [x] Encrypted volume round-trip E2E in prod — `volumes_e2e_smoke.py --encrypted` PASS (2026-06-07)
 
 ### B.3 API host connectivity
 
@@ -106,6 +106,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 
 - [x] Headscale ACL: `autogroup:member` → `tag:mac-nfs:12049`
 - [x] VPS NFS mount test to Mac — PASS (`nfsvers=4.0,port=12049`)
+- [x] VPS worker-mount smoke — `volumes_e2e_smoke.py --worker-mount` PASS (2026-06-07)
 - [ ] Test from live GPU worker host (e.g. `aarynfans-prod`) — mount + write
 - [ ] `nfs-common` on workers (verify at next instance launch with `volume_ids`)
 
@@ -158,14 +159,14 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] `/readyz` reports `nfs_volumes.mode=full`, `reachable=true`
 - [x] DB: `status=available`, `owner_id=billing_customer_id`
 - [x] NFS: path provisioned on Mac appliance (unencrypted smoke volumes)
-- [ ] User creates **encrypted** 10 GB volume — LUKS round-trip not yet verified in prod
+- [x] User creates **encrypted** volume — LUKS round-trip verified in prod (2026-06-07)
 
 ### D.2 Launch with volumes (new instance)
 
 - [x] Launch instance with `volume_ids` — `volumes_e2e_smoke.py` PASS (2026-06-08)
-- [ ] Scheduler NFS-mount on GPU host verified on live worker
-- [ ] Write `echo test > /workspace/persist.txt` inside instance
-- [ ] Stop/start instance → file still present
+- [~] Scheduler NFS-mount on GPU host — VPS mount smoke PASS; live worker pending
+- [~] Write persist marker inside instance — `--persist` smoke ready
+- [~] Stop/start instance → file still present — skipped (no GPU host online 2026-06-07)
 - [ ] Terminate instance → volume status returns `available`, data on NFS intact
 
 ### D.3 Attach to running instance
@@ -247,7 +248,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 Phase A  Correctness     [x] code complete (tests green)
 Phase B  NFS infra       [x] Mac appliance live in prod (2026-06-08)
 Phase C  Health/runbook  [x] health + runbook done; metrics optional
-Phase D  E2E workflows   [~] CRUD + launch OK; persist/restart pending
+Phase D  E2E workflows   [~] CRUD + launch + encrypted OK; persist needs GPU host
 Phase E  Frontend polish  [x] error UX + launch filter done (2026-06-07)
 Phase F  Scripts/CI      [x] smoke scripts PASS in prod
 Phase G  Security         [~] partial
@@ -280,6 +281,7 @@ All must be true:
 | 2026-06-07 | Phase A complete: 18 team tenancy tests pass; smoke script; runbook; analytics team-changed |
 | 2026-06-07 | Phase E: volume error UX + i18n; launch modal team-changed + region warning |
 | 2026-06-08 | Mac NFS appliance prod cutover; Headscale ACL `tag:mac-nfs`; ops + e2e smoke PASS |
+| 2026-06-07 | Encrypted + worker-mount E2E PASS; persist smoke + disk check script; nfs4 mount opts |
 
 ---
 
