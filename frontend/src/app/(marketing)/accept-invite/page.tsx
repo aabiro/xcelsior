@@ -13,7 +13,7 @@ import { apiFetch } from "@/lib/api";
 function AcceptInviteContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const token = searchParams.get("token") ?? "";
 
   const [status, setStatus] = useState<"loading" | "pending" | "accepted" | "error">("loading");
@@ -50,6 +50,7 @@ function AcceptInviteContent() {
     setStatus("loading");
     try {
       await apiFetch(`/api/teams/invite/${encodeURIComponent(token)}/accept`, { method: "POST" });
+      await refreshUser();
       setStatus("accepted");
     } catch (err: unknown) {
       setStatus("error");
@@ -93,7 +94,7 @@ function AcceptInviteContent() {
           <p className="text-text-secondary mb-6">
             You&apos;ve joined <strong className="text-text-primary">{teamName}</strong> as a {role}.
           </p>
-          <Link href="/dashboard/settings?tab=team">
+          <Link href="/dashboard/settings#team">
             <Button className="w-full">View Team</Button>
           </Link>
         </Card>

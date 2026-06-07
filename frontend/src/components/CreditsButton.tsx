@@ -5,17 +5,21 @@ import Link from "next/link";
 import { Wallet, ChevronDown, ArrowUpRight, CreditCard, History, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { fetchWallet } from "@/lib/api";
+import { getBillingCustomerId, getTeamContext } from "@/lib/team-context";
+import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 
 export function CreditsButton() {
   const { user } = useAuth();
+  const { t } = useLocale();
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const customerId = user?.customer_id || user?.user_id || "";
+  const team = getTeamContext(user);
+  const customerId = getBillingCustomerId(user);
   const isNegative = balance !== null && balance < 0;
 
   const loadBalance = useCallback(async () => {
@@ -34,7 +38,12 @@ export function CreditsButton() {
   useEffect(() => {
     loadBalance();
     const interval = setInterval(loadBalance, 30_000);
-    return () => clearInterval(interval);
+    const onTeamChanged = () => { void loadBalance(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+    };
   }, [loadBalance]);
 
   useEffect(() => {
@@ -79,7 +88,12 @@ export function CreditsButton() {
           >
             {/* Balance header */}
             <div className="px-3 py-3 border-b border-border bg-emerald/5">
-              <p className="text-xs text-text-muted uppercase tracking-wider font-medium">Credits</p>
+              <p className="text-xs text-text-muted uppercase tracking-wider font-medium">
+                {team.isTeamMember ? t("dash.team.shared_wallet") : "Credits"}
+              </p>
+              {team.isTeamMember && team.teamName && (
+                <p className="text-[11px] text-text-muted truncate">{team.teamName}</p>
+              )}
               <p className="text-lg font-bold text-emerald mt-0.5">
                 {loading ? "..." : formatted}
                 <span className="text-xs font-normal text-text-muted ml-1">CAD</span>
@@ -107,16 +121,18 @@ export function CreditsButton() {
             </div>
 
             {/* Top Up button */}
-            <div className="border-t border-border p-2">
-              <Link
-                href="/dashboard/billing?topup=true"
-                onClick={() => setOpen(false)}
-                className="flex items-center justify-center gap-1.5 w-full rounded-lg bg-emerald/10 hover:bg-emerald/20 text-emerald text-sm font-medium py-2 transition-colors"
-              >
-                <ArrowUpRight className="h-4 w-4" />
-                Top Up Credits
-              </Link>
-            </div>
+            {team.canManageBilling && (
+              <div className="border-t border-border p-2">
+                <Link
+                  href="/dashboard/billing?topup=true"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center justify-center gap-1.5 w-full rounded-lg bg-emerald/10 hover:bg-emerald/20 text-emerald text-sm font-medium py-2 transition-colors"
+                >
+                  <ArrowUpRight className="h-4 w-4" />
+                  {t("dash.billing.add_credits")}
+                </Link>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

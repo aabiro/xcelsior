@@ -21,6 +21,9 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
+import { useLocale } from "@/lib/locale";
+import { getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 
 const PRICE_PER_GB = 0.03;
 
@@ -47,8 +50,16 @@ function CopyableId({ id }: { id: string }) {
   );
 }
 
+function volumeActionError(err: unknown, viewerMessage: string): string {
+  const msg = err instanceof Error ? err.message : "Request failed";
+  return /team viewers cannot/i.test(msg) ? viewerMessage : msg;
+}
+
 export default function VolumesPage() {
   const { user } = useAuth();
+  const { t } = useLocale();
+  const team = getTeamContext(user);
+  const canWrite = team.canWriteInstances;
   const [volumes, setVolumes] = useState<Volume[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [gpus, setGpus] = useState<GpuAvailability[]>([]);
@@ -77,11 +88,17 @@ export default function VolumesPage() {
       api.fetchInstances().then((res) => setInstances(res.instances || [])).catch(() => {}),
       api.fetchAvailableGPUs().then((res) => setGpus(res.gpus || [])).catch(() => {}),
     ])
-      .catch(() => toast.error("Failed to load volumes"))
+      .catch(() => toast.error(t("dash.volumes.load_failed")))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { load(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [load]);
 
   // Live updates — re-fetch on volume/instance lifecycle changes
   useEventStream({
@@ -95,15 +112,15 @@ export default function VolumesPage() {
     try {
       const res = await api.createVolume({ name: newName.trim(), size_gb: newSize, region: newRegion, encrypted: newEncrypted });
       if (res.volume?.status === "error") {
-        toast.error("Volume created but storage provisioning failed — click Retry to try again");
+        toast.error(t("dash.volumes.error_provision_failed"));
       } else {
-        toast.success("Volume created");
+        toast.success(t("dash.volumes.create_success"));
       }
       setNewName("");
       setShowCreate(false);
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to create volume");
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
     } finally {
       setCreating(false);
     }
@@ -116,7 +133,7 @@ export default function VolumesPage() {
       toast.success("Volume deleted");
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Cannot delete — may have active attachments");
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
     }
   };
 
@@ -129,7 +146,7 @@ export default function VolumesPage() {
       setSelectedInstance("");
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to attach volume");
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
     }
   };
 
@@ -137,13 +154,13 @@ export default function VolumesPage() {
     try {
       const res = await api.retryVolume(volumeId);
       if (res.volume?.status === "available") {
-        toast.success("Volume provisioned successfully");
+        toast.success(t("dash.volumes.retry_success"));
       } else {
-        toast.error("Retry failed — storage server may be unreachable");
+        toast.error(t("dash.volumes.retry_failed"));
       }
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to retry provisioning");
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
     }
   };
 
@@ -157,7 +174,7 @@ export default function VolumesPage() {
       setRenameValue("");
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to rename volume");
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
     }
   };
 
@@ -244,6 +261,7 @@ export default function VolumesPage() {
             <Button
               className="h-10 bg-accent-violet hover:bg-accent-violet/90 text-white"
               onClick={() => setShowCreate(true)}
+              disabled={!canWrite}
             >
               <Plus className="h-4 w-4" /> Create Volume
             </Button>
@@ -251,6 +269,8 @@ export default function VolumesPage() {
         </div>
       </div>
       </FadeIn>
+
+      <TeamContextBanner team={team} variant="volumes" />
 
       {/* Stats Row */}
       <StaggerList className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -423,11 +443,12 @@ export default function VolumesPage() {
               </div>
               <h3 className="text-xl font-semibold mb-2">No volumes yet</h3>
               <p className="text-sm text-text-secondary mb-8 max-w-md mx-auto">
-                Create persistent storage to keep your data safe across instance restarts and migrations.
+                {team.isTeamMember ? t("dash.volumes.empty_team") : "Create persistent storage to keep your data safe across instance restarts and migrations."}
               </p>
               <Button
                 className="h-11 bg-accent-violet hover:bg-accent-violet/90 text-white"
                 onClick={() => setShowCreate(true)}
+                disabled={!canWrite}
               >
                 <Plus className="h-4 w-4" /> Create Your First Volume
               </Button>
@@ -542,13 +563,15 @@ export default function VolumesPage() {
                               ) : (
                                 <>
                                   <p className="font-medium text-text-primary">{vol.name || "Unnamed"}</p>
-                                  <button
-                                    onClick={() => { setRenamingId(vol.volume_id); setRenameValue(vol.name || ""); }}
-                                    className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-ice-blue transition-all p-0.5"
-                                    title="Rename volume"
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </button>
+                                  {canWrite && (
+                                    <button
+                                      onClick={() => { setRenamingId(vol.volume_id); setRenameValue(vol.name || ""); }}
+                                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-ice-blue transition-all p-0.5"
+                                      title="Rename volume"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  )}
                                 </>
                               )}
                               {vol.encrypted && (
@@ -580,7 +603,14 @@ export default function VolumesPage() {
 
                       {/* Status */}
                       <td className="py-4 px-4 text-center">
-                        <Badge variant={statusColor(vol.status)}>{vol.status}</Badge>
+                        <div className="inline-flex flex-col items-center gap-0.5">
+                          <Badge variant={statusColor(vol.status)}>{vol.status}</Badge>
+                          {vol.status === "error" && (
+                            <span className="text-[10px] text-text-muted max-w-[140px] leading-tight" title={t("dash.volumes.error_hint")}>
+                              {t("dash.volumes.error_hint")}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Region */}
@@ -598,7 +628,9 @@ export default function VolumesPage() {
                       {/* Actions */}
                       <td className="py-4 px-5 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {vol.status === "attached" ? (
+                          {!canWrite ? (
+                            <span className="text-xs text-text-muted">{t("dash.team.instances_read_only")}</span>
+                          ) : vol.status === "attached" ? (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -606,7 +638,7 @@ export default function VolumesPage() {
                               onClick={() => {
                                 api.detachVolume(vol.volume_id)
                                   .then(() => { toast.success("Volume detached"); load(); })
-                                  .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to detach volume"));
+                                  .catch((e: unknown) => toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked"))));
                               }}
                             >
                               <Unlink className="h-3.5 w-3.5 mr-1" /> Detach

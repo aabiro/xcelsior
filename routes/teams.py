@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from routes._deps import (
+    _canonical_owner_id,
     _require_user_grant,
     broadcast_sse,
     log,
@@ -125,6 +126,10 @@ class UpdateTeamMemberRoleRequest(BaseModel):
     role: str = Field(pattern="^(admin|member|viewer)$")
 
 
+class SetActiveTeamRequest(BaseModel):
+    team_id: str | None = Field(default=None, max_length=64)
+
+
 @router.post("/api/teams", tags=["Teams"])
 def api_create_team(body: CreateTeamRequest, request: Request):
     """Create a new team/organization. Creator becomes team admin."""
@@ -135,6 +140,7 @@ def api_create_team(body: CreateTeamRequest, request: Request):
 
     team_id = f"team-{uuid.uuid4().hex[:8]}"
     max_members = {"free": 5, "pro": 25, "enterprise": 100}.get(body.plan, 5)
+    billing_customer_id = _canonical_owner_id(user)
 
     team = {
         "team_id": team_id,
@@ -143,6 +149,7 @@ def api_create_team(body: CreateTeamRequest, request: Request):
         "created_at": time.time(),
         "plan": body.plan,
         "max_members": max_members,
+        "billing_customer_id": billing_customer_id,
     }
 
     UserStore.create_team(team)
@@ -158,7 +165,34 @@ def api_my_teams(request: Request):
     user = _require_user_grant(request, allow_api_key=True)
 
     teams = UserStore.get_user_teams(user["email"])
-    return {"ok": True, "teams": teams}
+    full_user = UserStore.get_user(user["email"]) or {}
+    active_team_id = str(full_user.get("team_id") or "").strip() or None
+    return {"ok": True, "teams": teams, "active_team_id": active_team_id}
+
+
+@router.patch("/api/teams/active", tags=["Teams"])
+def api_set_active_team(body: SetActiveTeamRequest, request: Request):
+    """Set the caller's active team context (wallet, concurrency, job scope)."""
+    user = _require_user_grant(request, allow_api_key=True)
+    email = user["email"]
+    requested = str(body.team_id or "").strip()
+
+    if not requested:
+        UserStore.update_user(email, {"team_id": None})
+        return {"ok": True, "active_team_id": None, "message": "Switched to personal workspace"}
+
+    member_of = {str(t.get("team_id") or "").strip() for t in UserStore.get_user_teams(email)}
+    if requested not in member_of:
+        raise HTTPException(403, "You are not a member of this team")
+
+    UserStore.update_user(email, {"team_id": requested})
+    team = UserStore.get_team(requested)
+    return {
+        "ok": True,
+        "active_team_id": requested,
+        "team_name": team.get("name") if team else requested,
+        "message": f"Active team set to {team.get('name') if team else requested}",
+    }
 
 
 # ── Invite routes must be declared BEFORE /{team_id} to avoid being swallowed by the wildcard ──
@@ -253,22 +287,24 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
     if not requester or requester["role"] != "admin":
         raise HTTPException(403, "Only team admins can add members")
 
+    member_email = body.email.strip().lower()
+
     # Check if user already exists
-    target = UserStore.get_user(body.email)
+    target = UserStore.get_user(member_email)
     if target:
         # User exists — add directly
-        ok = UserStore.add_team_member(team_id, body.email, body.role)
+        ok = UserStore.add_team_member(team_id, member_email, body.role)
         if not ok:
             raise HTTPException(400, "Team is at member capacity")
-        broadcast_sse("team_member_added", {"team_id": team_id, "email": body.email})
+        broadcast_sse("team_member_added", {"team_id": team_id, "email": member_email})
         _send_team_email(
-            body.email,
+            member_email,
             f"You've been added to team {team['name']}",
             f"You've been added to the team \"{team['name']}\" on Xcelsior as a {body.role}.\n\nYou can now collaborate with your team, share billing, and manage GPU instances together.",
             cta_url="https://xcelsior.ca/dashboard/settings",
             cta_label="View Your Team",
         )
-        return {"ok": True, "message": f"{body.email} added to team as {body.role}"}
+        return {"ok": True, "message": f"{member_email} added to team as {body.role}"}
 
     # User doesn't exist yet — create a pending invite
     import secrets as _secrets
@@ -278,7 +314,7 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
         {
             "token": token,
             "team_id": team_id,
-            "email": body.email,
+            "email": member_email,
             "role": body.role,
             "invited_by": user["email"],
             "created_at": time.time(),
@@ -287,13 +323,13 @@ def api_add_team_member(team_id: str, body: AddTeamMemberRequest, request: Reque
     )
     invite_url = f"https://xcelsior.ca/accept-invite?token={token}"
     _send_team_email(
-        body.email,
+        member_email,
         f"You've been invited to join team {team['name']} on Xcelsior",
         f"{user.get('name', user['email'])} has invited you to join the team \"{team['name']}\" on Xcelsior as a {body.role}.\n\nClick the link below to create your account and join the team.",
         cta_url=invite_url,
         cta_label="Accept Invitation",
     )
-    return {"ok": True, "message": f"Invitation sent to {body.email}", "invited": True}
+    return {"ok": True, "message": f"Invitation sent to {member_email}", "invited": True}
 
 
 @router.delete("/api/teams/{team_id}/members/{email}", tags=["Teams"])

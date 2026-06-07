@@ -16,6 +16,7 @@ from routes._deps import (
 )
 from db import UserStore
 from stripe_connect import get_stripe_manager
+from paypal_connect import get_paypal_manager, paypal_enabled
 from reputation import VerificationType, get_reputation_engine
 
 router = APIRouter()
@@ -190,6 +191,14 @@ def api_get_provider(provider_id: str, request: Request):
         raise HTTPException(404, f"Provider {provider_id} not found")
     # Redact sensitive fields
     provider.pop("stripe_account_id", None)
+    provider.pop("paypal_merchant_id", None)
+    provider.pop("paypal_payer_id", None)
+    provider.pop("paypal_tracking_id", None)
+    provider["paypal"] = {
+        "enabled": paypal_enabled(),
+        "status": provider.pop("paypal_status", "") or "not_started",
+        "onboarded_at": provider.pop("paypal_onboarded_at", 0) or 0,
+    }
     return {"ok": True, "provider": provider}
 
 
@@ -215,6 +224,14 @@ def api_list_providers(request: Request, status: str = ""):
                 providers = [one]
     for p in providers:
         p.pop("stripe_account_id", None)
+        p.pop("paypal_merchant_id", None)
+        p.pop("paypal_payer_id", None)
+        p.pop("paypal_tracking_id", None)
+        p["paypal"] = {
+            "enabled": paypal_enabled(),
+            "status": p.pop("paypal_status", "") or "not_started",
+            "onboarded_at": p.pop("paypal_onboarded_at", 0) or 0,
+        }
     return {"ok": True, "providers": providers, "count": len(providers)}
 
 
@@ -255,8 +272,57 @@ def api_provider_earnings(provider_id: str, request: Request):
     return {"ok": True, "earnings": earnings, "recent_payouts": payouts}
 
 
+@router.get("/api/providers/{provider_id}/paypal", tags=["Providers"])
+def api_provider_paypal_status(provider_id: str, request: Request):
+    """PayPal Complete Payments onboarding status for a provider."""
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:read")
+    mgr = get_paypal_manager()
+    profile = mgr.get_paypal_profile(provider_id)
+    if not profile:
+        raise HTTPException(404, f"Provider {provider_id} not found")
+    return {"ok": True, "paypal_enabled": paypal_enabled(), "paypal": profile}
+
+
+@router.post("/api/providers/{provider_id}/paypal/onboard", tags=["Providers"])
+def api_provider_paypal_onboard(provider_id: str, request: Request):
+    """Start or resume PayPal seller onboarding (partner referral link)."""
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
+    stripe_mgr = get_stripe_manager()
+    provider = stripe_mgr.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(404, f"Provider {provider_id} not found")
+    email = str(provider.get("email") or user.get("email") or "").strip()
+    if not email:
+        raise HTTPException(400, "Provider email required for PayPal onboarding")
+    try:
+        result = get_paypal_manager().create_onboarding_link(provider_id, email)
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"ok": True, **result}
+
+
+@router.post("/api/providers/{provider_id}/paypal/refresh", tags=["Providers"])
+def api_provider_paypal_refresh(provider_id: str, request: Request):
+    """Poll PayPal for seller merchant_id after onboarding completes."""
+    user = _require_provider_access(request, provider_id)
+    _require_scope(user, "providers:write")
+    try:
+        result = get_paypal_manager().refresh_merchant_status(provider_id)
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"ok": True, "paypal": result}
+
+
 @router.post("/api/providers/{provider_id}/payout", tags=["Providers"])
-def api_provider_payout(provider_id: str, request: Request, job_id: str = "", total_cad: float = 0):
+def api_provider_payout(
+    provider_id: str,
+    request: Request,
+    job_id: str = "",
+    total_cad: float = 0,
+    payment_rail: str = "stripe",
+):
     """Split a job payment between provider (85%) and platform (15%).
 
     Applies province-specific GST/HST. If Stripe is configured,
@@ -272,8 +338,22 @@ def api_provider_payout(provider_id: str, request: Request, job_id: str = "", to
     provider = mgr.get_provider(provider_id)
     if not provider:
         raise HTTPException(404, f"Provider {provider_id} not found")
+    rail = (payment_rail or "stripe").strip().lower()
+    if rail == "paypal":
+        try:
+            result = get_paypal_manager().create_marketplace_order(provider_id, job_id, total_cad)
+        except RuntimeError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {
+            "ok": True,
+            "payment_rail": "paypal",
+            "order_id": result["order_id"],
+            "platform_share_cad": result["platform_share_cad"],
+            "provider_share_cad": result["provider_share_cad"],
+            "message": "Approve and capture via /api/billing/paypal/marketplace/capture-order",
+        }
     result = mgr.split_payout(job_id, provider_id, total_cad, provider.get("province", "ON"))
-    return {"ok": True, **result}
+    return {"ok": True, "payment_rail": "stripe", **result}
 
 
 @router.post("/api/providers/webhook", tags=["Providers"])

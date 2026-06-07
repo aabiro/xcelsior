@@ -12,6 +12,7 @@ import {
   ExternalLink, HelpCircle, Sparkles, Clock, MessageCircle, Layers,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { getTeamContext, formatTeamRoleLabel } from "@/lib/team-context";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
@@ -24,6 +25,7 @@ import { AiPanel } from "@/components/AiPanel";
 import { DesktopStatusStrip } from "@/components/DesktopStatusStrip";
 import { NotificationBell } from "@/components/NotificationBell";
 import { CreditsButton } from "@/components/CreditsButton";
+import { TeamSwitcher } from "@/components/team/team-switcher";
 import { useDesktopRuntime } from "@/lib/desktop/runtime";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
@@ -66,6 +68,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
   const { t } = useLocale();
+  const team = getTeamContext(user);
   const { state: desktopState, openControlCenter } = useDesktopRuntime();
   const desktopMode = desktopState.isNativeDesktop || desktopState.isStandalonePwa;
 
@@ -491,6 +494,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
             <div className="h-6 w-px bg-border hidden sm:block" />
             <NotificationBell />
+            <TeamSwitcher compact />
             <CreditsButton />
             <div className="h-7 w-px bg-border hidden sm:block" />
             <div className="relative" ref={profileRef}>
@@ -504,7 +508,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 {user && (
                   <div className="hidden sm:block text-left">
                     <p className="text-base font-medium leading-none">{user.name || user.email}</p>
-                    <p className="text-sm text-text-muted">{user.is_admin ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin") : user.role || "user"}</p>
+                    <p className="text-sm text-text-muted">
+                      {team.isTeamMember
+                        ? `${team.teamName || t("dash.team")} · ${formatTeamRoleLabel(team.teamRole)}`
+                        : user.is_admin
+                          ? (user.role && user.role !== "admin" ? `Admin · ${user.role}` : "Admin")
+                          : user.role || "user"}
+                    </p>
                   </div>
                 )}
                 <ChevronDown className={cn("h-4 w-4 text-text-muted transition-transform hidden sm:block", profileOpen && "rotate-180")} />

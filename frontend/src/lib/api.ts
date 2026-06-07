@@ -294,19 +294,59 @@ export function classifyLaunchError(err: unknown): LaunchErrorInfo {
     if (err.status === 422) {
       return { message: "Invalid configuration — check your instance settings." };
     }
+    if (err.status === 429 && /concurrent instance limit/i.test(detail)) {
+      return {
+        message:
+          "Concurrent instance limit reached for your team. Stop an existing instance or ask a team admin to upgrade the plan.",
+        action: { label: "View Instances", href: "/dashboard/instances" },
+      };
+    }
+    if (err.status === 403) {
+      if (/team viewers cannot/i.test(detail)) {
+        return { message: "Viewer access is read-only — ask a team admin or member to make changes." };
+      }
+      if (/only team admins can manage team billing/i.test(detail)) {
+        return {
+          message: "Only team admins can add credits or change billing settings.",
+          action: { label: "Team Settings", href: "/dashboard/settings#team" },
+        };
+      }
+    }
     return { message: detail || `Request failed (${err.status})` };
   }
   return { message: err instanceof Error ? err.message : "Failed to launch instance" };
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────
+
+/** User profile returned by login, register, and /api/auth/me (includes team tenancy). */
+export type AuthUser = {
+  user_id: string;
+  email: string;
+  name?: string;
+  role: string;
+  is_admin?: boolean;
+  country?: string;
+  province?: string;
+  avatar_url?: string;
+  customer_id?: string;
+  provider_id?: string;
+  team_id?: string | null;
+  team_name?: string;
+  team_role?: string;
+  team_plan?: string;
+  billing_customer_id?: string;
+  team_can_manage_billing?: boolean;
+  team_can_write_instances?: boolean;
+};
+
 export async function login(email: string, password: string) {
   return apiFetch<{
     ok: boolean;
     access_token?: string;
     token_type?: string;
     expires_in?: number;
-    user?: { user_id: string; email: string; role: string; is_admin?: boolean; name?: string; customer_id?: string };
+    user?: AuthUser;
     mfa_required?: boolean;
     challenge_id?: string;
     methods?: string[];
@@ -322,7 +362,7 @@ export async function register(email: string, password: string, name?: string) {
     access_token?: string;
     email_verification_required?: boolean;
     message?: string;
-    user?: { user_id: string; email: string; role: string; is_admin?: boolean };
+    user?: AuthUser;
   }>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, name }),
@@ -336,21 +376,7 @@ export async function oauthInitiate(provider: string) {
 }
 
 export async function getMe() {
-  return apiFetch<{
-    ok: boolean;
-    user: {
-      user_id: string;
-      email: string;
-      name?: string;
-      role: string;
-      is_admin?: boolean;
-      country?: string;
-      province?: string;
-      avatar_url?: string;
-      customer_id?: string;
-      provider_id?: string;
-    };
-  }>("/api/auth/me");
+  return apiFetch<{ ok: boolean; user: AuthUser }>("/api/auth/me");
 }
 
 export async function refreshToken() {
@@ -397,8 +423,18 @@ function normalizeInstance(inst: Instance): Instance {
   return inst;
 }
 
+export interface InstanceConcurrencyInfo {
+  active: number;
+  cap: number;
+  shared: boolean;
+}
+
 export async function fetchInstances() {
-  const res = await apiFetch<{ ok: boolean; instances: Instance[] }>("/instances");
+  const res = await apiFetch<{
+    ok?: boolean;
+    instances: Instance[];
+    concurrency?: InstanceConcurrencyInfo;
+  }>("/instances");
   res.instances?.forEach(normalizeInstance);
   return res;
 }
@@ -592,7 +628,7 @@ export async function createPaymentIntent(customerId: string, amountCad: number,
 // ── PayPal ───────────────────────────────────────────────────────────
 
 export async function checkPayPalEnabled() {
-  return apiFetch<{ enabled: boolean }>("/api/billing/paypal/enabled");
+  return apiFetch<{ enabled: boolean; platform_mode?: boolean }>("/api/billing/paypal/enabled");
 }
 
 export async function createPayPalOrder(customerId: string, amountCad: number) {
@@ -865,8 +901,45 @@ export async function fetchProvider(providerId: string) {
       provider_id: string; provider_type: string; status: string;
       corporation_name?: string; email: string; province?: string;
       created_at: string; onboarded_at?: string;
+      paypal?: { enabled: boolean; status: string; onboarded_at?: number };
     };
   }>(`/api/providers/${encodeURIComponent(providerId)}`);
+}
+
+export async function fetchPayPalProvider(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    paypal_enabled: boolean;
+    paypal: {
+      provider_id: string;
+      tracking_id?: string;
+      status: string;
+      onboarded_at?: number;
+    };
+  }>(`/api/providers/${encodeURIComponent(providerId)}/paypal`);
+}
+
+export async function startPayPalProviderOnboard(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    provider_id: string;
+    onboarding_url: string;
+    tracking_id: string;
+    status: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/paypal/onboard`, { method: "POST" });
+}
+
+export async function refreshPayPalProvider(providerId: string) {
+  return apiFetch<{
+    ok: boolean;
+    paypal: {
+      provider_id: string;
+      merchant_id?: string;
+      status: string;
+      payments_receivable?: boolean;
+      onboarded_at?: number;
+    };
+  }>(`/api/providers/${encodeURIComponent(providerId)}/paypal/refresh`, { method: "POST" });
 }
 
 export async function resumeOnboarding(providerId: string) {
@@ -881,13 +954,82 @@ export async function abandonOnboarding(providerId: string) {
   }>(`/api/providers/${encodeURIComponent(providerId)}/abandon-onboarding`, { method: "POST" });
 }
 
-export async function requestPayout(providerId: string, jobId: string, totalCad: number) {
+export type ProviderPayoutRail = "stripe" | "paypal";
+
+export async function requestPayout(
+  providerId: string,
+  jobId: string,
+  totalCad: number,
+  paymentRail: ProviderPayoutRail = "stripe",
+) {
+  const qs = new URLSearchParams({
+    job_id: jobId,
+    total_cad: String(totalCad),
+    payment_rail: paymentRail,
+  });
   return apiFetch<{
-    ok: boolean; job_id: string; total_cad: number;
-    provider_share_cad: number; platform_share_cad: number;
-    gst_hst_cad: number; stripe_transfer_id?: string;
-  }>(`/api/providers/${encodeURIComponent(providerId)}/payout?job_id=${encodeURIComponent(jobId)}&total_cad=${totalCad}`, {
+    ok: boolean;
+    job_id?: string;
+    total_cad?: number;
+    provider_share_cad?: number;
+    platform_share_cad?: number;
+    gst_hst_cad?: number;
+    stripe_transfer_id?: string;
+    payment_rail?: ProviderPayoutRail;
+    order_id?: string;
+    message?: string;
+  }>(`/api/providers/${encodeURIComponent(providerId)}/payout?${qs}`, {
     method: "POST",
+  });
+}
+
+export async function createPayPalMarketplaceOrder(
+  customerId: string,
+  providerId: string,
+  jobId: string,
+  amountCad: number,
+) {
+  return apiFetch<{
+    ok: boolean;
+    order_id: string;
+    provider_id: string;
+    job_id: string;
+    amount_cad: number;
+    platform_share_cad: number;
+    provider_share_cad: number;
+  }>("/api/billing/paypal/marketplace/create-order", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: customerId,
+      provider_id: providerId,
+      job_id: jobId,
+      amount_cad: amountCad,
+    }),
+  });
+}
+
+export async function capturePayPalMarketplaceOrder(
+  customerId: string,
+  providerId: string,
+  orderId: string,
+) {
+  return apiFetch<{
+    ok: boolean;
+    order_id: string;
+    job_id: string;
+    provider_id: string;
+    capture_id: string;
+    amount_cad: number;
+    platform_share_cad: number;
+    provider_share_cad: number;
+    gst_hst_cad: number;
+  }>("/api/billing/paypal/marketplace/capture-order", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: customerId,
+      provider_id: providerId,
+      order_id: orderId,
+    }),
   });
 }
 
@@ -1523,7 +1665,21 @@ export interface TeamMember {
 }
 
 export async function fetchMyTeams() {
-  return apiFetch<{ ok: boolean; teams: TeamInfo[] }>("/api/teams/me");
+  return apiFetch<{ ok: boolean; teams: TeamInfo[]; active_team_id?: string | null }>(
+    "/api/teams/me",
+  );
+}
+
+export async function switchActiveTeam(teamId: string | null) {
+  return apiFetch<{
+    ok: boolean;
+    active_team_id: string | null;
+    team_name?: string;
+    message?: string;
+  }>("/api/teams/active", {
+    method: "PATCH",
+    body: JSON.stringify({ team_id: teamId }),
+  });
 }
 
 export async function createTeam(data: { name: string; plan?: string }) {
@@ -2182,6 +2338,8 @@ export interface Payout {
   platform_share_cad: number;
   gst_hst_cad: number;
   stripe_transfer_id?: string;
+  paypal_capture_id?: string;
+  payment_rail?: string;
   created_at: string;
 }
 

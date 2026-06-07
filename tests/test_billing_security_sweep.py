@@ -67,6 +67,36 @@ _CUSTOMER_MUTATIONS = [
         "/api/billing/lightning/deposit",
         lambda u: {"customer_id": u["customer_id"], "amount_cad": 10},
     ),
+    (
+        "POST",
+        "/api/billing/paypal/marketplace/create-order",
+        lambda u: {
+            "customer_id": u["customer_id"],
+            "provider_id": "prov-probe",
+            "job_id": "job-probe",
+            "amount_cad": 10,
+        },
+    ),
+    (
+        "POST",
+        "/api/billing/paypal/marketplace/capture-order",
+        lambda u: {
+            "customer_id": u["customer_id"],
+            "provider_id": "prov-probe",
+            "order_id": "ORDER_PROBE",
+        },
+    ),
+    (
+        "POST",
+        "/api/pricing/reserve",
+        lambda u: {
+            "customer_id": u["customer_id"],
+            "gpu_model": "RTX 4090",
+            "commitment_type": "1_month",
+            "quantity": 1,
+            "province": "ON",
+        },
+    ),
 ]
 
 

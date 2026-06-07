@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
+import { getBillingCustomerId, getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 import * as api from "@/lib/api";
 import type { Wallet, WalletTransaction, Invoice, ReservedCommitment, SavedPaymentMethod } from "@/lib/api";
 import { toast } from "sonner";
@@ -80,8 +82,10 @@ function formatCad(amount: number) {
 export default function BillingPage() {
   const { user } = useAuth();
   const { t } = useLocale();
-  const customerId = user?.customer_id || user?.user_id || "";
+  const team = getTeamContext(user);
+  const customerId = getBillingCustomerId(user);
   const isPlatformAdmin = !!user?.is_admin || user?.role === "admin";
+  const canManageBilling = team.canManageBilling;
 
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -114,8 +118,8 @@ export default function BillingPage() {
 
   // Auto-open deposit modal from ?topup=true (Credits button link)
   useEffect(() => {
-    if (searchParams.get("topup") === "true") setShowDeposit(true);
-  }, [searchParams]);
+    if (searchParams.get("topup") === "true" && canManageBilling) setShowDeposit(true);
+  }, [searchParams, canManageBilling]);
 
   const [showCryptoDeposit, setShowCryptoDeposit] = useState(false);
   const [showLightningDeposit, setShowLightningDeposit] = useState(false);
@@ -200,6 +204,12 @@ export default function BillingPage() {
   }, [stopWalletAnimation]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { void load(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [load]);
 
   // Saved cards + auto-reload config are session-scoped (derived from the
   // authenticated user server-side), so they don't take customerId.
@@ -559,6 +569,8 @@ export default function BillingPage() {
         </div>
       </div>
 
+      <TeamContextBanner team={team} variant="billing" />
+
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           {[...Array(4)].map((_, i) => (
@@ -611,7 +623,7 @@ export default function BillingPage() {
 
           {/* Welcome $10 Free Credits Banner */}
           <AnimatePresence>
-            {freeCreditsAvailable && (
+            {freeCreditsAvailable && canManageBilling && (
               <motion.div
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -763,9 +775,15 @@ export default function BillingPage() {
                       {formatCad(currentWalletBalance)} <span className="text-sm font-normal text-text-muted">CAD</span>
                     </p>
                   </div>
-                  <Button variant="success" onClick={() => setShowDeposit(true)}>
-                    <Plus className="h-4 w-4" /> {t("dash.billing.add_credits")}
-                  </Button>
+                  {canManageBilling ? (
+                    <Button variant="success" onClick={() => setShowDeposit(true)}>
+                      <Plus className="h-4 w-4" /> {t("dash.billing.add_credits")}
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-text-muted max-w-[12rem] text-right">
+                      {t("dash.team.billing_admin_only")}
+                    </p>
+                  )}
                 </div>
                 {isPlatformAdmin && (
                   <div className="flex flex-col gap-3 rounded-lg border border-accent-red/20 bg-accent-red/5 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -845,7 +863,7 @@ export default function BillingPage() {
             })()}
           </div>
 
-          {hasCryptoPaymentRails && (
+          {hasCryptoPaymentRails && canManageBilling && (
             <Card>
               <CardHeader>
                 <CardTitle>Crypto Deposits</CardTitle>
@@ -1067,7 +1085,7 @@ export default function BillingPage() {
           )}
 
           {/* Payment Methods & Auto-reload */}
-          <Card>
+          {canManageBilling && <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CreditCard className="h-4 w-4 text-text-muted" /> Payment Methods
@@ -1202,7 +1220,7 @@ export default function BillingPage() {
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </Card>}
 
           {/* Invoices */}
           <Card>
@@ -1438,7 +1456,7 @@ export default function BillingPage() {
       )}
 
       {/* Deposit Modal */}
-      {showDeposit && customerId && (
+      {showDeposit && customerId && canManageBilling && (
         <DepositModal
           customerId={customerId}
           onClose={() => setShowDeposit(false)}
@@ -1451,7 +1469,7 @@ export default function BillingPage() {
       )}
 
       {/* Add Card Modal (Stripe SetupIntent) */}
-      {showAddCard && (
+      {showAddCard && canManageBilling && (
         <PaymentMethodModal
           onClose={() => setShowAddCard(false)}
           onSuccess={() => loadPaymentMethods()}
@@ -1459,7 +1477,7 @@ export default function BillingPage() {
       )}
 
       {/* Crypto Deposit Modal */}
-      {showCryptoDeposit && customerId && btcStatus.available && (
+      {showCryptoDeposit && customerId && canManageBilling && btcStatus.available && (
         <CryptoDepositModal
           customerId={customerId}
           onClose={() => setShowCryptoDeposit(false)}
@@ -1470,7 +1488,7 @@ export default function BillingPage() {
           }}
         />
       )}
-      {showLightningDeposit && customerId && lnStatus.available && (
+      {showLightningDeposit && customerId && canManageBilling && lnStatus.available && (
         <LightningDepositModal
           customerId={customerId}
           onClose={() => setShowLightningDeposit(false)}

@@ -18,17 +18,27 @@ from routes._deps import (
     _AUTH_COOKIE_NAME,
     _USE_PERSISTENT_AUTH,
     _api_keys,
+    _canonical_owner_id,
+    _effective_billing_customer_id,
+    _user_team_id,
+    _check_job_access,
+    _check_job_write_access,
     _check_ws_connect_rate_limit,
+    _require_team_instance_write,
+    _user_can_access_volume,
     _consume_ws_ticket,
+    _filter_jobs_for_user,
     _get_current_user,
     _is_platform_admin,
     _issue_ws_ticket,
+    _require_admin,
     _require_auth,
     _require_scope,
     _sessions,
     _sse_lock,
     _sse_subscribers,
     _user_lock,
+    _user_owns_job,
     _validate_ws_origin,
     _validate_ws_auth,  # re-exported for backward compat with tests
     broadcast_sse,
@@ -58,28 +68,14 @@ from collections import defaultdict
 # if the user has no explicit `users.max_concurrent_instances` override.
 MAX_CONCURRENT_INSTANCES_PER_USER = int(os.environ.get("MAX_CONCURRENT_INSTANCES", "5"))
 
+# Shared pool limits for team contexts (aligned with team member tiers).
+_TEAM_PLAN_CONCURRENCY_CAPS = {
+    "free": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_FREE", "5")),
+    "pro": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_PRO", "25")),
+    "enterprise": int(os.environ.get("XCELSIOR_TEAM_CONCURRENCY_ENTERPRISE", "100")),
+}
+
 _ACTIVE_STATUSES = {"queued", "assigned", "starting", "running"}
-
-
-def _canonical_owner_id(user: dict) -> str:
-    """P3/B3 — single source of truth for per-user ownership strings.
-
-    Prefers the Stripe ``customer_id`` (post-billing identity) but falls
-    back to ``user_id`` for accounts that never finished Stripe signup
-    (customer_id is "" or missing). Returns "" if neither is available,
-    which callers must treat as 401.
-
-    Historically this repo had two patterns — a positional default
-    ``user.get("customer_id", user.get("user_id", ""))`` and a
-    short-circuit ``user.get("customer_id") or user.get("user_id")`` —
-    which diverge when ``customer_id`` is the empty string. The helper
-    uses the short-circuit form because customer_id="" is NOT a valid
-    Stripe identity and ownership checks must fall back to user_id.
-    """
-    cid = (user.get("customer_id") or "").strip()
-    if cid:
-        return cid
-    return (user.get("user_id") or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -151,20 +147,10 @@ def _check_snapshot_rate_limit(owner_id: str) -> None:
     bucket.append(now)
 
 
-def _get_user_concurrency_cap(customer_id: str) -> int:
-    """Return the active-instance cap for a user.
-
-    Hierarchy (first match wins):
-      1. `users.max_concurrent_instances` column if non-NULL — per-user override
-         set by admins (e.g. for power users or trial restrictions).
-      2. `MAX_CONCURRENT_INSTANCES` env default (5 if unset).
-
-    Future extension: tier-based defaults can slot in between 1 and 2 without
-    changing callers. Failures to look up the user fall through to the env
-    default — we never block job submission on a metadata query glitch.
-    """
+def _lookup_user_concurrency_override(customer_id: str) -> int | None:
+    """Return per-user admin override, or None when unset."""
     if not customer_id:
-        return MAX_CONCURRENT_INSTANCES_PER_USER
+        return None
     try:
         from db import _get_pg_pool
 
@@ -178,7 +164,55 @@ def _get_user_concurrency_cap(customer_id: str) -> int:
             return int(row[0])
     except Exception as e:
         log.debug("concurrency cap lookup failed for %s: %s", customer_id, e)
+    return None
+
+
+def _get_user_concurrency_cap(customer_id: str) -> int:
+    """Return the active-instance cap for a billing customer id (personal scope)."""
+    override = _lookup_user_concurrency_override(customer_id)
+    if override is not None:
+        return override
     return MAX_CONCURRENT_INSTANCES_PER_USER
+
+
+def _get_effective_concurrency_cap(user: dict) -> int:
+    """Active-instance cap for the caller's billing scope (personal or team).
+
+    Hierarchy:
+      1. Owner `users.max_concurrent_instances` override when set.
+      2. Team plan cap when acting in a team context.
+      3. `MAX_CONCURRENT_INSTANCES` env default.
+    """
+    billing_id = _effective_billing_customer_id(user)
+    override = _lookup_user_concurrency_override(billing_id)
+    if override is not None:
+        return override
+
+    team_id = _user_team_id(user)
+    if team_id:
+        team = UserStore.get_team(team_id)
+        if team:
+            plan = str(team.get("plan") or "free").strip().lower()
+            return _TEAM_PLAN_CONCURRENCY_CAPS.get(plan, MAX_CONCURRENT_INSTANCES_PER_USER)
+
+    return MAX_CONCURRENT_INSTANCES_PER_USER
+
+
+def _count_active_instances_for_user(user: dict) -> int:
+    """Count active instances in the caller's billing scope (shared for teams)."""
+    return _count_active_instances(_effective_billing_customer_id(user))
+
+
+def _enforce_concurrency_limit(user: dict) -> None:
+    """Raise 429 when the caller's billing scope is at its concurrent cap."""
+    cap = _get_effective_concurrency_cap(user)
+    active = _count_active_instances_for_user(user)
+    if active >= cap:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Concurrent instance limit reached ({cap}). "
+            "Please stop an existing instance before launching a new one.",
+        )
 
 
 def _count_active_instances(customer_id: str) -> int:
@@ -217,23 +251,6 @@ router = APIRouter()
 _JOB_LOG_MAX = 500
 _job_log_buffers: dict[str, list[dict]] = defaultdict(list)
 _ws_connections: dict[str, set] = defaultdict(set)
-
-
-def _check_job_access(user: dict, job_id: str):
-    """Verify user owns the job or is admin."""
-    if _is_platform_admin(user) or user.get("role") == "admin":
-        return
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(404, f"Instance {job_id} not found")
-    job_owner = (job.get("owner") or "").strip()
-    owned = {_canonical_owner_id(user)}
-    owned.update(str(user.get(k) or "").strip() for k in ("customer_id", "user_id", "email"))
-    owned.discard("")
-    if job_owner and job_owner not in owned:
-        raise HTTPException(403, "Not authorized to access this instance")
 
 
 def _require_worker_status_update(request: Request) -> dict:
@@ -537,20 +554,11 @@ def api_submit_instance(j: JobIn, request: Request):
     with otel_span(
         "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
     ):
-        customer_id = _canonical_owner_id(user)
+        customer_id = _effective_billing_customer_id(user)
         _wallet_preflight(customer_id)
 
-        # ── Per-user concurrent instance cap ───────────────────
-        # Uses single SQL COUNT on payload->>'owner' (see _count_active_instances)
-        # instead of an O(N) Python filter over every job in the system.
-        user_cap = _get_user_concurrency_cap(customer_id)
-        active_count = _count_active_instances(customer_id)
-        if active_count >= user_cap:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Concurrent instance limit reached ({user_cap}). "
-                "Please stop an existing instance before launching a new one.",
-            )
+        # ── Concurrent instance cap (personal or shared team pool) ──
+        _enforce_concurrency_limit(user)
 
         # ── Validate volume_ids ownership and status ─────────────
         validated_volume_ids = None
@@ -560,8 +568,6 @@ def api_submit_instance(j: JobIn, request: Request):
             ve = get_volume_engine()
             validated_volume_ids = []
             seen_vids: set[str] = set()
-            # Volumes use user_id as owner_id (not customer_id)
-            volume_owner_id = user.get("user_id", user.get("email", ""))
             for vid in j.volume_ids:
                 if vid in seen_vids:
                     continue  # deduplicate
@@ -572,7 +578,7 @@ def api_submit_instance(j: JobIn, request: Request):
                     raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
                 if not vol:
                     raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
-                if vol.get("owner_id") != volume_owner_id:
+                if not _user_can_access_volume(user, vol):
                     raise HTTPException(status_code=404, detail=f"Volume {vid} not found")
                 if vol.get("status") not in ("available", "attached"):
                     raise HTTPException(
@@ -795,14 +801,23 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
 
 
 @router.get("/instances", tags=["Instances"])
-def api_list_instances(status: str | None = None):
-    """List jobs. Optional filter by status."""
-    jobs = list_jobs(status=status)
+def api_list_instances(request: Request, status: str | None = None):
+    """List instances for the authenticated user (admins see all)."""
+    user = _require_auth(request)
+    _require_scope(user, "instances:read")
+    jobs = _filter_jobs_for_user(list_jobs(status=status), user)
     hosts = list_hosts()
     host_map = {h["host_id"]: h for h in hosts}
     for j in jobs:
         _enrich_instance(j, host_map)
-    return {"instances": jobs}
+    return {
+        "instances": jobs,
+        "concurrency": {
+            "active": _count_active_instances_for_user(user),
+            "cap": _get_effective_concurrency_cap(user),
+            "shared": bool(_user_team_id(user)),
+        },
+    }
 
 
 @router.get("/instance/{job_id}", tags=["Instances"])
@@ -875,22 +890,14 @@ class InstanceRenamePayload(BaseModel):
 @router.patch("/instance/{job_id}/name", tags=["Instances"])
 def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Request):
     """Rename an instance (owner or admin only)."""
-    from routes._deps import _get_current_user, _require_auth
-
-    _require_auth(request)
-    user = _get_current_user(request)
-    if user is None:
-        raise HTTPException(401, "Authentication required")
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    _check_job_write_access(user, job_id)
     from scheduler import get_job, _set_job_fields
 
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, "Instance not found")
-    is_admin = user.get("role") == "admin" or bool(user.get("is_admin"))
-    owner = job.get("owner", "")
-    caller = user.get("customer_id", user.get("user_id", ""))
-    if not is_admin and owner != caller:
-        raise HTTPException(403, "Not authorized")
     _check_not_locked(job)
     _set_job_fields(job_id, name=body.name.strip())
     broadcast_sse("job_update", {"job_id": job_id, "name": body.name.strip()})
@@ -898,8 +905,9 @@ def api_rename_instance(job_id: str, body: InstanceRenamePayload, request: Reque
 
 
 @router.post("/queue/process", tags=["Instances"])
-def api_process_queue():
-    """Process the job queue — assign jobs to hosts."""
+def api_process_queue(request: Request):
+    """Process the job queue — assign jobs to hosts (admin only)."""
+    _require_admin(request)
     assigned = process_queue()
     result = [{"job": j["name"], "job_id": j["job_id"], "host": h["host_id"]} for j, h in assigned]
     if result:
@@ -908,8 +916,9 @@ def api_process_queue():
 
 
 @router.post("/failover", tags=["Instances"])
-def api_failover():
-    """Run a full failover cycle: check hosts, requeue orphaned jobs, reassign."""
+def api_failover(request: Request):
+    """Run a full failover cycle (admin only)."""
+    _require_admin(request)
     requeued, assigned = failover_and_reassign()
     return {
         "requeued": [
@@ -927,7 +936,7 @@ def api_cancel_instance(job_id: str, request: Request):
     """Cancel a running or queued instance. For interactive instances, stops the container."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
-    _check_job_access(user, job_id)
+    _check_job_write_access(user, job_id)
     jobs = list_jobs()
     job = next((j for j in jobs if j["job_id"] == job_id), None)
     if not job:
@@ -968,7 +977,7 @@ def api_requeue_instance(job_id: str, request: Request):
     """Manually requeue a failed or stuck job."""
     user = _require_auth(request)
     _require_scope(user, "instances:write")
-    _check_job_access(user, job_id)
+    _check_job_write_access(user, job_id)
     result = requeue_job(job_id)
     if not result:
         raise HTTPException(
@@ -1014,7 +1023,7 @@ def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> 
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
-    customer_id = _canonical_owner_id(user)
+    _require_team_instance_write(user)
 
     from scheduler import get_job
 
@@ -1022,8 +1031,7 @@ def _authorize_instance_mutation(request: Request, job_id: str, action: str) -> 
     if not job:
         raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
 
-    job_owner = (job.get("owner") or "").strip()
-    if not _is_platform_admin(user) and job_owner and job_owner != customer_id:
+    if not _user_owns_job(user, job):
         raise HTTPException(status_code=403, detail=f"Not authorized to {action} this instance")
     return user, job
 
@@ -1164,21 +1172,7 @@ def api_restart_instance(job_id: str, request: Request):
 
     Billing is continuous — no gap. Requires a positive wallet balance.
     """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to restart this instance")
-
+    user, job = _authorize_instance_mutation(request, job_id, "restart")
     _check_not_locked(job)
 
     if job.get("status") not in ("running", "stopped"):
@@ -1190,7 +1184,8 @@ def api_restart_instance(job_id: str, request: Request):
     from billing import get_billing_engine
 
     be = get_billing_engine()
-    wallet = be.get_wallet(job_owner or customer_id)
+    job_owner = (job.get("owner") or "").strip()
+    wallet = be.get_wallet(job_owner)
     if wallet.get("status") == "suspended":
         raise HTTPException(status_code=402, detail="Wallet suspended — please add funds")
     if wallet["balance_cad"] <= 0:
@@ -1262,21 +1257,7 @@ def api_terminate_instance(job_id: str, request: Request):
     Named/NFS volumes are preserved. The instance cannot be restarted
     after termination.
     """
-    user = _require_auth(request)
-    _require_scope(user, "instances:write")
-    customer_id = user.get("customer_id", user.get("user_id", ""))
-    role = user.get("role", "")
-
-    from scheduler import get_job
-
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
-
-    job_owner = job.get("owner", "")
-    if role != "admin" and job_owner != customer_id:
-        raise HTTPException(status_code=403, detail="Not authorized to terminate this instance")
-
+    user, job = _authorize_instance_mutation(request, job_id, "terminate")
     _check_not_locked(job)
 
     terminal_statuses = {"terminated", "completed", "failed", "preempted", "cancelled"}
@@ -1503,10 +1484,7 @@ async def api_instance_log_stream(request: Request, job_id: str):
     """
     user = _require_auth(request)
     _require_scope(user, "instances:read")
-    # Verify job exists
-    jobs = list_jobs()
-    if not any(j["job_id"] == job_id for j in jobs):
-        raise HTTPException(404, f"Job {job_id} not found")
+    _check_job_access(user, job_id)
 
     return StreamingResponse(
         _job_log_generator(request, job_id),
@@ -1576,8 +1554,11 @@ def api_list_tiers():
 
 
 @router.post("/api/v2/scheduler/process-binpack", tags=["Jobs"])
-def api_process_queue_binpack(canada_only: bool = False, province: str = ""):
-    """Process job queue using best-fit-decreasing bin packing."""
+def api_process_queue_binpack(
+    request: Request, canada_only: bool = False, province: str = ""
+):
+    """Process job queue using best-fit-decreasing bin packing (admin only)."""
+    _require_admin(request)
     assigned = process_queue_binpack(
         canada_only=canada_only or None,
         province=province or None,
@@ -1692,14 +1673,11 @@ async def ws_instance_stream(websocket: WebSocket, job_id: str):
         await websocket.close(code=4004)
         return
 
-    # Ownership check — only job owner or admin may stream
-    if not (user.get("role") == "admin" or user.get("is_admin")):
-        job_owner = instance.get("owner", "")
-        customer_id = user.get("customer_id", user.get("user_id", ""))
-        if job_owner and job_owner != customer_id:
-            await _safe_send({"event": "error", "data": {"message": "Not authorized"}})
-            await websocket.close(code=4003)
-            return
+    # Ownership check — team members with read access may stream; viewers included
+    if not _user_owns_job(user, instance):
+        await _safe_send({"event": "error", "data": {"message": "Not authorized"}})
+        await websocket.close(code=4003)
+        return
 
     _ws_connections[job_id].add(websocket)
     if not await _safe_send({"event": "instance", "data": instance}):

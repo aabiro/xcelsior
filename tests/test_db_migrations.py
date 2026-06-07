@@ -328,3 +328,27 @@ class TestAlembicMigrationFiles:
         m2 = self._load_migration("002_spot_pricing_and_security.py")
         assert m1.down_revision is None
         assert m2.down_revision == m1.revision
+
+    def test_036_team_billing_customer_importable(self):
+        m = self._load_migration("036_team_billing_customer.py")
+        assert m.revision == "036"
+        assert m.down_revision == "035"
+        assert hasattr(m, "upgrade")
+        assert hasattr(m, "downgrade")
+
+    def test_teams_billing_customer_id_column_exists(self):
+        """Migration 036 — shared team wallet column on teams."""
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT column_name, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'teams'
+                  AND column_name = 'billing_customer_id'
+                """
+            ).fetchone()
+        assert row is not None
+        name = row["column_name"] if isinstance(row, dict) else row[0]
+        assert name == "billing_customer_id"

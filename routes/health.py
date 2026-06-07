@@ -128,8 +128,9 @@ def api_get_pubkey():
 
 
 @router.post("/token/generate", tags=["Infrastructure"])
-def api_generate_token():
-    """Generate a secure random API token. User must set it in .env themselves."""
+def api_generate_token(request: Request):
+    """Generate a secure random API token (admin only)."""
+    _require_admin(request)
     token = secrets.token_urlsafe(32)
     return {"token": token, "note": "Set XCELSIOR_API_TOKEN in your .env to enable auth."}
 
@@ -465,13 +466,20 @@ def api_slurm_profiles(request: Request):
 
 
 @router.get("/api/nfs/config", tags=["Infrastructure"])
-def api_nfs_config():
-    """Get current NFS configuration from environment."""
+def api_nfs_config(request: Request):
+    """Get current NFS configuration from environment (admin only)."""
+    from volumes import nfs_storage_healthcheck
+
+    _require_admin(request)
+    health = nfs_storage_healthcheck()
     return {
         "nfs_server": os.environ.get("XCELSIOR_NFS_SERVER", ""),
         "nfs_path": os.environ.get("XCELSIOR_NFS_PATH", ""),
+        "nfs_export_base": os.environ.get("XCELSIOR_NFS_EXPORT_BASE", ""),
         "nfs_mount_point": os.environ.get("XCELSIOR_NFS_MOUNT", "/mnt/xcelsior-nfs"),
-        "configured": bool(os.environ.get("XCELSIOR_NFS_SERVER")),
+        "nfs_required": os.environ.get("XCELSIOR_NFS_REQUIRED", "").lower() in ("1", "true", "yes"),
+        "configured": health.get("configured", False),
+        "volumes": health,
     }
 
 
@@ -486,8 +494,9 @@ class BuildIn(BaseModel):
 
 
 @router.post("/build", tags=["Infrastructure"])
-def api_build_image(b: BuildIn):
-    """Build a Docker image for a model. Optionally quantize and push."""
+def api_build_image(b: BuildIn, request: Request):
+    """Build a Docker image for a model. Optionally quantize and push (admin only)."""
+    _require_admin(request)
     result = build_and_push(b.model, quantize=b.quantize, base_image=b.base_image, push=b.push)
     if not result["built"]:
         raise HTTPException(status_code=500, detail=f"Build failed for {b.model}")
@@ -495,16 +504,21 @@ def api_build_image(b: BuildIn):
 
 
 @router.get("/builds", tags=["Infrastructure"])
-def api_list_builds():
-    """List all local build directories."""
+def api_list_builds(request: Request):
+    """List all local build directories (admin only)."""
+    _require_admin(request)
     return {"builds": list_builds()}
 
 
 @router.post("/build/{model}/dockerfile", tags=["Infrastructure"])
 def api_generate_dockerfile(
-    model: str, base_image: str = "python:3.11-slim", quantize: str | None = None
+    model: str,
+    request: Request,
+    base_image: str = "python:3.11-slim",
+    quantize: str | None = None,
 ):
-    """Preview the generated Dockerfile without building."""
+    """Preview the generated Dockerfile without building (admin only)."""
+    _require_admin(request)
     content = generate_dockerfile(model, base_image=base_image, quantize=quantize)
     return {"model": model, "dockerfile": content}
 
@@ -610,7 +624,17 @@ def readyz():
             status_code=503, detail=f"Storage not ready: {storage.get('error', 'unknown')}"
         )
 
-    return {"ok": True, "status": "ready", "storage": storage}
+    from volumes import nfs_storage_healthcheck
+
+    nfs = nfs_storage_healthcheck()
+    nfs_required = os.environ.get("XCELSIOR_NFS_REQUIRED", "").lower() in ("1", "true", "yes")
+    if nfs_required and not nfs.get("ok"):
+        raise HTTPException(
+            status_code=503,
+            detail=f"NFS volume storage not ready: {nfs.get('error') or nfs.get('mode', 'unreachable')}",
+        )
+
+    return {"ok": True, "status": "ready", "storage": storage, "nfs_volumes": nfs}
 
 
 @router.get("/metrics", tags=["Infrastructure"])

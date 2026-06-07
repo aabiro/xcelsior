@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
+import { PayPalConnectCard, type PayPalProviderState } from "@/components/providers/paypal-connect-card";
 
 interface ProviderInfo {
   provider_id: string;
@@ -28,6 +29,7 @@ interface ProviderInfo {
   province?: string;
   created_at: string;
   onboarded_at?: string;
+  paypal?: PayPalProviderState;
 }
 
 export default function EarningsPage() {
@@ -54,6 +56,7 @@ export default function EarningsPage() {
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [justConnected, setJustConnected] = useState(false);
   const [pollingStatus, setPollingStatus] = useState(false);
+  const [platformPayPal, setPlatformPayPal] = useState(false);
 
   const load = useCallback(async () => {
     if (!providerId && !customerId) return;
@@ -66,7 +69,8 @@ export default function EarningsPage() {
       promises.push(api.fetchProviderEarnings(pid).catch(() => null));
       promises.push(api.fetchProvider(pid).catch(() => null));
       promises.push(api.fetchGstThreshold(customerId || providerId));
-      const [earningsRes, providerRes, gstRes] = await Promise.allSettled(promises);
+      promises.push(api.checkPayPalEnabled().catch(() => ({ enabled: false, platform_mode: false })));
+      const [earningsRes, providerRes, gstRes, paypalFlagRes] = await Promise.allSettled(promises);
       if (earningsRes.status === "fulfilled" && earningsRes.value) {
         setEarnings(earningsRes.value.earnings);
         setPayouts(earningsRes.value.recent_payouts || []);
@@ -80,6 +84,9 @@ export default function EarningsPage() {
           threshold_cad: gstRes.value.threshold_cad,
           must_register: gstRes.value.must_register,
         });
+      }
+      if (paypalFlagRes.status === "fulfilled") {
+        setPlatformPayPal(Boolean(paypalFlagRes.value?.enabled));
       }
     } catch {
       toast.error("Failed to load earnings");
@@ -266,8 +273,15 @@ export default function EarningsPage() {
             />
           </div>
 
-          {/* Stripe Connect Status + GST Alert */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Payout methods + GST */}
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold tracking-wide text-text-primary">
+                {t("dash.earnings.payout_methods")}
+              </h2>
+              <p className="text-xs text-text-muted mt-0.5">{t("dash.earnings.payout_methods_desc")}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Stripe Connect */}
             <Card className={provider?.status === "active" ? "border-emerald/40 ring-1 ring-emerald/20" : ""}>
               <CardHeader className="pb-2">
@@ -370,6 +384,18 @@ export default function EarningsPage() {
               </CardContent>
             </Card>
 
+            {(provider || providerId) && (
+              <PayPalConnectCard
+                providerId={providerId || customerId}
+                paypal={provider?.paypal}
+                platformPayPalEnabled={platformPayPal}
+                onUpdated={load}
+              />
+            )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             {/* GST Threshold */}
             <Card className={gst?.must_register ? "border-gold/30 bg-gold/5" : ""}>
               <CardHeader className="pb-2">
@@ -458,6 +484,7 @@ export default function EarningsPage() {
                     <thead>
                       <tr className="border-b border-border text-left text-text-muted">
                         <th className="pb-2 pr-4 font-medium">Job</th>
+                        <th className="pb-2 pr-4 font-medium">Rail</th>
                         <th className="pb-2 pr-4 font-medium">Total</th>
                         <th className="pb-2 pr-4 font-medium">Your Share</th>
                         <th className="pb-2 pr-4 font-medium">Platform</th>
@@ -469,6 +496,19 @@ export default function EarningsPage() {
                       {payouts.map((p) => (
                         <tr key={`${p.job_id}-${p.created_at}`} className="border-b border-border/50">
                           <td className="py-2.5 pr-4 font-mono text-xs">{p.job_id.slice(0, 12)}…</td>
+                          <td className="py-2.5 pr-4">
+                            <Badge
+                              className={
+                                p.payment_rail === "paypal"
+                                  ? "border-[#009cde]/30 text-[#003087] bg-[#009cde]/5 text-[10px]"
+                                  : "border-emerald/25 text-emerald bg-emerald/5 text-[10px]"
+                              }
+                            >
+                              {p.payment_rail === "paypal"
+                                ? t("dash.earnings.rail_paypal")
+                                : t("dash.earnings.rail_stripe")}
+                            </Badge>
+                          </td>
                           <td className="py-2.5 pr-4 font-mono">${p.total_cad.toFixed(2)}</td>
                           <td className="py-2.5 pr-4 font-mono text-emerald">${p.provider_share_cad.toFixed(2)}</td>
                           <td className="py-2.5 pr-4 font-mono text-text-muted">${p.platform_share_cad.toFixed(2)}</td>

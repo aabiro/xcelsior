@@ -1503,14 +1503,15 @@ def _tool_get_gpu_availability(args: dict, _user: dict) -> dict:
 
 def _tool_list_volumes(_args: dict, user: dict) -> dict:
     """List user's persistent storage volumes."""
+    from routes._deps import _volume_owner_ids_readable
     from volumes import get_volume_engine
 
     engine = get_volume_engine()
     if engine is None:
         return {"error": "Volume engine not available. Please try again later."}
-    user_id = user.get("user_id", user.get("email", ""))
+    owner_ids = sorted(_volume_owner_ids_readable(user))
     try:
-        vols = engine.list_volumes(user_id)
+        vols = engine.list_volumes_for_owner_ids(owner_ids)
     except Exception as e:
         log.error("list_volumes failed: %s", e)
         return {"error": "Failed to retrieve volumes."}

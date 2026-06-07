@@ -212,8 +212,20 @@ export function DesktopRuntimeProvider({ children }: { children: ReactNode }) {
 
 export function useDesktopRuntime() {
   const context = useContext(DesktopRuntimeContext);
-  if (!context) {
-    throw new Error("useDesktopRuntime must be used inside DesktopRuntimeProvider");
+  if (context) {
+    return context;
   }
-  return context;
+  // Safe fallback for renders outside DesktopRuntimeProvider.
+  // RootClientWidgets mounts DesktopAppRuntime on /dashboard paths from the root layout (outside the provider in the (dashboard) layout).
+  // Consumers (strip, bell, app runtime) already early-return when not native/pwa.
+  return {
+    state: createBrowserDesktopState(),
+    refresh: async () => {},
+    updatePreferences: async () => {},
+    syncNativeState: async () => {},
+    openControlCenter: async () => {},
+    openMainWindow: async () => {},
+    checkForUpdates: async () => {},
+    installUpdate: async () => {},
+  } as DesktopRuntimeContextValue;
 }

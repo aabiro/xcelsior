@@ -15,11 +15,13 @@ from pydantic import BaseModel, Field
 from routes._deps import (
     XCELSIOR_ENV,
     _USE_PERSISTENT_AUTH,
+    _effective_billing_customer_id,
     _get_current_user,
     _is_platform_admin,
     _merge_auth_user,
     _require_admin,
     _require_auth,
+    _require_customer_access,
     _require_scope,
     _check_billing_payment_rate_limit,
     _users_db,
@@ -77,12 +79,8 @@ except ImportError:
 
 
 def _analytics_customer_scope(user: dict) -> str:
-    """Return the billing owner identifier for the authenticated user.
-
-    Usage meters and wallet records are keyed by customer_id, not email.
-    Falling back preserves older/test flows that may still use user_id/email.
-    """
-    return str(user.get("customer_id") or user.get("user_id") or user.get("email") or "").strip()
+    """Return the billing owner identifier for the authenticated user."""
+    return _effective_billing_customer_id(user)
 
 
 def _allow_direct_wallet_deposit(user: dict) -> bool:
@@ -90,24 +88,6 @@ def _allow_direct_wallet_deposit(user: dict) -> bool:
     if XCELSIOR_ENV in ("test", "dev", "development"):
         return True
     return _is_platform_admin(user)
-
-
-def _require_customer_access(request: Request, customer_id: str) -> dict:
-    """Authn + ownership guard for customer-scoped billing routes.
-
-    The caller may only act on their own customer_id; platform admins may act
-    on any. Without this, these routes were IDOR / unauthenticated — anyone
-    could read or mutate another customer's wallet, usage, or invoices by id
-    (customer_id is often the user's email — trivially guessable).
-    """
-    user = _get_current_user(request)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    owned = {str(user.get(k) or "").strip() for k in ("customer_id", "user_id", "email")}
-    owned.discard("")
-    if customer_id not in owned and not _is_platform_admin(user):
-        raise HTTPException(403, "Forbidden")
-    return user
 
 
 @router.post("/billing/bill/{job_id}", tags=["Billing"])
@@ -181,7 +161,7 @@ def api_create_payment_intent(req: PaymentIntentRequest, request: Request):
     Returns client_secret for front-end Stripe Elements confirmation.
     On payment_intent.succeeded webhook the wallet is credited automatically.
     """
-    user = _require_customer_access(request, req.customer_id)
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "payment-intent")
     if req.amount_cad < 1 or req.amount_cad > 10000:
@@ -197,17 +177,65 @@ _PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
 _PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
 _PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID", "")
 _PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox")  # sandbox | live
+# Platform Complete Payments: partner BN code from Developer Dashboard (not merchant_id).
+_PAYPAL_PARTNER_ATTRIBUTION_ID = os.environ.get("PAYPAL_PARTNER_ATTRIBUTION_ID", "")
+# Platform merchant_id (live). Live-only — sandbox rejects live merchant IDs.
+_PAYPAL_PLATFORM_MERCHANT_ID = os.environ.get("PAYPAL_PLATFORM_MERCHANT_ID", "")
+# Platform business PayPal email (sandbox + live fallback).
+_PAYPAL_PLATFORM_PAYEE_EMAIL = os.environ.get("PAYPAL_PLATFORM_PAYEE_EMAIL", "")
 _PAYPAL_BASE = (
     "https://api-m.paypal.com" if _PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
 )
 
 
+def _paypal_payee() -> dict[str, str] | None:
+    """Payee for platform/marketplace orders — credits land on the platform merchant account."""
+    merchant_id = _PAYPAL_PLATFORM_MERCHANT_ID.strip()
+    email = _PAYPAL_PLATFORM_PAYEE_EMAIL.strip()
+    if merchant_id and merchant_id.isdigit() and len(merchant_id) > 15:
+        log.warning(
+            "PAYPAL_PLATFORM_MERCHANT_ID looks like a partner app ID; "
+            "use PAYPAL_PARTNER_ATTRIBUTION_ID instead"
+        )
+        merchant_id = ""
+    if _PAYPAL_MODE == "live":
+        if merchant_id:
+            return {"merchant_id": merchant_id}
+        if email:
+            return {"email_address": email}
+        return None
+    # Sandbox: live merchant_ids are invalid; prefer platform email payee.
+    if email:
+        return {"email_address": email}
+    if merchant_id:
+        return {"merchant_id": merchant_id}
+    return None
+
+
+def _paypal_purchase_unit(customer_id: str, amount_cad: float) -> dict:
+    unit: dict = {
+        "amount": {
+            "currency_code": "CAD",
+            "value": f"{amount_cad:.2f}",
+        },
+        "description": f"Xcelsior compute credits — {customer_id}",
+        "custom_id": customer_id,
+    }
+    payee = _paypal_payee()
+    if payee:
+        unit["payee"] = payee
+    return unit
+
+
 def _paypal_headers(token: str) -> dict[str, str]:
-    return {
+    headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    if _PAYPAL_PARTNER_ATTRIBUTION_ID:
+        headers["PayPal-Partner-Attribution-Id"] = _PAYPAL_PARTNER_ATTRIBUTION_ID
+    return headers
 
 
 def _paypal_get_order(order_id: str, token: str | None = None) -> dict:
@@ -221,12 +249,19 @@ def _paypal_get_order(order_id: str, token: str | None = None) -> dict:
     return resp.json()
 
 
+def _paypal_is_marketplace_custom_id(custom_id: str) -> bool:
+    return ":" in custom_id and not custom_id.startswith("cust-")
+
+
 def _paypal_credit_capture(
     customer_id: str,
     order_id: str,
     amount_cad: float,
     capture_id: str,
 ) -> dict:
+    if _paypal_is_marketplace_custom_id(customer_id):
+        log.info("Skipping wallet credit for marketplace PayPal order %s", order_id)
+        return {"balance_cad": 0.0, "skipped": True}
     be = get_billing_engine()
     return be.deposit(
         customer_id,
@@ -282,16 +317,36 @@ class PayPalCaptureRequest(BaseModel):
     order_id: str = Field(min_length=1, max_length=128)
 
 
+class PayPalMarketplaceCreateRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    provider_id: str = Field(min_length=1, max_length=128)
+    job_id: str = Field(min_length=1, max_length=128)
+    amount_cad: float = Field(gt=0, le=10000)
+
+
+class PayPalMarketplaceCaptureRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=128)
+    provider_id: str = Field(min_length=1, max_length=128)
+    order_id: str = Field(min_length=1, max_length=128)
+
+
 @router.get("/api/billing/paypal/enabled", tags=["Billing"])
 def api_paypal_enabled():
     """Check whether PayPal is configured."""
-    return {"enabled": bool(_PAYPAL_CLIENT_ID and _PAYPAL_CLIENT_SECRET)}
+    return {
+        "enabled": bool(_PAYPAL_CLIENT_ID and _PAYPAL_CLIENT_SECRET),
+        "platform_mode": bool(
+            _PAYPAL_PARTNER_ATTRIBUTION_ID
+            or _PAYPAL_PLATFORM_MERCHANT_ID
+            or _PAYPAL_PLATFORM_PAYEE_EMAIL
+        ),
+    }
 
 
 @router.post("/api/billing/paypal/create-order", tags=["Billing"])
 def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
     """Create a PayPal order for depositing compute credits."""
-    user = _require_customer_access(request, req.customer_id)
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "paypal-create-order")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
@@ -302,22 +357,10 @@ def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
     token = _paypal_access_token()
     order_resp = httpx.post(
         f"{_PAYPAL_BASE}/v2/checkout/orders",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        headers=_paypal_headers(token),
         json={
             "intent": "CAPTURE",
-            "purchase_units": [
-                {
-                    "amount": {
-                        "currency_code": "CAD",
-                        "value": f"{req.amount_cad:.2f}",
-                    },
-                    "description": f"Xcelsior compute credits — {req.customer_id}",
-                    "custom_id": req.customer_id,
-                }
-            ],
+            "purchase_units": [_paypal_purchase_unit(req.customer_id, req.amount_cad)],
             "application_context": {
                 "brand_name": "Xcelsior",
                 "shipping_preference": "NO_SHIPPING",
@@ -336,7 +379,7 @@ def api_paypal_create_order(req: PayPalCreateOrderRequest, request: Request):
 @router.post("/api/billing/paypal/capture-order", tags=["Billing"])
 def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
     """Capture a PayPal order and credit the wallet."""
-    user = _require_customer_access(request, req.customer_id)
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "paypal-capture-order")
     if not _PAYPAL_CLIENT_ID or not _PAYPAL_CLIENT_SECRET:
@@ -349,6 +392,40 @@ def api_paypal_capture_order(req: PayPalCaptureRequest, request: Request):
     result = _paypal_credit_capture(req.customer_id, req.order_id, amount_cad, paypal_id)
     log.info("PayPal deposit: %s → $%.2f CAD (capture %s)", req.customer_id, amount_cad, paypal_id)
     return {"ok": True, "balance_cad": result["balance_cad"], "amount_cad": amount_cad}
+
+
+@router.post("/api/billing/paypal/marketplace/create-order", tags=["Billing"])
+def api_paypal_marketplace_create_order(req: PayPalMarketplaceCreateRequest, request: Request):
+    """Create a PayPal order that pays a provider with an instant platform fee split."""
+    from paypal_connect import get_paypal_manager
+
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-marketplace-create")
+    mgr = get_paypal_manager()
+    if not mgr.get_paypal_profile(req.provider_id):
+        raise HTTPException(404, f"Provider {req.provider_id} not found")
+    try:
+        result = mgr.create_marketplace_order(req.provider_id, req.job_id, req.amount_cad)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **result}
+
+
+@router.post("/api/billing/paypal/marketplace/capture-order", tags=["Billing"])
+def api_paypal_marketplace_capture_order(req: PayPalMarketplaceCaptureRequest, request: Request):
+    """Capture a marketplace PayPal order and record the provider/platform split."""
+    from paypal_connect import get_paypal_manager
+
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
+    _require_scope(user, "billing:write")
+    _check_billing_payment_rate_limit(req.customer_id, "paypal-marketplace-capture")
+    mgr = get_paypal_manager()
+    try:
+        result = mgr.capture_marketplace_order(req.provider_id, req.order_id)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **result}
 
 
 def _paypal_verify_webhook_signature(request: Request, event: dict) -> bool:
@@ -412,10 +489,14 @@ def _paypal_handle_order_completed(resource: dict) -> None:
     purchase_units = resource.get("purchase_units") or []
     if not purchase_units:
         return
-    customer_id = purchase_units[0].get("custom_id", "") or ""
-    if not customer_id:
+    custom_id = purchase_units[0].get("custom_id", "") or ""
+    if not custom_id:
         log.warning("PayPal ORDER.COMPLETED missing custom_id for order %s", order_id)
         return
+    if _paypal_is_marketplace_custom_id(custom_id):
+        log.info("PayPal ORDER.COMPLETED marketplace order %s — wallet credit skipped", order_id)
+        return
+    customer_id = custom_id
     captures = (purchase_units[0].get("payments") or {}).get("captures") or []
     for capture in captures:
         if capture.get("status") != "COMPLETED":
@@ -445,14 +526,17 @@ def _paypal_handle_capture_completed(resource: dict) -> None:
         return
     order = _paypal_get_order(order_id)
     purchase_units = order.get("purchase_units") or []
-    customer_id = (purchase_units[0].get("custom_id") if purchase_units else "") or ""
-    if not customer_id:
+    custom_id = (purchase_units[0].get("custom_id") if purchase_units else "") or ""
+    if not custom_id:
         log.warning("PayPal CAPTURE.COMPLETED missing custom_id for order %s", order_id)
         return
-    _paypal_credit_capture(customer_id, order_id, amount_cad, capture_id)
+    if _paypal_is_marketplace_custom_id(custom_id):
+        log.info("PayPal CAPTURE.COMPLETED marketplace order %s — wallet credit skipped", order_id)
+        return
+    _paypal_credit_capture(custom_id, order_id, amount_cad, capture_id)
     log.info(
         "PayPal webhook credit: %s → $%.2f CAD (capture %s order %s)",
-        customer_id,
+        custom_id,
         amount_cad,
         capture_id,
         order_id,
@@ -481,6 +565,26 @@ async def api_paypal_webhook(request: Request):
         elif event_type == "PAYMENT.CAPTURE.COMPLETED":
             _paypal_handle_capture_completed(resource)
         elif event_type in (
+            "MERCHANT.ONBOARDING.COMPLETED",
+            "CUSTOMER.MERCHANT-INTEGRATION.PRODUCT-SUBSCRIPTION.UPDATED",
+        ):
+            from paypal_connect import get_paypal_manager
+
+            tracking_id = resource.get("tracking_id") or resource.get("trackingId") or ""
+            merchant_id = resource.get("merchant_id") or resource.get("merchantId") or ""
+            payer_id = resource.get("payer_id") or resource.get("payerId") or ""
+            get_paypal_manager().complete_onboarding_from_webhook(
+                tracking_id=tracking_id,
+                merchant_id=merchant_id,
+                payer_id=payer_id,
+            )
+            log.info(
+                "PayPal provider onboarding webhook %s tracking=%s merchant=%s",
+                event_type,
+                tracking_id,
+                merchant_id,
+            )
+        elif event_type in (
             "PAYMENT.CAPTURE.DENIED",
             "PAYMENT.CAPTURE.REFUNDED",
             "PAYMENT.CAPTURE.REVERSED",
@@ -505,7 +609,7 @@ def api_deposit(customer_id: str, req: DepositRequest, request: Request):
     Production deposits must flow through Stripe webhooks, PayPal capture, or
     crypto/Lightning — not this direct credit endpoint.
     """
-    user = _require_customer_access(request, customer_id)
+    user = _require_customer_access(request, customer_id, billing_write=True)
     _check_billing_payment_rate_limit(customer_id, "wallet-deposit")
     if not _allow_direct_wallet_deposit(user):
         log.warning(
@@ -893,7 +997,7 @@ class CryptoDepositRequest(BaseModel):
 @router.post("/api/billing/crypto/deposit", tags=["Billing"])
 def api_crypto_deposit(req: CryptoDepositRequest, request: Request):
     """Create a BTC deposit request. Returns address, amount, and QR data."""
-    user = _require_customer_access(request, req.customer_id)
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "crypto-deposit")
     if not _btc_mod or not _btc_mod.BTC_ENABLED:
@@ -947,7 +1051,7 @@ def api_crypto_refresh(deposit_id: str, request: Request):
     existing = _btc_mod.get_deposit(deposit_id)
     if not existing:
         raise HTTPException(404, "Deposit not found")
-    _require_customer_access(request, existing["customer_id"])
+    _require_customer_access(request, existing["customer_id"], billing_write=True)
     dep = _btc_mod.refresh_deposit(deposit_id)
     if not dep:
         raise HTTPException(404, "Deposit not found")
@@ -991,7 +1095,7 @@ def api_ln_enabled():
 @router.post("/api/billing/lightning/deposit", tags=["Billing"])
 def api_ln_create_deposit(req: LnDepositRequest, request: Request):
     """Create a Lightning invoice for depositing CAD credits."""
-    user = _require_customer_access(request, req.customer_id)
+    user = _require_customer_access(request, req.customer_id, billing_write=True)
     _require_scope(user, "billing:write")
     _check_billing_payment_rate_limit(req.customer_id, "lightning-deposit")
     if not _ln_mod or not _ln_mod.LN_ENABLED:
@@ -1207,13 +1311,14 @@ def api_reserved_plans():
 
 
 @router.post("/api/pricing/reserve", tags=["Billing"])
-def api_reserve_commitment(req: ReservedCommitmentRequest):
+def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
     """Create a reserved pricing commitment for a customer.
 
     Reserved instances are 20-45% cheaper than on-demand, depending on
     commitment length. The customer pre-commits to a term and receives
     a guaranteed discount on all GPU hours consumed during that period.
     """
+    _require_customer_access(request, req.customer_id, billing_write=True)
     tier = RESERVED_PRICING_TIERS.get(req.commitment_type)
     if not tier:
         raise HTTPException(

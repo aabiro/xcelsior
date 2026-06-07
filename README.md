@@ -2,7 +2,7 @@
 
 # 🍁 Xcelsior
 
-### Sovereign GPU Compute for Canada
+### Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada
 
 **Route AI workloads to admission-gated GPU hosts over a private mesh —
 with PIPEDA compliance, 4-layer container security, and CAD-native billing.**

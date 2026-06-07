@@ -18,6 +18,7 @@ import { useLocale } from "@/lib/locale";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import type { EnhancedAnalytics, WalletTransaction } from "@/lib/api";
+import { getBillingCustomerId } from "@/lib/team-context";
 import {
   SpendTrendChart, JobsTrendChart, UtilizationChart,
   CumulativeSpendChart, CostPerHourChart, GpuHoursChart,
@@ -332,6 +333,12 @@ export default function AnalyticsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const onTeamChanged = () => { load(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [load]);
+
   // Debounced SSE handler — avoid flooding on rapid events
   const debouncedLoad = useCallback(() => {
     if (sseDebounceRef.current) clearTimeout(sseDebounceRef.current);
@@ -359,26 +366,32 @@ export default function AnalyticsPage() {
 
   // ── Wallet KPIs (separate fetch, needs user) ──────────────────────
 
+  const billingCustomerId = getBillingCustomerId(user);
+
   useEffect(() => {
-    const cid = (user as any)?.customer_id || (user as any)?.user_id;
-    if (!cid) return;
-    api.fetchWalletHistory(cid, 50)
-      .then((res: any) => {
-        const txs: WalletTransaction[] = res?.transactions ?? [];
+    if (!billingCustomerId) return;
+    Promise.allSettled([
+      api.fetchWallet(billingCustomerId),
+      api.fetchWalletHistory(billingCustomerId, 50),
+    ])
+      .then(([walletRes, histRes]) => {
+        const txs: WalletTransaction[] =
+          histRes.status === "fulfilled" ? (histRes.value?.transactions ?? []) : [];
         const kpis = txs.reduce(
           (acc: { balance: number; deposited: number; spent: number }, tx: WalletTransaction) => {
             if (tx.amount_cad > 0) acc.deposited += tx.amount_cad;
             if (tx.amount_cad < 0) acc.spent += Math.abs(tx.amount_cad);
-            acc.balance += tx.amount_cad;
             return acc;
           },
           { balance: 0, deposited: 0, spent: 0 },
         );
+        if (walletRes.status === "fulfilled") {
+          kpis.balance = walletRes.value.wallet?.balance_cad ?? kpis.balance;
+        }
         setWalletKpis(kpis);
       })
       .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [billingCustomerId, api]);
 
   // ── Derived data ──────────────────────────────────────────────────
 

@@ -1240,6 +1240,10 @@ def _ensure_oauth_auth_tables(conn) -> None:
     )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_session_type ON sessions (session_type)")
 
+    cur.execute(
+        "ALTER TABLE teams ADD COLUMN IF NOT EXISTS billing_customer_id TEXT NOT NULL DEFAULT ''"
+    )
+
     # Team invites
     cur.execute("""
         CREATE TABLE IF NOT EXISTS team_invites (
@@ -1578,8 +1582,10 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO teams (team_id, name, owner_email, created_at, plan, max_members)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO teams (
+                    team_id, name, owner_email, created_at, plan, max_members, billing_customer_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     team["team_id"],
@@ -1588,6 +1594,7 @@ class UserStore:
                     team.get("created_at", time.time()),
                     team.get("plan", "free"),
                     team.get("max_members", 5),
+                    team.get("billing_customer_id", ""),
                 ),
             )
             # Add owner as admin member

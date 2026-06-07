@@ -20,7 +20,23 @@ Events: `_require_entity_event_access` by entity type.
 
 Some marketplace/SLA/compute-score routes are intentionally unauthenticated reads. Do not put PII or per-user billing data on those paths.
 
-## Second-pass fixes (this branch)
+## Hardened routes
 
 - `GET /v1/inference/{job_id}` — requires auth + inference job ownership (was open poll).
 - `GET /api/jurisdiction/residency-trace/{job_id}` — requires auth + job ownership.
+
+## Billing + host inventory guards
+
+| Route | Guard |
+|-------|-------|
+| `POST /api/pricing/reserve` | `_require_customer_access` — caller must own `customer_id` |
+| `GET /hosts/ca` | `_require_auth` + `hosts:read` |
+| `POST /api/jurisdiction/hosts` | `_require_auth` + `hosts:read` |
+
+CI tracks these in `GUARDED_ROUTE_HANDLERS` (`python scripts/audit_route_auth.py --guarded --strict`).
+
+### Intentional public reads (no session)
+
+- `GET /api/v2/gpu/available`, `GET /api/pricing/reserved-plans`, `GET /api/pricing/estimate`
+- `GET /api/sla/targets` (tier definitions only)
+- OAuth/login/register under `/api/auth/`
