@@ -33,8 +33,8 @@ apt-get install -y -qq nfs-kernel-server cryptsetup e2fsprogs rsync
 
 echo "▸ Creating export directory ${EXPORT_BASE}…"
 mkdir -p "${EXPORT_BASE}"
-chmod 755 "${EXPORT_BASE}"
-chown nobody:nogroup "${EXPORT_BASE}" || true
+chmod 1777 "${EXPORT_BASE}"
+chown "${SSH_USER}:${SSH_USER}" "${EXPORT_BASE}" || true
 
 echo "▸ Configuring /etc/exports…"
 EXPORT_LINE="${EXPORT_BASE} ${MESH_SUBNET}(rw,sync,no_subtree_check,no_root_squash)"

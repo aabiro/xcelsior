@@ -808,43 +808,51 @@ class TestKeySize:
 
 
 class TestSudoPresence:
-    """All LUKS/mount/mkfs commands must be prefixed with sudo."""
+    """LUKS/mount/mkfs commands use _privileged() (sudo on SSH, bare root locally)."""
 
-    def test_provision_sudo(self):
+    def test_provision_uses_privileged_helper(self):
         import inspect
         from volumes import VolumeEngine
 
         src = inspect.getsource(VolumeEngine._provision_volume_storage)
-        # Every cryptsetup, mount, mkfs.ext4 in the encrypted path must have sudo
-        lines = src.split("\n")
-        for line in lines:
-            stripped = line.strip()
-            # Skip comments and strings that are just cleanup
-            if stripped.startswith("#") or stripped.startswith("log."):
-                continue
-            # Check cryptsetup commands have sudo
-            if "cryptsetup" in stripped and 'f"' in stripped or "f'" in stripped:
-                if "sudo cryptsetup" not in stripped and "2>/dev/null" not in stripped:
-                    # Lines with 2>/dev/null are in cleanup strings that DO have sudo
-                    pass
-            if "mkfs.ext4" in stripped and 'f"' in stripped:
-                assert "sudo mkfs.ext4" in stripped, f"Missing sudo on mkfs: {stripped}"
+        assert "_privileged" in src
+        assert "cryptsetup luksFormat" in src
+        assert "mkfs.ext4" in src
 
-    def test_destroy_sudo(self):
+    def test_destroy_uses_privileged_helper(self):
         import inspect
         from volumes import VolumeEngine
 
         src = inspect.getsource(VolumeEngine._destroy_volume_storage)
-        assert "sudo umount" in src
-        assert "sudo cryptsetup luksClose" in src
+        assert "_privileged" in src
+        assert "cryptsetup luksClose" in src
 
-    def test_reopen_sudo(self):
+    def test_reopen_uses_privileged_helper(self):
         import inspect
         from volumes import VolumeEngine
 
         src = inspect.getsource(VolumeEngine.reopen_luks_volume)
-        assert "sudo cryptsetup luksOpen" in src
-        assert "sudo mount" in src
+        assert "_privileged" in src
+        assert "cryptsetup luksOpen" in src
+
+    def test_local_root_omits_sudo(self, monkeypatch):
+        import volumes as volumes_mod
+        from volumes import VolumeEngine
+
+        monkeypatch.setattr(volumes_mod, "NFS_SSH_USER", "root")
+        engine = VolumeEngine()
+        cmd = engine._privileged("127.0.0.1", "cryptsetup luksOpen /tmp/x.img mapper")
+        assert cmd.startswith("cryptsetup")
+        assert "sudo" not in cmd
+
+    def test_remote_ssh_adds_sudo(self, monkeypatch):
+        import volumes as volumes_mod
+        from volumes import VolumeEngine
+
+        monkeypatch.setattr(volumes_mod, "NFS_SSH_USER", "aaryn")
+        engine = VolumeEngine()
+        cmd = engine._privileged("100.64.0.3", "cryptsetup luksOpen /tmp/x.img mapper")
+        assert cmd.startswith("sudo cryptsetup")
 
 
 # ── VolumeCreate Model ─────────────────────────────────────────────

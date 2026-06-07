@@ -9,8 +9,12 @@ LABEL org.opencontainers.image.title="Xcelsior API" \
 
 WORKDIR /app
 
-# Install system deps for psycopg (libpq), SSH (scheduler needs ssh client), ping (health monitor), curl (healthcheck)
-RUN apt-get update && apt-get install -y --no-install-recommends libpq5 openssh-client iputils-ping tmux curl && rm -rf /var/lib/apt/lists/*
+# Install system deps for psycopg (libpq), SSH (scheduler needs ssh client), ping (health monitor),
+# curl (healthcheck), cryptsetup/e2fsprogs/util-linux (LUKS volume provisioning on colocated NFS).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 openssh-client iputils-ping tmux curl \
+    cryptsetup e2fsprogs util-linux \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
