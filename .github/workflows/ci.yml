@@ -113,6 +113,10 @@ jobs:
         env:
           PGPASSWORD: test
         run: bash scripts/ci_bootstrap_pg_schema.sh
+      - name: Critical route auth audit
+        run: python scripts/audit_route_auth.py --critical --strict
+      - name: Guarded route auth audit
+        run: python scripts/audit_route_auth.py --guarded --strict
       - name: Optional Stripe key (repository secret)
         # Uses XCELSIOR_STRIPE_SECRET_KEY only — no separate STRIPE_TEST_SECRET_KEY.
         run: |

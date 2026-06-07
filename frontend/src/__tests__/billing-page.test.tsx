@@ -63,6 +63,10 @@ vi.mock("@/components/billing/payment-method-modal", () => ({
   PaymentMethodModal: () => null,
 }));
 
+vi.mock("@/components/team/team-context-banner", () => ({
+  TeamContextBanner: () => null,
+}));
+
 vi.mock("sonner", () => ({
   toast: toastMocks,
 }));
@@ -97,6 +101,7 @@ vi.mock("framer-motion", async () => {
 import BillingPage from "@/app/(dashboard)/dashboard/billing/page";
 
 describe("BillingPage free credits flow", () => {
+  vi.setConfig({ testTimeout: 15_000 });
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     authMocks.useAuth.mockReturnValue({

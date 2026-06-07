@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.audit.example
+!.env.paypal-sandbox.example
 
 # ── Python ────────────────────────────────────────────────────────────
 __pycache__/

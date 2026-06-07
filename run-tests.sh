@@ -86,6 +86,10 @@ case "${TARGET}" in
             tests/test_privacy.py
             tests/test_jurisdiction.py
             tests/test_verification.py
+            tests/test_billing_security_sweep.py
+            tests/test_instance_auth_sweep.py
+            tests/test_resource_access_control.py
+            tests/test_app_security_sweep.py
         )
         echo "▸ Running security & compliance tests…"
         ;;

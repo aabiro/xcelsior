@@ -6,6 +6,11 @@ from typing import Literal
 
 from routes._deps import (
     _get_current_user,
+    _require_volume_read,
+    _require_volume_write,
+    _require_volume_write_role,
+    _volume_owner_ids_readable,
+    _volume_scope_owner_id,
     broadcast_sse,
     log,
 )
@@ -36,16 +41,18 @@ def api_volume_create(body: VolumeCreate, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
-    customer_id = user.get("user_id", user.get("email", ""))
+    _require_volume_write_role(user)
+    owner_id = _volume_scope_owner_id(user)
     ve = get_volume_engine()
     try:
-        vol = ve.create_volume(
-            owner_id=customer_id,
+        created = ve.create_volume(
+            owner_id=owner_id,
             name=body.name,
             size_gb=body.size_gb,
             region=body.region,
             encrypted=body.encrypted,
         )
+        vol = ve.get_volume(created["volume_id"]) or created
         vol["price_per_gb_month_cad"] = VOLUME_PRICE_PER_GB_MONTH_CAD
         vol["estimated_monthly_cost_cad"] = round(body.size_gb * VOLUME_PRICE_PER_GB_MONTH_CAD, 2)
         broadcast_sse(
@@ -67,7 +74,8 @@ def api_volume_list(request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:read")
     ve = get_volume_engine()
-    volumes = ve.list_volumes(user.get("user_id", user.get("email", "")))
+    owner_ids = sorted(_volume_owner_ids_readable(user))
+    volumes = ve.list_volumes_for_owner_ids(owner_ids)
     for v in volumes:
         v["price_per_gb_month_cad"] = VOLUME_PRICE_PER_GB_MONTH_CAD
         v["monthly_cost_cad"] = round(v.get("size_gb", 0) * VOLUME_PRICE_PER_GB_MONTH_CAD, 2)
@@ -84,7 +92,8 @@ def api_volumes_available(request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:read")
     ve = get_volume_engine()
-    volumes = ve.list_volumes(user.get("user_id", user.get("email", "")))
+    owner_ids = sorted(_volume_owner_ids_readable(user))
+    volumes = ve.list_volumes_for_owner_ids(owner_ids)
     available = [
         {
             "volume_id": v["volume_id"],
@@ -112,9 +121,7 @@ def api_volume_get(volume_id: str, request: Request):
     vol = ve.get_volume(volume_id)
     if not vol:
         raise HTTPException(404, "Volume not found")
-    owner_id = user.get("user_id", user.get("email", ""))
-    if vol.get("owner_id") != owner_id:
-        raise HTTPException(404, "Volume not found")
+    _require_volume_read(user, vol)
     return {"ok": True, "volume": vol}
 
 
@@ -134,10 +141,13 @@ def api_volume_rename(volume_id: str, body: VolumeRename, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
-    owner_id = user.get("user_id", user.get("email", ""))
     ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
-        result = ve.rename_volume(volume_id, owner_id, body.name)
+        result = ve.rename_volume(volume_id, vol["owner_id"], body.name)
         broadcast_sse("volume.renamed", {"volume_id": volume_id, "name": result["name"]})
         return {"ok": True, "volume": result}
     except PermissionError:
@@ -166,12 +176,11 @@ def api_volume_attach(volume_id: str, body: VolumeAttachRequest, request: Reques
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
-    owner_id = user.get("user_id", user.get("email", ""))
     ve = get_volume_engine()
-    # Ownership check
     vol = ve.get_volume(volume_id)
-    if not vol or vol.get("owner_id") != owner_id:
+    if not vol:
         raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
         att = ve.attach_volume(volume_id, body.instance_id, body.mount_path, body.mode)
         if not att:
@@ -195,9 +204,7 @@ def api_volume_detach(volume_id: str, request: Request):
     vol = ve.get_volume(volume_id)
     if not vol:
         raise HTTPException(404, "Volume not found")
-    owner_id = user.get("user_id", user.get("email", ""))
-    if vol.get("owner_id") != owner_id:
-        raise HTTPException(403, "Not your volume")
+    _require_volume_write(user, vol)
     # Detach using atomic FOR UPDATE inside detach_volume
     if vol.get("status") != "attached":
         raise HTTPException(400, "Volume is not attached to any instance")
@@ -219,9 +226,12 @@ def api_volume_delete(volume_id: str, request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
     ve = get_volume_engine()
-    owner_id = user.get("user_id", user.get("email", ""))
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
-        result = ve.delete_volume(volume_id, owner_id=owner_id)
+        result = ve.delete_volume(volume_id, owner_id=vol["owner_id"])
         broadcast_sse("volume.deleted", {"volume_id": volume_id})
         return {"ok": True}
     except ValueError as e:
@@ -240,9 +250,12 @@ def api_volume_retry_provision(volume_id: str, request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
     ve = get_volume_engine()
-    owner_id = user.get("user_id", user.get("email", ""))
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
-        result = ve.retry_provision(volume_id, owner_id=owner_id)
+        result = ve.retry_provision(volume_id, owner_id=vol["owner_id"])
         broadcast_sse("volume.retried", {"volume_id": volume_id})
         return {"ok": True, "volume": result}
     except PermissionError:
@@ -304,9 +317,13 @@ def api_volume_snapshot_create(volume_id: str, body: SnapshotCreate, request: Re
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
-    owner = user.get("user_id") or user.get("email", "")
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
-        snap = get_volume_engine().create_snapshot(volume_id, owner, body.label)
+        snap = ve.create_snapshot(volume_id, vol["owner_id"], body.label)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except RuntimeError as e:
@@ -326,9 +343,13 @@ def api_volume_snapshot_list(volume_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:read")
-    owner = user.get("user_id") or user.get("email", "")
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_read(user, vol)
     try:
-        snaps = get_volume_engine().list_snapshots(volume_id, owner)
+        snaps = ve.list_snapshots(volume_id, vol["owner_id"])
     except PermissionError:
         raise HTTPException(404, "Volume not found")
     return {"ok": True, "snapshots": snaps}
@@ -342,9 +363,13 @@ def api_volume_snapshot_restore(volume_id: str, snapshot_id: str, request: Reque
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
-    owner = user.get("user_id") or user.get("email", "")
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
-        result = get_volume_engine().restore_snapshot(volume_id, owner, snapshot_id)
+        result = ve.restore_snapshot(volume_id, vol["owner_id"], snapshot_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except RuntimeError as e:
@@ -364,9 +389,13 @@ def api_volume_snapshot_delete(volume_id: str, snapshot_id: str, request: Reques
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "volumes:write")
-    owner = user.get("user_id") or user.get("email", "")
+    ve = get_volume_engine()
+    vol = ve.get_volume(volume_id)
+    if not vol:
+        raise HTTPException(404, "Volume not found")
+    _require_volume_write(user, vol)
     try:
-        result = get_volume_engine().delete_snapshot(volume_id, owner, snapshot_id)
+        result = ve.delete_snapshot(volume_id, vol["owner_id"], snapshot_id)
     except ValueError as e:
         raise HTTPException(404, str(e))
     broadcast_sse(

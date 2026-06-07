@@ -521,6 +521,15 @@ class TestVolumeAPIEndpoints:
         ve2 = get_volume_engine()
         assert ve is ve2
 
+    def test_nfs_storage_healthcheck_metadata_only(self, monkeypatch):
+        from volumes import nfs_storage_healthcheck
+
+        monkeypatch.setenv("XCELSIOR_NFS_SERVER", "")
+        health = nfs_storage_healthcheck()
+        assert health["configured"] is False
+        assert health["mode"] == "metadata-only"
+        assert health["ok"] is True
+
 
 # ── Name validation tests ────────────────────────────────────────────
 

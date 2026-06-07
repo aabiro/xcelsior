@@ -355,6 +355,13 @@ def _check_billing_payment_rate_limit(customer_id: str, action: str) -> None:
     while bucket and bucket[0] <= now - _BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC:
         bucket.popleft()
     if len(bucket) >= _BILLING_PAYMENT_RATE_LIMIT_REQUESTS:
+        log.warning(
+            "billing.payment_rate_limited customer_id=%s action=%s window_sec=%s limit=%s",
+            customer_id,
+            action,
+            _BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC,
+            _BILLING_PAYMENT_RATE_LIMIT_REQUESTS,
+        )
         raise HTTPException(
             429,
             "Too many payment attempts. Please wait a few minutes and try again.",
@@ -391,6 +398,259 @@ def _caller_owner_ids(user: dict) -> set[str]:
     return owned
 
 
+def _canonical_owner_id(user: dict) -> str:
+    """Primary billing identity for job ownership (customer_id, else user_id)."""
+    cid = (user.get("customer_id") or "").strip()
+    if cid:
+        return cid
+    return (user.get("user_id") or "").strip()
+
+
+def _user_team_id(user: dict) -> str | None:
+    """Active team context for the caller (users.team_id).
+
+    When ``users.team_id`` is explicitly NULL/empty, the caller is in personal
+    workspace mode and we do not auto-select their only team.
+    """
+    team_id = str(user.get("team_id") or "").strip()
+    if team_id:
+        return team_id
+    email = str(user.get("email") or "").strip()
+    if _USE_PERSISTENT_AUTH and email:
+        full_user = UserStore.get_user(email)
+        if full_user is not None:
+            stored = full_user.get("team_id")
+            if stored is not None and str(stored).strip():
+                return str(stored).strip()
+            if "team_id" in full_user:
+                return None
+        teams = UserStore.get_user_teams(email)
+        if len(teams) == 1:
+            return str(teams[0].get("team_id") or "").strip() or None
+    return None
+
+
+def _team_billing_customer_id(team_id: str) -> str | None:
+    """Shared wallet customer_id for a team (falls back to owner profile)."""
+    team = UserStore.get_team(team_id)
+    if not team:
+        return None
+    bcid = str(team.get("billing_customer_id") or "").strip()
+    if bcid:
+        return bcid
+    owner = UserStore.get_user(str(team.get("owner_email") or "").strip())
+    if owner:
+        return (
+            str(owner.get("customer_id") or owner.get("user_id") or owner.get("email") or "").strip()
+            or None
+        )
+    return str(team.get("owner_email") or "").strip() or None
+
+
+def _team_member_role(user: dict, team_id: str) -> str | None:
+    email = str(user.get("email") or "").strip().lower()
+    if not email:
+        return None
+    for member in UserStore.list_team_members(team_id):
+        if str(member.get("email") or "").strip().lower() == email:
+            return str(member.get("role") or "").strip().lower() or None
+    return None
+
+
+def _effective_billing_customer_id(user: dict) -> str:
+    """Billing customer for jobs/wallet when acting personally or on a team."""
+    team_id = _user_team_id(user)
+    if team_id:
+        team_bcid = _team_billing_customer_id(team_id)
+        if team_bcid:
+            return team_bcid
+    return _canonical_owner_id(user)
+
+
+def _customer_ids_accessible_by_user(user: dict) -> set[str]:
+    """Customer IDs the caller may read (own wallet + team wallet when a member)."""
+    ids = set(_caller_owner_ids(user))
+    canonical = _canonical_owner_id(user)
+    if canonical:
+        ids.add(canonical)
+    team_ids: set[str] = set()
+    active_team = _user_team_id(user)
+    if active_team:
+        team_ids.add(active_team)
+    email = str(user.get("email") or "").strip()
+    if _USE_PERSISTENT_AUTH and email:
+        for team in UserStore.get_user_teams(email):
+            tid = str(team.get("team_id") or "").strip()
+            if tid:
+                team_ids.add(tid)
+    for team_id in team_ids:
+        bcid = _team_billing_customer_id(team_id)
+        if bcid:
+            ids.add(bcid)
+    ids.discard("")
+    return ids
+
+
+def _team_can_write_instances(user: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    team_id = _user_team_id(user)
+    if not team_id:
+        return True
+    role = _team_member_role(user, team_id)
+    return role in {"admin", "member"}
+
+
+def _team_can_manage_billing(user: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    team_id = _user_team_id(user)
+    if not team_id:
+        return True
+    return _team_member_role(user, team_id) == "admin"
+
+
+def _require_team_instance_write(user: dict) -> None:
+    if not _team_can_write_instances(user):
+        raise HTTPException(403, "Team viewers cannot modify instances")
+
+
+def _require_team_billing_write(user: dict, customer_id: str) -> None:
+    team_id = _user_team_id(user)
+    if not team_id:
+        return
+    bcid = _team_billing_customer_id(team_id)
+    if bcid and customer_id == bcid and not _team_can_manage_billing(user):
+        raise HTTPException(403, "Only team admins can manage team billing")
+
+
+def _volume_owner_ids_readable(user: dict) -> set[str]:
+    """Volume owner_id values visible to the caller (mirrors job read scope)."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _volume_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created volumes in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_volume(user: dict, vol: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(vol.get("owner_id") or "").strip()
+    return owner in _volume_owner_ids_readable(user)
+
+
+def _require_volume_read(user: dict, vol: dict) -> None:
+    if not _user_can_access_volume(user, vol):
+        raise HTTPException(404, "Volume not found")
+
+
+def _require_volume_write_role(user: dict, vol: dict | None = None) -> None:
+    """Block team viewers from volume mutations (any team wallet volume)."""
+    if _is_platform_admin(user):
+        return
+    email = str(user.get("email") or "").strip().lower()
+    owner = str((vol or {}).get("owner_id") or "").strip()
+    if _USE_PERSISTENT_AUTH and email:
+        for team in UserStore.get_user_teams(email):
+            tid = str(team.get("team_id") or "").strip()
+            if not tid:
+                continue
+            bcid = _team_billing_customer_id(tid)
+            if bcid and (not owner or owner == bcid):
+                role = str(team.get("member_role") or "").lower()
+                if role == "viewer":
+                    raise HTTPException(403, "Team viewers cannot modify volumes")
+    _require_team_instance_write(user)
+
+
+def _require_volume_write(user: dict, vol: dict) -> None:
+    if _is_platform_admin(user):
+        return
+    _require_volume_read(user, vol)
+    _require_volume_write_role(user, vol)
+
+
+def _team_context_for_user(user: dict) -> dict:
+    """Serializable team tenancy fields for auth/me and UI."""
+    billing_customer_id = _effective_billing_customer_id(user)
+    ctx: dict = {
+        "billing_customer_id": billing_customer_id,
+        "team_can_manage_billing": _team_can_manage_billing(user),
+        "team_can_write_instances": _team_can_write_instances(user),
+    }
+    team_id = _user_team_id(user)
+    if team_id:
+        team = UserStore.get_team(team_id)
+        ctx["team_id"] = team_id
+        ctx["team_role"] = _team_member_role(user, team_id)
+        if team:
+            ctx["team_name"] = team.get("name")
+            ctx["team_plan"] = team.get("plan")
+    return ctx
+
+
+def _require_customer_access(
+    request: Request,
+    customer_id: str,
+    *,
+    billing_write: bool = False,
+) -> dict:
+    """Authn + ownership guard for customer-scoped billing routes."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    if _is_platform_admin(user):
+        return user
+    if customer_id not in _customer_ids_accessible_by_user(user):
+        raise HTTPException(403, "Forbidden")
+    if billing_write:
+        _require_team_billing_write(user, customer_id)
+    return user
+
+
+def _job_access_owner_ids(user: dict) -> set[str]:
+    """All identifiers that may match job.owner."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _user_owns_job(user: dict, job: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    job_owner = (job.get("owner") or "").strip()
+    if not job_owner:
+        return False
+    return job_owner in _job_access_owner_ids(user)
+
+
+def _check_job_access(user: dict, job_id: str) -> None:
+    """Verify user owns the job or is platform admin."""
+    if _is_platform_admin(user):
+        return
+    from scheduler import get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"Instance {job_id} not found")
+    if not _user_owns_job(user, job):
+        raise HTTPException(403, "Not authorized to access this instance")
+
+
+def _check_job_write_access(user: dict, job_id: str) -> None:
+    """Ownership guard plus team viewer block for mutating instance endpoints."""
+    _check_job_access(user, job_id)
+    _require_team_instance_write(user)
+
+
+def _filter_jobs_for_user(jobs: list[dict], user: dict) -> list[dict]:
+    """Return jobs visible to the caller (admins see all)."""
+    if _is_platform_admin(user):
+        return jobs
+    allowed = _job_access_owner_ids(user)
+    return [j for j in jobs if (j.get("owner") or "").strip() in allowed]
+
+
 def _is_platform_worker(user: dict) -> bool:
     return _is_platform_admin(user) or user.get("user_id") in ("api-admin", "api-token")
 
@@ -407,8 +667,6 @@ def _require_entity_event_access(user: dict, entity_type: str, entity_id: str) -
     et = (entity_type or "").strip().lower()
     eid = (entity_id or "").strip()
     if et in ("job", "instance"):
-        from routes.instances import _check_job_access
-
         _check_job_access(user, eid)
         return
     if et == "host":
@@ -422,12 +680,11 @@ def _require_inference_job_access(user: dict, job_id: str) -> None:
     if _is_platform_admin(user):
         return
     from inference_store import get_inference_job
-    from routes.instances import _check_job_access
 
     meta = get_inference_job(job_id)
     if meta:
         cid = str(meta.get("customer_id") or "").strip()
-        if cid and cid not in _caller_owner_ids(user):
+        if cid and cid not in _customer_ids_accessible_by_user(user):
             raise HTTPException(403, "Forbidden")
         return
     _check_job_access(user, job_id)
@@ -440,6 +697,7 @@ def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
         merged["name"] = full_user.get("name", merged.get("name", ""))
         merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
         merged["provider_id"] = full_user.get("provider_id", merged.get("provider_id"))
+        merged["team_id"] = full_user.get("team_id", merged.get("team_id"))
         merged["mfa_enabled"] = bool(full_user.get("mfa_enabled"))
         merged["email_verified"] = bool(
             full_user.get("email_verified", merged.get("email_verified"))

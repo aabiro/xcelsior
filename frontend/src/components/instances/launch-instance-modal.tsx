@@ -48,6 +48,9 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth";
+import { useLocale } from "@/lib/locale";
+import { getTeamContext } from "@/lib/team-context";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -114,6 +117,10 @@ export function LaunchInstanceModal({
   preSelectedVolumeIds,
   templateId,
 }: LaunchInstanceModalProps) {
+  const { user } = useAuth();
+  const { t } = useLocale();
+  const team = getTeamContext(user);
+  const launchBlocked = !team.canWriteInstances;
   const router = useRouter();
   const [step, setStep] = useState<"configure" | "confirm" | "success">("configure");
 
@@ -317,6 +324,23 @@ export function LaunchInstanceModal({
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const reloadVolumes = () => {
+      listAvailableVolumes()
+        .then((r) => setAvailableVolumes(r.volumes || []))
+        .catch(() => {});
+    };
+    window.addEventListener("xcelsior-team-changed", reloadVolumes);
+    return () => window.removeEventListener("xcelsior-team-changed", reloadVolumes);
+  }, [open]);
+
+  const selectedVolumes = availableVolumes.filter((v) => selectedVolumeIds.includes(v.volume_id));
+  const launchRegion = listing?.region?.trim().toLowerCase() || "";
+  const volumeRegionMismatch =
+    launchRegion.length > 0 &&
+    selectedVolumes.some((v) => v.region && v.region.toLowerCase() !== launchRegion);
+
   // Dynamic pricing — recompute when any pricing variable changes
   useEffect(() => {
     if (!open || !resolvedGpu) { setDynamicRate(null); return; }
@@ -378,6 +402,10 @@ export function LaunchInstanceModal({
   }, [open, listing]);
 
   async function handleSubmit() {
+    if (launchBlocked) {
+      toast.error(t("dash.instances.viewer_launch_blocked"));
+      return;
+    }
     if (!instanceName.trim()) { toast.error("Enter an instance name"); return; }
     if (!resolvedImage) { toast.error("Select a Docker image"); return; }
     setSubmitting(true);
@@ -446,6 +474,11 @@ export function LaunchInstanceModal({
           </CardHeader>
 
           <CardContent className="space-y-5">
+            {launchBlocked && (
+              <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/10 px-3 py-2 text-sm text-accent-gold">
+                {t("dash.instances.viewer_launch_blocked")}
+              </div>
+            )}
             {/* ─── Step: Configure ─── */}
             {step === "configure" && (
               <>
@@ -745,18 +778,26 @@ export function LaunchInstanceModal({
                 <div className="space-y-2">
                   <Label className="text-xs flex items-center gap-1.5">
                     <HardDrive className="h-3.5 w-3.5 text-text-muted" />
-                    Volumes
+                    {t("dash.launch.volumes_label")}
                     {selectedVolumeIds.length > 0 && (
                       <span className="ml-auto text-[10px] font-mono text-ice-blue">
                         {selectedVolumeIds.length} selected
                       </span>
                     )}
                   </Label>
+                  {volumeRegionMismatch && (
+                    <div className="flex items-start gap-2 rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-accent-gold shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-text-secondary leading-snug">
+                        {t("dash.launch.volumes_region_mismatch")}
+                      </p>
+                    </div>
+                  )}
                   {availableVolumes.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-border/60 p-4 text-center">
                       <HardDrive className="h-5 w-5 text-text-muted mx-auto mb-1.5 opacity-40" />
-                      <p className="text-xs text-text-muted">No volumes available</p>
-                      <p className="text-[10px] text-text-muted/60 mt-0.5">Create a volume from the Volumes page first</p>
+                      <p className="text-xs text-text-muted">{t("dash.launch.volumes_empty")}</p>
+                      <p className="text-[10px] text-text-muted/60 mt-0.5">{t("dash.launch.volumes_empty_hint")}</p>
                     </div>
                   ) : (
                     <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1 scrollbar-thin">
@@ -894,7 +935,7 @@ export function LaunchInstanceModal({
                 <Button
                   className="w-full"
                   onClick={() => setStep("confirm")}
-                  disabled={!instanceName.trim() || !resolvedImage || gpuLoading}
+                  disabled={launchBlocked || !instanceName.trim() || !resolvedImage || gpuLoading}
                 >
                   {gpuLoading ? <>Loading GPU inventory…</> : "Continue"}
                 </Button>
@@ -986,7 +1027,7 @@ export function LaunchInstanceModal({
                   <Button variant="outline" className="flex-1" type="button" onClick={() => { setLaunchError(null); setStep("configure"); }}>
                     Back
                   </Button>
-                  <Button className="flex-1" type="button" onClick={handleSubmit} disabled={submitting}>
+                  <Button className="flex-1" type="button" onClick={handleSubmit} disabled={submitting || launchBlocked}>
                     {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Launching…</> : <>
                       <Rocket className="h-4 w-4" /> Launch Instance
                     </>}

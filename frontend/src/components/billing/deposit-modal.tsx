@@ -317,6 +317,9 @@ function PayPalOnlyDepositForm({ customerId, onClose, onSuccess }: DepositModalP
               setTimeout(() => onSuccess(balance), 1200);
             }}
           />
+          <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+            PayPal here adds credits to your wallet only. GPU jobs always spend wallet balance — this does not pay providers directly.
+          </p>
           <Button variant="outline" className="w-full mt-3" onClick={() => setStep("amount")}>
             Back
           </Button>
@@ -469,6 +472,9 @@ function DepositForm({ customerId, onClose, onSuccess }: DepositModalProps) {
                 }}
                 disabled={submitting}
               />
+              <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+                PayPal here adds credits to your wallet only. GPU jobs always spend wallet balance — this does not pay providers directly.
+              </p>
             </div>
           )}
 

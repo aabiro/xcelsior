@@ -743,6 +743,18 @@ deploy_docker() {
         ssh_cmd "cd /opt/xcelsior && docker compose --profile blue logs --tail=30" || true
     fi
 
+    log "Verifying /readyz (NFS volumes) and PayPal enabled…"
+    if ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/readyz" 2>/dev/null | grep -q nfs_volumes; then
+        success "readyz includes nfs_volumes probe"
+    else
+        warn "readyz missing nfs_volumes — deploy may be on an older API build"
+    fi
+    if ssh_cmd "curl -sf --max-time 10 http://localhost:$final_port/api/billing/paypal/enabled" 2>/dev/null | grep -q '"enabled":true'; then
+        success "PayPal enabled on API"
+    else
+        warn "PayPal not enabled — check PAYPAL_CLIENT_ID/SECRET in .env"
+    fi
+
     ssh_cmd "cd /opt/xcelsior && docker compose --profile blue ps"
 
     # Clean up dangling images and build cache to prevent disk bloat

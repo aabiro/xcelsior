@@ -142,6 +142,24 @@ async function main() {
     ),
   );
 
+  const instancesAnon = await fetchJson("/instances");
+  add(
+    pass(
+      { id: "api-instances-protected", name: "GET /instances requires auth" },
+      instancesAnon.status === 401 || instancesAnon.status === 403,
+      `status ${instancesAnon.status}`,
+    ),
+  );
+
+  const queueProcess = await fetchJson("/queue/process", { method: "POST" });
+  add(
+    pass(
+      { id: "api-queue-process-protected", name: "POST /queue/process requires admin" },
+      queueProcess.status === 401 || queueProcess.status === 403,
+      `status ${queueProcess.status}`,
+    ),
+  );
+
   const healthz = await fetchText("/healthz");
   add(
     pass(

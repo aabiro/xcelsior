@@ -121,6 +121,9 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/billing/paypal/capture-order` — `api_paypal_capture_order`
 - [x] `POST /api/billing/paypal/create-order` — `api_paypal_create_order`
 - [x] `GET /api/billing/paypal/enabled` — `api_paypal_enabled`  ✓ test_billing_endpoints_coverage.py
+- [x] `POST /api/billing/paypal/marketplace/capture-order` — `api_paypal_marketplace_capture_order`  ✓ test_billing_security_sweep.py
+- [x] `POST /api/billing/paypal/marketplace/create-order` — `api_paypal_marketplace_create_order`  ✓ test_billing_security_sweep.py
+- [x] `POST /api/billing/paypal/webhook` — PayPal webhook handler  ✓ test_paypal_webhook.py, test_paypal_marketplace_webhook.py
 - [x] `POST /api/billing/refund` — `api_process_refund`
 - [x] `POST /api/billing/setup-intent` — `api_billing_setup_intent`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/billing/usage/{customer_id}` — `api_usage_summary`  ✓ test_billing_endpoints_coverage.py
@@ -356,7 +359,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/providers/{provider_id}/abandon-onboarding` — `api_abandon_onboarding`  ✓ test_compliance_endpoints_coverage.py
 - [x] `GET /api/providers/{provider_id}/earnings` — `api_provider_earnings`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/incorporation` — `api_upload_incorporation`  ✓ test_compliance_endpoints_coverage.py
-- [x] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`  ✓ test_compliance_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/payout` — `api_provider_payout`  ✓ test_providers_endpoints_coverage.py
+- [x] `GET /api/providers/{provider_id}/paypal` — `api_provider_paypal_status`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/paypal/onboard` — `api_provider_paypal_onboard`  ✓ test_providers_endpoints_coverage.py
+- [x] `POST /api/providers/{provider_id}/paypal/refresh` — `api_provider_paypal_refresh`  ✓ test_providers_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/resume-onboarding` — `api_resume_onboarding`  ✓ test_compliance_endpoints_coverage.py
 
 ### `routes/reputation.py` (0 untested)

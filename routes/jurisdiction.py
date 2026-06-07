@@ -6,8 +6,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _check_job_access,
     _require_admin,
     _require_auth,
+    _require_scope,
     broadcast_sse,
 )
 from scheduler import (
@@ -48,14 +50,17 @@ def api_set_canada(toggle: CanadaToggle, request: Request):
 
 
 @router.get("/hosts/ca", tags=["Jurisdiction"])
-def api_list_canadian_hosts():
+def api_list_canadian_hosts(request: Request):
     """List only Canadian hosts."""
+    user = _require_auth(request)
+    _require_scope(user, "hosts:read")
     return {"hosts": list_hosts_filtered(canada_only=True)}
 
 
 @router.post("/queue/process/ca", tags=["Jurisdiction"])
-def api_process_queue_ca():
-    """Process queue with Canada-only hosts."""
+def api_process_queue_ca(request: Request):
+    """Process queue with Canada-only hosts (admin only)."""
+    _require_admin(request)
     assigned = process_queue_filtered(canada_only=True)
     return {
         "canada_only": True,
@@ -81,8 +86,10 @@ class JurisdictionFilterRequest(BaseModel):
 
 
 @router.post("/api/jurisdiction/hosts", tags=["Jurisdiction"])
-def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
+def api_jurisdiction_hosts(req: JurisdictionFilterRequest, request: Request):
     """Filter hosts by jurisdiction constraints."""
+    user = _require_auth(request)
+    _require_scope(user, "hosts:read")
     hosts = list_hosts(active_only=True)
     constraint = JurisdictionConstraint(
         canada_only=req.canada_only,
@@ -100,8 +107,6 @@ def api_jurisdiction_hosts(req: JurisdictionFilterRequest):
 @router.get("/api/jurisdiction/residency-trace/{job_id}", tags=["Jurisdiction"])
 def api_residency_trace(job_id: str, request: Request):
     """Generate a residency trace for a job (compliance artifact)."""
-    from routes.instances import _check_job_access
-
     user = _require_auth(request)
     _check_job_access(user, job_id)
     jobs = list_jobs()
@@ -163,8 +168,9 @@ class SovereignQueueRequest(BaseModel):
 
 
 @router.post("/api/queue/process-sovereign", tags=["Jurisdiction"])
-def api_process_queue_sovereign(req: SovereignQueueRequest):
-    """Process queue with jurisdiction + verification + reputation awareness."""
+def api_process_queue_sovereign(req: SovereignQueueRequest, request: Request):
+    """Process queue with jurisdiction + verification + reputation awareness (admin only)."""
+    _require_admin(request)
     assigned = process_queue_sovereign(
         canada_only=req.canada_only,
         province=req.province,

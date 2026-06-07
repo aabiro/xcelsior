@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Xcelsior — Sovereign GPU Compute",
+    name: "Xcelsior — Canada-Grounded AI Compute",
     short_name: "Xcelsior",
     description:
-      "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
+      "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing, jurisdiction-aware operations, and infrastructure for teams worldwide.",
     id: "/",
     start_url: "/",
     scope: "/",

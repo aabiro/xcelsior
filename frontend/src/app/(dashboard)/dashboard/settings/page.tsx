@@ -26,6 +26,8 @@ import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { describePasskeyRegistrationError } from "@/lib/passkeys";
+import { applyActiveTeamSwitch } from "@/lib/team-context";
+
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -79,7 +81,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 // ── Main Page ─────────────────────────────────────────���─────────────
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const { t } = useLocale();
   const userId = user?.customer_id || user?.user_id || "";
 
@@ -191,22 +193,40 @@ export default function SettingsPage() {
   const loadTeams = useCallback(async () => {
     try {
       const res = await api.fetchMyTeams();
-      setTeams(res.teams || []);
-      if ((res.teams || []).length > 0 && !activeTeam) {
-        const first = res.teams[0];
-        setActiveTeam(first);
-        const detail = await api.fetchTeam(first.team_id);
-        setTeamMembers(detail.members || []);
+      const list = res.teams || [];
+      setTeams(list);
+      if (list.length === 0) {
+        setActiveTeam(null);
+        setTeamMembers([]);
+        return;
       }
+      const preferredId = res.active_team_id || user?.team_id || list[0]?.team_id;
+      const selected = list.find((t) => t.team_id === preferredId) || list[0];
+      setActiveTeam(selected);
+      const detail = await api.fetchTeam(selected.team_id);
+      setTeamMembers(detail.members || []);
     } catch { /* no teams yet */ }
-  }, [activeTeam]);
+  }, [user?.team_id]);
 
   const selectTeam = async (team: TeamInfo) => {
-    setActiveTeam(team);
     try {
+      await applyActiveTeamSwitch(team.team_id, refreshUser);
+      setActiveTeam(team);
       const detail = await api.fetchTeam(team.team_id);
       setTeamMembers(detail.members || []);
-    } catch { toast.error("Failed to load team"); }
+      toast.success(t("dash.team.switch_success", { name: team.name }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dash.team.switch_failed"));
+    }
+  };
+
+  const selectPersonalWorkspace = async () => {
+    try {
+      await applyActiveTeamSwitch(null, refreshUser);
+      toast.success(t("dash.team.switch_personal_success"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dash.team.switch_failed"));
+    }
   };
 
   const loadMfa = useCallback(async () => {
@@ -262,6 +282,12 @@ export default function SettingsPage() {
     loadMfa();
     loadSessions();
   }, [userId, loadTeams, loadMfa, loadSessions]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { void loadTeams(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [loadTeams]);
 
   // ── Handlers ──────────────────────────────────────────────────────
 
@@ -550,6 +576,7 @@ export default function SettingsPage() {
       const res = await api.createTeam({ name: newTeamName.trim() });
       toast.success(`Team "${res.name}" created`);
       setNewTeamName("");
+      await refreshUser();
       await loadTeams();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create team");
@@ -754,6 +781,7 @@ export default function SettingsPage() {
             <TeamTab
               t={t} email={email}
               teams={teams} activeTeam={activeTeam} teamMembers={teamMembers}
+              activeTeamId={user?.team_id || null}
               newTeamName={newTeamName} setNewTeamName={setNewTeamName}
               inviteEmail={inviteEmail} setInviteEmail={setInviteEmail}
               inviteRole={inviteRole} setInviteRole={setInviteRole}
@@ -761,7 +789,8 @@ export default function SettingsPage() {
               removeTarget={removeTarget} setRemoveTarget={setRemoveTarget}
               deletingTeam={deletingTeam}
               deleteTeamConfirm={deleteTeamConfirm} setDeleteTeamConfirm={setDeleteTeamConfirm}
-              onSelectTeam={selectTeam} onCreateTeam={handleCreateTeam}
+              onSelectTeam={selectTeam} onSelectPersonal={selectPersonalWorkspace}
+              onCreateTeam={handleCreateTeam}
               onInvite={handleInvite} onRemoveMember={handleRemoveMember}
               onDeleteTeam={handleDeleteTeam} onRoleChange={handleRoleChange}
             />
@@ -1748,17 +1777,18 @@ function SshKeyCard({
 // ══════════════════════════════════��═════════════════════════════════
 
 function TeamTab({
-  t, email, teams, activeTeam, teamMembers,
+  t, email, teams, activeTeam, teamMembers, activeTeamId,
   newTeamName, setNewTeamName, inviteEmail, setInviteEmail,
   inviteRole, setInviteRole, creatingTeam, inviting,
   removeTarget, setRemoveTarget, deletingTeam,
   deleteTeamConfirm, setDeleteTeamConfirm,
-  onSelectTeam, onCreateTeam, onInvite, onRemoveMember,
+  onSelectTeam, onSelectPersonal, onCreateTeam, onInvite, onRemoveMember,
   onDeleteTeam, onRoleChange,
 }: {
   t: (k: string, vars?: Record<string, string>) => string;
   email: string;
   teams: TeamInfo[]; activeTeam: TeamInfo | null; teamMembers: TeamMember[];
+  activeTeamId: string | null;
   newTeamName: string; setNewTeamName: (v: string) => void;
   inviteEmail: string; setInviteEmail: (v: string) => void;
   inviteRole: string; setInviteRole: (v: string) => void;
@@ -1766,7 +1796,9 @@ function TeamTab({
   removeTarget: string | null; setRemoveTarget: (v: string | null) => void;
   deletingTeam: boolean;
   deleteTeamConfirm: boolean; setDeleteTeamConfirm: (v: boolean) => void;
-  onSelectTeam: (t: TeamInfo) => void; onCreateTeam: () => void;
+  onSelectTeam: (t: TeamInfo) => void;
+  onSelectPersonal: () => void;
+  onCreateTeam: () => void;
   onInvite: () => void; onRemoveMember: (e: string) => void;
   onDeleteTeam: () => void; onRoleChange: (e: string, r: string) => void;
 }) {
@@ -1786,38 +1818,65 @@ function TeamTab({
           <div className="p-5 space-y-4">
             {teams.length === 0 ? (
               <div className="space-y-3">
-                <p className="text-sm text-text-muted">You don&apos;t belong to any teams yet.</p>
+                <p className="text-sm text-text-muted">{t("dash.settings.team_none")}</p>
                 <div className="flex gap-2">
-                  <Input placeholder="Team name" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} className="flex-1" />
+                  <Input placeholder={t("dash.settings.team_name_placeholder")} value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} className="flex-1" />
                   <Button variant="outline" size="sm" onClick={onCreateTeam} disabled={!newTeamName.trim() || creatingTeam}>
                     {creatingTeam ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                    Create Team
+                    {t("dash.settings.team_create")}
                   </Button>
                 </div>
               </div>
             ) : (
               <>
-                {teams.length > 1 && (
-                  <div className="flex gap-1.5 flex-wrap">
-                    {teams.map((team) => (
+                {teams.length >= 1 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                      {t("dash.team.active_workspace")}
+                    </p>
+                    <div className="flex gap-1.5 flex-wrap">
                       <button
-                        key={team.team_id}
-                        onClick={() => onSelectTeam(team)}
+                        type="button"
+                        onClick={onSelectPersonal}
                         className={cn(
                           "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                          activeTeam?.team_id === team.team_id
+                          !activeTeamId
                             ? "bg-accent-cyan/10 text-accent-cyan ring-1 ring-accent-cyan/20"
                             : "bg-surface-hover text-text-muted hover:text-text-primary",
                         )}
                       >
-                        {team.name}
+                        {t("dash.team.personal_workspace")}
                       </button>
-                    ))}
+                      {teams.map((team) => (
+                        <button
+                          key={team.team_id}
+                          type="button"
+                          onClick={() => onSelectTeam(team)}
+                          className={cn(
+                            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                            activeTeamId === team.team_id
+                              ? "bg-accent-cyan/10 text-accent-cyan ring-1 ring-accent-cyan/20"
+                              : "bg-surface-hover text-text-muted hover:text-text-primary",
+                          )}
+                        >
+                          {team.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
                 {activeTeam && (
                   <div className="space-y-4">
+                    {(() => {
+                      const myRole = teamMembers.find((m) => m.email === email)?.role;
+                      const roleKey = myRole ? `dash.team.role_${myRole}` : "";
+                      return roleKey ? (
+                        <p className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 px-3 py-2 text-xs text-text-secondary">
+                          {t(roleKey)}
+                        </p>
+                      ) : null;
+                    })()}
                     <div className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/30 p-3">
                       <div>
                         <p className="text-sm font-medium">{activeTeam.name}</p>
@@ -1837,7 +1896,7 @@ function TeamTab({
 
                     {/* Members */}
                     <div className="space-y-2">
-                      <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Members</p>
+                      <p className="text-xs font-medium text-text-muted uppercase tracking-wider">{t("dash.settings.team_members")}</p>
                       {teamMembers.map((m) => {
                         const isOwner = m.email === activeTeam.owner_email;
                         const iAmAdmin = teamMembers.find((x) => x.email === email)?.role === "admin";
@@ -1848,12 +1907,12 @@ function TeamTab({
                                 {m.email.charAt(0).toUpperCase()}
                               </div>
                               <div>
-                                <p className="text-sm">{m.email}{isOwner && <span className="ml-1.5 text-[10px] text-accent-gold font-medium">OWNER</span>}</p>
+                                <p className="text-sm">{m.email}{isOwner && <span className="ml-1.5 text-[10px] text-accent-gold font-medium">{t("dash.settings.team_owner_badge")}</span>}</p>
                                 {iAmAdmin && !isOwner ? (
                                   <Select value={m.role} onChange={(e) => onRoleChange(m.email, e.target.value)} className="mt-0.5 h-6 w-24 text-xs py-0">
-                                    <option value="admin">Admin</option>
-                                    <option value="member">Member</option>
-                                    <option value="viewer">Viewer</option>
+                                    <option value="admin">{t("dash.settings.team_role_admin")}</option>
+                                    <option value="member">{t("dash.settings.team_role_member")}</option>
+                                    <option value="viewer">{t("dash.settings.team_role_viewer")}</option>
                                   </Select>
                                 ) : (
                                   <p className="text-xs text-text-muted capitalize">{m.role}</p>
@@ -1872,15 +1931,15 @@ function TeamTab({
 
                     {/* Invite */}
                     <div className="flex gap-2">
-                      <Input type="email" autoComplete="email" placeholder="Email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="flex-1" />
+                      <Input type="email" autoComplete="email" placeholder={t("dash.settings.team_invite_email")} value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="flex-1" />
                       <Select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-28">
-                        <option value="member">Member</option>
-                        <option value="admin">Admin</option>
-                        <option value="viewer">Viewer</option>
+                        <option value="member">{t("dash.settings.team_role_member")}</option>
+                        <option value="admin">{t("dash.settings.team_role_admin")}</option>
+                        <option value="viewer">{t("dash.settings.team_role_viewer")}</option>
                       </Select>
                       <Button variant="outline" size="sm" onClick={onInvite} disabled={!inviteEmail.trim() || inviting}>
                         {inviting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
-                        Invite
+                        {t("dash.settings.team_invite")}
                       </Button>
                     </div>
                   </div>
@@ -1903,10 +1962,10 @@ function TeamTab({
       />
       <ConfirmDialog
         open={deleteTeamConfirm}
-        title="Delete Team"
-        description={`Are you sure you want to delete "${activeTeam?.name}"? All members will be removed and this cannot be undone.`}
-        confirmLabel={deletingTeam ? "Deleting..." : "Delete Team"}
-        cancelLabel="Cancel"
+        title={t("dash.settings.team_delete_title")}
+        description={t("dash.settings.team_delete_desc", { name: activeTeam?.name || "" })}
+        confirmLabel={deletingTeam ? t("dash.settings.team_deleteing") : t("dash.settings.team_delete_confirm")}
+        cancelLabel={t("common.cancel")}
         variant="danger"
         onConfirm={onDeleteTeam}
         onCancel={() => setDeleteTeamConfirm(false)}

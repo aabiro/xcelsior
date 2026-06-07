@@ -30,6 +30,7 @@ from routes._deps import (
     _hash_password as _deps_hash_password,
     _is_platform_admin as _deps_is_platform_admin,
     _merge_auth_user as _deps_merge_auth_user,
+    _team_context_for_user as _deps_team_context_for_user,
     _require_admin as _deps_require_admin,
     _require_auth as _deps_require_auth,
     _require_user_grant as _deps_require_user_grant,
@@ -215,7 +216,7 @@ def _build_auth_response(
         "expires_in": token_bundle.get("expires_in", ACCESS_TOKEN_TTL_SEC),
     }
     if user is not None:
-        body["user"] = {
+        auth_user = {
             "user_id": user.get("user_id", ""),
             "email": user.get("email", ""),
             "name": user.get("name", ""),
@@ -223,7 +224,10 @@ def _build_auth_response(
             "is_admin": True if _is_platform_admin(user) else False,
             "customer_id": user.get("customer_id"),
             "provider_id": user.get("provider_id"),
+            "team_id": user.get("team_id"),
         }
+        auth_user.update(_deps_team_context_for_user(auth_user))
+        body["user"] = auth_user
     if extra:
         body.update(extra)
     resp = JSONResponse(content=body, status_code=status_code)
@@ -1185,25 +1189,24 @@ def api_auth_me(request: Request):
         with _user_lock:
             full_user = _users_db.get(email, {})
 
-    return {
-        "ok": True,
-        "user": {
-            "user_id": user["user_id"],
-            "email": email,
-            "name": full_user.get("name", user.get("name", "")),
-            "role": full_user.get("role", user.get("role", "submitter")),
-            "is_admin": True if _is_platform_admin(full_user or user) else False,
-            "customer_id": full_user.get("customer_id", ""),
-            "provider_id": full_user.get("provider_id"),
-            "country": full_user.get("country", "CA"),
-            "province": full_user.get("province", "ON"),
-            "team_id": full_user.get("team_id"),
-            "oauth_provider": full_user.get("oauth_provider"),
-            "created_at": full_user.get("created_at", 0),
-            "auth_type": user.get("auth_type", "legacy_session"),
-            "session_type": user.get("session_type", "browser"),
-        },
+    merged_user = {
+        "user_id": user["user_id"],
+        "email": email,
+        "name": full_user.get("name", user.get("name", "")),
+        "role": full_user.get("role", user.get("role", "submitter")),
+        "is_admin": True if _is_platform_admin(full_user or user) else False,
+        "customer_id": full_user.get("customer_id", ""),
+        "provider_id": full_user.get("provider_id"),
+        "country": full_user.get("country", "CA"),
+        "province": full_user.get("province", "ON"),
+        "team_id": full_user.get("team_id"),
+        "oauth_provider": full_user.get("oauth_provider"),
+        "created_at": full_user.get("created_at", 0),
+        "auth_type": user.get("auth_type", "legacy_session"),
+        "session_type": user.get("session_type", "browser"),
     }
+    merged_user.update(_deps_team_context_for_user(merged_user))
+    return {"ok": True, "user": merged_user}
 
 
 @router.patch("/api/auth/me", tags=["Auth"])

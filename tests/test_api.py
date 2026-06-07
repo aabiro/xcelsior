@@ -842,29 +842,54 @@ class TestPricing:
         assert tiers["1_year"]["discount_pct"] == 45
 
     def test_reserve_commitment(self):
-        """POST /api/pricing/reserve creates a commitment."""
+        """POST /api/pricing/reserve creates a commitment for the authenticated customer."""
+        import uuid
+
+        email = f"reserve-{uuid.uuid4().hex[:10]}@xcelsior.ca"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "StrongPass123!", "name": "Reserve Test"},
+        ).json()
+        login = client.post(
+            "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
+        ).json()
+        headers = {"Authorization": f"Bearer {login['access_token']}"}
+        customer_id = reg["user"]["customer_id"]
         r = client.post(
             "/api/pricing/reserve",
             json={
-                "customer_id": "cust-1",
+                "customer_id": customer_id,
                 "gpu_model": "RTX 4090",
                 "commitment_type": "1_month",
                 "quantity": 1,
                 "province": "ON",
             },
+            headers=headers,
         )
         assert r.status_code == 200
         assert r.json()["ok"]
 
     def test_reserve_invalid_commitment(self):
-        """Invalid commitment_type → 400."""
+        """Invalid commitment_type → 422."""
+        import uuid
+
+        email = f"reserve-bad-{uuid.uuid4().hex[:10]}@xcelsior.ca"
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "StrongPass123!", "name": "Reserve Bad"},
+        ).json()
+        login = client.post(
+            "/api/auth/login", json={"email": email, "password": "StrongPass123!"}
+        ).json()
+        headers = {"Authorization": f"Bearer {login['access_token']}"}
         r = client.post(
             "/api/pricing/reserve",
             json={
-                "customer_id": "cust-1",
+                "customer_id": reg["user"]["customer_id"],
                 "gpu_model": "RTX 4090",
                 "commitment_type": "5_year",
             },
+            headers=headers,
         )
         assert r.status_code == 422
 

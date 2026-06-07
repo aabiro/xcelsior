@@ -36,6 +36,13 @@ interface User {
   avatar_url?: string;
   customer_id?: string;
   provider_id?: string;
+  team_id?: string | null;
+  team_name?: string;
+  team_role?: string;
+  team_plan?: string;
+  billing_customer_id?: string;
+  team_can_manage_billing?: boolean;
+  team_can_write_instances?: boolean;
 }
 
 /** Minutes of inactivity before showing the warning banner. */

@@ -1,0 +1,58 @@
+[
+  {
+    "host_id": "c4565cc7-26e",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780568965.1618438
+  },
+  {
+    "host_id": "user-02d086d25a0c",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780568968.1433222
+  },
+  {
+    "host_id": "7b5f53cf-8c6",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780569121.3568912
+  },
+  {
+    "host_id": "user-038df76bb6e9",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780569128.1530242
+  },
+  {
+    "host_id": "bc5ff742-85e",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780569688.4603717
+  },
+  {
+    "host_id": "user-72c56d1f54e5",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780569695.704609
+  },
+  {
+    "host_id": "043d81d8-d56",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780570261.9960926
+  },
+  {
+    "host_id": "user-c92afe55ce38",
+    "gpu_model": "RTX-4090",
+    "score": 1.0,
+    "details": null,
+    "run_at": 1780570271.3413694
+  }
+]

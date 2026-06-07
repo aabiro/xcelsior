@@ -33,6 +33,9 @@ def api_request_upload(req: UploadRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:write")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, req.job_id)
     try:
         atype = ArtifactType(req.artifact_type)
         rpolicy = ResidencyPolicy(req.residency_policy)
@@ -62,6 +65,9 @@ def api_request_download(req: DownloadRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:write")
+    from routes.instances import _check_job_access
+
+    _check_job_access(user, req.job_id)
     try:
         atype = ArtifactType(req.artifact_type)
     except ValueError as e:

@@ -58,6 +58,14 @@ function wrapper({ children }: { children: ReactNode }) {
   return <DesktopRuntimeProvider>{children}</DesktopRuntimeProvider>;
 }
 
+describe("useDesktopRuntime", () => {
+  it("returns a browser fallback when rendered outside DesktopRuntimeProvider", () => {
+    const { result } = renderHook(() => useDesktopRuntime());
+    expect(result.current.state.isNativeDesktop).toBe(false);
+    expect(typeof result.current.syncNativeState).toBe("function");
+  });
+});
+
 describe("DesktopRuntimeProvider", () => {
   const originalNotification = globalThis.Notification;
 

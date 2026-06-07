@@ -16,6 +16,10 @@ import {
 import { RefreshCw as Restart } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
+import { useAuth } from "@/lib/auth";
+import { getTeamContext } from "@/lib/team-context";
+import type { InstanceConcurrencyInfo } from "@/lib/api";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 import type { Instance } from "@/lib/api";
 import {
   stopInstance, startInstance, restartInstance, terminateInstance,
@@ -131,13 +135,21 @@ function RowActions({
   onAction,
   onSnapshot,
   onRename,
+  readOnly = false,
 }: {
   inst: Instance;
   onAction: (id: string, action: InstanceAction) => void;
   onSnapshot: (inst: Instance) => void;
   onRename: (inst: Instance) => void;
+  readOnly?: boolean;
 }) {
+  const { t } = useLocale();
   const { status } = inst;
+  if (readOnly) {
+    return (
+      <span className="text-[10px] uppercase tracking-wide text-text-muted">{t("dash.instances.view_only")}</span>
+    );
+  }
   const isLocked = (inst as unknown as { locked?: boolean; payload?: { locked?: boolean } }).locked === true
     || (inst as unknown as { payload?: { locked?: boolean } }).payload?.locked === true;
   const isRunning = status === "running";
@@ -260,7 +272,10 @@ function RowActions({
 }
 
 export default function InstancesPage() {
+  const { user } = useAuth();
+  const team = getTeamContext(user);
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [concurrency, setConcurrency] = useState<InstanceConcurrencyInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -277,12 +292,21 @@ export default function InstancesPage() {
   const load = useCallback(() => {
     setLoading(true);
     api.fetchInstances()
-      .then((res) => setInstances(res.instances || []))
+      .then((res) => {
+        setInstances(res.instances || []);
+        setConcurrency(res.concurrency ?? null);
+      })
       .catch(() => toast.error("Failed to load instances"))
       .finally(() => setLoading(false));
   }, [api]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { load(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [load]);
 
   useEventStream({
     eventTypes: ["job_status", "job_submitted", "job_error"],
@@ -354,7 +378,8 @@ export default function InstancesPage() {
     } catch (err) {
       // Rollback optimistic state so the user sees the real status on failure
       setInstances(prevInstances);
-      toast.error(err instanceof Error ? err.message : `${action} failed`);
+      const msg = err instanceof Error ? err.message : `${action} failed`;
+      toast.error(/team viewers cannot/i.test(msg) ? "Viewer access is read-only" : msg);
     }
   }
 
@@ -409,11 +434,13 @@ export default function InstancesPage() {
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>
-          <Button size="sm" onClick={openLaunchModal}>
+          <Button size="sm" onClick={openLaunchModal} disabled={!team.canWriteInstances}>
             <Plus className="h-3.5 w-3.5" /> {t("dash.instances.submit")}
           </Button>
         </div>
       </div>
+
+      <TeamContextBanner team={team} variant="instances" concurrency={concurrency} />
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -522,6 +549,7 @@ export default function InstancesPage() {
                       </Link>
                       <RowActions
                         inst={inst}
+                        readOnly={!team.canWriteInstances}
                         onAction={requestAction}
                         onSnapshot={setSnapshotTarget}
                         onRename={async (i) => {
@@ -532,7 +560,8 @@ export default function InstancesPage() {
                             toast.success("Renamed");
                             load();
                           } catch (err) {
-                            toast.error(err instanceof Error ? err.message : "Rename failed");
+                            const msg = err instanceof Error ? err.message : "Rename failed";
+                            toast.error(/team viewers cannot/i.test(msg) ? "Viewer access is read-only" : msg);
                           }
                         }}
                       />

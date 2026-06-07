@@ -129,6 +129,55 @@ def test_teams_invite_accept_authenticated(team_ctx):
     assert r.json().get("accepted") is True
 
 
+def test_teams_switch_active_team(team_ctx):
+    second_email = f"member2-{uuid.uuid4().hex[:10]}@xcelsior.ca".lower()
+    second_headers = _login(second_email)
+    team_b = client.post(
+        "/api/teams",
+        json={"name": f"Second Team {uuid.uuid4().hex[:6]}", "plan": "free"},
+        headers=second_headers,
+    )
+    assert team_b.status_code == 200
+    team_b_id = team_b.json()["team_id"]
+
+    me = client.get("/api/teams/me", headers=second_headers)
+    assert me.status_code == 200
+    assert me.json().get("active_team_id") == team_b_id
+
+    switch = client.patch(
+        "/api/teams/active",
+        json={"team_id": team_ctx["team_id"]},
+        headers=second_headers,
+    )
+    assert switch.status_code == 403
+
+    leader_invite = client.post(
+        f"/api/teams/{team_ctx['team_id']}/members",
+        json={"email": second_email, "role": "member"},
+        headers=team_ctx["leader_headers"],
+    )
+    assert leader_invite.status_code == 200
+
+    switch_ok = client.patch(
+        "/api/teams/active",
+        json={"team_id": team_ctx["team_id"]},
+        headers=second_headers,
+    )
+    assert switch_ok.status_code == 200
+    assert switch_ok.json().get("active_team_id") == team_ctx["team_id"]
+
+    personal = client.patch(
+        "/api/teams/active",
+        json={"team_id": None},
+        headers=second_headers,
+    )
+    assert personal.status_code == 200
+    assert personal.json().get("active_team_id") is None
+
+    user_row = UserStore.get_user(second_email)
+    assert user_row.get("team_id") in (None, "")
+
+
 def test_teams_invite_accept_wrong_email_forbidden(team_ctx):
     token = secrets.token_urlsafe(32)
     UserStore.create_team_invite(

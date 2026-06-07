@@ -25,11 +25,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   applicationName: "Xcelsior",
   title: {
-    default: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
+    default: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
     template: "%s | Xcelsior",
   },
   description:
-    "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide. Ever upward.",
+    "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing and jurisdiction-aware operations for teams worldwide. Ever upward.",
   keywords: [
     "GPU compute",
     "Canada",
@@ -56,12 +56,12 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
+        alt: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
       },
     ],
-    title: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
+    title: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
     description:
-      "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
+      "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing and jurisdiction-aware operations for teams worldwide.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -71,8 +71,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     images: ["/og-image.png"],
-    title: "Xcelsior — Canada-First GPU Compute for Teams Worldwide",
-    description: "Canada-first GPU compute marketplace for teams worldwide. Ever upward.",
+    title: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada",
+    description: "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada. Ever upward.",
   },
   appleWebApp: {
     capable: true,
@@ -125,7 +125,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: "https://xcelsior.ca/xcelsior_icon_512x512.png",
               description:
-                "Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide.",
+                "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing and jurisdiction-aware operations for teams worldwide.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",

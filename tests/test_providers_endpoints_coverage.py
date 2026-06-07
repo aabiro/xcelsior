@@ -157,6 +157,52 @@ def test_providers_payout_validation(provider_user):
     assert r.status_code == 400
 
 
+def test_providers_paypal_status(provider_user):
+    pid = provider_user["provider_id"]
+    r = client.get(
+        f"/api/providers/{pid}/paypal",
+        headers=provider_user["headers"],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert "paypal_enabled" in body
+    assert body["paypal"]["provider_id"] == pid
+
+
+def test_providers_paypal_onboard_unconfigured(provider_user):
+    pid = provider_user["provider_id"]
+    r = client.post(
+        f"/api/providers/{pid}/paypal/onboard",
+        headers=provider_user["headers"],
+    )
+    assert r.status_code in (400, 502)
+    assert r.status_code != 500
+
+
+def test_providers_paypal_refresh(provider_user):
+    pid = provider_user["provider_id"]
+    r = client.post(
+        f"/api/providers/{pid}/paypal/refresh",
+        headers=provider_user["headers"],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body["paypal"]["provider_id"] == pid
+
+
+def test_providers_payout_paypal_rail_unconfigured(provider_user):
+    pid = provider_user["provider_id"]
+    r = client.post(
+        f"/api/providers/{pid}/payout",
+        params={"job_id": "job-paypal-cov", "total_cad": 50.0, "payment_rail": "paypal"},
+        headers=provider_user["headers"],
+    )
+    assert r.status_code in (400, 502)
+    assert r.status_code != 500
+
+
 def test_providers_webhook_no_signature():
     r = client.post(
         "/api/providers/webhook",

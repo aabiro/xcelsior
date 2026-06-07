@@ -2011,8 +2011,10 @@ def run_job(job, host, docker_image=None):
             )
 
     # Managed volumes — mount NFS for each volume_id, bind-mount into container
-    vol_nfs_server = os.environ.get("XCELSIOR_NFS_SERVER", "") or nfs_server
-    vol_export_base = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+    from volumes import NFS_EXPORT_BASE, NFS_SERVER as VOL_NFS_SERVER
+
+    vol_nfs_server = VOL_NFS_SERVER or nfs_server
+    vol_export_base = NFS_EXPORT_BASE
     managed_vol_host_mounts = []
     # Look up per-volume mount paths from volume_attachments
     vol_mount_paths: dict[str, str] = {}

@@ -4,10 +4,6 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
-const DesktopAppRuntime = dynamic(
-  () => import("@/components/DesktopAppRuntime").then((m) => ({ default: m.DesktopAppRuntime })),
-  { ssr: false },
-);
 const InstallBanner = dynamic(
   () => import("@/components/InstallBanner").then((m) => ({ default: m.InstallBanner })),
   { ssr: false },
@@ -42,7 +38,6 @@ export function RootClientWidgets() {
 
   return (
     <>
-      {onDashboard ? <DesktopAppRuntime /> : null}
       {pwaReady ? (
         <>
           <InstallBanner />

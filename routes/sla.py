@@ -1,10 +1,12 @@
 """Routes: sla."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
+    _get_current_user,
     _require_admin,
+    _require_scope,
 )
 from scheduler import (
     list_hosts,
@@ -64,11 +66,10 @@ def api_sla_hosts_summary(request: Request):
     Returns per-host cards with uptime %, violation count, and SLA tier.
     Used by dashboard UI-8.1 SLA Dashboard.
     """
-    from routes._deps import _require_scope, _get_current_user
-
-    user = _get_current_user(request) if request else None
-    if user:
-        _require_scope(user, "sla:read")
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "sla:read")
     try:
         engine = get_sla_engine()
     except Exception as e:
@@ -104,9 +105,34 @@ def api_sla_hosts_summary(request: Request):
     return {"ok": True, "hosts": summaries, "count": len(summaries)}
 
 
+@router.get("/api/sla/targets", tags=["SLA"])
+def api_sla_targets():
+    """Get SLA target definitions for all tiers."""
+    from dataclasses import asdict
+
+    targets = {t.value: asdict(v) for t, v in SLA_TARGETS.items()}
+    return {"ok": True, "targets": targets}
+
+
+@router.get("/api/sla/downtimes", tags=["SLA"])
+def api_sla_active_downtimes(request: Request):
+    """Get all currently-open downtime periods across all hosts."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "sla:read")
+    engine = get_sla_engine()
+    downtimes = engine.get_active_downtimes()
+    return {"ok": True, "downtimes": downtimes, "count": len(downtimes)}
+
+
 @router.get("/api/sla/{host_id}", tags=["SLA"])
-def api_sla_status(host_id: str, month: str = ""):
+def api_sla_status(host_id: str, request: Request, month: str = ""):
     """Get SLA record and rolling uptime for a host."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "sla:read")
     engine = get_sla_engine()
     uptime_30d = engine.get_host_uptime_pct(host_id)
     record = None
@@ -134,25 +160,12 @@ def api_sla_status(host_id: str, month: str = ""):
 
 
 @router.get("/api/sla/violations/{host_id}", tags=["SLA"])
-def api_sla_violations(host_id: str, since: float = 0):
+def api_sla_violations(host_id: str, request: Request, since: float = 0):
     """Get SLA violation history for a host."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "sla:read")
     engine = get_sla_engine()
     violations = engine.get_violations(host_id, since)
     return {"ok": True, "host_id": host_id, "violations": violations, "count": len(violations)}
-
-
-@router.get("/api/sla/downtimes", tags=["SLA"])
-def api_sla_active_downtimes():
-    """Get all currently-open downtime periods across all hosts."""
-    engine = get_sla_engine()
-    downtimes = engine.get_active_downtimes()
-    return {"ok": True, "downtimes": downtimes, "count": len(downtimes)}
-
-
-@router.get("/api/sla/targets", tags=["SLA"])
-def api_sla_targets():
-    """Get SLA target definitions for all tiers."""
-    from dataclasses import asdict
-
-    targets = {t.value: asdict(v) for t, v in SLA_TARGETS.items()}
-    return {"ok": True, "targets": targets}

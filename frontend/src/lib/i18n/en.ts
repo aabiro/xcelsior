@@ -19,10 +19,10 @@ const en: Record<string, string> = {
 
   /* ── Homepage ────────────────────────────────────────────────────────── */
   "home.badge": "🍁 Save 67% with the AI Compute Access Fund",
-  "home.hero_line1": "Sovereign GPU ",
-  "home.hero_line2": "Compute for",
-  "home.hero_accent": "Canada",
-  "home.hero_desc": "The Canada-first GPU compute marketplace with transparent pricing, compliance-aware operations, and infrastructure for teams worldwide. True data sovereignty when you need it, global reach when you do not. Powered by clean hydroelectric energy.",
+  "home.hero_line1": "Canada-Grounded AI ",
+  "home.hero_line2": "Compute —",
+  "home.hero_accent": "Cheapest Compliant Compute in Canada",
+  "home.hero_desc": "Canada-Grounded AI Compute — the cheapest compliant compute in Canada. Transparent pricing, jurisdiction-aware operations, and clean hydroelectric power for teams that need verifiable control.",
   "home.cta_start": "Start Computing",
   "home.cta_pricing": "View Pricing",
   "home.stat_price": "From $0.30 CAD/hr",
@@ -495,7 +495,7 @@ const en: Record<string, string> = {
   "auth.verify_back_login": "Back to Sign In",
 
   /* ── Footer ──────────────────────────────────────────────────────────── */
-  "footer.tagline": "Canada-first GPU compute for teams worldwide.",
+  "footer.tagline": "Canada-Grounded AI Compute — Cheapest Compliant Compute in Canada.",
   "footer.motto": "Ever upward.",
   "footer.product": "Product",
   "footer.features": "Features",

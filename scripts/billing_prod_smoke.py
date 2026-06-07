@@ -92,6 +92,20 @@ def main() -> int:
     paypal_on = paypal_body.get("enabled") if isinstance(paypal_body, dict) else False
     results["paypal_enabled"] = paypal_on
 
+    paypal_order = s.post(
+        f"{base}/api/billing/paypal/create-order",
+        json={"customer_id": cid, "amount_cad": 5.0},
+        timeout=30,
+    )
+    results["paypal_create_order"] = paypal_order.status_code
+
+    paypal_idor = s.post(
+        f"{base}/api/billing/paypal/create-order",
+        json={"customer_id": "victim@example.com", "amount_cad": 5.0},
+        timeout=30,
+    )
+    results["paypal_create_order_idor"] = paypal_idor.status_code
+
     ok = (
         results["login"] == 200
         and results["wallet"] == 200
@@ -99,6 +113,8 @@ def main() -> int:
         and results["payment_intent"] != 401
         and results["payment_intent_idor"] == 403
         and paypal_on is True
+        and results["paypal_create_order"] != 401
+        and results["paypal_create_order_idor"] == 403
     )
     results["pass"] = ok
     print(json.dumps(results, indent=2))

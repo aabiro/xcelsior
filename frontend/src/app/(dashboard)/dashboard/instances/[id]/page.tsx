@@ -20,6 +20,9 @@ import {
 import type { Instance } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
+import { useAuth } from "@/lib/auth";
+import { getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-dialog";
 import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
@@ -175,6 +178,9 @@ export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { t } = useLocale();
+  const { user } = useAuth();
+  const team = getTeamContext(user);
+  const readOnly = !team.canWriteInstances;
   const [instance, setInstance] = useState<Instance | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState(false);
@@ -290,7 +296,8 @@ export default function InstanceDetailPage() {
     } catch (err) {
       // Rollback so the user sees reality, not the aspirational status.
       if (prevInstance) setInstance(prevInstance);
-      toast.error(err instanceof Error ? err.message : `${action} failed`);
+      const msg = err instanceof Error ? err.message : `${action} failed`;
+      toast.error(/team viewers cannot/i.test(msg) ? "Viewer access is read-only" : msg);
     } finally {
       setActionPending(false);
     }
@@ -397,13 +404,15 @@ export default function InstanceDetailPage() {
               ) : (
                 <>
                   <h1 className="text-2xl font-bold">{instance.name || instance.job_id}</h1>
-                  <button
-                    onClick={() => { setNameInput(instance.name || instance.job_id); setEditingName(true); }}
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                    title="Rename instance"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={() => { setNameInput(instance.name || instance.job_id); setEditingName(true); }}
+                      className="text-text-muted hover:text-text-primary transition-colors"
+                      title="Rename instance"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -454,7 +463,7 @@ export default function InstanceDetailPage() {
             </span>
           )}
           {/* Queued/provisioning cancel */}
-          {isQueued && (
+          {isQueued && !readOnly && (
             <Button
               variant="outline" size="sm"
               onClick={() => setConfirmAction("cancel")}
@@ -465,13 +474,15 @@ export default function InstanceDetailPage() {
             </Button>
           )}
           {/* Failed requeue */}
-          {isFailed && (
+          {isFailed && !readOnly && (
             <Button variant="outline" size="sm" onClick={handleRequeue} disabled={actionPending}>
               <RotateCcw className="h-3.5 w-3.5" /> {t("dash.instances.requeue")}
             </Button>
           )}
         </div>
       </div>
+
+      {readOnly && <TeamContextBanner team={team} variant="instances" />}
 
       {/* Status Timeline */}
       <Card>
@@ -685,37 +696,39 @@ export default function InstanceDetailPage() {
                 </Button>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              {isRunning && (
-                <>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
-                    <RefreshCw className="h-3 w-3" /> Restart
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setSnapshotOpen(true)} disabled={actionPending} className="h-7 text-xs text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/10">
-                    <Camera className="h-3 w-3" /> Save as Template
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("stop")} disabled={actionPending} className="h-7 text-xs text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10">
-                    <Square className="h-3 w-3" /> Stop
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="h-7 text-xs text-accent-red border-accent-red/30 hover:bg-accent-red/10">
-                    <Zap className="h-3 w-3" /> Terminate
-                  </Button>
-                </>
-              )}
-              {isStopped && (
-                <>
-                  <Button size="sm" onClick={() => setConfirmAction("start")} disabled={actionPending} className="h-7 text-xs bg-emerald hover:bg-emerald/80 text-white">
-                    <Play className="h-3 w-3" /> Start
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
-                    <RefreshCw className="h-3 w-3" /> Restart
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="h-7 text-xs text-accent-red border-accent-red/30 hover:bg-accent-red/10">
-                    <Zap className="h-3 w-3" /> Terminate
-                  </Button>
-                </>
-              )}
-            </div>
+            {!readOnly && (
+              <div className="flex items-center gap-2">
+                {isRunning && (
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
+                      <RefreshCw className="h-3 w-3" /> Restart
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setSnapshotOpen(true)} disabled={actionPending} className="h-7 text-xs text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/10">
+                      <Camera className="h-3 w-3" /> Save as Template
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmAction("stop")} disabled={actionPending} className="h-7 text-xs text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10">
+                      <Square className="h-3 w-3" /> Stop
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="h-7 text-xs text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                      <Zap className="h-3 w-3" /> Terminate
+                    </Button>
+                  </>
+                )}
+                {isStopped && (
+                  <>
+                    <Button size="sm" onClick={() => setConfirmAction("start")} disabled={actionPending} className="h-7 text-xs bg-emerald hover:bg-emerald/80 text-white">
+                      <Play className="h-3 w-3" /> Start
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmAction("restart")} disabled={actionPending} className="h-7 text-xs">
+                      <RefreshCw className="h-3 w-3" /> Restart
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmAction("terminate")} disabled={actionPending} className="h-7 text-xs text-accent-red border-accent-red/30 hover:bg-accent-red/10">
+                      <Zap className="h-3 w-3" /> Terminate
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {/* Connection Info — always visible when running */}
           {isRunning && instance.host_ip && (
