@@ -26,7 +26,12 @@ MAX_VOLUME_SIZE_GB = int(os.environ.get("XCELSIOR_MAX_VOLUME_GB", "2000"))
 MAX_TOTAL_STORAGE_GB = int(os.environ.get("XCELSIOR_MAX_TOTAL_STORAGE_GB", "2000"))
 DEFAULT_MOUNT_PATH = "/workspace"
 NFS_SERVER = os.environ.get("XCELSIOR_NFS_SERVER", "")
+# SSH target for provision/destroy (may differ from mount server when API colocates NFS).
+NFS_SSH_HOST = os.environ.get("XCELSIOR_NFS_SSH_HOST", "") or NFS_SERVER
+NFS_SSH_USER = os.environ.get("XCELSIOR_NFS_SSH_USER", "") or os.environ.get("XCELSIOR_SSH_USER", "aaryn")
 NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+
+_LOCAL_NFS_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 # Canonical NFS mount options — used by volumes.py, scheduler.py, worker_agent.py.
 # hard: I/O blocks-and-retries on NFS server reboot (never silently fails).
@@ -64,11 +69,73 @@ class VolumeEngine:
                 conn.rollback()
                 raise
 
-    def _ssh_exec(self, ip: str, cmd: str, timeout: int = 30) -> tuple[int, str, str]:
-        """Execute a command on a remote host via SSH."""
-        from scheduler import ssh_exec
+    def _nfs_is_local_host(self, ip: str) -> bool:
+        return ip.strip().lower() in _LOCAL_NFS_HOSTS
 
-        return ssh_exec(ip, cmd, timeout=timeout)
+    def _nfs_ssh_user(self, ip: str) -> str:
+        return NFS_SSH_USER if self._nfs_is_local_host(ip) or ip == NFS_SSH_HOST else NFS_SSH_USER
+
+    def _local_exec(
+        self, cmd: str, *, timeout: int = 30, stdin_data: bytes | None = None
+    ) -> tuple[int, str, str]:
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                input=stdin_data,
+                capture_output=True,
+                timeout=timeout,
+            )
+            return (
+                result.returncode,
+                (result.stdout or b"").decode(errors="replace"),
+                (result.stderr or b"").decode(errors="replace"),
+            )
+        except subprocess.TimeoutExpired:
+            return 255, "", "timeout"
+        except Exception as exc:
+            return 255, "", str(exc)
+
+    @staticmethod
+    def _ssh_identity_args() -> list[str]:
+        """Return `-i <key>` args only when the configured key file exists.
+
+        In containers the key is mounted at SSH_KEY_PATH (e.g.
+        /run/secrets/ssh_key); in local/dev environments that path is absent,
+        so we omit `-i` and let SSH fall back to the agent / default keys
+        instead of emitting a noisy 'Identity file not accessible' warning on
+        every call.
+        """
+        from scheduler import SSH_KEY_PATH
+
+        if SSH_KEY_PATH and os.path.exists(SSH_KEY_PATH):
+            return ["-i", SSH_KEY_PATH]
+        return []
+
+    def _ssh_exec(self, ip: str, cmd: str, timeout: int = 30) -> tuple[int, str, str]:
+        """Execute a command on the NFS host via SSH (or locally when colocated)."""
+        if self._nfs_is_local_host(ip):
+            return self._local_exec(cmd, timeout=timeout)
+
+        full_cmd = [
+            "ssh",
+            *self._ssh_identity_args(),
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "PasswordAuthentication=no",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            f"{NFS_SSH_USER}@{ip}",
+            cmd,
+        ]
+        try:
+            result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
+            return result.returncode, result.stdout.strip(), result.stderr.strip()
+        except subprocess.TimeoutExpired:
+            return 255, "", f"ssh timeout after {timeout}s"
 
     def _ssh_exec_with_retry(
         self, ip: str, cmd: str, *, max_retries: int = 3, timeout: int = 30
@@ -112,19 +179,19 @@ class VolumeEngine:
         Used for LUKS operations where the key must be piped via stdin
         (never written to disk on the remote host).
         """
-        from scheduler import SSH_KEY_PATH, SSH_USER
+        if self._nfs_is_local_host(ip):
+            return self._local_exec(cmd, timeout=timeout, stdin_data=stdin_data)
 
         full_cmd = [
             "ssh",
-            "-i",
-            SSH_KEY_PATH,
+            *self._ssh_identity_args(),
             "-o",
             "StrictHostKeyChecking=accept-new",
             "-o",
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=5",
-            f"{SSH_USER}@{ip}",
+            f"{NFS_SSH_USER}@{ip}",
             cmd,
         ]
         try:
@@ -430,7 +497,7 @@ class VolumeEngine:
         if not encrypted:
             # Plain unencrypted NFS directory
             cmd = f"mkdir -p {safe_path} && chmod 1777 {safe_path}"
-            rc, _, stderr = self._ssh_exec_with_retry(NFS_SERVER, cmd)
+            rc, _, stderr = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd)
             if rc != 0:
                 log.error("NFS volume provision failed for %s: %s", volume_id, stderr)
                 return False
@@ -449,14 +516,14 @@ class VolumeEngine:
 
         # Step 0: Clean up stale LUKS state from any previous failed attempt
         self._ssh_exec_with_retry(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"sudo umount -l {safe_path} 2>/dev/null; "
             f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true",
         )
 
         # Step 1: Create sparse image file
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"truncate -s {size_gb}G {safe_img}",
         )
         if rc != 0:
@@ -466,7 +533,7 @@ class VolumeEngine:
         # Step 2: luksFormat — key piped via stdin
         # --key-size 512 = AES-256-XTS (256-bit AES + 256-bit XTS tweak)
         rc, _, err = self._ssh_exec_with_stdin(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"sudo cryptsetup luksFormat --batch-mode --type luks2 "
             f"--key-file /dev/stdin --key-size 512 "
             f"--cipher aes-xts-plain64 --hash sha256 {safe_img}",
@@ -475,42 +542,42 @@ class VolumeEngine:
         )
         if rc != 0:
             log.error("LUKS luksFormat failed for %s: %s", volume_id, err)
-            self._ssh_exec_with_retry(NFS_SERVER, f"rm -f {safe_img}")
+            self._ssh_exec_with_retry(NFS_SSH_HOST, f"rm -f {safe_img}")
             return False
 
         # Step 3: luksOpen — key piped via stdin
         rc, _, err = self._ssh_exec_with_stdin(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
             raw_key,
             timeout=60,
         )
         if rc != 0:
             log.error("LUKS luksOpen failed for %s: %s", volume_id, err)
-            self._ssh_exec_with_retry(NFS_SERVER, f"rm -f {safe_img}")
+            self._ssh_exec_with_retry(NFS_SSH_HOST, f"rm -f {safe_img}")
             return False
 
         # Step 4: mkfs.ext4
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"sudo mkfs.ext4 -q -L vol-{volume_id[:8]} /dev/mapper/{safe_mapper}",
         )
         if rc != 0:
             log.error("LUKS mkfs failed for %s: %s", volume_id, err)
             self._ssh_exec_with_retry(
-                NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}"
+                NFS_SSH_HOST, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}"
             )
             return False
 
         # Step 5: Mount
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"mkdir -p {safe_path} && sudo mount /dev/mapper/{safe_mapper} {safe_path} && chmod 1777 {safe_path}",
         )
         if rc != 0:
             log.error("LUKS mount failed for %s: %s", volume_id, err)
             self._ssh_exec_with_retry(
-                NFS_SERVER,
+                NFS_SSH_HOST,
                 f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; rm -f {safe_img}; rmdir {safe_path} 2>/dev/null",
             )
             return False
@@ -634,15 +701,22 @@ class VolumeEngine:
         return {"volume_id": volume_id, "name": new_name}
 
     def list_volumes(self, owner_id: str) -> list[dict]:
+        return self.list_volumes_for_owner_ids([owner_id])
+
+    def list_volumes_for_owner_ids(self, owner_ids: list[str]) -> list[dict]:
+        unique = [oid for oid in dict.fromkeys(str(x).strip() for x in owner_ids) if oid]
+        if not unique:
+            return []
         with self._conn() as conn:
+            placeholders = ",".join(["%s"] * len(unique))
             rows = conn.execute(
-                f"SELECT {self._PUBLIC_COLS} FROM volumes WHERE owner_id = %s AND status != 'deleted' ORDER BY created_at DESC",
-                (owner_id,),
+                f"SELECT {self._PUBLIC_COLS} FROM volumes WHERE owner_id IN ({placeholders}) "
+                "AND status != 'deleted' ORDER BY created_at DESC",
+                unique,
             ).fetchall()
             vols = [dict(r) for r in rows]
             if not vols:
                 return vols
-            # Batch-fetch current attachments
             vol_ids = [v["volume_id"] for v in vols]
             atts = conn.execute(
                 "SELECT volume_id, instance_id FROM volume_attachments WHERE volume_id = ANY(%s) AND detached_at = 0",
@@ -718,7 +792,7 @@ class VolumeEngine:
             snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
             try:
                 self._ssh_exec_with_retry(
-                    NFS_SERVER,
+                    NFS_SSH_HOST,
                     f"case {shlex.quote(snap_dir)} in "
                     f"{shlex.quote(NFS_EXPORT_BASE)}/_snapshots/*) "
                     f"rm -rf --one-file-system {shlex.quote(snap_dir)};; "
@@ -753,14 +827,14 @@ class VolumeEngine:
             safe_mapper = shlex.quote(mapper)
 
             # Unmount (lazy to handle busy)
-            self._ssh_exec_with_retry(NFS_SERVER, f"sudo umount -l {safe_path} 2>/dev/null; true")
+            self._ssh_exec_with_retry(NFS_SSH_HOST, f"sudo umount -l {safe_path} 2>/dev/null; true")
             # Close LUKS device
             self._ssh_exec_with_retry(
-                NFS_SERVER, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true"
+                NFS_SSH_HOST, f"sudo cryptsetup luksClose {safe_mapper} 2>/dev/null; true"
             )
             # Remove backing image and mount point
             rc, _, err = self._ssh_exec_with_retry(
-                NFS_SERVER,
+                NFS_SSH_HOST,
                 f"rm -f {safe_img} && rmdir {safe_path} 2>/dev/null; true",
             )
             if rc != 0:
@@ -771,13 +845,18 @@ class VolumeEngine:
             )
             return True
 
-        # Unencrypted: safe rm -rf with symlink traversal guard
+        # Unencrypted: safe rm -rf with symlink traversal guard.
+        # Cross-platform: GNU rm (Linux NFS server) supports --one-file-system
+        # as defense-in-depth; BSD rm (macOS NFS server) rejects it, so detect
+        # the rm flavor and fall back without the flag. `case` is POSIX so it
+        # works regardless of the remote login shell.
         cmd = (
             f"real=$(readlink -f {safe_path}) && "
-            f'[[ "$real" == {shlex.quote(NFS_EXPORT_BASE)}/* ]] && '
-            f'rm -rf --one-file-system "$real"'
+            f'case "$real" in {shlex.quote(NFS_EXPORT_BASE)}/*) : ;; *) exit 3 ;; esac && '
+            f'if rm --version >/dev/null 2>&1; then rm -rf --one-file-system "$real"; '
+            f'else rm -rf "$real"; fi'
         )
-        rc, _, stderr = self._ssh_exec_with_retry(NFS_SERVER, cmd)
+        rc, _, stderr = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd)
         if rc != 0:
             log.error("NFS volume deletion failed for %s: %s", volume_id, stderr)
             return False
@@ -807,7 +886,7 @@ class VolumeEngine:
 
         # luksOpen — key piped via stdin
         rc, _, err = self._ssh_exec_with_stdin(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"sudo cryptsetup luksOpen --key-file /dev/stdin {safe_img} {safe_mapper}",
             raw_key,
         )
@@ -817,7 +896,7 @@ class VolumeEngine:
 
         # Mount
         rc, _, err = self._ssh_exec_with_retry(
-            NFS_SERVER,
+            NFS_SSH_HOST,
             f"mkdir -p {safe_path} && sudo mount /dev/mapper/{safe_mapper} {safe_path}",
         )
         if rc != 0:
@@ -868,7 +947,7 @@ class VolumeEngine:
 
         if NFS_SERVER:
             snap_dir = f"{NFS_EXPORT_BASE}/_snapshots/{volume_id}"
-            self._ssh_exec_with_retry(NFS_SERVER, f"mkdir -p {shlex.quote(snap_dir)}")
+            self._ssh_exec_with_retry(NFS_SSH_HOST, f"mkdir -p {shlex.quote(snap_dir)}")
             if vol["encrypted"]:
                 src = f"{NFS_EXPORT_BASE}/{volume_id}.img"
                 dst = f"{snap_dir}/{snap_id}.img"
@@ -884,7 +963,7 @@ class VolumeEngine:
                     f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)} && "
                     f"du -sb {shlex.quote(dst)} | cut -f1"
                 )
-            rc, out, err = self._ssh_exec_with_retry(NFS_SERVER, cmd, timeout=300)
+            rc, out, err = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd, timeout=300)
             if rc != 0:
                 raise RuntimeError(f"Snapshot failed: {err.strip()[:200]}")
             try:
@@ -981,7 +1060,7 @@ class VolumeEngine:
                     f"mv -T {shlex.quote(dst)} {shlex.quote(backup)}; fi && "
                     f"cp -a --reflink=auto {shlex.quote(src)} {shlex.quote(dst)}"
                 )
-            rc, _, err = self._ssh_exec_with_retry(NFS_SERVER, cmd, timeout=600)
+            rc, _, err = self._ssh_exec_with_retry(NFS_SSH_HOST, cmd, timeout=600)
             if rc != 0:
                 raise RuntimeError(f"Restore failed: {err.strip()[:200]}")
         self._emit_event(
@@ -1018,7 +1097,7 @@ class VolumeEngine:
                     f"rm -rf --one-file-system {shlex.quote(path)};; "
                     f"*) echo refuse; exit 1;; esac"
                 )
-            self._ssh_exec_with_retry(NFS_SERVER, cmd)
+            self._ssh_exec_with_retry(NFS_SSH_HOST, cmd)
 
         with self._conn() as conn:
             conn.execute(
@@ -1402,6 +1481,56 @@ class VolumeEngine:
         if fixed:
             log.info("Reconciled %d orphaned volume attachments", fixed)
         return fixed
+
+
+def nfs_storage_healthcheck() -> dict:
+    """Report persistent-volume NFS readiness (SSH + export path).
+
+    When ``XCELSIOR_NFS_SERVER`` is unset the engine runs in metadata-only mode
+    (dev/test). Production should set the server and optionally
+    ``XCELSIOR_NFS_REQUIRED=true`` so ``/readyz`` fails if SSH/export checks fail.
+    """
+    if not NFS_SERVER:
+        return {
+            "ok": True,
+            "configured": False,
+            "mode": "metadata-only",
+            "reachable": False,
+            "server": "",
+            "ssh_host": "",
+            "export_base": NFS_EXPORT_BASE,
+        }
+    export = shlex.quote(NFS_EXPORT_BASE)
+    try:
+        engine = get_volume_engine()
+        rc, _, err = engine._ssh_exec_with_retry(
+            NFS_SSH_HOST,
+            f"test -d {export}",
+            timeout=15,
+        )
+        reachable = rc == 0
+        return {
+            "ok": reachable,
+            "configured": True,
+            "mode": "full" if reachable else "degraded",
+            "reachable": reachable,
+            "server": NFS_SERVER,
+            "ssh_host": NFS_SSH_HOST,
+            "export_base": NFS_EXPORT_BASE,
+            "error": (err or "")[:200] or None,
+        }
+    except Exception as exc:
+        log.warning("NFS volume healthcheck failed: %s", exc)
+        return {
+            "ok": False,
+            "configured": True,
+            "mode": "degraded",
+            "reachable": False,
+            "server": NFS_SERVER,
+            "ssh_host": NFS_SSH_HOST,
+            "export_base": NFS_EXPORT_BASE,
+            "error": str(exc)[:200],
+        }
 
 
 # ── Singleton ─────────────────────────────────────────────────────────
