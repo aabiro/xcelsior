@@ -197,9 +197,10 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **User image templates** — create/list/delete scoped to team workspace (2026-06-08)
 - [x] **Snapshots (instance)** — rate limit and ownership via team billing id (2026-06-08)
 - [x] **Inference endpoints** (`routes/inference.py`) — wallet + `owner_id` use `_effective_billing_customer_id` (2026-06-08)
-- [ ] **Chat / AI assistant tools** — `list_volumes`, `list_instances`, wallet tools team-aware
-- [ ] **SSH keys** — attach to team instances (read scope for viewers)
-- [ ] **Analytics API** — usage queries filter by effective billing customer when in team context
+- [x] **Chat / AI assistant tools** — `list_jobs`, billing, launch/stop, inference team-aware (2026-06-08)
+- [x] **OAuth / API credentials** — workspace-scoped list/create; team billing customer (2026-06-08)
+- [x] **SSH keys** — reinject targets team-accessible running instances (2026-06-08)
+- [x] **Analytics API** — usage queries filter by effective billing customer when in team context (done)
 - [ ] **Audit logs** — include `team_id`, `team_role` on mutating actions
 
 ### 3.2 Backend — auth & workspace switching
@@ -214,7 +215,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **`TeamContextBanner`** on: billing, instances, volumes, analytics, artifacts, launch modal (2026-06-08)
 - [ ] **`TeamSwitcher`** visible when `teams.length >= 1` (done)
 - [ ] **Settings workspace picker** for single-team users (done)
-- [~] **`xcelsior-team-changed` listener** on: billing, instances, credits, volumes, analytics, artifacts (2026-06-08)
+- [x] **`xcelsior-team-changed` listener** on: billing, instances, credits, volumes, analytics, artifacts, settings OAuth (2026-06-08)
 - [ ] **Viewer gates** on all mutation buttons (instances, volumes, launch, billing deposit)
 - [ ] **Settings team tab** i18n complete EN/FR (done)
 

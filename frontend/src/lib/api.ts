@@ -2359,6 +2359,9 @@ export interface OAuthClientInfo {
   scopes: string[];
   is_first_party: boolean;
   created_by_email?: string | null;
+  workspace_customer_id?: string | null;
+  team_id?: string | null;
+  workspace_label?: "personal" | "team";
   status?: string;
   created_at?: number;
   updated_at?: number;

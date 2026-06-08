@@ -510,6 +510,54 @@ def test_viewer_cannot_create_inference_endpoint(team_roles):
     assert "viewer" in blocked.text.lower()
 
 
+_OAUTH_CLIENT_BODY = {
+    "client_name": "team-oauth-test",
+    "client_type": "confidential",
+    "redirect_uris": [],
+    "grant_types": ["client_credentials"],
+    "scopes": ["instances:read"],
+    "is_first_party": False,
+}
+
+
+def test_oauth_client_scoped_to_team_workspace(team_roles):
+    created = client.post(
+        "/api/oauth/clients",
+        headers=team_roles["member"]["headers"],
+        json=_OAUTH_CLIENT_BODY,
+    )
+    assert created.status_code == 200, created.text[:300]
+    payload = created.json()["client"]
+    assert payload["workspace_customer_id"] == team_roles["billing_customer_id"]
+    assert payload.get("team_id") == team_roles["team_id"]
+
+    listed = client.get("/api/oauth/clients", headers=team_roles["viewer"]["headers"])
+    assert listed.status_code == 200, listed.text[:200]
+    ids = [c["client_id"] for c in listed.json().get("clients") or []]
+    assert payload["client_id"] in ids
+
+    outsider = team_roles["outsider"]
+    outsider_list = client.get("/api/oauth/clients", headers=outsider["headers"])
+    assert outsider_list.status_code == 200, outsider_list.text[:200]
+    outsider_ids = [c["client_id"] for c in outsider_list.json().get("clients") or []]
+    assert payload["client_id"] not in outsider_ids
+
+    client.delete(
+        f"/api/oauth/clients/{payload['client_id']}",
+        headers=team_roles["admin"]["headers"],
+    )
+
+
+def test_viewer_cannot_create_oauth_client(team_roles):
+    blocked = client.post(
+        "/api/oauth/clients",
+        headers=team_roles["viewer"]["headers"],
+        json=_OAUTH_CLIENT_BODY,
+    )
+    assert blocked.status_code == 403, blocked.text[:200]
+    assert "viewer" in blocked.text.lower()
+
+
 def test_personal_user_concurrency_isolated_from_team(team_roles, monkeypatch):
     import routes.instances as inst
 

@@ -744,6 +744,46 @@ def _require_user_image_write(user: dict, image_owner_id: str) -> None:
     _require_team_instance_write(user)
 
 
+def _oauth_workspace_customer_id(user: dict) -> str:
+    """Billing customer for OAuth clients created in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _oauth_workspace_team_id(user: dict) -> str | None:
+    return _user_team_id(user)
+
+
+def _user_can_access_oauth_client(user: dict, client: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    if int(client.get("is_first_party") or 0):
+        return False
+    email = str(user.get("email") or "").strip().lower()
+    owner = str(client.get("created_by_email") or "").strip().lower()
+    if not email:
+        return False
+    scope = _oauth_workspace_customer_id(user)
+    personal = _canonical_owner_id(user)
+    client_ws = str(client.get("workspace_customer_id") or "").strip()
+    if not client_ws:
+        return scope == personal and owner == email
+    if client_ws not in _customer_ids_accessible_by_user(user):
+        return False
+    if client_ws == personal:
+        return owner == email
+    return client_ws == scope
+
+
+def _require_oauth_client_access(user: dict, client: dict) -> None:
+    if not _user_can_access_oauth_client(user, client):
+        raise HTTPException(404, "OAuth client not found")
+
+
+def _require_oauth_client_write(user: dict, client: dict) -> None:
+    _require_oauth_client_access(user, client)
+    _require_team_instance_write(user)
+
+
 def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     merged = dict(base or {})
     if full_user:

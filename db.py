@@ -1198,6 +1198,14 @@ def _ensure_oauth_auth_tables(conn) -> None:
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"
     )
     cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used DOUBLE PRECISION")
+    cur.execute(
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS workspace_customer_id TEXT"
+    )
+    cur.execute("ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS team_id TEXT")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_oauth_clients_workspace "
+        "ON oauth_clients (workspace_customer_id)"
+    )
     cur.execute("""
         CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             token_id TEXT PRIMARY KEY,
@@ -2347,6 +2355,87 @@ class OAuthStore:
             return cur.rowcount > 0
 
     @staticmethod
+    def _workspace_where(
+        client_id: str,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> tuple[str, list]:
+        if workspace_customer_id == personal_customer_id:
+            return (
+                "client_id = %s AND created_by_email = %s AND is_first_party = 0 "
+                "AND (workspace_customer_id = %s OR workspace_customer_id IS NULL)",
+                [client_id, user_email, workspace_customer_id],
+            )
+        return (
+            "client_id = %s AND workspace_customer_id = %s AND is_first_party = 0",
+            [client_id, workspace_customer_id],
+        )
+
+    @staticmethod
+    def update_client_in_workspace(
+        client_id: str,
+        updates: dict,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> bool:
+        allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+        fields = {k: v for k, v in updates.items() if k in allowed}
+        if not fields:
+            return False
+        from psycopg.types.json import Jsonb
+
+        for k in ["redirect_uris", "grant_types", "scopes"]:
+            if k in fields:
+                fields[k] = Jsonb(list(fields[k]))
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        values = list(fields.values())
+        values.append(time.time())
+        set_clause += ", updated_at = %s"
+        where, where_vals = OAuthStore._workspace_where(
+            client_id,
+            workspace_customer_id=workspace_customer_id,
+            personal_customer_id=personal_customer_id,
+            user_email=user_email,
+        )
+        values.extend(where_vals)
+        with auth_connection() as conn:
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def rotate_client_secret_in_workspace(
+        client_id: str,
+        new_secret_hash: str,
+        new_secret_salt: str,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> bool:
+        set_clause = "client_secret_hash = %s, client_secret_salt = %s, updated_at = %s"
+        values = [new_secret_hash, new_secret_salt, time.time()]
+        where, where_vals = OAuthStore._workspace_where(
+            client_id,
+            workspace_customer_id=workspace_customer_id,
+            personal_customer_id=personal_customer_id,
+            user_email=user_email,
+        )
+        values.extend(where_vals)
+        with auth_connection() as conn:
+            cur = conn.execute(
+                cast(Any, f"UPDATE oauth_clients SET {set_clause} WHERE {where}"),
+                values,
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
     def rotate_client_secret(
         client_id: str,
         new_secret_hash: str,
@@ -2406,10 +2495,12 @@ class OAuthStore:
                     client_secret_salt,
                     created_by_email,
                     is_first_party,
+                    workspace_customer_id,
+                    team_id,
                     created_at,
                     updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (client_id) DO UPDATE SET
                     client_name = EXCLUDED.client_name,
                     client_type = EXCLUDED.client_type,
@@ -2433,6 +2524,8 @@ class OAuthStore:
                     client.get("client_secret_salt"),
                     client.get("created_by_email"),
                     int(client.get("is_first_party", 0)),
+                    client.get("workspace_customer_id"),
+                    client.get("team_id"),
                     client.get("created_at", time.time()),
                     client.get("updated_at", time.time()),
                 ),
@@ -2448,16 +2541,50 @@ class OAuthStore:
             return dict(row) if row else None
 
     @staticmethod
-    def list_clients(created_by_email: str | None = None) -> list[dict]:
+    def list_clients(
+        created_by_email: str | None = None,
+        *,
+        workspace_customer_id: str | None = None,
+        personal_customer_id: str | None = None,
+    ) -> list[dict]:
         with auth_connection() as conn:
-            if created_by_email:
-                rows = conn.execute(
-                    "SELECT * FROM oauth_clients WHERE created_by_email = %s OR is_first_party = 1 ORDER BY created_at DESC",
-                    (created_by_email,),
-                ).fetchall()
-            else:
+            if created_by_email is None:
                 rows = conn.execute(
                     "SELECT * FROM oauth_clients ORDER BY created_at DESC"
+                ).fetchall()
+            elif workspace_customer_id:
+                if personal_customer_id and workspace_customer_id == personal_customer_id:
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM oauth_clients
+                         WHERE created_by_email = %s
+                           AND is_first_party = 0
+                           AND (
+                                workspace_customer_id = %s
+                                OR workspace_customer_id IS NULL
+                           )
+                         ORDER BY created_at DESC
+                        """,
+                        (created_by_email, workspace_customer_id),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM oauth_clients
+                         WHERE is_first_party = 0
+                           AND workspace_customer_id = %s
+                         ORDER BY created_at DESC
+                        """,
+                        (workspace_customer_id,),
+                    ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM oauth_clients
+                     WHERE created_by_email = %s OR is_first_party = 1
+                     ORDER BY created_at DESC
+                    """,
+                    (created_by_email,),
                 ).fetchall()
             return [dict(row) for row in rows]
 
@@ -2471,6 +2598,38 @@ class OAuthStore:
                 )
             else:
                 cur = conn.execute("DELETE FROM oauth_clients WHERE client_id = %s", (client_id,))
+            return cur.rowcount > 0
+
+    @staticmethod
+    def delete_client_in_workspace(
+        client_id: str,
+        *,
+        workspace_customer_id: str,
+        personal_customer_id: str,
+        user_email: str,
+    ) -> bool:
+        with auth_connection() as conn:
+            if workspace_customer_id == personal_customer_id:
+                cur = conn.execute(
+                    """
+                    DELETE FROM oauth_clients
+                     WHERE client_id = %s
+                       AND created_by_email = %s
+                       AND is_first_party = 0
+                       AND (workspace_customer_id = %s OR workspace_customer_id IS NULL)
+                    """,
+                    (client_id, user_email, workspace_customer_id),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    DELETE FROM oauth_clients
+                     WHERE client_id = %s
+                       AND workspace_customer_id = %s
+                       AND is_first_party = 0
+                    """,
+                    (client_id, workspace_customer_id),
+                )
             return cur.rowcount > 0
 
     @staticmethod

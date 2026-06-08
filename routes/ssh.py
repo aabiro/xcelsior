@@ -86,11 +86,10 @@ def _trigger_reinject_for_user(user: dict) -> int:
         log.debug("reinject trigger: import failed: %s", e)
         return 0
 
-    user_id = user.get("user_id") or ""
-    customer_id = user.get("customer_id") or ""
+    from routes._deps import _customer_ids_accessible_by_user
+
     email = user.get("email") or ""
-    # owner field on jobs is one of: customer_id, user_id, or email — match all.
-    candidates = [v for v in (user_id, customer_id, email) if v]
+    candidates = sorted(_customer_ids_accessible_by_user(user))
     if not candidates:
         return 0
 
