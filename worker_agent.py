@@ -1050,6 +1050,8 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "start_container",
         "reset_container",  # P2 — fresh /workspace, preserve volumes
         "snapshot_container",
+        "mount_volume",  # hot-attach: NFS mount + nsenter bind into running container
+        "unmount_volume",
     }
 )
 
@@ -1460,6 +1462,26 @@ def drain_agent_commands() -> int:
                         )
                 except requests.RequestException as e:
                     log.warning("snapshot_container callback failed cmd=%s: %s", cmd_id, e)
+            elif name == "mount_volume":
+                log.info(
+                    "Executing mount_volume cmd=%s job=%s vol=%s by=%s",
+                    cmd_id,
+                    (args.get("job_id") or "")[:8],
+                    args.get("volume_id"),
+                    by,
+                )
+                if _hot_mount_volume(args):
+                    dispatched += 1
+            elif name == "unmount_volume":
+                log.info(
+                    "Executing unmount_volume cmd=%s job=%s vol=%s by=%s",
+                    cmd_id,
+                    (args.get("job_id") or "")[:8],
+                    args.get("volume_id"),
+                    by,
+                )
+                if _hot_unmount_volume(args):
+                    dispatched += 1
             # P3/C7 — no `else` branch: unknown commands are rejected at
             # the top of the loop via _AGENT_COMMAND_ALLOWED before we
             # reach any if/elif block.
@@ -2063,6 +2085,150 @@ def _unmount_nfs(mount_point):
         log.info("NFS unmounted: %s", mount_point)
     except Exception as e:
         log.debug("NFS unmount failed (non-fatal): %s", e)
+
+
+MANAGED_VOLUME_HOST_DIR = "/mnt/xcelsior-volumes"
+
+
+def _container_pid(container_name: str) -> int | None:
+    """Return the host PID of a running container, or None."""
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Pid}}", container_name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if r.returncode != 0:
+            return None
+        pid = int((r.stdout or "0").strip() or 0)
+        return pid if pid > 0 else None
+    except (subprocess.TimeoutExpired, ValueError):
+        return None
+
+
+def _nsenter_bind_mount(pid: int, host_src: str, container_dst: str, mode: str = "rw") -> bool:
+    """Bind-mount host_src into a running container's mount namespace."""
+    safe_src = shlex.quote(host_src)
+    safe_dst = shlex.quote(container_dst)
+    if mode == "ro":
+        mount_script = (
+            f"mkdir -p {safe_dst} && "
+            f"mount --bind {safe_src} {safe_dst} && "
+            f"mount -o remount,bind,ro {safe_dst}"
+        )
+    else:
+        mount_script = f"mkdir -p {safe_dst} && mount --bind {safe_src} {safe_dst}"
+    try:
+        r = subprocess.run(
+            ["nsenter", "-t", str(pid), "-m", "--", "sh", "-c", mount_script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            log.warning(
+                "nsenter bind mount failed pid=%s %s→%s: %s",
+                pid,
+                host_src,
+                container_dst,
+                (r.stderr or "")[:200],
+            )
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        log.warning("nsenter bind mount timed out pid=%s dst=%s", pid, container_dst)
+        return False
+
+
+def _nsenter_lazy_umount(pid: int, container_dst: str) -> None:
+    """Lazy-unmount a path inside a container's mount namespace (best-effort)."""
+    safe_dst = shlex.quote(container_dst)
+    try:
+        subprocess.run(
+            ["nsenter", "-t", str(pid), "-m", "--", "umount", "-l", safe_dst],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _hot_mount_volume(args: dict) -> bool:
+    """NFS-mount a managed volume on the host and bind it into a running container."""
+    job_id = str(args.get("job_id") or "")
+    volume_id = str(args.get("volume_id") or "")
+    container_path = str(args.get("container_path") or "/workspace")
+    mode = str(args.get("mode") or "rw")
+    if not job_id or not volume_id:
+        log.warning("mount_volume missing job_id/volume_id: %r", args)
+        return False
+
+    container_name = str(args.get("container_name") or f"xcl-{job_id}")
+    inspect = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", container_name],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if inspect.returncode != 0 or inspect.stdout.strip() != "true":
+        log.warning("mount_volume container %s not running", container_name)
+        return False
+
+    host_mount = f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
+    nfs_server = str(args.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", ""))
+    nfs_export_base = str(
+        args.get("nfs_export_base") or os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+    )
+    if not nfs_server:
+        log.warning("mount_volume: XCELSIOR_NFS_SERVER not configured")
+        return False
+
+    nfs_path = f"{nfs_export_base}/{volume_id}"
+    if not _mount_nfs(nfs_server, nfs_path, host_mount):
+        log.warning("mount_volume: NFS mount failed for %s", volume_id)
+        return False
+
+    pid = _container_pid(container_name)
+    if not pid:
+        log.warning("mount_volume: no PID for %s", container_name)
+        _unmount_nfs(host_mount)
+        return False
+
+    if not _nsenter_bind_mount(pid, host_mount, container_path, mode=mode):
+        _unmount_nfs(host_mount)
+        return False
+
+    log.info(
+        "Hot-mounted volume %s at %s in %s (host %s)",
+        volume_id,
+        container_path,
+        container_name,
+        host_mount,
+    )
+    return True
+
+
+def _hot_unmount_volume(args: dict) -> bool:
+    """Unbind a managed volume from a container and lazy-unmount the host NFS mount."""
+    job_id = str(args.get("job_id") or "")
+    volume_id = str(args.get("volume_id") or "")
+    container_path = str(args.get("container_path") or "/workspace")
+    if not job_id or not volume_id:
+        log.warning("unmount_volume missing job_id/volume_id: %r", args)
+        return False
+
+    container_name = str(args.get("container_name") or f"xcl-{job_id}")
+    host_mount = f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
+
+    pid = _container_pid(container_name)
+    if pid:
+        _nsenter_lazy_umount(pid, container_path)
+
+    _unmount_nfs(host_mount)
+    log.info("Hot-unmounted volume %s from %s at %s", volume_id, container_name, container_path)
+    return True
 
 
 # ── NVMe Model Cache (Cold Start Optimization) ──────────────────────

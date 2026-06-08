@@ -172,9 +172,9 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 
 ### D.3 Attach to running instance
 
-- [~] Attach available volume to running instance via UI — API exists; remount needs stop/start
-- [x] Document whether hot-attach requires restart — runbook § Hot-attach (2026-06-07)
-- [~] Detach → unmount on host — DB detach OK; worker unmount on terminate verified
+- [x] Attach available volume to running instance — `mount_volume` agent cmd + `nsenter` bind (2026-06-07)
+- [x] Document hot-attach behavior — runbook § Hot-attach updated (2026-06-07)
+- [x] Detach → unmount on host — `unmount_volume` agent cmd + terminate cleanup
 
 ### D.4 Delete
 
@@ -192,8 +192,8 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 ### D.6 Billing
 
 - [x] Volume billing tick runs in `bg-worker` — `billing.py` volume section + janitor calls
-- [~] `billing_cycles` rows with `gpu_model=storage`, `tier=volume` — code + unit tests; prod tick not audited
-- [~] Team wallet debited for team-owned volumes — `owner_id` correct at create; tick E2E pending
+- [x] `billing_cycles` rows with `gpu_model=storage`, `tier=volume` — `scripts/volumes_billing_audit.py` (2026-06-07)
+- [x] Team wallet debited for team-owned volumes — `owner_id` on volume row; audit script verifies `customer_id`
 - [x] Suspended wallet skips billing — `test_volume_nfs` + billing fail-closed path
 
 ### D.7 Snapshots (if in scope for v1)
@@ -238,7 +238,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] NFS export not public internet — Headscale mesh + Ganesha `100.64.0.0/10`
 - [x] LUKS keys only in DB (Fernet); never on NFS disk — encryption tests + engine design
 - [x] `rm -rf` path traversal guard in `_destroy_volume_storage` — existing ✓
-- [ ] Rate limits on volume create (abuse: many 1 GB volumes)
+- [x] Rate limits on volume create — `XCELSIOR_MAX_VOLUMES_PER_OWNER` (default 50) + existing GB caps (2026-06-07)
 - [x] Team viewer cannot attach/detach (API 403) — `test_viewer_cannot_attach_or_delete_team_volume`
 
 ---
@@ -249,10 +249,10 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 Phase A  Correctness     [x] code complete (tests green)
 Phase B  NFS infra       [x] Mac appliance live in prod (2026-06-08)
 Phase C  Health/runbook  [x] health + runbook done; metrics optional
-Phase D  E2E workflows   [~] CRUD + launch + persist + terminate OK; billing tick audit pending
+Phase D  E2E workflows   [x] CRUD + launch + persist + hot-attach + billing audit (2026-06-07)
 Phase E  Frontend polish  [x] error UX + launch filter done (2026-06-07)
 Phase F  Scripts/CI      [x] smoke scripts PASS in prod
-Phase G  Security         [~] viewer/cross-account done; rate limits pending
+Phase G  Security         [x] viewer/cross-account + volume count cap done (2026-06-07)
 ```
 
 ---
@@ -265,7 +265,7 @@ All must be true:
 2. [x] No `metadata-only` warnings for new volume creates in prod (`mode=full`)
 3. [x] Team member launch with team `volume_ids` works (test + prod smoke)
 4. [x] Data survives instance stop/start with attached volume (`--persist` PASS)
-5. [~] Billing charges correct wallet (personal or team) — owner_id correct; tick audit pending
+5. [x] Billing charges correct wallet (personal or team) — `volumes_billing_audit.py` (2026-06-07)
 6. [x] Viewer read-only in API and UI — tenancy tests + dashboard gates
 7. [x] `VOLUMES_RUNBOOK.md` complete; on-call trained
 8. [x] All volume-related tests pass in CI (166 local; full suite via `run-tests.sh`)
@@ -284,6 +284,7 @@ All must be true:
 | 2026-06-08 | Mac NFS appliance prod cutover; Headscale ACL `tag:mac-nfs`; ops + e2e smoke PASS |
 | 2026-06-07 | Encrypted + worker-mount E2E PASS; persist smoke + disk check script; nfs4 mount opts |
 | 2026-06-07 | ASUS 2060 interim GPU; persist+terminate E2E; viewer attach guard test; hot-attach runbook |
+| 2026-06-07 | Live hot-attach (`mount_volume`/`unmount_volume`); billing audit script; `--hot-attach` smoke |
 
 ---
 

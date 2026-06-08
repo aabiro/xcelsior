@@ -253,6 +253,8 @@ _AGENT_COMMAND_ALLOWED = {
     "start_container",  # P3.2 — (re)start a stopped container
     "reset_container",  # P2 — restart with fresh /workspace, preserve volumes
     "snapshot_container",  # P3.1 — docker commit → user_images
+    "mount_volume",  # hot-attach managed NFS volume into running container
+    "unmount_volume",
 }
 
 

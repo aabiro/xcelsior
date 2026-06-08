@@ -58,6 +58,7 @@ class TestVolumeEngineCreate:
             monkeypatch,
             conn_rows=[
                 None,  # FOR UPDATE lock (unused)
+                {"cnt": 0},  # volume count cap
                 {"total": 0},  # capacity check
                 None,  # name uniqueness check → no duplicate
             ],
@@ -99,6 +100,7 @@ class TestVolumeEngineCreate:
             monkeypatch,
             conn_rows=[
                 None,  # FOR UPDATE lock (unused)
+                {"cnt": 0},  # volume count cap
                 {"total": 95},  # capacity check: 95 used, requesting 10 → over 100
             ],
         )
@@ -110,6 +112,7 @@ class TestVolumeEngineCreate:
             monkeypatch,
             conn_rows=[
                 None,  # FOR UPDATE lock (unused)
+                {"cnt": 0},  # volume count cap
                 {"total": 0},  # capacity check
                 {"volume_id": "vol-existing"},  # name uniqueness → duplicate found
             ],
@@ -128,6 +131,7 @@ class TestVolumeEngineCreate:
             monkeypatch,
             conn_rows=[
                 None,  # FOR UPDATE lock (unused)
+                {"cnt": 0},
                 {"total": 0},
                 None,
             ],

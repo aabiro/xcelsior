@@ -7,6 +7,7 @@ Usage:
   python scripts/volumes_e2e_smoke.py --infra-only   # CRUD only; skips instance launch
   python scripts/volumes_e2e_smoke.py --encrypted      # also test LUKS volume provision
   python scripts/volumes_e2e_smoke.py --persist      # stop/start instance + verify NFS file
+  python scripts/volumes_e2e_smoke.py --hot-attach   # attach volume to running instance
   python scripts/volumes_e2e_smoke.py --worker-mount # NFS mount from VPS (simulates GPU worker)
 
 Exits 0 on success, 1 on failure. Does not require a running GPU instance unless --persist.
@@ -31,6 +32,7 @@ ENV_AUDIT = PROJECT / ".env.audit"
 POLL_INTERVAL_SEC = 10
 POLL_MAX_WAIT_SEC = 180
 PERSIST_MARKER = "xcelsior-persist-smoke"
+HOT_ATTACH_MARKER = "xcelsior-hot-attach-smoke"
 LAUNCH_IMAGE = "nvidia/cuda:12.0.0-base-ubuntu22.04"
 
 
@@ -71,6 +73,57 @@ def _poll_instance(client: httpx.Client, hdrs: dict[str, str], job_id: str) -> d
                 return last
         time.sleep(POLL_INTERVAL_SEC)
     return last
+
+
+def _nfs_write_marker(volume_id: str, marker: str, filename: str) -> bool:
+    """Write a marker file on Mac NFS for a volume (requires SSH to Mac)."""
+    ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
+    mac = os.environ.get("MAC_NFS_HOST", "aaryn@100.64.0.3")
+    wrap = "/Users/aaryn/.local/bin/xcelsior-nfs-exec"
+    path = f"/exports/volumes/{volume_id}/{filename}"
+    cmd = [
+        "ssh",
+        "-i",
+        ssh_key,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        mac,
+        f"export PATH=/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin:$PATH; "
+        f"{wrap} 'sh -c \"echo {marker} > {path}\"'",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return proc.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def _worker_docker_cat(host_ip: str, job_id: str, container_path: str) -> str | None:
+    """Read a file inside a running instance via worker docker exec."""
+    ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
+    ssh_user = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
+    container = f"xcl-{job_id}"
+    remote = f"docker exec {container} cat {container_path}"
+    cmd = [
+        "ssh",
+        "-i",
+        ssh_key,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        f"{ssh_user}@{host_ip}",
+        remote,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if proc.returncode == 0:
+            return proc.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
 
 
 def _nfs_read_marker(volume_id: str) -> str | None:
@@ -149,6 +202,83 @@ def _test_encrypted_volume(client: httpx.Client, hdrs: dict[str, str]) -> str | 
         print(f"encrypted delete failed: {deleted.status_code}", file=sys.stderr)
         return None
     return volume_id
+
+
+def _test_hot_attach_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: str) -> bool:
+    marker_file = f"{HOT_ATTACH_MARKER}.txt"
+    if not _nfs_write_marker(volume_id, HOT_ATTACH_MARKER, marker_file):
+        print("hot-attach: failed to seed NFS marker", file=sys.stderr)
+        return False
+
+    name = f"smoke-hot-{uuid.uuid4().hex[:8]}"
+    launch = client.post(
+        "/instance",
+        headers=hdrs,
+        json={
+            "name": name,
+            "vram_needed_gb": 1,
+            "image": LAUNCH_IMAGE,
+            "interactive": False,
+            "command": "sleep infinity",
+        },
+    )
+    if launch.status_code == 402:
+        print("hot-attach: skipped (insufficient wallet)")
+        return True
+    if launch.status_code != 200:
+        print(f"hot-attach launch failed: {launch.status_code} {launch.text[:300]}", file=sys.stderr)
+        return False
+
+    inst = launch.json().get("instance") or {}
+    job_id = inst.get("job_id")
+    if not job_id:
+        print("hot-attach: launch missing job_id", file=sys.stderr)
+        return False
+
+    polled = _poll_instance(client, hdrs, job_id)
+    status = polled.get("status")
+    host_ip = polled.get("host_ip") or polled.get("ip")
+    print(f"hot-attach: job {job_id} status={status} host_ip={host_ip}")
+
+    if status != "running":
+        print("hot-attach: skipped (no GPU host — job did not reach running)")
+        client.post(f"/instances/{job_id}/terminate", headers=hdrs)
+        return True
+
+    attach = client.post(
+        f"/api/v2/volumes/{volume_id}/attach",
+        headers=hdrs,
+        json={"instance_id": job_id, "mount_path": "/workspace"},
+    )
+    if attach.status_code != 200:
+        print(f"hot-attach API failed: {attach.status_code} {attach.text[:300]}", file=sys.stderr)
+        client.post(f"/instances/{job_id}/terminate", headers=hdrs)
+        return False
+
+    if not host_ip:
+        vol = client.get(f"/api/v2/volumes/{volume_id}", headers=hdrs)
+        host_ip = (vol.json().get("volume") or {}).get("host_ip")
+
+    deadline = time.time() + POLL_MAX_WAIT_SEC
+    marker = None
+    container_path = f"/workspace/{marker_file}"
+    while time.time() < deadline:
+        if host_ip:
+            marker = _worker_docker_cat(host_ip, job_id, container_path)
+            if marker == HOT_ATTACH_MARKER:
+                break
+        time.sleep(POLL_INTERVAL_SEC)
+
+    client.post(f"/instances/{job_id}/terminate", headers=hdrs)
+
+    if marker != HOT_ATTACH_MARKER:
+        print(
+            f"hot-attach: marker in container expected '{HOT_ATTACH_MARKER}' got '{marker}'",
+            file=sys.stderr,
+        )
+        return False
+    print("hot-attach: volume readable in running container at /workspace")
+    return True
 
 
 def _test_persist_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: str) -> bool:
@@ -261,6 +391,11 @@ def main() -> int:
         help="Launch instance, verify NFS persist across stop/start (skips if no GPU host)",
     )
     parser.add_argument(
+        "--hot-attach",
+        action="store_true",
+        help="Attach volume to running instance and verify container read (skips if no GPU)",
+    )
+    parser.add_argument(
         "--worker-mount",
         action="store_true",
         help="Mount Mac NFS from VPS (simulates GPU worker mesh mount)",
@@ -347,6 +482,10 @@ def main() -> int:
         return 1
 
     if args.persist and not _test_persist_flow(client, hdrs, volume_id):
+        client.delete(f"/api/v2/volumes/{volume_id}", headers=hdrs)
+        return 1
+
+    if args.hot_attach and not _test_hot_attach_flow(client, hdrs, volume_id):
         client.delete(f"/api/v2/volumes/{volume_id}", headers=hdrs)
         return 1
 
