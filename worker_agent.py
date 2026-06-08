@@ -2967,8 +2967,10 @@ def run_job(job):
         nfs_vol_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
         nfs_vol_export_base = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
         vol_mount_paths = job.get("volume_mounts", {})  # vid → container path from API
+        required_volume_ids = list(job.get("volume_ids") or [])
+        failed_volume_ids: list[str] = []
         _vol_idx = 0
-        for vid in job.get("volume_ids", []):
+        for vid in required_volume_ids:
             vol_host_mount = f"/mnt/xcelsior-volumes/{vid}"
             vol_nfs_path = f"{nfs_vol_export_base}/{vid}"
             # Determine container mount path — from payload or auto-assign
@@ -2984,10 +2986,19 @@ def run_job(job):
                         "Managed volume %s mounted: %s → %s", vid, vol_host_mount, container_path
                     )
                 else:
-                    log.warning("Managed volume %s mount failed — skipping", vid)
+                    log.error("Managed volume %s mount failed", vid)
+                    failed_volume_ids.append(vid)
             else:
-                log.warning("Managed volume %s: NFS server not configured — skipping", vid)
+                log.error("Managed volume %s: NFS server not configured", vid)
+                failed_volume_ids.append(vid)
             _vol_idx += 1
+
+        if required_volume_ids and failed_volume_ids:
+            err = f"required volume mount failed: {', '.join(failed_volume_ids)}"
+            log.error("Job %s aborting — %s", job_id, err)
+            report_job_status(job_id, "failed", error_message=err)
+            release_lease(job_id, "failed")
+            return
 
         # 0d. Encrypted workspace (ephemeral LUKS volume on GPU host)
         encrypted_ws_vid = None

@@ -11,12 +11,12 @@ import { Dialog } from "@/components/ui/dialog";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import {
   HardDrive, RefreshCw, Plus, Trash2, Loader2, Link, Unlink, Copy, Check, ChevronDown, ChevronUp, Globe, Lock,
-  Rocket, ExternalLink, Search, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Database, Pencil, X,
+  Rocket, ExternalLink, Search, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, Database, Pencil, X, Camera, AlertTriangle,
 } from "lucide-react";
 import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { useAuth } from "@/lib/auth";
 import * as api from "@/lib/api";
-import type { Volume, Instance, GpuAvailability } from "@/lib/api";
+import type { Volume, Instance, GpuAvailability, Host, VolumeSnapshot } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -80,6 +80,12 @@ export default function VolumesPage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [launchVolumeId, setLaunchVolumeId] = useState<string | null>(null);
+  const [hosts, setHosts] = useState<Host[]>([]);
+  const [snapshotsVolId, setSnapshotsVolId] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<VolumeSnapshot[]>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [snapshotCreating, setSnapshotCreating] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -87,6 +93,7 @@ export default function VolumesPage() {
       api.listVolumes().then((res) => setVolumes(res.volumes || [])),
       api.fetchInstances().then((res) => setInstances(res.instances || [])).catch(() => {}),
       api.fetchAvailableGPUs().then((res) => setGpus(res.gpus || [])).catch(() => {}),
+      api.fetchHosts().then((res) => setHosts(res.hosts || [])).catch(() => {}),
     ])
       .catch(() => toast.error(t("dash.volumes.load_failed")))
       .finally(() => setLoading(false));
@@ -137,14 +144,73 @@ export default function VolumesPage() {
     }
   };
 
+  const hostRegionById = useCallback((hostId?: string) => {
+    if (!hostId) return "";
+    const host = hosts.find((h) => h.host_id === hostId);
+    return (host?.region || host?.province || "").trim().toLowerCase();
+  }, [hosts]);
+
+  const attachRegionMismatch = useCallback((volumeId: string, instanceId: string) => {
+    const vol = volumes.find((v) => v.volume_id === volumeId);
+    const inst = instances.find((i) => i.job_id === instanceId);
+    const volRegion = (vol?.region || "").trim().toLowerCase();
+    const hostRegion = hostRegionById(inst?.host_id);
+    return Boolean(volRegion && hostRegion && volRegion !== hostRegion);
+  }, [volumes, instances, hostRegionById]);
+
   const handleAttach = async (volumeId: string) => {
     if (!selectedInstance) return toast.error("Select an instance first");
     try {
-      await api.attachVolume(volumeId, selectedInstance);
+      const res = await api.attachVolume(volumeId, selectedInstance);
+      if (res.region_warning) {
+        toast.warning(res.region_warning);
+      }
       toast.success("Volume attached");
       setAttachingId(null);
       setSelectedInstance("");
       load();
+    } catch (e: unknown) {
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
+    }
+  };
+
+  const openSnapshots = async (volumeId: string) => {
+    setSnapshotsVolId(volumeId);
+    setSnapshotLabel("");
+    setSnapshotsLoading(true);
+    try {
+      const res = await api.listVolumeSnapshots(volumeId);
+      setSnapshots(res.snapshots || []);
+    } catch {
+      toast.error(t("dash.volumes.load_failed"));
+      setSnapshotsVolId(null);
+    } finally {
+      setSnapshotsLoading(false);
+    }
+  };
+
+  const handleCreateSnapshot = async () => {
+    if (!snapshotsVolId) return;
+    setSnapshotCreating(true);
+    try {
+      await api.createVolumeSnapshot(snapshotsVolId, snapshotLabel.trim());
+      toast.success(t("dash.volumes.snapshot_created"));
+      setSnapshotLabel("");
+      const res = await api.listVolumeSnapshots(snapshotsVolId);
+      setSnapshots(res.snapshots || []);
+    } catch (e: unknown) {
+      toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
+    } finally {
+      setSnapshotCreating(false);
+    }
+  };
+
+  const handleDeleteSnapshot = async (snapshotId: string) => {
+    if (!snapshotsVolId || !confirm("Delete this snapshot?")) return;
+    try {
+      await api.deleteVolumeSnapshot(snapshotsVolId, snapshotId);
+      toast.success(t("dash.volumes.snapshot_deleted"));
+      setSnapshots((prev) => prev.filter((s) => s.snapshot_id !== snapshotId));
     } catch (e: unknown) {
       toast.error(volumeActionError(e, t("dash.volumes.viewer_blocked")));
     }
@@ -404,6 +470,63 @@ export default function VolumesPage() {
               Create Volume
             </Button>
           </div>
+        </div>
+      </Dialog>
+
+      {/* Snapshots Modal */}
+      <Dialog
+        open={snapshotsVolId !== null}
+        onClose={() => { setSnapshotsVolId(null); setSnapshots([]); }}
+        title={t("dash.volumes.snapshots")}
+        description="Instant copy-on-write snapshots stored on NFS."
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-4">
+          {canWrite && (
+            <div className="flex gap-2">
+              <Input
+                placeholder={t("dash.volumes.snapshot_label")}
+                value={snapshotLabel}
+                maxLength={128}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSnapshotLabel(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                className="bg-accent-violet hover:bg-accent-violet/90 text-white shrink-0"
+                onClick={handleCreateSnapshot}
+                disabled={snapshotCreating}
+              >
+                {snapshotCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                {t("dash.volumes.snapshot_create")}
+              </Button>
+            </div>
+          )}
+          {snapshotsLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-text-muted" /></div>
+          ) : snapshots.length === 0 ? (
+            <p className="text-sm text-text-muted text-center py-6">{t("dash.volumes.snapshots_empty")}</p>
+          ) : (
+            <ul className="divide-y divide-border/60 rounded-lg border border-border/60 overflow-hidden">
+              {snapshots.map((snap) => (
+                <li key={snap.snapshot_id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{snap.label || snap.snapshot_id}</p>
+                    <p className="text-xs text-text-muted font-mono truncate">{snap.snapshot_id}</p>
+                  </div>
+                  {canWrite && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-text-muted hover:text-red-500 shrink-0"
+                      onClick={() => handleDeleteSnapshot(snap.snapshot_id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </Dialog>
 
@@ -675,25 +798,33 @@ export default function VolumesPage() {
                               </Button>
                             </>
                           ) : attachingId === vol.volume_id ? (
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={selectedInstance}
-                                onChange={(e) => setSelectedInstance(e.target.value)}
-                                className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-                              >
-                                <option value="">Select instance…</option>
-                                {runningInstances.map((inst) => (
-                                  <option key={inst.job_id} value={inst.job_id}>
-                                    {inst.name || inst.job_id}{inst.gpu_model ? ` (${inst.gpu_model})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                              <Button size="sm" className="h-8" onClick={() => handleAttach(vol.volume_id)}>
-                                <Link className="h-3.5 w-3.5" /> Go
-                              </Button>
-                              <Button variant="ghost" size="sm" className="h-8" onClick={() => { setAttachingId(null); setSelectedInstance(""); }}>
-                                ✕
-                              </Button>
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={selectedInstance}
+                                  onChange={(e) => setSelectedInstance(e.target.value)}
+                                  className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                                >
+                                  <option value="">Select instance…</option>
+                                  {runningInstances.map((inst) => (
+                                    <option key={inst.job_id} value={inst.job_id}>
+                                      {inst.name || inst.job_id}{inst.gpu_model ? ` (${inst.gpu_model})` : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button size="sm" className="h-8" onClick={() => handleAttach(vol.volume_id)}>
+                                  <Link className="h-3.5 w-3.5" /> Go
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-8" onClick={() => { setAttachingId(null); setSelectedInstance(""); }}>
+                                  ✕
+                                </Button>
+                              </div>
+                              {selectedInstance && attachRegionMismatch(vol.volume_id, selectedInstance) && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-accent-gold max-w-[220px] text-right leading-tight">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  {t("dash.volumes.attach_region_mismatch")}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <>
@@ -704,6 +835,15 @@ export default function VolumesPage() {
                                 onClick={() => setAttachingId(vol.volume_id)}
                               >
                                 <Link className="h-3.5 w-3.5 mr-1" /> Attach
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-text-secondary hover:text-accent-violet hover:bg-accent-violet/10"
+                                onClick={() => openSnapshots(vol.volume_id)}
+                                title={t("dash.volumes.snapshots")}
+                              >
+                                <Camera className="h-3.5 w-3.5" />
                               </Button>
                               <Button
                                 variant="ghost"

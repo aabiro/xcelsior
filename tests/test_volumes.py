@@ -2,6 +2,7 @@
 
 import os
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -557,6 +558,8 @@ class TestVolumeNameValidation:
             if idx == 0:
                 result.fetchone.return_value = None  # FOR UPDATE lock (unused)
             elif idx == 1:
+                result.fetchone.return_value = {"cnt": 0}  # volume count cap
+            elif idx == 2:
                 result.fetchone.return_value = {"total": 0}  # capacity check
             else:
                 result.fetchone.return_value = None  # no duplicate / insert
@@ -837,6 +840,120 @@ class TestBillingVolumeQuery:
 
 
 # ── Worker agent mount paths ─────────────────────────────────────────
+
+
+class TestAttachRegionWarning:
+    """Cross-region attach returns a human-readable warning."""
+
+    def test_attach_region_warning_mismatch(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from contextlib import contextmanager
+        from volumes import VolumeEngine
+
+        engine = VolumeEngine()
+        fake_conn = MagicMock()
+        fake_conn.execute = MagicMock(
+            return_value=MagicMock(fetchone=MagicMock(return_value={"region": "ca-west"}))
+        )
+
+        @contextmanager
+        def _mock_conn():
+            yield fake_conn
+
+        monkeypatch.setattr(engine, "_conn", _mock_conn)
+        monkeypatch.setattr(engine, "get_volume", lambda _vid: {"region": "ca-east"})
+        warning = engine.attach_region_warning("vol-1", "job-1")
+        assert warning is not None
+        assert "ca-east" in warning
+        assert "ca-west" in warning
+
+    def test_attach_region_warning_same_region(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from contextlib import contextmanager
+        from volumes import VolumeEngine
+
+        engine = VolumeEngine()
+        fake_conn = MagicMock()
+        fake_conn.execute = MagicMock(
+            return_value=MagicMock(fetchone=MagicMock(return_value={"region": "ca-east"}))
+        )
+
+        @contextmanager
+        def _mock_conn():
+            yield fake_conn
+
+        monkeypatch.setattr(engine, "_conn", _mock_conn)
+        monkeypatch.setattr(engine, "get_volume", lambda _vid: {"region": "ca-east"})
+        assert engine.attach_region_warning("vol-1", "job-1") is None
+
+
+class TestGetVolumeMetrics:
+    """Prometheus/admin volume aggregate counts."""
+
+    def test_get_volume_metrics_counts(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(
+            "volumes.nfs_storage_healthcheck",
+            lambda: {"reachable": True, "mode": "full"},
+        )
+
+        fake_conn = MagicMock()
+        fake_conn.execute = MagicMock(
+            return_value=MagicMock(
+                fetchall=MagicMock(
+                    return_value=[
+                        {"status": "available", "cnt": 2},
+                        {"status": "attached", "cnt": 1},
+                        {"status": "error", "cnt": 1},
+                    ]
+                )
+            )
+        )
+        fake_conn.row_factory = None
+
+        class _Ctx:
+            def __enter__(self):
+                return fake_conn
+
+            def __exit__(self, *a):
+                return False
+
+        fake_pool = MagicMock()
+        fake_pool.connection = lambda: _Ctx()
+        monkeypatch.setattr("db._get_pg_pool", lambda: fake_pool)
+
+        from volumes import get_volume_metrics
+
+        metrics = get_volume_metrics()
+        assert metrics["total"] == 4
+        assert metrics["available"] == 2
+        assert metrics["attached"] == 1
+        assert metrics["error"] == 1
+        assert metrics["nfs_reachable"] == 1
+        assert metrics["nfs_mode"] == "full"
+
+
+class TestRequiredVolumeMountFailure:
+    """Required volume_ids must fail the job when NFS mount fails (no silent skip)."""
+
+    def test_scheduler_aborts_on_mount_fail(self):
+        import inspect
+        from scheduler import run_job
+
+        source = inspect.getsource(run_job)
+        assert "MANAGED VOLUME MOUNT FAILED" in source
+        assert 'update_job_status' in source
+        assert '"failed"' in source
+        assert "required volume mount failed on host" in source
+
+    def test_worker_aborts_on_mount_fail(self):
+        import inspect
+        from worker_agent import run_job
+
+        source = inspect.getsource(run_job)
+        assert "required volume mount failed" in source
+        assert 'report_job_status(job_id, "failed"' in source
 
 
 class TestWorkerVolumeMountPaths:

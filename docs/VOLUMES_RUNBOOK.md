@@ -284,6 +284,13 @@ python3 scripts/volumes_e2e_smoke.py --infra-only --encrypted
 # VPS→Mac NFS mount (simulates GPU worker mesh mount):
 python3 scripts/volumes_e2e_smoke.py --infra-only --worker-mount
 
+# Optional second GPU worker mount (SKIP if host not registered, e.g. aarynfans-prod):
+python3 scripts/volumes_e2e_smoke.py --infra-only --worker-mount --worker-host 100.64.0.6
+python3 scripts/volumes_worker_mount_smoke.py --host $AARYNFANS_PROD_HOST
+
+# Volume snapshots on NFS _snapshots/ (detached volume):
+python3 scripts/volumes_e2e_smoke.py --infra-only --snapshots
+
 # Persist across stop/start (requires admitted GPU worker, e.g. ASUS aaryn-tuf-rtx2060):
 python3 scripts/volumes_e2e_smoke.py --infra-only --persist
 

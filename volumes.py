@@ -1764,6 +1764,70 @@ class VolumeEngine:
         return fixed
 
 
+    def attach_region_warning(self, volume_id: str, instance_id: str) -> str | None:
+        """Return a warning when volume region differs from the instance host region."""
+        vol = self.get_volume(volume_id)
+        if not vol:
+            return None
+        vol_region = (vol.get("region") or "").strip()
+        if not vol_region:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT COALESCE(h.payload->>'region', h.payload->>'province', '') AS region
+                   FROM jobs j
+                   JOIN hosts h ON j.host_id = h.host_id
+                   WHERE j.job_id = %s AND j.host_id IS NOT NULL""",
+                (instance_id,),
+            ).fetchone()
+        host_region = (row["region"] if row else "") or ""
+        host_region = str(host_region).strip()
+        if host_region and vol_region != host_region:
+            return (
+                f"Volume region '{vol_region}' differs from instance host region "
+                f"'{host_region}' — cross-region attach may add latency"
+            )
+        return None
+
+
+def get_volume_metrics() -> dict:
+    """Aggregate volume counts for Prometheus / admin dashboards."""
+    nfs = nfs_storage_healthcheck()
+    metrics = {
+        "total": 0,
+        "error": 0,
+        "attached": 0,
+        "available": 0,
+        "nfs_reachable": 1 if nfs.get("reachable") else 0,
+        "nfs_mode": nfs.get("mode", "metadata-only"),
+    }
+    try:
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            rows = conn.execute(
+                """SELECT status, COUNT(*) AS cnt
+                   FROM volumes WHERE status != 'deleted'
+                   GROUP BY status"""
+            ).fetchall()
+            for row in rows:
+                status = row["status"]
+                cnt = int(row["cnt"] or 0)
+                metrics["total"] += cnt
+                if status == "error":
+                    metrics["error"] = cnt
+                elif status == "attached":
+                    metrics["attached"] = cnt
+                elif status == "available":
+                    metrics["available"] = cnt
+    except Exception as e:
+        log.warning("get_volume_metrics failed: %s", e)
+    return metrics
+
+
 def nfs_storage_healthcheck() -> dict:
     """Report persistent-volume NFS readiness (SSH + export path).
 

@@ -2580,7 +2580,7 @@ export async function deleteVolume(volumeId: string) {
 }
 
 export async function attachVolume(volumeId: string, instanceId: string, mountPath = "/workspace") {
-  return apiFetch<{ ok: boolean; attachment: Record<string, unknown> }>(
+  return apiFetch<{ ok: boolean; attachment: Record<string, unknown>; region_warning?: string }>(
     `/api/v2/volumes/${encodeURIComponent(volumeId)}/attach`,
     { method: "POST", body: JSON.stringify({ instance_id: instanceId, mount_path: mountPath }) },
   );
@@ -2608,6 +2608,35 @@ export async function retryVolume(volumeId: string) {
   return apiFetch<{ ok: boolean; volume: Volume }>(
     `/api/v2/volumes/${encodeURIComponent(volumeId)}/retry`,
     { method: "POST" },
+  );
+}
+
+export interface VolumeSnapshot {
+  snapshot_id: string;
+  volume_id: string;
+  label?: string;
+  size_bytes?: number;
+  created_at?: number;
+  status?: string;
+}
+
+export async function createVolumeSnapshot(volumeId: string, label = "") {
+  return apiFetch<{ ok: boolean; snapshot: VolumeSnapshot }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/snapshots`,
+    { method: "POST", body: JSON.stringify({ label }) },
+  );
+}
+
+export async function listVolumeSnapshots(volumeId: string) {
+  return apiFetch<{ ok: boolean; snapshots: VolumeSnapshot[] }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/snapshots`,
+  );
+}
+
+export async function deleteVolumeSnapshot(volumeId: string, snapshotId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/volumes/${encodeURIComponent(volumeId)}/snapshots/${encodeURIComponent(snapshotId)}`,
+    { method: "DELETE" },
   );
 }
 

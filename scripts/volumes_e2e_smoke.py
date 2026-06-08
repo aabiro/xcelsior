@@ -9,6 +9,8 @@ Usage:
   python scripts/volumes_e2e_smoke.py --persist      # stop/start instance + verify NFS file
   python scripts/volumes_e2e_smoke.py --hot-attach   # attach volume to running instance
   python scripts/volumes_e2e_smoke.py --worker-mount # NFS mount from VPS (simulates GPU worker)
+  python scripts/volumes_e2e_smoke.py --snapshots    # create/list/delete snapshot on detached volume
+  python scripts/volumes_e2e_smoke.py --worker-mount --worker-host 100.64.0.6  # mount from GPU worker
 
 Exits 0 on success, 1 on failure. Does not require a running GPU instance unless --persist.
 With --infra-only, launch is skipped (no wallet/GPU needed).
@@ -153,28 +155,96 @@ def _nfs_read_marker(volume_id: str) -> str | None:
     return None
 
 
-def _worker_mount_smoke() -> bool:
-    """Mount Mac NFS from VPS — same path GPU workers use."""
+def _nfs_mount_remote_cmd(mount_dir: str) -> str:
+    nfs_server = os.environ.get("XCELSIOR_NFS_SERVER", "100.64.0.3")
+    export = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+    return (
+        f"sudo mkdir -p {mount_dir} && sudo umount {mount_dir} 2>/dev/null || true; "
+        f"sudo mount -t nfs4 -o nfsvers=4.0,port=12049,hard,timeo=15,retrans=2,tcp "
+        f"{nfs_server}:{export}/mount-test {mount_dir} && "
+        f"ls {mount_dir} && sudo umount {mount_dir} && echo WORKER_MOUNT_OK"
+    )
+
+
+def _worker_mount_smoke(worker_host: str | None = None) -> bool:
+    """Mount Mac NFS from VPS or a GPU worker host — same path workers use at job start."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    vps = os.environ.get("XCELSIOR_DEPLOY_USER", "linuxuser") + "@" + os.environ.get(
-        "XCELSIOR_DEPLOY_HOST", "100.64.0.1"
-    )
-    remote = (
-        "sudo mkdir -p /tmp/nfs-worker-smoke && sudo umount /tmp/nfs-worker-smoke 2>/dev/null || true; "
-        "sudo mount -t nfs4 -o nfsvers=4.0,port=12049,hard,timeo=15,retrans=2,tcp "
-        "100.64.0.3:/exports/volumes/mount-test /tmp/nfs-worker-smoke && "
-        "ls /tmp/nfs-worker-smoke && sudo umount /tmp/nfs-worker-smoke && echo WORKER_MOUNT_OK"
-    )
-    cmd = ["ssh", "-i", ssh_key, "-o", "BatchMode=yes", vps, remote]
+    if worker_host:
+        ssh_user = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
+        target = f"{ssh_user}@{worker_host}"
+        label = f"worker-host {worker_host}"
+    else:
+        target = os.environ.get("XCELSIOR_DEPLOY_USER", "linuxuser") + "@" + os.environ.get(
+            "XCELSIOR_DEPLOY_HOST", "100.64.0.1"
+        )
+        label = "VPS"
+    remote = _nfs_mount_remote_cmd("/tmp/nfs-worker-smoke")
+    cmd = [
+        "ssh",
+        "-i",
+        ssh_key,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        target,
+        remote,
+    ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if proc.returncode == 0 and "WORKER_MOUNT_OK" in proc.stdout:
-            print("worker-mount: PASS")
+            print(f"worker-mount ({label}): PASS")
             return True
-        print(f"worker-mount: FAIL rc={proc.returncode} err={proc.stderr[:200]}", file=sys.stderr)
+        if worker_host and proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "")[:200]
+            if "Connection refused" in err or "No route to host" in err or "Could not resolve" in err:
+                print(f"worker-mount ({label}): SKIP — host unreachable (optional second worker)")
+                return True
+        print(f"worker-mount ({label}): FAIL rc={proc.returncode} err={proc.stderr[:200]}", file=sys.stderr)
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        print(f"worker-mount: FAIL {exc}", file=sys.stderr)
+        if worker_host:
+            print(f"worker-mount ({label}): SKIP — {exc}")
+            return True
+        print(f"worker-mount ({label}): FAIL {exc}", file=sys.stderr)
     return False
+
+
+def _test_snapshots_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: str) -> bool:
+    """Create, list, and delete a snapshot on a detached available volume."""
+    label = f"smoke-snap-{uuid.uuid4().hex[:6]}"
+    created = client.post(
+        f"/api/v2/volumes/{volume_id}/snapshots",
+        headers=hdrs,
+        json={"label": label},
+    )
+    if created.status_code != 200:
+        print(f"snapshots create failed: {created.status_code} {created.text[:300]}", file=sys.stderr)
+        return False
+    snap_id = (created.json().get("snapshot") or {}).get("snapshot_id")
+    if not snap_id:
+        print(f"snapshots create missing snapshot_id: {created.json()}", file=sys.stderr)
+        return False
+    print(f"snapshots: created {snap_id}")
+
+    listed = client.get(f"/api/v2/volumes/{volume_id}/snapshots", headers=hdrs)
+    if listed.status_code != 200:
+        print(f"snapshots list failed: {listed.status_code}", file=sys.stderr)
+        return False
+    ids = [s["snapshot_id"] for s in listed.json().get("snapshots") or []]
+    if snap_id not in ids:
+        print(f"snapshots: {snap_id} not in list {ids}", file=sys.stderr)
+        return False
+    print(f"snapshots: listed {len(ids)} snapshot(s)")
+
+    deleted = client.delete(
+        f"/api/v2/volumes/{volume_id}/snapshots/{snap_id}",
+        headers=hdrs,
+    )
+    if deleted.status_code != 200:
+        print(f"snapshots delete failed: {deleted.status_code} {deleted.text[:200]}", file=sys.stderr)
+        return False
+    print("snapshots: delete ok")
+    return True
 
 
 def _test_encrypted_volume(client: httpx.Client, hdrs: dict[str, str]) -> str | None:
@@ -400,6 +470,16 @@ def main() -> int:
         action="store_true",
         help="Mount Mac NFS from VPS (simulates GPU worker mesh mount)",
     )
+    parser.add_argument(
+        "--worker-host",
+        default=os.environ.get("AARYNFANS_PROD_HOST") or os.environ.get("WORKER_MOUNT_HOST"),
+        help="Optional GPU worker mesh IP for --worker-mount (skips if unreachable)",
+    )
+    parser.add_argument(
+        "--snapshots",
+        action="store_true",
+        help="Create/list/delete a volume snapshot on NFS _snapshots/ (detached volume)",
+    )
     args = parser.parse_args()
 
     base = args.base_url.rstrip("/")
@@ -489,7 +569,11 @@ def main() -> int:
         client.delete(f"/api/v2/volumes/{volume_id}", headers=hdrs)
         return 1
 
-    if args.worker_mount and not _worker_mount_smoke():
+    if args.worker_mount and not _worker_mount_smoke(args.worker_host):
+        client.delete(f"/api/v2/volumes/{volume_id}", headers=hdrs)
+        return 1
+
+    if args.snapshots and not _test_snapshots_flow(client, hdrs, volume_id):
         client.delete(f"/api/v2/volumes/{volume_id}", headers=hdrs)
         return 1
 

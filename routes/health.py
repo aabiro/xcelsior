@@ -677,6 +677,24 @@ def metrics_prometheus():
         f'xcelsior_billing_records_total {snap.get("billing_totals", {}).get("records", 0)}',
     ]
 
+    volumes = snap.get("volumes", {})
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_volumes_total Non-deleted persistent volumes",
+            "# TYPE xcelsior_volumes_total gauge",
+            f'xcelsior_volumes_total {volumes.get("total", 0)}',
+            "",
+            "# HELP xcelsior_volumes_error Volumes in error state",
+            "# TYPE xcelsior_volumes_error gauge",
+            f'xcelsior_volumes_error {volumes.get("error", 0)}',
+            "",
+            "# HELP xcelsior_nfs_reachable NFS volume storage reachable (1=yes)",
+            "# TYPE xcelsior_nfs_reachable gauge",
+            f'xcelsior_nfs_reachable {volumes.get("nfs_reachable", 0)}',
+        ]
+    )
+
     notifications = snap.get("notifications", {})
     lines.extend(
         [

@@ -173,3 +173,44 @@ def test_slurm_instances_admin():
     assert r.status_code == 200
     assert r.json().get("ok") is True
     assert "jobs" in r.json()
+
+
+def test_metrics_snapshot_includes_volumes(monkeypatch):
+    monkeypatch.setattr(
+        "routes.health.get_metrics_snapshot",
+        lambda: {
+            "active_hosts": 1,
+            "running_jobs": 0,
+            "failed_jobs": 0,
+            "billing_totals": {"total_revenue": 0, "records": 0},
+            "volumes": {"total": 3, "error": 1, "nfs_reachable": 1},
+            "notifications": {"retained_total": 0},
+            "web_push": {},
+        },
+    )
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    volumes = r.json()["metrics"]["volumes"]
+    assert volumes["total"] == 3
+    assert volumes["error"] == 1
+
+
+def test_metrics_prometheus_volume_gauges(monkeypatch):
+    monkeypatch.setattr(
+        "routes.health.get_metrics_snapshot",
+        lambda: {
+            "active_hosts": 0,
+            "running_jobs": 0,
+            "failed_jobs": 0,
+            "billing_totals": {"total_revenue": 0, "records": 0},
+            "volumes": {"total": 5, "error": 2, "nfs_reachable": 1},
+            "notifications": {"retained_total": 0},
+            "web_push": {},
+        },
+    )
+    r = client.get("/metrics/prometheus")
+    assert r.status_code == 200
+    body = r.text
+    assert "xcelsior_volumes_total 5" in body
+    assert "xcelsior_volumes_error 2" in body
+    assert "xcelsior_nfs_reachable 1" in body

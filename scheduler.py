@@ -2072,6 +2072,22 @@ def run_job(job, host, docker_image=None):
             log.warning("Managed volume %s: NFS server not configured — skipping", vid)
         _vol_idx += 1
 
+    required_vols = list(job.get("volume_ids") or [])
+    if required_vols and len(managed_vol_host_mounts) < len(required_vols):
+        log.error(
+            "MANAGED VOLUME MOUNT FAILED job=%s host=%s mounted=%d required=%d",
+            job["job_id"],
+            host["host_id"],
+            len(managed_vol_host_mounts),
+            len(required_vols),
+        )
+        update_job_status(
+            job["job_id"],
+            "failed",
+            error_message="required volume mount failed on host",
+        )
+        return None
+
     # Interactive mode: keep stdin open, map SSH port
     if job.get("interactive"):
         ssh_port = int(job.get("ssh_port", 22))
@@ -3928,6 +3944,13 @@ def get_metrics_snapshot():
         snapshot["web_push"] = get_web_push_observability_snapshot()
     except Exception as exc:
         log.debug("Web push metrics unavailable: %s", exc)
+
+    try:
+        from volumes import get_volume_metrics
+
+        snapshot["volumes"] = get_volume_metrics()
+    except Exception as exc:
+        log.debug("Volume metrics unavailable: %s", exc)
 
     return snapshot
 
