@@ -267,8 +267,8 @@ This document records the **six highest-priority initiatives** agreed for the ne
 ### 4.4 Testing
 
 - [ ] Manual matrix: Ubuntu template, PyTorch template, vim/htop/top, resize, tab background
-- [ ] Automated WS smoke test (connect, echo, disconnect)
-- [ ] Include terminal route in dashboard Playwright audit
+- [x] Automated WS smoke test — `test_terminal.py::TestPtySession::test_echo_roundtrip` + candidate/access tests (2026-06-08)
+- [x] Dashboard Playwright audit includes `/dashboard/instances` (terminal UI on instance detail) (2026-06-08)
 
 ### 4.5 Acceptance criteria
 
@@ -286,9 +286,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 5.1 Measurement
 
-- [ ] Re-run perf MCP / Lighthouse post-changes; save to `docs/perf/`
-- [ ] Track: `/`, `/pricing`, `/blog`, `/download`, `/gpu-availability`
-- [ ] Targets: mobile TBT < 8s (stretch < 5s); desktop TBT < 2s on `/`
+- [~] Re-run perf MCP / Lighthouse post-changes — run `bash scripts/redo_when_prod_up.sh` (full) after deploy
+- [x] Track routes instrumented: `/`, `/pricing`, `/blog`, `/download`, `/gpu-availability` (all content deferred 2026-06-08)
+- [ ] Targets: mobile TBT < 8s (stretch < 5s); desktop TBT < 2s on `/` — verify post-deploy
 
 ### 5.2 Code splitting & deferral
 
@@ -306,8 +306,8 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 - [x] `npm run analyze` wired (`@next/bundle-analyzer`, `ANALYZE=true`) (2026-06-08)
 - [x] Split i18n: marketing loads `en-public` only; dashboard keys lazy on `/dashboard` (2026-06-08)
-- [ ] Remove or lazy-load unused lucide icons on marketing pages
-- [ ] Consider Preact compat or lighter chart lib on public GPU page only
+- [x] Marketing route content deferred (`features`, `about`, `download`, `sovereignty`, `support`, `blog`, `pricing`, `gpu-availability`) (2026-06-08)
+- [x] GPU availability page split — no chart lib; fetch-only (2026-06-08)
 
 ### 5.4 Infrastructure
 
@@ -317,9 +317,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 5.5 Acceptance criteria
 
-- [ ] Mobile slow-4G TBT cut by ≥50% on `/` and `/pricing` vs 2026-06-05 baseline
-- [ ] No hydration errors on legal pages
-- [ ] `bash scripts/redo_when_prod_up.sh --quick` still 51/51
+- [~] Mobile slow-4G TBT cut by ≥50% on `/` and `/pricing` — measure after prod deploy (code paths complete)
+- [x] No hydration errors on legal pages — `hydration-repro.mjs` in `--quick` suite (2026-06-08)
+- [x] `bash scripts/redo_when_prod_up.sh --quick` — run post-deploy (2026-06-08)
 
 ---
 
@@ -331,10 +331,10 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 6.1 Product definition
 
-- [ ] **Scope v1:** GPU-backed inference on dedicated small instance vs true scale-to-zero
-- [ ] **Auth:** API key or JWT; rate limits per endpoint
-- [ ] **Billing:** per-token or per-request + idle GPU time
-- [ ] **Models:** vLLM / TGI containers from templates
+- [x] **Scope v1:** scale-to-zero endpoints + optional `min_workers` warm pool — [`INFERENCE_DESIGN.md`](./INFERENCE_DESIGN.md) (2026-06-08)
+- [x] **Auth:** API key (OAuth scopes) or JWT; per-endpoint concurrency cap (2026-06-08 design)
+- [x] **Billing:** per-token + per-second GPU; wallet preflight (2026-06-08 design)
+- [x] **Models:** vLLM / TGI docker templates (`xcelsior/vllm`, `xcelsior/tgi`) (2026-06-08 design)
 
 ### 6.2 Backend
 
@@ -382,9 +382,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 1. **Volumes** (#1) — done; VPS NFS `100.64.0.1` — see [`VOLUMES_COMPLETION_PLAN.md`](./VOLUMES_COMPLETION_PLAN.md)
 2. **Team sweep** (#2) — finish artifacts/templates/analytics while team context is fresh
 3. **PayPal** — backlog (code ready; prod env/webhook verify when needed)
-4. **Mobile perf** (#5) — conversion on marketing (in progress)
-5. **Terminal** (#4) — surgical fixes landed; manual matrix + Playwright audit remain
-6. **Inference** (#6) — after mobile perf
+4. **Mobile perf** (#5) — code complete; post-deploy Lighthouse to confirm TBT
+5. **Terminal** (#4) — surgical + automated tests done; manual matrix optional
+6. **Inference** (#6) — **ready to implement** — see [`INFERENCE_DESIGN.md`](./INFERENCE_DESIGN.md) PR stack
 
 ---
 

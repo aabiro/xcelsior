@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { DownloadContent } from "./content";
+import dynamic from "next/dynamic";
+
+const DownloadContent = dynamic(
+  () => import("./content").then((mod) => mod.DownloadContent),
+  { loading: () => <div className="min-h-[40vh]" aria-hidden /> },
+);
 
 export const metadata: Metadata = {
   title: "Download",

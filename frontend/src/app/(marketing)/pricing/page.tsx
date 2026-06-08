@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { PricingContent } from "./content";
+import dynamic from "next/dynamic";
+
+const PricingContent = dynamic(
+  () => import("./content").then((mod) => mod.PricingContent),
+  { loading: () => <div className="min-h-[40vh]" aria-hidden /> },
+);
 
 export const metadata: Metadata = {
   title: "Pricing",

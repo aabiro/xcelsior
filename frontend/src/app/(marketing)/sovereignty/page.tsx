@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { SovereigntyContent } from "./content";
+import dynamic from "next/dynamic";
+
+const SovereigntyContent = dynamic(
+  () => import("./content").then((mod) => mod.SovereigntyContent),
+  { loading: () => <div className="min-h-[40vh]" aria-hidden /> },
+);
 
 export const metadata: Metadata = {
   title: "Data Sovereignty",

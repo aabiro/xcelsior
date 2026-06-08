@@ -21,6 +21,7 @@ const DASHBOARD_ROUTES = [
   "/dashboard/marketplace",
   "/dashboard/volumes",
   "/dashboard/analytics",
+  "/dashboard/inference",
   "/dashboard/compliance",
 ];
 

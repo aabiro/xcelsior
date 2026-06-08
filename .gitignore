@@ -79,6 +79,8 @@ docs/*
 !docs/VOLUMES_RUNBOOK.md
 !docs/VOLUMES_COMPLETION_PLAN.md
 !docs/NEXT_PRIORITIES_ROADMAP.md
+!docs/INFERENCE_DESIGN.md
+!docs/site-audit-report-2026-06-08-post-recovery.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
