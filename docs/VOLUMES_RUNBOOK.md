@@ -135,6 +135,16 @@ bash scripts/check_mac_nfs_disk.sh
 
 ---
 
+## Hot-attach vs launch-time attach
+
+| Path | Behavior |
+|------|----------|
+| **Launch with `volume_ids`** | Worker NFS-mounts at job start and bind-mounts into container (`/workspace` by default). Verified on ASUS `aaryn-tuf-rtx2060`. |
+| **`POST /api/v2/volumes/{id}/attach`** | Updates DB attachment only. **Does not remount a running container** — user must **stop/start** (or terminate and relaunch) for the worker to pick up the mount. |
+| **Detach** | `POST .../detach` updates DB; worker cleans mounts on terminate via `detach_all_for_instance`. |
+
+---
+
 ## Incident: instance started but volume empty / not mounted
 
 **Symptoms:** Job running; `/workspace` empty; logs show `mount failed on host`.
@@ -259,4 +269,4 @@ python3 scripts/ops_infra_smoke.py
 
 ---
 
-*Last updated: 2026-06-07*
+*Last updated: 2026-06-08*

@@ -13,7 +13,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 | # | Initiative | Primary outcome | Est. effort |
 |---|------------|-----------------|-------------|
-| 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | 1–2 weeks |
+| 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | ~1 week remaining |
 | 2 | PayPal marketplace provider payouts | Second payout rail for GPU providers | 3–5 days |
 | 3 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | 1 week |
 | 4 | Web terminal rewrite | Usable in-browser shell on running instances | 1–2 weeks |
@@ -59,25 +59,27 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 1.3 Worker / scheduler attach path
 
-- [~] **Managed volume mount on GPU host** (`scheduler.py` docker run path)
-  - [x] Code path exists; launch with `volume_ids` succeeds in `volumes_e2e_smoke.py`
-  - [ ] NFS mount at `/mnt/xcelsior-volumes/{volume_id}` verified on live GPU worker
-  - [ ] Bind-mount into container at attachment `mount_path` (default `/workspace`)
+- [x] **Managed volume mount on GPU host** (worker_agent + Mac NFS)
+  - [x] Launch with `volume_ids` succeeds in `volumes_e2e_smoke.py`
+  - [x] NFS mount at `/mnt/xcelsior-volumes/{volume_id}` on ASUS `aaryn-tuf-rtx2060` (2026-06-07)
+  - [x] Bind-mount into container at `/workspace` — persist E2E PASS
   - [ ] Data gravity: scheduler prefers hosts with volumes already mounted
-  - [ ] Failure mode: launch blocked or degraded if NFS mount fails (configurable)
-- [ ] **Detach / terminate cleanup**
-  - [ ] `detach_all_for_instance` on terminate
-  - [ ] Orphan mount cleanup on worker (`cleanup_orphaned_volume_mounts`)
-- [ ] **Attach to running instance** (`POST /api/v2/volumes/{id}/attach`)
-  - [ ] Hot-attach path documented (may require instance restart today — document or implement live attach)
+  - [~] Failure mode: mount fail skips volume (worker logs warning); launch-not-blocked today
+- [x] **Detach / terminate cleanup**
+  - [x] `detach_all_for_instance` on terminate (`billing.terminate_instance`)
+  - [x] Orphan mount cleanup on worker (`cleanup_orphaned_volume_mounts`) — code + periodic thread
+- [~] **Attach to running instance** (`POST /api/v2/volumes/{id}/attach`)
+  - [x] Hot-attach documented — requires stop/start; see runbook § Hot-attach (2026-06-07)
+  - [ ] Live remount without restart (future)
 
 ### 1.4 Billing & lifecycle
 
-- [ ] **Volume storage billing** charges correct `owner_id` (team wallet when in team context)
-  - [ ] `billing.py` volume tick uses `owner_id` from volumes table (already team-scoped if create uses billing id)
-  - [ ] Suspended wallet skips volume billing (fail-closed verified)
-- [ ] **Stale volume janitor** (`cleanup_stale_volumes`, orphan attachment reconcile) runs in bg-worker
-- [ ] **Delete with cryptographic erasure** for encrypted volumes (LUKS key destroy in DB + image rm on NFS)
+- [~] **Volume storage billing** charges correct `owner_id` (team wallet when in team context)
+  - [x] `billing.py` volume tick uses `owner_id` from volumes table
+  - [x] Suspended wallet skips volume billing (fail-closed in billing.py)
+  - [ ] Prod audit: `billing_cycles` rows for team-owned volumes
+- [x] **Stale volume janitor** — `cleanup_stale_volumes` + `reconcile_orphaned_attachments` in bg-worker tick
+- [~] **Delete with cryptographic erasure** for encrypted volumes — engine destroys key + NFS image; prod audit pending
 
 ### 1.5 Frontend (dashboard)
 
