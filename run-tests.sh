@@ -131,6 +131,27 @@ case "${TARGET}" in
         )
         echo "▸ Running marketplace tests…"
         ;;
+    serverless)
+        PYTEST_ARGS=(
+            tests/test_serverless_repo.py
+            tests/test_serverless_service.py
+            tests/test_serverless_routes.py
+            tests/test_serverless_tenancy.py
+            tests/test_serverless_autoscaler.py
+            tests/test_serverless_billing.py
+            tests/test_serverless_limits_webhooks.py
+            tests/test_serverless_streams.py
+            tests/test_serverless_observability.py
+            tests/test_serverless_worker_sdk.py
+            tests/test_serverless_agent_integration.py
+            tests/test_serverless_openai_compat.py
+            tests/test_serverless_idempotency.py
+            tests/test_serverless_queue_recovery.py
+            tests/test_serverless_security.py
+            tests/test_serverless_feature.py
+        )
+        echo "▸ Running serverless tests…"
+        ;;
     volumes)
         PYTEST_ARGS=(
             tests/test_team_tenancy_sweep.py

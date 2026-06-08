@@ -4,6 +4,8 @@
 !.env.example
 !.env.audit.example
 !.env.paypal-sandbox.example
+!.env.paypal-live.example
+!.env.stripe-live.example
 
 # ── Python ────────────────────────────────────────────────────────────
 __pycache__/
@@ -164,3 +166,4 @@ wget-log
 
 # Next.js incremental build cache
 frontend/tsconfig.tsbuildinfo
+.npmrc

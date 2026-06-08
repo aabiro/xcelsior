@@ -91,14 +91,21 @@ def main():
 
     tasks.append(("spot_updater", _spot_updater, 600))
 
-    # 4. Inference scaledown (every 5 minutes)
-    def _inference_scaledown():
-        from inference import get_inference_engine
+    # 4. Serverless reconcile (autoscaler + dispatch)
+    def _serverless_reconcile():
+        from serverless.service import get_serverless_service
 
-        ie = get_inference_engine()
-        ie.scaledown_idle_workers()
+        get_serverless_service().reconcile_all()
 
-    tasks.append(("inference_scaledown", _inference_scaledown, 300))
+    tasks.append(("serverless_reconcile", _serverless_reconcile, 45))
+
+    def _serverless_webhook_retry():
+        from serverless.repo import ServerlessRepo
+        from serverless.webhooks import retry_pending_webhooks
+
+        retry_pending_webhooks(ServerlessRepo())
+
+    tasks.append(("serverless_webhook_retry", _serverless_webhook_retry, 30))
 
     # 5. Cloud burst evaluator (every 2 minutes)
     def _burst_evaluator():

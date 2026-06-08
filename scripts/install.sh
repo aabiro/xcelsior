@@ -288,7 +288,7 @@ run_wizard() {
     info "Checking for Node.js..."
     if command -v npx >/dev/null 2>&1; then
         info "Launching interactive wizard..."
-        npx @xcelsior/wizard@latest
+        npx @xcelsior-gpu/wizard@latest
     else
         warn "Node.js not found — using direct agent install instead"
         install_agent

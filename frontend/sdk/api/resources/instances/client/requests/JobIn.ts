@@ -22,4 +22,11 @@ export interface JobIn {
     command?: string | null;
     ssh_port?: number;
     max_bid?: number | null;
+    volume_ids?: string[] | null;
+    encrypted_workspace?: boolean;
+    init_script?: string | null;
+    git_repo?: string | null;
+    auto_launch?: string[] | null;
+    exposed_ports?: number[] | null;
+    template_image_id?: string | null;
 }

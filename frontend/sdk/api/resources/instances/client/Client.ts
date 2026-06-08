@@ -94,7 +94,7 @@ export class InstancesClient {
     }
 
     /**
-     * List jobs. Optional filter by status.
+     * List instances for the authenticated user (admins see all).
      *
      * @param {XcelsiorApi.ListInstancesRequest} request
      * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.

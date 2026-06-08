@@ -174,7 +174,7 @@ export class MarketplaceClient {
     }
 
     /**
-     * Marketplace aggregate stats.
+     * Marketplace aggregate stats (platform admin only).
      *
      * @param {MarketplaceClient.RequestOptions} requestOptions - Request-specific configuration.
      *

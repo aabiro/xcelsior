@@ -63,19 +63,40 @@ def _resolve_host_id(host_id: str) -> tuple[str | None, list[dict]]:
     return None, hosts
 
 
+_BLOCKING_JOB_STATUSES = frozenset({"assigned", "leased", "running"})
+
+
 def _interactive_host_jobs(host_id: str) -> list[dict]:
-    """Interactive jobs that should block worker maintenance."""
-    blocking_statuses = {"assigned", "leased", "running"}
+    """Interactive jobs that should block worker host maintenance."""
     jobs = []
     for job in list_jobs():
         if job.get("host_id") != host_id:
             continue
         if not job.get("interactive", False):
             continue
-        if job.get("status") not in blocking_statuses:
+        if job.get("status") not in _BLOCKING_JOB_STATUSES:
             continue
         jobs.append(job)
     return jobs
+
+
+def _serverless_host_jobs(host_id: str) -> list[dict]:
+    """Serverless worker scheduler jobs that should block worker host maintenance."""
+    jobs = []
+    for job in list_jobs():
+        if job.get("host_id") != host_id:
+            continue
+        if str(job.get("job_type") or "") != "serverless_worker":
+            continue
+        if job.get("status") not in _BLOCKING_JOB_STATUSES:
+            continue
+        jobs.append(job)
+    return jobs
+
+
+def _blocking_host_jobs(host_id: str) -> tuple[list[dict], list[dict]]:
+    """Return (interactive, serverless) jobs that block maintenance on a host."""
+    return _interactive_host_jobs(host_id), _serverless_host_jobs(host_id)
 
 
 # ── Model: HostIn ──
@@ -802,8 +823,8 @@ def api_host_maintenance(host_id: str, request: Request):
     host_id = resolved
     host = next(h for h in hosts if h["host_id"] == host_id)
 
-    interactive_jobs = _interactive_host_jobs(host_id)
-    summary = [
+    interactive_jobs, serverless_jobs = _blocking_host_jobs(host_id)
+    interactive_summary = [
         {
             "job_id": job.get("job_id"),
             "name": job.get("name"),
@@ -812,7 +833,18 @@ def api_host_maintenance(host_id: str, request: Request):
         }
         for job in interactive_jobs
     ]
-    safe_to_maintain = host.get("status") == "draining" and len(summary) == 0
+    serverless_summary = [
+        {
+            "job_id": job.get("job_id"),
+            "name": job.get("name"),
+            "status": job.get("status"),
+            "owner": job.get("owner"),
+            "job_type": job.get("job_type"),
+        }
+        for job in serverless_jobs
+    ]
+    blocking_count = len(interactive_summary) + len(serverless_summary)
+    safe_to_maintain = host.get("status") == "draining" and blocking_count == 0
 
     return {
         "ok": True,
@@ -820,8 +852,10 @@ def api_host_maintenance(host_id: str, request: Request):
         "status": host.get("status"),
         "draining": host.get("status") == "draining",
         "admitted": host.get("admitted", False),
-        "active_interactive_instances": len(summary),
-        "interactive_instances": summary,
+        "active_interactive_instances": len(interactive_summary),
+        "interactive_instances": interactive_summary,
+        "active_serverless_workers": len(serverless_summary),
+        "serverless_workers": serverless_summary,
         "safe_to_maintain": safe_to_maintain,
     }
 

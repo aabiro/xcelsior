@@ -28,6 +28,11 @@ PYTEST_TARGETS+=(
 echo "▸ Post-merge smoke (pytest)…"
 python -m pytest "${PYTEST_TARGETS[@]}" -q --tb=line "$@"
 
+if [[ -x ./run-tests.sh ]]; then
+  echo "▸ Serverless regression suite…"
+  ./run-tests.sh serverless -q --tb=line
+fi
+
 if [[ -f .env.test ]]; then
   set -a
   # shellcheck source=/dev/null

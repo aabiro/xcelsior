@@ -350,7 +350,9 @@ export class AuthClient {
     /**
      * Get the currently authenticated user's profile.
      *
-     * Requires Authorization: Bearer <token> header.
+     * Returns ``user: null`` when no session is present (HTTP 200) so public
+     * marketing pages can probe session state without console 401 noise.
+     * Invalid or machine credentials still return 401/403.
      *
      * @param {AuthClient.RequestOptions} requestOptions - Request-specific configuration.
      *

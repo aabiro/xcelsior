@@ -2403,29 +2403,127 @@ export interface GPUOffer {
   available: boolean;
 }
 
-export interface InferenceEndpoint {
+export interface ServerlessPricing {
+  billing_model: string;
+  rate_per_hour_cad: number;
+  rate_per_second_cad_per_worker: number;
+  rate_cents_per_second_per_worker: number;
+  gpu_count: number;
+  formula: string;
+}
+
+export interface ServerlessEndpoint {
   endpoint_id: string;
   owner_id: string;
+  name?: string;
   model_id: string;
   model_name?: string;
+  model_ref?: string;
+  model_revision?: string;
   gpu_type: string;
+  gpu_tier?: string;
+  gpu_count?: number;
   region: string;
   docker_image: string;
+  image_ref?: string;
   mode: string;
-  health_endpoint: string;
-  api_format: string;
+  startup_command?: string;
+  http_port?: number;
+  health_endpoint?: string;
+  health_check_path?: string;
+  cuda_version?: string;
+  scaling_policy_type?: string;
+  scaling_policy_value?: number;
   status: string;
   min_workers: number;
   max_workers: number;
-  vram_required_gb: number;
-  worker_job_id: string | null;
+  max_concurrency?: number;
+  idle_timeout_sec?: number;
   total_requests: number;
-  total_tokens_generated: number;
+  total_gpu_seconds?: number;
+  total_tokens_generated?: number;
   total_cost_cad: number;
+  openai_base_url?: string;
+  pricing?: ServerlessPricing;
   cost_per_hour_cad?: number;
-  avg_latency_ms?: number;
   created_at: number;
   updated_at: number;
+}
+
+export interface ServerlessEndpointMetrics {
+  endpoint_id: string;
+  window_sec: number;
+  total_requests: number;
+  window_requests: number;
+  jobs_completed: number;
+  jobs_failed: number;
+  jobs_cancelled: number;
+  success_rate: number;
+  error_rate: number;
+  queue_depth: number;
+  avg_queue_ms: number;
+  avg_execution_ms: number;
+  avg_gpu_seconds: number;
+  total_gpu_seconds: number;
+  tokens_per_sec: number;
+  total_output_tokens: number;
+  total_cost_cad: number;
+  active_workers: number;
+  idle_workers: number;
+  busy_workers: number;
+  booting_workers?: number;
+}
+
+export interface ServerlessWorker {
+  worker_id: string;
+  endpoint_id: string;
+  state: string;
+  current_concurrency?: number;
+  scheduler_job_id?: string;
+  allocated_at?: number;
+  ready_at?: number;
+  released_at?: number;
+}
+
+export interface ServerlessJob {
+  job_id: string;
+  endpoint_id: string;
+  status: string;
+  queued_at?: number;
+  started_at?: number;
+  finished_at?: number;
+  gpu_seconds?: number;
+  cold_start_seconds?: number;
+  cost_cad?: number;
+  output_tokens?: number;
+  error?: unknown;
+  output?: unknown;
+}
+
+export interface ServerlessApiKey {
+  key_id: string;
+  name: string;
+  key_prefix: string;
+  scopes?: string;
+  created_at?: number;
+  last_used_at?: number;
+}
+
+export interface ServerlessApiKeyCreated extends ServerlessApiKey {
+  api_key: string;
+}
+
+export interface ServerlessJobStatus {
+  id: string;
+  status: string;
+  output?: unknown;
+  error?: unknown;
+  queued_at?: number;
+  started_at?: number;
+  finished_at?: number;
+  gpu_seconds?: number;
+  cold_start_seconds?: number;
+  cost_cad?: number;
 }
 
 export interface GpuAvailability {
@@ -2512,47 +2610,246 @@ export async function fetchAvailableGPUs() {
   );
 }
 
-export async function createInferenceEndpoint(data: {
-  model_name: string;
+export type ServerlessEndpointCreatePayload = {
+  name?: string;
+  mode?: string;
+  model_name?: string;
+  model_ref?: string;
   gpu_type?: string;
+  gpu_tier?: string;
+  gpu_count?: number;
   region?: string;
   docker_image?: string;
+  image_ref?: string;
   min_workers?: number;
   max_workers?: number;
-  max_batch_size?: number;
-  max_concurrent?: number;
+  max_concurrency?: number;
+  idle_timeout_sec?: number;
   scaledown_window_sec?: number;
-  mode?: string;
+  scaling_policy_type?: string;
+  scaling_policy_value?: number;
   health_endpoint?: string;
-  api_format?: string;
-}) {
-  return apiFetch<{ ok: boolean; endpoint: InferenceEndpoint }>(
-    "/api/v2/inference/endpoints",
+  health_check_path?: string;
+  startup_command?: string;
+  http_port?: number;
+  cuda_version?: string;
+  request_timeout_sec?: number;
+  env?: Record<string, string>;
+};
+
+export async function getServerlessEnabled() {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    global_enabled?: boolean;
+    allowlist_active?: boolean;
+  }>("/api/v2/serverless/enabled");
+}
+
+export async function createServerlessEndpoint(data: ServerlessEndpointCreatePayload) {
+  return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
+    "/api/v2/serverless/endpoints",
     { method: "POST", body: JSON.stringify(data) },
   );
 }
 
-export async function listInferenceEndpoints() {
-  return apiFetch<{ ok: boolean; endpoints: InferenceEndpoint[] }>(
-    "/api/v2/inference/endpoints",
+export async function listServerlessEndpoints() {
+  return apiFetch<{ ok: boolean; endpoints: ServerlessEndpoint[] }>(
+    "/api/v2/serverless/endpoints",
   );
 }
 
-export async function getInferenceEndpointHealth(endpointId: string) {
+export async function getServerlessEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}`,
+  );
+}
+
+export async function patchServerlessEndpoint(
+  endpointId: string,
+  data: Partial<{
+    name: string;
+    min_workers: number;
+    max_workers: number;
+    max_concurrency: number;
+    idle_timeout_sec: number;
+    scaling_policy_type: string;
+    scaling_policy_value: number;
+    keep_warm: boolean;
+  }>,
+) {
+  return apiFetch<{ ok: boolean; endpoint: ServerlessEndpoint }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+export async function getServerlessEndpointHealth(endpointId: string) {
   return apiFetch<{ ok: boolean; health: Record<string, unknown> }>(
-    `/api/v2/inference/endpoints/${encodeURIComponent(endpointId)}/health`,
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/health`,
   );
 }
 
-export async function getInferenceEndpointUsage(endpointId: string) {
+export async function getServerlessEndpointMetrics(endpointId: string, sinceHours = 24) {
+  return apiFetch<{ ok: boolean; metrics: ServerlessEndpointMetrics }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/metrics?since_hours=${sinceHours}`,
+  );
+}
+
+export async function getServerlessEndpointUsage(endpointId: string) {
   return apiFetch<{ ok: boolean; usage: Record<string, unknown> }>(
-    `/api/v2/inference/endpoints/${encodeURIComponent(endpointId)}/usage`,
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/usage`,
   );
 }
 
-export async function deleteInferenceEndpoint(endpointId: string) {
+export async function listServerlessWorkers(endpointId: string) {
+  return apiFetch<{ ok: boolean; workers: ServerlessWorker[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/workers`,
+  );
+}
+
+export async function listServerlessJobs(endpointId: string) {
+  return apiFetch<{ ok: boolean; jobs: ServerlessJob[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/jobs`,
+  );
+}
+
+export async function createServerlessKey(
+  endpointId: string,
+  data: { name?: string; scopes?: string; rate_limit_rpm?: number } = {},
+) {
+  return apiFetch<{ ok: boolean; key: ServerlessApiKeyCreated }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/keys`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function listServerlessKeys(endpointId: string) {
+  return apiFetch<{ ok: boolean; keys: ServerlessApiKey[] }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/keys`,
+  );
+}
+
+export async function revokeServerlessKey(endpointId: string, keyId: string) {
   return apiFetch<{ ok: boolean }>(
-    `/api/v2/inference/endpoints/${encodeURIComponent(endpointId)}`,
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}/keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function runServerlessJob(
+  endpointId: string,
+  input: Record<string, unknown>,
+  opts: { webhook?: string; idempotencyKey?: string } = {},
+) {
+  const headers: Record<string, string> = {};
+  if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
+  return apiFetch<{ id: string; status: string }>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/run`,
+    { method: "POST", body: JSON.stringify({ input, webhook: opts.webhook }), headers },
+  );
+}
+
+export async function runServerlessJobSync(
+  endpointId: string,
+  input: Record<string, unknown>,
+) {
+  return apiFetch<ServerlessJobStatus>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/runsync`,
+    { method: "POST", body: JSON.stringify({ input }) },
+  );
+}
+
+export async function getServerlessJobStatus(endpointId: string, jobId: string) {
+  return apiFetch<ServerlessJobStatus>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/status/${encodeURIComponent(jobId)}`,
+  );
+}
+
+export async function cancelServerlessJob(endpointId: string, jobId: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/cancel/${encodeURIComponent(jobId)}`,
+    { method: "POST" },
+  );
+}
+
+export function createServerlessJobStream(
+  endpointId: string,
+  jobId: string,
+  afterSeq = 0,
+): EventSource {
+  const qs = afterSeq > 0 ? `?after_seq=${afterSeq}` : "";
+  return new EventSource(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/stream/${encodeURIComponent(jobId)}${qs}`,
+    { withCredentials: true },
+  );
+}
+
+export async function serverlessOpenAIChat(
+  endpointId: string,
+  body: {
+    model: string;
+    messages: Array<{ role: string; content: string }>;
+    max_tokens?: number;
+    temperature?: number;
+    stream?: boolean;
+  },
+  onChunk?: (text: string) => void,
+): Promise<string> {
+  const res = await fetch(
+    `/v1/serverless/${encodeURIComponent(endpointId)}/openai/v1/chat/completions`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      errBody?.detail || errBody?.error?.message || errBody?.message || res.statusText,
+      errBody,
+    );
+  }
+  if (!body.stream || !onChunk) {
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content ?? JSON.stringify(data);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+  const decoder = new TextDecoder();
+  let full = "";
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(payload);
+        const delta = parsed?.choices?.[0]?.delta?.content;
+        if (delta) {
+          full += delta;
+          onChunk(delta);
+        }
+      } catch {
+        // skip malformed SSE lines
+      }
+    }
+  }
+  return full;
+}
+
+export async function deleteServerlessEndpoint(endpointId: string) {
+  return apiFetch<{ ok: boolean }>(
+    `/api/v2/serverless/endpoints/${encodeURIComponent(endpointId)}`,
     { method: "DELETE" },
   );
 }

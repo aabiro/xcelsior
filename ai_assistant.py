@@ -1861,18 +1861,19 @@ def _tool_get_sla_status(args: dict, user: dict) -> dict:
 
 
 def _tool_get_inference_endpoints(_args: dict, user: dict) -> dict:
-    """List serverless inference endpoints visible in the active workspace."""
-    from routes._deps import _inference_owner_ids_readable
+    """List serverless endpoints visible in the active workspace."""
+    from routes._deps import _serverless_owner_ids_readable
 
-    owner_ids = sorted(_inference_owner_ids_readable(user))
+    owner_ids = sorted(_serverless_owner_ids_readable(user))
     if not owner_ids:
         return {"endpoints": [], "count": 0}
     try:
         with _ai_db() as conn:
             rows = conn.execute(
-                "SELECT endpoint_id, model_id, model_revision, gpu_type, vram_required_gb, "
-                "status, total_requests, total_tokens_generated, total_cost_cad, created_at, updated_at "
-                "FROM inference_endpoints WHERE owner_id = ANY(%s) ORDER BY created_at DESC",
+                "SELECT endpoint_id, name, mode, model_ref, model_revision, gpu_tier, "
+                "status, total_requests, total_gpu_seconds, total_cost_cad, created_at, updated_at "
+                "FROM serverless_endpoints WHERE owner_id = ANY(%s) AND deleted_at = 0 "
+                "ORDER BY created_at DESC",
                 (owner_ids,),
             ).fetchall()
         return {"endpoints": [dict(r) for r in rows], "count": len(rows)}
@@ -3619,7 +3620,7 @@ When a user wants to provide GPUs, guide them step-by-step:
 3. Use `estimate_cost` in reverse — estimate monthly earnings at 40-70% utilisation.
 4. Walk them through installation:
    ```bash
-   npm install -g @xcelsior-gpu/sdk @xcelsior/wizard
+   npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
    xcelsior-wizard setup
    ```
    The AI Onboarding Wizard asks whether they want to rent, provide, or both — then handles
@@ -3631,7 +3632,7 @@ WORKER INSTALLATION GUIDE (provide when users ask how to install the worker):
 
 **Option A: SDK + AI Onboarding Wizard (Recommended)**
 ```bash
-npm install -g @xcelsior-gpu/sdk @xcelsior/wizard
+npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
 xcelsior-wizard setup
 ```
 The AI Onboarding Wizard will ask your intent (rent, provide, or both), then handle

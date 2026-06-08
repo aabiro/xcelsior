@@ -167,20 +167,27 @@ import sys
 host_id = sys.argv[1]
 summary = json.loads(sys.argv[2])
 status = summary.get("status", "unknown")
-count = int(summary.get("active_interactive_instances", 0) or 0)
+interactive_count = int(summary.get("active_interactive_instances", 0) or 0)
+serverless_count = int(summary.get("active_serverless_workers", 0) or 0)
 
 print(f"Host: {host_id}")
 print(f"Status: {status}")
-print(f"Active interactive instances: {count}")
+print(f"Active interactive instances: {interactive_count}")
 for item in summary.get("interactive_instances", []):
+    print(f"- {item.get('job_id')} {item.get('status')} {item.get('name')}")
+print(f"Active serverless workers: {serverless_count}")
+for item in summary.get("serverless_workers", []):
     print(f"- {item.get('job_id')} {item.get('status')} {item.get('name')}")
 
 if status != "draining":
     print("Unsafe: host is not drained", file=sys.stderr)
     raise SystemExit(2)
-if count > 0:
+if interactive_count > 0:
     print("Unsafe: interactive instances are still active", file=sys.stderr)
     raise SystemExit(3)
+if serverless_count > 0:
+    print("Unsafe: serverless workers are still active", file=sys.stderr)
+    raise SystemExit(4)
 PY
     success "Host $host_id is safe for maintenance"
 }
@@ -933,7 +940,7 @@ ${CYAN}Usage:${NC}
   $0 --systemd          Deploy using systemd instead of Docker
   $0 --drain-host ID    Mark a worker host as draining
   $0 --undrain-host ID  Restore a drained worker host
-  $0 --guard-host ID    Fail unless a drained worker host has no active interactive instances
+  $0 --guard-host ID    Fail unless a drained host has no active interactive or serverless workers
   $0 --help             Show this help
 
 ${CYAN}Environment files:${NC}

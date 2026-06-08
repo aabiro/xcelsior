@@ -85,8 +85,7 @@ const SENSITIVE_HEADERS = new Set([
 
 function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
     const filtered: Record<string, string> = {};
-    const entries = headers instanceof Headers ? headersToRecord(headers) : headers;
-    for (const [key, value] of Object.entries(entries)) {
+    for (const [key, value] of headers instanceof Headers ? headers.entries() : Object.entries(headers)) {
         if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
             filtered[key] = "[REDACTED]";
         } else {
@@ -94,14 +93,6 @@ function redactHeaders(headers: Headers | Record<string, string>): Record<string
         }
     }
     return filtered;
-}
-
-function headersToRecord(headers: Headers): Record<string, string> {
-    const record: Record<string, string> = {};
-    headers.forEach((value, key) => {
-        record[key] = value;
-    });
-    return record;
 }
 
 const SENSITIVE_QUERY_PARAMS = new Set([
@@ -319,7 +310,7 @@ export async function fetcherImpl<R = unknown>(args: Fetcher.Args): Promise<APIR
                     method: args.method,
                     url: redactUrl(url),
                     statusCode: response.status,
-                    responseHeaders: redactHeaders(headersToRecord(response.headers)),
+                    responseHeaders: redactHeaders(Object.fromEntries(response.headers.entries())),
                 };
                 logger.error("HTTP request failed with error status", metadata);
             }

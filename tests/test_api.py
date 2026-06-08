@@ -1669,7 +1669,7 @@ class TestOAuthServer:
         machine_token = token_resp.json()["access_token"]
 
         before = client.get(
-            "/api/v2/inference/endpoints",
+            "/api/v2/serverless/endpoints",
             headers={"Authorization": f"Bearer {machine_token}"},
         )
         assert before.status_code == 200
@@ -1682,7 +1682,7 @@ class TestOAuthServer:
         new_secret = rotated.json()["client_secret"]
 
         after = client.get(
-            "/api/v2/inference/endpoints",
+            "/api/v2/serverless/endpoints",
             headers={"Authorization": f"Bearer {machine_token}"},
         )
         assert after.status_code == 401
@@ -1750,7 +1750,7 @@ class TestOAuthServer:
         assert disabled.status_code == 200
 
         stale = client.get(
-            "/api/v2/inference/endpoints",
+            "/api/v2/serverless/endpoints",
             headers={"Authorization": f"Bearer {machine_token}"},
         )
         assert stale.status_code == 401

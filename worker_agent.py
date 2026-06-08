@@ -162,6 +162,15 @@ PLATFORM_ENV_KEYS = (
     "XCELSIOR_AUTO_LAUNCH",
 )
 
+SERVERLESS_PLATFORM_ENV_KEYS = (
+    "XCELSIOR_JOB_TYPE",
+    "XCELSIOR_WORKER_ID",
+    "XCELSIOR_ENDPOINT_ID",
+    "XCELSIOR_HTTP_PORT",
+    "XCELSIOR_HEALTH_CHECK_PATH",
+    "XCELSIOR_API_TOKEN",
+)
+
 
 def _compute_public_ssh_port(job_id: str) -> int:
     """Deterministic public SSH port for a job (mirrors SSH gateway mapping)."""
@@ -193,7 +202,7 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
         auto_launch_s = ",".join(str(s).strip().lower() for s in auto_launch if str(s).strip())
     else:
         auto_launch_s = ""
-    return {
+    env = {
         "XCELSIOR_JOB_ID": job_id,
         "XCELSIOR_HOST_ID": str(HOST_ID or ""),
         "XCELSIOR_OWNER": str(job.get("owner", "") or ""),
@@ -207,6 +216,19 @@ def build_platform_env(job: dict, gpu_info: dict | None = None) -> dict:
         "XCELSIOR_EXPOSED_PORTS": exposed_ports_s,
         "XCELSIOR_AUTO_LAUNCH": auto_launch_s,
     }
+    if str(job.get("job_type") or "").strip() == "serverless_worker":
+        env.update(
+            {
+                "XCELSIOR_JOB_TYPE": "serverless_worker",
+                "XCELSIOR_WORKER_ID": str(job.get("serverless_worker_id") or ""),
+                "XCELSIOR_ENDPOINT_ID": str(job.get("serverless_endpoint_id") or ""),
+                "XCELSIOR_HTTP_PORT": str(job.get("http_port") or 8080),
+                "XCELSIOR_HEALTH_CHECK_PATH": str(job.get("health_check_path") or "/health"),
+            }
+        )
+        if API_TOKEN:
+            env["XCELSIOR_API_TOKEN"] = str(API_TOKEN)
+    return env
 
 
 # ── Logging ───────────────────────────────────────────────────────────
@@ -1052,6 +1074,7 @@ _AGENT_COMMAND_ALLOWED = frozenset(
         "snapshot_container",
         "mount_volume",  # hot-attach: NFS mount + nsenter bind into running container
         "unmount_volume",
+        "prepull_image",  # serverless cold-start: pull image on idle host
     }
 )
 
@@ -1482,6 +1505,14 @@ def drain_agent_commands() -> int:
                 )
                 if _hot_unmount_volume(args):
                     dispatched += 1
+            elif name == "prepull_image":
+                image_tag = str(args.get("image") or "").strip()
+                if not image_tag:
+                    log.warning("prepull_image cmd=%s missing image arg", cmd_id)
+                    continue
+                log.info("Executing prepull_image cmd=%s image=%s by=%s", cmd_id, image_tag, by)
+                cache_prepull_popular([image_tag], max_concurrent=1)
+                dispatched += 1
             # P3/C7 — no `else` branch: unknown commands are rejected at
             # the top of the loop via _AGENT_COMMAND_ALLOWED before we
             # reach any if/elif block.
@@ -2794,6 +2825,137 @@ def _release_exclusive_gpu(job_id: str, state: dict) -> None:
     log.info("exclusive_gpu[%s]: released", job_id)
 
 
+# ── Serverless worker helpers ────────────────────────────────────────
+
+
+def _is_serverless_job(job: dict) -> bool:
+    return str(job.get("job_type") or "").strip() == "serverless_worker"
+
+
+def _allocate_host_port_mappings(job_id: str, container_ports: list) -> tuple[dict[str, int], list[str]]:
+    """Map container ports to deterministic host ports (55000–59999)."""
+    port_map: dict[str, int] = {}
+    extra_args: list[str] = []
+    _seen: set[int] = set()
+    _hports_used: set[int] = set()
+    try:
+        _base = int(str(job_id)[:4], 16)
+    except (ValueError, TypeError):
+        _base = 0
+    for _p in container_ports:
+        try:
+            cport = int(_p)
+        except (TypeError, ValueError):
+            continue
+        if cport < 1 or cport > 65535 or cport == 22 or cport in _seen:
+            continue
+        _seen.add(cport)
+        hport = 55000 + (_base + cport) % 5000
+        for _attempt in range(5000):
+            if hport not in _hports_used:
+                break
+            hport = 55000 + (hport - 55000 + 1) % 5000
+        else:
+            log.warning("No free host port for cport=%d; skipping", cport)
+            continue
+        _hports_used.add(hport)
+        extra_args.extend(["-p", f"{hport}:{cport}"])
+        port_map[str(cport)] = hport
+        log.info("Serverless expose port: host:%d -> container:%d", hport, cport)
+    return port_map, extra_args
+
+
+def _wait_serverless_health(host_port: int, health_path: str, *, timeout_sec: int = 600) -> bool:
+    path = health_path if str(health_path).startswith("/") else f"/{health_path}"
+    url = f"http://127.0.0.1:{int(host_port)}{path}"
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline and not _shutdown.is_set():
+        try:
+            resp = requests.get(url, timeout=5)
+            if resp.status_code < 500:
+                log.info("Serverless health OK: %s → %d", url, resp.status_code)
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(3)
+    log.error("Serverless health check timed out: %s", url)
+    return False
+
+
+def _serverless_callback(worker_id: str, suffix: str, body: dict | None = None) -> bool:
+    if not worker_id:
+        return False
+    try:
+        resp = requests.post(
+            _api_url(f"/api/v2/serverless/workers/{worker_id}/{suffix}"),
+            json=body or {},
+            headers=_api_headers(),
+            timeout=30,
+        )
+        return resp.status_code == 200
+    except requests.RequestException as e:
+        log.warning("Serverless callback %s failed for %s: %s", suffix, worker_id, e)
+        return False
+
+
+def _monitor_serverless_worker(job_id, container_name, worker_id, log_forwarder=None):
+    """Monitor a serverless worker container until exit; notify control plane."""
+    check_interval = 5
+    while not _shutdown.is_set():
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            status = result.stdout.strip()
+            if status == "exited":
+                exit_result = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.ExitCode}}", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                exit_code = int(exit_result.stdout.strip()) if exit_result.stdout.strip() else -1
+                err_msg = "" if exit_code == 0 else f"container exited with code {exit_code}"
+                _serverless_callback(
+                    worker_id,
+                    "exited",
+                    {"exit_code": exit_code, "error_message": err_msg},
+                )
+                if exit_code == 0:
+                    log.info("Serverless worker %s completed (job %s)", worker_id, job_id)
+                    report_job_status(job_id, "completed")
+                    release_lease(job_id, "completed")
+                else:
+                    log.warning("Serverless worker %s failed exit=%d (job %s)", worker_id, exit_code, job_id)
+                    report_job_status(job_id, "failed", error_message=err_msg)
+                    release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+            if status not in ("running", "created"):
+                _serverless_callback(
+                    worker_id,
+                    "exited",
+                    {"exit_code": 1, "error_message": f"unexpected state: {status}"},
+                )
+                report_job_status(job_id, "failed", error_message=f"unexpected state: {status}")
+                release_lease(job_id, "failed")
+                _remove_container(container_name)
+                return
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            report_job_status(job_id, "failed")
+            return
+        for _ in range(check_interval):
+            if _shutdown.is_set():
+                return
+            with _active_lock:
+                if job_id not in _active_containers:
+                    return
+            time.sleep(1)
+
+
 # ── Container Lifecycle ──────────────────────────────────────────────
 
 
@@ -2835,6 +2997,9 @@ def run_job(job):
     nfs_mounted = False
     log_fwd = None
     is_interactive = bool(job.get("interactive", False))
+    is_serverless = _is_serverless_job(job)
+    if is_serverless:
+        is_interactive = False
 
     if not image:
         log.error("Job %s has no image specified — skipping", job_id)
@@ -3135,7 +3300,13 @@ def run_job(job):
         # Interactive mode: override entrypoint to keep container alive
         # and expose SSH port for user access
         extra_docker_args = []
+        port_map: dict[str, int] = {}
         effective_command = command
+        if is_serverless:
+            http_port = int(job.get("http_port") or 8080)
+            _sl_ports = job.get("exposed_ports") or [http_port]
+            port_map, _sl_port_args = _allocate_host_port_mappings(job_id, list(_sl_ports))
+            extra_docker_args.extend(_sl_port_args)
         if effective_command and not is_interactive:
             if isinstance(effective_command, list):
                 pass
@@ -3191,7 +3362,6 @@ def run_job(job):
             # this to serve `/instances/{id}/expose` and the nginx internal
             # route lookup — without this, collisions from the linear probe
             # are invisible to the control plane.
-            port_map: dict[str, int] = {}
             if isinstance(_user_ports, (list, tuple)):
                 _seen: set[int] = set()
                 _hports_used: set[int] = set()
@@ -3319,59 +3489,106 @@ def run_job(job):
             container_name=container_name,
         )
 
-        # 4b. Inject user's SSH keys into the container (best-effort, 45s base
-        #     budget, extended by 45s when openssh-server must be installed).
-        #     _inject_ssh_keys is guaranteed to emit a final summary line via
-        #     both the log stream AND the container's PID-1 stdout, so the user
-        #     never sees "Setting up SSH…" hang indefinitely.
-        _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
-
-        # 4c. SSH is either ready or has emitted a reason — flip to "running".
-        report_job_status(
-            job_id,
-            "running",
-            host_id=HOST_ID,
-            container_id=container_id,
-            container_name=container_name,
-        )
-
-        # P2.2: report the final HTTP port mapping to the API so
-        # `/instances/{id}/expose` and the nginx subdomain router can
-        # resolve public URLs. Best-effort — a failed report just means
-        # the public URL won't resolve yet; the next heartbeat cycle
-        # will retry via _report_http_ports_with_retry.
-        if is_interactive and port_map:
-            _report_http_ports(job_id, port_map)
-
-        # For interactive jobs, report SSH connection info
-        if is_interactive:
-            report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
-            log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
+        if is_serverless:
+            worker_id = str(job.get("serverless_worker_id") or "")
+            http_port = int(job.get("http_port") or 8080)
+            health_path = str(job.get("health_check_path") or "/health")
+            host_http_port = int(port_map.get(str(http_port)) or http_port)
+            if port_map:
+                _report_http_ports(job_id, port_map)
             _push_log_lines(
                 job_id,
                 [
                     {
-                        "message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
+                        "message": f"Waiting for serverless health on :{host_http_port}{health_path}",
                         "level": "info",
                         "timestamp": time.time(),
-                    },
+                    }
                 ],
             )
+            if not _wait_serverless_health(host_http_port, health_path):
+                err = f"health check failed on :{host_http_port}{health_path}"
+                _serverless_callback(
+                    worker_id,
+                    "exited",
+                    {"exit_code": 1, "error_message": err},
+                )
+                report_job_status(job_id, "failed", error_message=err)
+                release_lease(job_id, "failed")
+                _kill_container(container_name)
+                return
+            _serverless_callback(worker_id, "ready", {"host_id": str(HOST_ID or "")})
+            report_job_status(
+                job_id,
+                "running",
+                host_id=HOST_ID,
+                container_id=container_id,
+                container_name=container_name,
+            )
+            _push_log_lines(
+                job_id,
+                [
+                    {
+                        "message": f"Serverless worker {worker_id} ready",
+                        "level": "info",
+                        "timestamp": time.time(),
+                    }
+                ],
+            )
+        else:
+            # 4b. Inject user's SSH keys into the container (best-effort, 45s base
+            #     budget, extended by 45s when openssh-server must be installed).
+            #     _inject_ssh_keys is guaranteed to emit a final summary line via
+            #     both the log stream AND the container's PID-1 stdout, so the user
+            #     never sees "Setting up SSH…" hang indefinitely.
+            _inject_ssh_keys(job_id, container_name, interactive=is_interactive)
 
-        # P2.1: user-supplied provisioning hooks. These run AFTER SSH is ready
-        # so the banner timing is not affected, each capped at 15 s via the
-        # `timeout` coreutil so a stuck clone or hanging init can't strand
-        # the instance.
-        _run_provisioning_hooks(job_id, container_name, job)
+            # 4c. SSH is either ready or has emitted a reason — flip to "running".
+            report_job_status(
+                job_id,
+                "running",
+                host_id=HOST_ID,
+                container_id=container_id,
+                container_name=container_name,
+            )
 
-        # P2.3: Jupyter / VSCode (code-server) auto-launch. Runs after
-        # provisioning hooks so user init scripts can seed a venv /
-        # conda env before Jupyter installs into the default python.
-        # Never fatal — a failed auto-launch must not kill the instance.
-        try:
-            _run_auto_launch(job_id, container_name, job)
-        except Exception as e:
-            log.debug("auto_launch error (non-fatal): %s", e)
+            # P2.2: report the final HTTP port mapping to the API so
+            # `/instances/{id}/expose` and the nginx subdomain router can
+            # resolve public URLs. Best-effort — a failed report just means
+            # the public URL won't resolve yet; the next heartbeat cycle
+            # will retry via _report_http_ports_with_retry.
+            if is_interactive and port_map:
+                _report_http_ports(job_id, port_map)
+
+            # For interactive jobs, report SSH connection info
+            if is_interactive:
+                report_job_status(job_id, "running", ssh_port=host_port, interactive=True)
+                log.info("Interactive instance %s ready — SSH port %d", job_id, host_port)
+                _push_log_lines(
+                    job_id,
+                    [
+                        {
+                            "message": f"Interactive instance ready — SSH: root@{get_host_ip() or 'host'}:{host_port}",
+                            "level": "info",
+                            "timestamp": time.time(),
+                        },
+                    ],
+                )
+
+            # P2.1: user-supplied provisioning hooks. These run AFTER SSH is ready
+            # so the banner timing is not affected, each capped at 15 s via the
+            # `timeout` coreutil so a stuck clone or hanging init can't strand
+            # the instance.
+            _run_provisioning_hooks(job_id, container_name, job)
+
+            # P2.3: Jupyter / VSCode (code-server) auto-launch. Runs after
+            # provisioning hooks so user init scripts can seed a venv /
+            # conda env before Jupyter installs into the default python.
+            # Never fatal — a failed auto-launch must not kill the instance.
+            try:
+                _run_auto_launch(job_id, container_name, job)
+            except Exception as e:
+                log.debug("auto_launch error (non-fatal): %s", e)
 
         # 5. Apply egress rules (best-effort)
         try:
@@ -3391,7 +3608,14 @@ def run_job(job):
 
         # 7. Monitor container until completion
         current_stage = "monitoring container"
-        if is_interactive:
+        if is_serverless:
+            _monitor_serverless_worker(
+                job_id,
+                container_name,
+                str(job.get("serverless_worker_id") or ""),
+                log_forwarder=log_fwd,
+            )
+        elif is_interactive:
             _monitor_interactive(job_id, container_name, log_forwarder=log_fwd)
         else:
             _monitor_container(job_id, container_name, log_forwarder=log_fwd)

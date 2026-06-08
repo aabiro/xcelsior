@@ -11,5 +11,13 @@ export interface VolumeAttachRequest {
     volume_id: string;
     instance_id: string;
     mount_path?: string;
-    mode?: string;
+    mode?: VolumeAttachRequest.Mode;
+}
+
+export namespace VolumeAttachRequest {
+    export const Mode = {
+        Rw: "rw",
+        Ro: "ro",
+    } as const;
+    export type Mode = (typeof Mode)[keyof typeof Mode];
 }

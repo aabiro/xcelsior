@@ -1224,6 +1224,7 @@ def submit_job(
     auto_launch=None,
     exposed_ports=None,
     source_template_id=None,
+    job_type=None,
 ):
     """
     Submit a job to the queue.
@@ -1296,6 +1297,7 @@ def submit_job(
         "auto_launch": list(auto_launch or []),
         "exposed_ports": list(exposed_ports or []),
         "source_template_id": source_template_id or "",
+        "job_type": (job_type or "").strip(),
     }
 
     # Spot jobs are preemptible and participate in the spot pricing market
@@ -2103,6 +2105,9 @@ def run_job(job, host, docker_image=None):
     # Environment variables: pass job ID and API token so the container
     # can report status back if needed
     parts.append(f"-e XCELSIOR_JOB_ID={shlex.quote(job['job_id'])}")
+    job_type = str(job.get("job_type") or "").strip()
+    if job_type:
+        parts.append(f"-e XCELSIOR_JOB_TYPE={shlex.quote(job_type)}")
 
     # Image
     parts.append(shlex.quote(image))

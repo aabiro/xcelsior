@@ -103,3 +103,26 @@ def test_auto_launch_lowercased_csv():
         {"job_id": "abcd1234", "auto_launch": ["JUPYTER", "VSCode"]}, _gpu()
     )
     assert env["XCELSIOR_AUTO_LAUNCH"] == "jupyter,vscode"
+
+
+def test_serverless_env_keys_when_job_type_set(monkeypatch):
+    monkeypatch.setattr(worker_agent, "API_TOKEN", "agent-token")
+    env = worker_agent.build_platform_env(
+        {
+            "job_id": "abcd1234",
+            "job_type": "serverless_worker",
+            "serverless_worker_id": "swk-abc",
+            "serverless_endpoint_id": "sep-xyz",
+            "http_port": 9090,
+            "health_check_path": "/healthz",
+        },
+        _gpu(),
+    )
+    for key in worker_agent.SERVERLESS_PLATFORM_ENV_KEYS:
+        assert key in env, f"missing serverless key: {key}"
+    assert env["XCELSIOR_JOB_TYPE"] == "serverless_worker"
+    assert env["XCELSIOR_WORKER_ID"] == "swk-abc"
+    assert env["XCELSIOR_ENDPOINT_ID"] == "sep-xyz"
+    assert env["XCELSIOR_HTTP_PORT"] == "9090"
+    assert env["XCELSIOR_HEALTH_CHECK_PATH"] == "/healthz"
+    assert env["XCELSIOR_API_TOKEN"] == "agent-token"

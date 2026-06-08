@@ -78,7 +78,7 @@ const AuthContext = createContext<AuthState>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(() => needsSessionOnMount(null));
+  const [loading, setLoading] = useState(() => needsSessionOnMount(pathname));
   const [sessionExpiring, setSessionExpiring] = useState(false);
   const sessionFetched = useRef(false);
 

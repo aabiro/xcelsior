@@ -176,9 +176,17 @@ const job = await client.inference.submit({
 // List available models
 const models = await client.inference.listModels();
 
-// OpenAI-compatible chat completions
-const response = await client.inferenceV2.chatCompletions({
-  model: "llama-3-70b",
+// Serverless — create endpoint, run job, OpenAI chat
+const { endpoint } = await client.serverless.createEndpoint({
+  name: "my-llama",
+  mode: "preset",
+  modelName: "meta-llama/Llama-3.1-8B-Instruct",
+  minWorkers: 0,
+  maxWorkers: 2,
+});
+const job = await client.serverless.runJob(endpoint.endpointId, { input: { prompt: "Hi" } });
+const chat = await client.serverless.chatCompletions(endpoint.endpointId, {
+  model: "meta-llama/Llama-3.1-8B-Instruct",
   messages: [{ role: "user", content: "Hello" }],
 });
 ```
@@ -196,7 +204,8 @@ The SDK is organized around the main product areas exposed in Xcelsior's public 
 | Marketplace v2 | `client.marketplaceV2` | Reservations and advanced capacity search |
 | Volumes | `client.volumes` | Persistent storage volumes |
 | Artifacts | `client.artifacts` | Artifact upload and download URLs |
-| Inference v2 | `client.inferenceV2` | Managed endpoints and OpenAI-compatible inference |
+| Serverless | `client.serverless` | Autoscaling inference endpoints, queue API, OpenAI proxy |
+| Inference (batch) | `client.inference` | HuggingFace scheduler jobs (`/api/inference`, `/v1/inference`) |
 
 ## Error Handling
 

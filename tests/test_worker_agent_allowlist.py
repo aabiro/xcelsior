@@ -25,6 +25,7 @@ def test_c7_allowlist_covers_known_commands():
         "snapshot_container",
         "mount_volume",
         "unmount_volume",
+        "prepull_image",
     }
     assert worker_agent._AGENT_COMMAND_ALLOWED == expected
 

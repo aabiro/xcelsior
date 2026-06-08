@@ -74,6 +74,8 @@ navigation:
             path: ./pages/hosts.mdx
           - page: Jobs & Scheduling
             path: ./pages/jobs.mdx
+          - page: Serverless Inference
+            path: ./pages/serverless-inference.mdx
           - page: Marketplace
             path: ./pages/marketplace.mdx
       - section: Billing & Compliance

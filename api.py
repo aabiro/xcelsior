@@ -201,17 +201,27 @@ def _start_background_tasks():
 
     tasks.append(("spot_updater", _spot_updater, 600))
 
-    # 4. Inference scaledown (every 5 minutes)
-    def _inference_scaledown():
+    # 4. Serverless reconcile (autoscaler + dispatch, every 45s)
+    def _serverless_reconcile():
         try:
-            from inference import get_inference_engine
+            from serverless.service import get_serverless_service
 
-            ie = get_inference_engine()
-            ie.scaledown_idle_workers()
+            get_serverless_service().reconcile_all()
         except Exception as e:
-            log.error("Inference scaledown error: %s", e)
+            log.error("Serverless reconcile error: %s", e)
 
-    tasks.append(("inference_scaledown", _inference_scaledown, 300))
+    tasks.append(("serverless_reconcile", _serverless_reconcile, 45))
+
+    def _serverless_webhook_retry():
+        try:
+            from serverless.repo import ServerlessRepo
+            from serverless.webhooks import retry_pending_webhooks
+
+            retry_pending_webhooks(ServerlessRepo())
+        except Exception as e:
+            log.error("Serverless webhook retry error: %s", e)
+
+    tasks.append(("serverless_webhook_retry", _serverless_webhook_retry, 30))
 
     # 5. Cloud burst evaluator (every 2 minutes)
     def _burst_evaluator():
@@ -779,9 +789,20 @@ body{{margin:0;background:#0a0a0a;color:#e0e0e0;font-family:'Courier New',monosp
 <body><div class="maple">🍁</div><p class="code">{exc.status_code}</p><p class="title">{title}</p>
 <p class="msg">{exc.detail}</p><a href="/dashboard" class="home">← Back to Dashboard</a></body></html>"""
         return HTMLResponse(content=html, status_code=exc.status_code)
+    headers = dict(exc.headers) if exc.headers else None
+    detail = exc.detail
+    if isinstance(detail, dict):
+        err = detail.get("error")
+        if isinstance(err, dict) and err.get("code"):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"ok": False, "error": err},
+                headers=headers,
+            )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"ok": False, "error": {"code": "http_error", "message": str(exc.detail)}},
+        content={"ok": False, "error": {"code": "http_error", "message": str(detail)}},
+        headers=headers,
     )
 
 
