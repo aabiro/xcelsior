@@ -471,14 +471,14 @@ def _load_public_openapi_spec() -> dict:
     global _PUBLIC_OPENAPI_CACHE
     if _PUBLIC_OPENAPI_CACHE is not None:
         return _PUBLIC_OPENAPI_CACHE
-    spec_path = Path(__file__).resolve().parent / "fern" / "openapi.json"
-    if spec_path.exists():
-        _PUBLIC_OPENAPI_CACHE = json.loads(spec_path.read_text(encoding="utf-8"))
-        return _PUBLIC_OPENAPI_CACHE
-    from scripts.generate_public_openapi import build_public_spec
-
-    _PUBLIC_OPENAPI_CACHE = build_public_spec()
-    return _PUBLIC_OPENAPI_CACHE
+    root = Path(__file__).resolve().parent
+    for spec_path in (root / "public" / "openapi.json", root / "fern" / "openapi.json"):
+        if spec_path.exists():
+            _PUBLIC_OPENAPI_CACHE = json.loads(spec_path.read_text(encoding="utf-8"))
+            return _PUBLIC_OPENAPI_CACHE
+    raise RuntimeError(
+        "Public OpenAPI spec missing — run: python3 scripts/generate_public_openapi.py"
+    )
 
 
 def public_openapi() -> dict:
