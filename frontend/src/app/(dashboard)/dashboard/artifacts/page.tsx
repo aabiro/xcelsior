@@ -13,6 +13,9 @@ import * as api from "@/lib/api";
 import type { ArtifactEntry } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
+import { useAuth } from "@/lib/auth";
+import { getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 
 const REGIONS = [
   { value: "canada_only", label: "Canada only (strict residency)" },
@@ -37,6 +40,9 @@ function formatSize(bytes: number) {
 
 export default function ArtifactsPage() {
   const { t } = useLocale();
+  const { user } = useAuth();
+  const team = getTeamContext(user);
+  const canWrite = team.canWriteInstances;
   const [artifacts, setArtifacts] = useState<ArtifactEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -60,6 +66,12 @@ export default function ArtifactsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { load(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [load]);
 
   // Drag and drop handlers
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
@@ -130,10 +142,11 @@ export default function ArtifactsPage() {
 
   return (
     <div className="space-y-6">
+      <TeamContextBanner team={team} variant="artifacts" />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("dash.artifacts.title")}</h1>
         <div className="flex gap-2">
-          <Button size="sm" onClick={() => setShowUpload(!showUpload)}>
+          <Button size="sm" onClick={() => setShowUpload(!showUpload)} disabled={!canWrite}>
             <Upload className="h-3.5 w-3.5" /> {t("dash.artifacts.upload_btn")}
           </Button>
           <Button variant="outline" size="sm" onClick={load}>
@@ -254,7 +267,7 @@ export default function ArtifactsPage() {
           <Package className="mx-auto h-12 w-12 text-text-muted mb-4" />
           <h3 className="text-lg font-semibold mb-1">{t("dash.artifacts.empty")}</h3>
           <p className="text-sm text-text-secondary mb-3">{t("dash.artifacts.empty_desc")}</p>
-          <Button size="sm" onClick={() => setShowUpload(true)}>
+          <Button size="sm" onClick={() => setShowUpload(true)} disabled={!canWrite}>
             <Upload className="h-3.5 w-3.5" /> {t("dash.artifacts.empty_cta")}
           </Button>
         </Card>

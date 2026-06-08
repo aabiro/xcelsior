@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 interface TeamContextBannerProps {
   team: TeamContext;
-  variant?: "billing" | "instances" | "volumes" | "general";
+  variant?: "billing" | "instances" | "volumes" | "analytics" | "artifacts" | "general";
   concurrency?: InstanceConcurrency | null;
   className?: string;
 }
@@ -62,7 +62,11 @@ export function TeamContextBanner({
                   ? t("dash.team.banner_instances_desc")
                   : variant === "volumes"
                     ? t("dash.team.banner_volumes_desc")
-                    : t("dash.team.banner_desc")}
+                    : variant === "analytics"
+                      ? t("dash.team.banner_analytics_desc")
+                      : variant === "artifacts"
+                        ? t("dash.team.banner_artifacts_desc")
+                        : t("dash.team.banner_desc")}
             </p>
           </div>
         </div>
@@ -74,7 +78,7 @@ export function TeamContextBanner({
               {t("dash.team.billing_read_only")}
             </span>
           )}
-          {(variant === "instances" || variant === "volumes") && !team.canWriteInstances && (
+          {(variant === "instances" || variant === "volumes" || variant === "artifacts") && !team.canWriteInstances && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-surface/60 px-2.5 py-1 text-xs text-text-muted">
               <Eye className="h-3.5 w-3.5" />
               {variant === "volumes"

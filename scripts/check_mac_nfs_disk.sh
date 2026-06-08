@@ -6,7 +6,9 @@
 #   WARN_PCT=80 CRIT_PCT=90 bash scripts/check_mac_nfs_disk.sh
 set -euo pipefail
 
-MAC_HOST="${MAC_NFS_HOST:-aaryn@100.64.0.3}"
+# Deprecated: Mac appliance retired. Prefer scripts/check_nfs_disk.sh (VPS).
+# NFS_SSH_HOST replaces legacy MAC_NFS_HOST.
+MAC_HOST="${NFS_SSH_HOST:-${MAC_NFS_HOST:-aaryn@100.64.0.3}}"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 WARN_PCT="${WARN_PCT:-80}"
 CRIT_PCT="${CRIT_PCT:-90}"

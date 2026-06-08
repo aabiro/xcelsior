@@ -237,13 +237,13 @@ umount -l /mnt/xcelsior-volumes/vol-*   # careful — verify not in use
 | Total GB per owner | `XCELSIOR_MAX_TOTAL_STORAGE_GB` | 2000 | Team wallet shares one cap |
 | Volume count per owner | `XCELSIOR_MAX_VOLUMES_PER_OWNER` | 50 | Abuse guard for many 1 GB volumes |
 
-**Mac appliance disk:** Monitor InferenceData SSD with `scripts/check_mac_nfs_disk.sh` (warn 80%, crit 90%).
+**VPS export disk:** `bash scripts/check_nfs_disk.sh` (warn 80%, crit 90%). Legacy Mac: `check_mac_nfs_disk.sh`.
 
-**Suggested cron** (workstation or monitoring host with mesh SSH to Mac):
+**Suggested cron** (on VPS or monitoring host):
 
 ```cron
-# Daily 06:00 — Mac NFS disk check
-0 6 * * * /path/to/xcelsior/scripts/check_mac_nfs_disk.sh >> /var/log/xcelsior-mac-nfs-disk.log 2>&1
+# Daily 06:00 — VPS NFS disk check
+0 6 * * * /opt/xcelsior/scripts/check_nfs_disk.sh >> /var/log/xcelsior-nfs-disk.log 2>&1
 ```
 
 ---
@@ -273,7 +273,7 @@ python3 scripts/volumes_e2e_smoke.py --base-url https://xcelsior.ca --infra-only
 # LUKS encrypted volume provision + delete:
 python3 scripts/volumes_e2e_smoke.py --infra-only --encrypted
 
-# VPS→Mac NFS mount (simulates GPU worker mesh mount):
+# VPS NFS mount smoke (simulates GPU worker mesh mount):
 python3 scripts/volumes_e2e_smoke.py --infra-only --worker-mount
 
 # Optional second GPU worker mount (SKIP if host not registered, e.g. aarynfans-prod):
@@ -292,11 +292,11 @@ python3 scripts/volumes_e2e_smoke.py --hot-attach
 # Volume billing tick audit (prod):
 docker compose exec -T api-blue python scripts/volumes_billing_audit.py
 
-# LUKS reopen after Mac NFS reboot:
+# LUKS reopen after NFS host reboot:
 docker compose exec -T api-blue python scripts/volumes_reopen_luks.py --dry-run
 
 # Interim prod GPU worker (until tower-server returns): ASUS RTX 2060 at 100.64.0.6
-# Worker env must include Mac NFS settings — see ~/.xcelsior/worker.env on the host.
+# Worker env: XCELSIOR_NFS_SERVER=100.64.0.1 — see ~/.xcelsior/worker.env on the host.
 
 # Full path including instance launch (requires funded wallet):
 python3 scripts/volumes_e2e_smoke.py --base-url https://xcelsior.ca

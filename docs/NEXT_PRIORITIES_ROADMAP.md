@@ -94,7 +94,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] `XCELSIOR_NFS_REQUIRED=true` fails readiness in production
 - [x] **Structured logs** for provision / attach / mount failures (grep-friendly — see runbook)
 - [x] **Runbook:** [`VOLUMES_RUNBOOK.md`](./VOLUMES_RUNBOOK.md)
-- [x] **Alerts:** export disk >80%/90% — `check_mac_nfs_disk.sh` + cron example in runbook (2026-06-07)
+- [x] **Alerts:** export disk >80%/90% — `check_nfs_disk.sh` (VPS) + cron in runbook (2026-06-08)
 
 ### 1.7 Testing & E2E
 
@@ -211,10 +211,10 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 3.3 Frontend — consistent UX
 
-- [ ] **`TeamContextBanner`** on: billing, instances, volumes (done); **add:** analytics, artifacts, launch modal header
+- [~] **`TeamContextBanner`** on: billing, instances, volumes, analytics, artifacts (2026-06-08); **add:** launch modal header
 - [ ] **`TeamSwitcher`** visible when `teams.length >= 1` (done)
 - [ ] **Settings workspace picker** for single-team users (done)
-- [ ] **`xcelsior-team-changed` listener** on: billing, instances, credits, volumes (done); **add:** analytics, artifacts
+- [~] **`xcelsior-team-changed` listener** on: billing, instances, credits, volumes, analytics, artifacts (2026-06-08)
 - [ ] **Viewer gates** on all mutation buttons (instances, volumes, launch, billing deposit)
 - [ ] **Settings team tab** i18n complete EN/FR (done)
 

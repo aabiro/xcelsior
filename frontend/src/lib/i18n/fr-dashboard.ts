@@ -28,6 +28,8 @@ const fr_dashboard: Record<string, string> = {
   "dash.team.banner_billing_desc": "Le solde et l'utilisation sont partagés entre tous les membres.",
   "dash.team.banner_instances_desc": "Les instances lancées par un membre partagent le portefeuille et le quota de concurrence.",
   "dash.team.banner_volumes_desc": "Les volumes créés dans cet espace sont facturés au portefeuille d'équipe et visibles par tous les membres.",
+  "dash.team.banner_analytics_desc": "L'utilisation et les dépenses reflètent le portefeuille et les jobs de l'espace d'équipe actif.",
+  "dash.team.banner_artifacts_desc": "Les artefacts sont liés aux instances d'équipe; les téléversements exigent le rôle membre ou admin.",
   "dash.team.shared_wallet": "Portefeuille d'équipe",
   "dash.team.billing_read_only": "Facturation en lecture seule",
   "dash.team.instances_read_only": "Accès en lecture seule",

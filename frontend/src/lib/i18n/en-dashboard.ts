@@ -28,6 +28,8 @@ const en_dashboard: Record<string, string> = {
   "dash.team.banner_billing_desc": "Wallet balance and usage are shared across all team members.",
   "dash.team.banner_instances_desc": "Instances launched by any member share the team wallet and concurrency pool.",
   "dash.team.banner_volumes_desc": "Volumes created in this workspace are billed to the team wallet and visible to all members.",
+  "dash.team.banner_analytics_desc": "Usage and spend reflect the active team workspace wallet and jobs.",
+  "dash.team.banner_artifacts_desc": "Artifacts are scoped to team instances; uploads require member or admin role.",
   "dash.team.shared_wallet": "Team wallet",
   "dash.team.billing_read_only": "Billing read-only",
   "dash.team.instances_read_only": "View-only access",

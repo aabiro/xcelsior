@@ -81,7 +81,7 @@ def _poll_instance(client: httpx.Client, hdrs: dict[str, str], job_id: str) -> d
 def _nfs_write_marker(volume_id: str, marker: str, filename: str) -> bool:
     """Write a marker file on NFS export (SSH to VPS host)."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    host = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
+    host = os.environ.get("NFS_SSH_HOST", "linuxuser@100.64.0.1")
     wrap = os.environ.get("XCELSIOR_NFS_SSH_CMD_WRAP", "").strip()
     path = f"/exports/volumes/{volume_id}/{filename}"
     remote = f"sh -c 'echo {marker} > {path}'"
@@ -108,7 +108,7 @@ def _nfs_write_marker(volume_id: str, marker: str, filename: str) -> bool:
 def _worker_docker_cat(host_ip: str, job_id: str, container_path: str) -> str | None:
     """Read a file inside a running instance via worker docker exec."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    ssh_user = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
+    ssh_user = os.environ.get("WORKER_SSH_USER", os.environ.get("XCELSIOR_SSH_USER", "aaryn"))
     container = f"xcl-{job_id}"
     remote = f"docker exec {container} cat {container_path}"
     cmd = [
@@ -134,7 +134,7 @@ def _worker_docker_cat(host_ip: str, job_id: str, container_path: str) -> str | 
 def _nfs_read_marker(volume_id: str) -> str | None:
     """Read persist marker from NFS export (SSH to VPS host)."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    host = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
+    host = os.environ.get("NFS_SSH_HOST", "linuxuser@100.64.0.1")
     wrap = os.environ.get("XCELSIOR_NFS_SSH_CMD_WRAP", "").strip()
     path = f"/exports/volumes/{volume_id}/{PERSIST_MARKER}.txt"
     remote = f"cat {path}"
@@ -161,21 +161,25 @@ def _nfs_read_marker(volume_id: str) -> str | None:
 
 
 def _nfs_mount_remote_cmd(mount_dir: str) -> str:
-    nfs_server = os.environ.get("XCELSIOR_NFS_SERVER", "100.64.0.3")
+    nfs_server = os.environ.get("XCELSIOR_NFS_SERVER", "100.64.0.1")
     export = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
+    mount_opts = os.environ.get(
+        "XCELSIOR_NFS_MOUNT_OPTS",
+        "hard,timeo=15,retrans=2,tcp,nfsvers=4",
+    )
     return (
         f"sudo mkdir -p {mount_dir} && sudo umount {mount_dir} 2>/dev/null || true; "
-        f"sudo mount -t nfs4 -o nfsvers=4.0,port=12049,hard,timeo=15,retrans=2,tcp "
+        f"sudo mount -t nfs4 -o {mount_opts} "
         f"{nfs_server}:{export}/mount-test {mount_dir} && "
         f"ls {mount_dir} && sudo umount {mount_dir} && echo WORKER_MOUNT_OK"
     )
 
 
 def _worker_mount_smoke(worker_host: str | None = None) -> bool:
-    """Mount Mac NFS from VPS or a GPU worker host — same path workers use at job start."""
+    """Mount VPS NFS from mesh host or GPU worker — same path workers use at job start."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
     if worker_host:
-        ssh_user = os.environ.get("XCELSIOR_SSH_USER", "xcelsior")
+        ssh_user = os.environ.get("WORKER_SSH_USER", os.environ.get("XCELSIOR_SSH_USER", "aaryn"))
         target = f"{ssh_user}@{worker_host}"
         label = f"worker-host {worker_host}"
     else:
@@ -473,11 +477,11 @@ def main() -> int:
     parser.add_argument(
         "--worker-mount",
         action="store_true",
-        help="Mount Mac NFS from VPS (simulates GPU worker mesh mount)",
+        help="Mount VPS NFS from mesh host (simulates GPU worker mesh mount)",
     )
     parser.add_argument(
         "--worker-host",
-        default=os.environ.get("AARYNFANS_PROD_HOST") or os.environ.get("WORKER_MOUNT_HOST"),
+        default=os.environ.get("WORKER_MOUNT_HOST") or os.environ.get("AARYNFANS_PROD_HOST"),
         help="Optional GPU worker mesh IP for --worker-mount (skips if unreachable)",
     )
     parser.add_argument(
