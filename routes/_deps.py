@@ -690,6 +690,60 @@ def _require_inference_job_access(user: dict, job_id: str) -> None:
     _check_job_access(user, job_id)
 
 
+def _inference_owner_ids_readable(user: dict) -> set[str]:
+    """Inference endpoint owner_id values visible to the caller."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _inference_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created inference endpoints in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_inference_endpoint(user: dict, ep: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(ep.get("owner_id") or "").strip()
+    return owner in _inference_owner_ids_readable(user)
+
+
+def _require_inference_endpoint_access(user: dict, ep: dict) -> None:
+    if not _user_can_access_inference_endpoint(user, ep):
+        raise HTTPException(403, "Forbidden")
+
+
+def _require_inference_endpoint_write(user: dict, ep: dict) -> None:
+    _require_inference_endpoint_access(user, ep)
+    _require_team_instance_write(user)
+
+
+def _user_image_owner_ids_readable(user: dict) -> set[str]:
+    """User image template owner_id values visible to the caller."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _user_image_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created templates in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_user_image(user: dict, image_owner_id: str) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(image_owner_id or "").strip()
+    return owner in _user_image_owner_ids_readable(user)
+
+
+def _require_user_image_read(user: dict, image_owner_id: str) -> None:
+    if not _user_can_access_user_image(user, image_owner_id):
+        raise HTTPException(404, "Image not found")
+
+
+def _require_user_image_write(user: dict, image_owner_id: str) -> None:
+    _require_user_image_read(user, image_owner_id)
+    _require_team_instance_write(user)
+
+
 def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     merged = dict(base or {})
     if full_user:

@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -472,6 +473,10 @@ export function LaunchInstanceModal({
               <X className="h-5 w-5" />
             </button>
           </CardHeader>
+
+          <div className="px-6 pb-2">
+            <TeamContextBanner team={team} variant="instances" />
+          </div>
 
           <CardContent className="space-y-5">
             {launchBlocked && (
