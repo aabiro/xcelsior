@@ -27,6 +27,7 @@ from routes._deps import (
     _user_image_scope_owner_id,
     _check_ws_connect_rate_limit,
     _require_team_instance_write,
+    append_user_audit_event,
     _user_can_access_volume,
     _consume_ws_ticket,
     _filter_jobs_for_user,
@@ -470,6 +471,7 @@ def api_submit_instance(j: JobIn, request: Request):
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
+    _require_team_instance_write(user)
 
     vram_needed = 0.0
     target_host_id = j.host_id
@@ -692,6 +694,13 @@ def api_submit_instance(j: JobIn, request: Request):
             except Exception as e:
                 log.warning("Queue processing after submit failed: %s", e)
 
+        append_user_audit_event(
+            "user.instance.launched",
+            "job",
+            job["job_id"],
+            user,
+            data={"name": job.get("name"), "customer_id": customer_id},
+        )
         return {"ok": True, "instance": job}
 
 
@@ -1125,6 +1134,7 @@ def api_stop_instance(job_id: str, request: Request):
         raise HTTPException(status_code=500, detail=result.get("reason", "stop failed"))
 
     broadcast_sse("instance_stopped", {"job_id": job_id})
+    append_user_audit_event("user.instance.stopped", "job", job_id, user)
     return {"ok": True, "instance": result}
 
 
@@ -1161,6 +1171,7 @@ def api_start_instance(job_id: str, request: Request):
         raise HTTPException(status_code=code, detail=detail)
 
     broadcast_sse("instance_started", {"job_id": job_id})
+    append_user_audit_event("user.instance.started", "job", job_id, user)
     return {"ok": True, "instance": result}
 
 
@@ -1202,6 +1213,7 @@ def api_restart_instance(job_id: str, request: Request):
         raise HTTPException(status_code=code, detail=detail)
 
     broadcast_sse("instance_restarted", {"job_id": job_id})
+    append_user_audit_event("user.instance.restarted", "job", job_id, user)
     return {"ok": True, "instance": result}
 
 
@@ -1274,6 +1286,7 @@ def api_terminate_instance(job_id: str, request: Request):
         raise HTTPException(status_code=400, detail=result.get("reason", "terminate failed"))
 
     broadcast_sse("instance_terminated", {"job_id": job_id})
+    append_user_audit_event("user.instance.terminated", "job", job_id, user)
     return {"ok": True, "instance": result}
 
 

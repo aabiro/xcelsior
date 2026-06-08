@@ -558,6 +558,86 @@ def test_viewer_cannot_create_oauth_client(team_roles):
     assert "viewer" in blocked.text.lower()
 
 
+def test_viewer_cannot_launch_team_instance(team_roles):
+    blocked = client.post(
+        "/instance",
+        json={"name": "viewer-launch-blocked", "vram_needed_gb": 1},
+        headers=team_roles["viewer"]["headers"],
+    )
+    assert blocked.status_code == 403, blocked.text[:200]
+    assert "viewer" in blocked.text.lower()
+
+
+def test_cross_team_idor_job_get(team_roles):
+    """Outsider must not read team job by direct ID."""
+    r = client.get(
+        f"/instance/{team_roles['job_id']}",
+        headers=team_roles["outsider"]["headers"],
+    )
+    assert r.status_code == 403, r.text[:200]
+
+
+def test_cross_team_idor_volume_get(team_roles):
+    created = client.post(
+        "/api/v2/volumes",
+        json={"name": f"idor-vol-{uuid.uuid4().hex[:8]}", "size_gb": 1},
+        headers=team_roles["member"]["headers"],
+    )
+    assert created.status_code == 200, created.text[:200]
+    volume_id = created.json()["volume"]["volume_id"]
+
+    outsider_get = client.get(
+        f"/api/v2/volumes/{volume_id}",
+        headers=team_roles["outsider"]["headers"],
+    )
+    assert outsider_get.status_code == 404, outsider_get.text[:200]
+
+    client.delete(f"/api/v2/volumes/{volume_id}", headers=team_roles["admin"]["headers"])
+
+
+def test_cross_team_idor_artifact_job_download(team_roles, monkeypatch):
+    job_id = team_roles["job_id"]
+
+    def fake_get_job_artifacts(self, jid):
+        if jid == job_id:
+            return [{"key": f"job_output/{jid}/secret.bin", "size_bytes": 42}]
+        return []
+
+    monkeypatch.setattr("artifacts.ArtifactManager.get_job_artifacts", fake_get_job_artifacts)
+
+    outsider = client.get(
+        f"/api/artifacts/{job_id}",
+        headers=team_roles["outsider"]["headers"],
+    )
+    assert outsider.status_code in (403, 404), outsider.text[:200]
+
+
+def test_user_audit_event_includes_team_metadata(team_roles):
+    from events import get_event_store
+
+    created = client.post(
+        "/api/v2/volumes",
+        json={"name": f"audit-vol-{uuid.uuid4().hex[:8]}", "size_gb": 1},
+        headers=team_roles["member"]["headers"],
+    )
+    assert created.status_code == 200, created.text[:200]
+    volume_id = created.json()["volume"]["volume_id"]
+
+    events = get_event_store().get_events(
+        entity_type="volume",
+        entity_id=volume_id,
+        event_type="user.volume.created",
+        limit=5,
+    )
+    assert events, "expected user.volume.created audit event"
+    meta = events[-1].metadata
+    assert meta.get("team_id") == team_roles["team_id"]
+    assert meta.get("team_role") == "member"
+    assert meta.get("billing_customer_id") == team_roles["billing_customer_id"]
+
+    client.delete(f"/api/v2/volumes/{volume_id}", headers=team_roles["admin"]["headers"])
+
+
 def test_personal_user_concurrency_isolated_from_team(team_roles, monkeypatch):
     import routes.instances as inst
 

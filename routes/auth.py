@@ -628,6 +628,15 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
         workspace_customer_id=workspace_customer_id,
         team_id=team_id,
     )
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "user.oauth.client_created",
+        "oauth_client",
+        client["client_id"],
+        user,
+        data={"client_name": client.get("client_name")},
+    )
     return {"ok": True, "client": client}
 
 
@@ -674,6 +683,9 @@ def api_delete_oauth_client(client_id: str, request: Request):
         )
     if not deleted:
         raise HTTPException(404, "OAuth client not found")
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event("user.oauth.client_deleted", "oauth_client", client_id, user)
     return {"ok": True}
 
 

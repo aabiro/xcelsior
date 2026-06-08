@@ -591,6 +591,49 @@ def _team_context_for_user(user: dict) -> dict:
     return ctx
 
 
+def _audit_metadata_for_user(user: dict) -> dict:
+    """Team/workspace context attached to user-initiated audit events."""
+    meta: dict = {
+        "billing_customer_id": _effective_billing_customer_id(user),
+        "user_id": str(user.get("user_id") or "").strip(),
+        "email": str(user.get("email") or "").strip().lower(),
+    }
+    team_id = _user_team_id(user)
+    if team_id:
+        meta["team_id"] = team_id
+        role = _team_member_role(user, team_id)
+        if role:
+            meta["team_role"] = role
+    return meta
+
+
+def append_user_audit_event(
+    event_type: str,
+    entity_type: str,
+    entity_id: str,
+    user: dict,
+    *,
+    data: dict | None = None,
+) -> None:
+    """Best-effort tamper-evident audit event for customer mutations."""
+    try:
+        from events import Event, get_event_store
+
+        actor_id = str(user.get("user_id") or user.get("email") or "unknown").strip()
+        get_event_store().append(
+            Event(
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                actor=f"user:{actor_id}",
+                data=data or {},
+                metadata=_audit_metadata_for_user(user),
+            )
+        )
+    except Exception as exc:
+        log.warning("Failed to append user audit event %s: %s", event_type, exc)
+
+
 def _require_customer_access(
     request: Request,
     customer_id: str,

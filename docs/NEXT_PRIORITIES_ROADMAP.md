@@ -14,7 +14,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 | # | Initiative | Primary outcome | Est. effort |
 |---|------------|-----------------|-------------|
 | 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | Done (2026-06-07) |
-| 2 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | 1 week |
+| 2 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | Done (2026-06-08) |
 | — | PayPal marketplace provider payouts | Second payout rail (deferred — Stripe sufficient for now) | backlog |
 | 4 | Web terminal rewrite | Usable in-browser shell on running instances | 1–2 weeks |
 | 5 | Mobile performance (F-003 phase 3) | Sub-acceptable TBT on slow 4G marketing pages | 3–5 days |
@@ -189,10 +189,10 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 3.1 Backend — resource scoping
 
-- [ ] **Instances / jobs** — `_effective_billing_customer_id` on create/list (P0 done)
-- [ ] **Volumes** — create/list/mutate scoped (done); launch validation (see #1)
-- [ ] **Billing / wallet** — `_require_customer_access`, team admin for deposits (P0 done)
-- [ ] **Concurrency pool** — shared per team plan (P2 done)
+- [x] **Instances / jobs** — `_effective_billing_customer_id` on create/list (2026-06-08)
+- [x] **Volumes** — create/list/mutate scoped; launch validation (see #1) (2026-06-08)
+- [x] **Billing / wallet** — `_require_customer_access`, team admin for deposits (2026-06-08)
+- [x] **Concurrency pool** — shared per team plan (2026-06-08)
 - [x] **Artifacts** — list/upload/download scoped to team `billing_customer_id` / accessible owner ids (2026-06-08)
 - [x] **User image templates** — create/list/delete scoped to team workspace (2026-06-08)
 - [x] **Snapshots (instance)** — rate limit and ownership via team billing id (2026-06-08)
@@ -200,38 +200,37 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **Chat / AI assistant tools** — `list_jobs`, billing, launch/stop, inference team-aware (2026-06-08)
 - [x] **OAuth / API credentials** — workspace-scoped list/create; team billing customer (2026-06-08)
 - [x] **SSH keys** — reinject targets team-accessible running instances (2026-06-08)
-- [x] **Analytics API** — usage queries filter by effective billing customer when in team context (done)
-- [ ] **Audit logs** — include `team_id`, `team_role` on mutating actions
+- [x] **Analytics API** — usage queries filter by effective billing customer when in team context (2026-06-08)
+- [x] **Audit logs** — `team_id`, `team_role`, `billing_customer_id` on launch/stop/volume/billing/oauth mutations via `append_user_audit_event` (2026-06-08)
 
 ### 3.2 Backend — auth & workspace switching
 
-- [ ] **Login / register / OAuth** responses include team context fields (login done 2026-06-07)
-- [ ] **Single-team personal workspace** — explicit `users.team_id = NULL` not auto-fallback (done)
-- [ ] **`PATCH /api/teams/active`** — switch personal ↔ team (done)
-- [ ] **Invite accept** → `refreshUser` + settings deep link `#team` (done)
+- [x] **Login / register / OAuth** responses include team context fields (2026-06-07)
+- [x] **Single-team personal workspace** — explicit `users.team_id = NULL` not auto-fallback (2026-06-07)
+- [x] **`PATCH /api/teams/active`** — switch personal ↔ team (2026-06-07)
+- [x] **Invite accept** → `refreshUser` + settings deep link `#team` (2026-06-07)
 
 ### 3.3 Frontend — consistent UX
 
 - [x] **`TeamContextBanner`** on: billing, instances, volumes, analytics, artifacts, launch modal (2026-06-08)
-- [ ] **`TeamSwitcher`** visible when `teams.length >= 1` (done)
-- [ ] **Settings workspace picker** for single-team users (done)
+- [x] **`TeamSwitcher`** visible when `teams.length >= 1` (2026-06-07)
+- [x] **Settings workspace picker** for single-team users (2026-06-07)
 - [x] **`xcelsior-team-changed` listener** on: billing, instances, credits, volumes, analytics, artifacts, settings OAuth (2026-06-08)
-- [ ] **Viewer gates** on all mutation buttons (instances, volumes, launch, billing deposit)
-- [ ] **Settings team tab** i18n complete EN/FR (done)
+- [x] **Viewer gates** on mutation buttons: instances, volumes, launch, billing deposit, OAuth credentials (2026-06-08)
+- [x] **Settings team tab** i18n complete EN/FR (2026-06-07)
 
 ### 3.4 Testing
 
-- [ ] `test_team_tenancy_p0.py` — wallet + job ownership
-- [ ] `test_team_tenancy_sweep.py` — roles, concurrency, volumes, login, personal workspace (16 tests)
-- [x] `test_team_tenancy_sweep` extended: artifacts, templates, inference (2026-06-08)
-- [ ] `frontend/src/__tests__/team-context.test.ts`
-- [ ] Security sweep: cross-team IDOR on artifacts, volumes, jobs
+- [x] `test_team_tenancy_p0.py` — wallet + job ownership (2026-06-08)
+- [x] `test_team_tenancy_sweep.py` — 31 tests: roles, concurrency, volumes, login, personal workspace, artifacts, templates, inference, oauth, IDOR, audit metadata (2026-06-08)
+- [x] `frontend/src/__tests__/team-context.test.ts` — billing fallback, admin flags, workspace switch event (2026-06-08)
+- [x] Security sweep: cross-team IDOR on artifacts, volumes, jobs (2026-06-08)
 
 ### 3.5 Acceptance criteria
 
-- [ ] No customer mutation path uses raw `user_id` where `billing_customer_id` is intended
-- [ ] Viewer role read-only on all team resources in API + UI
-- [ ] Switching workspace updates wallet, instances, volumes, analytics without full page reload (event-driven)
+- [x] No customer mutation path uses raw `user_id` where `billing_customer_id` is intended (2026-06-08)
+- [x] Viewer role read-only on all team resources in API + UI (2026-06-08)
+- [x] Switching workspace updates wallet, instances, volumes, analytics without full page reload (event-driven) (2026-06-08)
 - [ ] Enterprise demo script: create team → invite member + viewer → shared wallet → launch → viewer blocked
 
 ---
