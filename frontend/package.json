@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "concurrently -p none \"serwist build serwist.config.mjs --watch\" \"next dev\"",
-    "build": "node scripts/split-i18n.mjs && next build && serwist build serwist.config.mjs",
+    "build": "next build && serwist build serwist.config.mjs",
+    "i18n:split": "node scripts/split-i18n.mjs",
+    "analyze": "ANALYZE=true next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -19,7 +21,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
     "@next/mdx": "^16.2.1",
@@ -28,6 +29,7 @@
     "@reown/appkit-adapter-bitcoin": "^1.8.19",
     "@stripe/react-stripe-js": "^6.0.0",
     "@stripe/stripe-js": "^9.0.0",
+    "@tauri-apps/api": "^2.10.1",
     "@types/dompurify": "^3.0.5",
     "@types/qrcode": "^1.5.6",
     "@xterm/addon-fit": "^0.11.0",
@@ -53,6 +55,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@next/bundle-analyzer": "^16.2.7",
     "@playwright/test": "^1.59.1",
     "@serwist/cli": "^9.5.7",
     "@serwist/next": "^9.5.7",

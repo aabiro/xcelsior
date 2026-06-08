@@ -20,7 +20,6 @@ export function Footer() {
                 width={160}
                 height={44}
                 className="h-11 w-auto hidden dark:block"
-                priority
               />
               <Image
                 src="/xcelsior-logo-wordmark-iconbg-light.svg"
@@ -28,7 +27,6 @@ export function Footer() {
                 width={160}
                 height={44}
                 className="h-11 w-auto block dark:hidden"
-                priority
               />
             </div>
             <p className="text-sm text-text-secondary leading-relaxed">

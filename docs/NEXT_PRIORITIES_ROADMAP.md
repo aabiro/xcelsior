@@ -297,15 +297,15 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] Homepage below-fold deferred via `dynamic()` — lucide/ProviderLogo/framer split from hero (2026-06-08)
 - [x] Pricing `SavingsCalculator` dynamically imported (2026-06-08)
 - [x] `Geist_Mono` loaded on dashboard layout only — marketing sans-only (2026-06-08)
-- [ ] Defer PostHog / GTM further (`lazyOnload` done — verify no regression)
-- [ ] `framer-motion` lazy load on marketing (done — verify)
-- [ ] Font subsetting / `next/font` preload only critical weights
-- [ ] Image priority only for LCP hero
+- [x] GTM `lazyOnload` on root layout — no PostHog on marketing (2026-06-08)
+- [x] `framer-motion` lazy load on marketing via `MarketingMotion` / `LazyMotion` (2026-06-08)
+- [x] `Geist` sans root-only; mono dashboard-only; `preload: false` on both (2026-06-08)
+- [x] Footer logo `priority` removed; footer chunk deferred (2026-06-08)
 
 ### 5.3 Bundle diet
 
-- [ ] Analyze `@next/bundle-analyzer` report for `/` and `/pricing`
-- [ ] Split i18n: marketing loads `en-public` only (dashboard keys not on `/`)
+- [x] `npm run analyze` wired (`@next/bundle-analyzer`, `ANALYZE=true`) (2026-06-08)
+- [x] Split i18n: marketing loads `en-public` only; dashboard keys lazy on `/dashboard` (2026-06-08)
 - [ ] Remove or lazy-load unused lucide icons on marketing pages
 - [ ] Consider Preact compat or lighter chart lib on public GPU page only
 
@@ -313,7 +313,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 - [ ] Cloudflare early hints / HTTP3
 - [ ] Verify Brotli on HTML+JS
-- [ ] Cache headers for static assets (immutable)
+- [x] Cache headers for `/_next/static`, svg, png, woff2 (immutable) (2026-06-08)
 
 ### 5.5 Acceptance criteria
 

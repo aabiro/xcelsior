@@ -1,5 +1,7 @@
 import type { User } from "@/lib/auth";
 
+export type BillingUserRef = Pick<User, "billing_customer_id" | "customer_id" | "user_id">;
+
 export type TeamRole = "admin" | "member" | "viewer";
 
 export interface TeamContext {
@@ -20,9 +22,7 @@ export interface InstanceConcurrency {
 }
 
 /** Effective wallet / job owner id (team wallet when in a team). */
-export function getBillingCustomerId(
-  user: Pick<User, "billing_customer_id" | "customer_id" | "user_id"> | null,
-): string {
+export function getBillingCustomerId(user: BillingUserRef | null): string {
   if (!user) return "";
   return user.billing_customer_id || user.customer_id || user.user_id || "";
 }

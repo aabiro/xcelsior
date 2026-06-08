@@ -1,10 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Navbar } from "@/components/marketing/navbar";
-import { Footer } from "@/components/marketing/footer";
 import { MarketingChatWidget } from "@/components/marketing/MarketingChatWidget";
 import { MarketingMotion } from "@/components/marketing/motion";
+
+const Footer = dynamic(
+  () => import("@/components/marketing/footer").then((mod) => mod.Footer),
+  { loading: () => <div className="min-h-[12rem]" aria-hidden /> },
+);
 
 const NO_CHAT_PATHS = new Set(["/privacy", "/terms"]);
 

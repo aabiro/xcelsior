@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import bundleAnalyzer from "@next/bundle-analyzer";
+
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+});
 
 // INTERNAL_API_URL: server-side only (rewrites/SSR), never shipped to browser.
 // Falls back to NEXT_PUBLIC_API_URL (baked into client JS at build time).
@@ -57,6 +62,10 @@ const nextConfig: NextConfig = {
         source: "/:path*.woff2",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      {
+        source: "/_next/static/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
     ];
   },
   async redirects() {
@@ -100,4 +109,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

@@ -1407,6 +1407,15 @@ function ApiKeysTab({
   addingSshKey: boolean; onGenerateSsh: () => void; onAddSshKey: () => void;
   onDeleteSshKey: (id: string) => void;
 }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showPlatformKey, setShowPlatformKey] = useState(false);
+
+  const copyWithFeedback = async (text: string, id: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    window.setTimeout(() => setCopiedId(null), 2000);
+  };
+
   return (
     <StaggerList className="space-y-5">
       <StaggerItem>
