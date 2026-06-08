@@ -1,6 +1,11 @@
 import { getAllPosts } from "@/lib/blog";
 import type { Metadata } from "next";
-import { BlogContent } from "./content";
+import dynamic from "next/dynamic";
+
+const BlogContent = dynamic(
+  () => import("./content").then((mod) => mod.BlogContent),
+  { loading: () => <div className="min-h-[40vh]" aria-hidden /> },
+);
 
 export const metadata: Metadata = {
   title: "Blog",

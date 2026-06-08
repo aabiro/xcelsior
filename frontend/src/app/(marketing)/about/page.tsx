@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { AboutContent } from "./content";
+import dynamic from "next/dynamic";
+
+const AboutContent = dynamic(
+  () => import("./content").then((mod) => mod.AboutContent),
+  { loading: () => <div className="min-h-[40vh]" aria-hidden /> },
+);
 
 export const metadata: Metadata = {
   title: "About Xcelsior",
