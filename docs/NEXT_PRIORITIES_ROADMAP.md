@@ -231,7 +231,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] No customer mutation path uses raw `user_id` where `billing_customer_id` is intended (2026-06-08)
 - [x] Viewer role read-only on all team resources in API + UI (2026-06-08)
 - [x] Switching workspace updates wallet, instances, volumes, analytics without full page reload (event-driven) (2026-06-08)
-- [ ] Enterprise demo script: create team → invite member + viewer → shared wallet → launch → viewer blocked
+- [x] Enterprise demo script: `scripts/enterprise_team_demo.py` — team → member + viewer → shared wallet → launch → viewer blocked (2026-06-08)
 
 ---
 
@@ -293,7 +293,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 ### 5.2 Code splitting & deferral
 
 - [ ] Route-level dynamic imports for heavy dashboard-only libs (already partial)
-- [ ] Marketing pages: zero dashboard providers on `(marketing)` layout
+- [x] Marketing pages: AuthProvider removed from root — mounted only on dashboard + auth routes (2026-06-08)
 - [ ] Defer PostHog / GTM further (`lazyOnload` done — verify no regression)
 - [ ] `framer-motion` lazy load on marketing (done — verify)
 - [ ] Font subsetting / `next/font` preload only critical weights
