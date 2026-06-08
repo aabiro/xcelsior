@@ -215,7 +215,26 @@ def _test_persist_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: st
         return False
     print("persist: marker survived stop/start")
 
-    client.post(f"/instances/{job_id}/terminate", headers=hdrs)
+    term = client.post(f"/instances/{job_id}/terminate", headers=hdrs)
+    if term.status_code != 200:
+        print(f"persist terminate failed: {term.status_code} {term.text[:200]}", file=sys.stderr)
+        return False
+    _poll_instance(client, hdrs, job_id)
+
+    vol_resp = client.get(f"/api/v2/volumes/{volume_id}", headers=hdrs)
+    if vol_resp.status_code != 200:
+        print(f"persist: volume get after terminate failed: {vol_resp.status_code}", file=sys.stderr)
+        return False
+    vol_status = (vol_resp.json().get("volume") or {}).get("status")
+    if vol_status != "available":
+        print(f"persist: volume status after terminate expected available got {vol_status}", file=sys.stderr)
+        return False
+
+    marker3 = _nfs_read_marker(volume_id)
+    if marker3 != PERSIST_MARKER:
+        print(f"persist: marker after terminate expected '{PERSIST_MARKER}' got '{marker3}'", file=sys.stderr)
+        return False
+    print("persist: volume available after terminate, NFS data intact")
     return True
 
 

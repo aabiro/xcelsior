@@ -357,6 +357,32 @@ def test_viewer_cannot_create_team_volume(team_roles):
     assert "viewer" in blocked.text.lower()
 
 
+def test_viewer_cannot_attach_or_delete_team_volume(team_roles):
+    created = client.post(
+        "/api/v2/volumes",
+        json={"name": f"viewer-guard-{uuid.uuid4().hex[:8]}", "size_gb": 1},
+        headers=team_roles["member"]["headers"],
+    )
+    assert created.status_code == 200, created.text[:200]
+    volume_id = created.json()["volume"]["volume_id"]
+    job_id = team_roles["job_id"]
+
+    attach_blocked = client.post(
+        f"/api/v2/volumes/{volume_id}/attach",
+        json={"instance_id": job_id, "mount_path": "/workspace"},
+        headers=team_roles["viewer"]["headers"],
+    )
+    assert attach_blocked.status_code == 403, attach_blocked.text[:200]
+
+    delete_blocked = client.delete(
+        f"/api/v2/volumes/{volume_id}",
+        headers=team_roles["viewer"]["headers"],
+    )
+    assert delete_blocked.status_code == 403, delete_blocked.text[:200]
+
+    client.delete(f"/api/v2/volumes/{volume_id}", headers=team_roles["admin"]["headers"])
+
+
 def test_personal_user_concurrency_isolated_from_team(team_roles, monkeypatch):
     import routes.instances as inst
 
