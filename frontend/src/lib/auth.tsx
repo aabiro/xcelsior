@@ -25,7 +25,7 @@ function forceLogout(reason: string) {
     });
 }
 
-interface User {
+export interface User {
   user_id: string;
   email: string;
   name?: string;
