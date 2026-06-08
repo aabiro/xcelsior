@@ -134,6 +134,7 @@ case "${TARGET}" in
     volumes)
         PYTEST_ARGS=(
             tests/test_team_tenancy_sweep.py
+            tests/test_volumes.py
             tests/test_volumes_endpoints_coverage.py
             tests/test_volume_api.py
             tests/test_volume_db.py

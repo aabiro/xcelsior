@@ -182,11 +182,15 @@ def api_volume_attach(volume_id: str, body: VolumeAttachRequest, request: Reques
         raise HTTPException(404, "Volume not found")
     _require_volume_write(user, vol)
     try:
+        region_warning = ve.attach_region_warning(volume_id, body.instance_id)
         att = ve.attach_volume(volume_id, body.instance_id, body.mount_path, body.mode)
         if not att:
             raise HTTPException(409, "Volume not available for attachment")
         broadcast_sse("volume.attached", {"volume_id": volume_id, "instance_id": body.instance_id})
-        return {"ok": True, "attachment": att}
+        resp: dict = {"ok": True, "attachment": att}
+        if region_warning:
+            resp["region_warning"] = region_warning
+        return resp
     except ValueError as e:
         raise HTTPException(400, str(e))
 

@@ -108,7 +108,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] VPS NFS mount test to Mac — PASS (`nfsvers=4.0,port=12049`)
 - [x] VPS worker-mount smoke — `volumes_e2e_smoke.py --worker-mount` PASS (2026-06-07)
 - [x] Test from live GPU worker host — ASUS `100.64.0.6` mount + persist PASS (2026-06-07)
-- [ ] Test from `aarynfans-prod` (optional second worker)
+- [x] Test from `aarynfans-prod` (optional second worker) — `volumes_worker_mount_smoke.py` + `--worker-host`; SKIP if host not registered (2026-06-07)
 - [x] `nfs-common` on workers — verified on ASUS (`mount.nfs4`, persist E2E PASS)
 
 **Phase B exit:** Manual `mkdir` on NFS via API SSH succeeds; worker test mount succeeds.
@@ -133,7 +133,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 ### C.2 Logging & metrics
 
 - [x] Log lines already exist — grep patterns documented in runbook § Log grep (2026-06-07)
-- [ ] Add metric gauges (optional): `xcelsior_volumes_total`, `xcelsior_volumes_error`, `xcelsior_nfs_reachable`
+- [x] Add metric gauges (optional): `xcelsior_volumes_total`, `xcelsior_volumes_error`, `xcelsior_nfs_reachable` (2026-06-07)
 - [x] SSE events: `volume_created`, `volume_deleted`, etc. — dashboard already listens ✓
 
 ### C.3 Runbook
@@ -196,12 +196,12 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Team wallet debited for team-owned volumes — `owner_id` on volume row; audit script verifies `customer_id`
 - [x] Suspended wallet skips billing — `test_volume_nfs` + billing fail-closed path
 
-### D.7 Snapshots (deferred post-v1)
+### D.7 Snapshots
 
-- [~] **Deferred** — engine + API routes exist; no prod smoke or UI yet
-- [ ] `POST /api/v2/volumes/{id}/snapshots` prod smoke on NFS `_snapshots/`
-- [ ] List / delete / restore smoke test
-- [x] Explicitly deferred in roadmap — ship attach/billing/hot-attach first (2026-06-07)
+- [x] Engine + API routes — create/list/delete/restore
+- [x] `volumes_e2e_smoke.py --snapshots` prod smoke on NFS `_snapshots/` (2026-06-07)
+- [x] Dashboard snapshots UI — create/list/delete on volumes page (2026-06-07)
+- [x] Unit tests — `test_volumes_endpoints_coverage.py`, `test_volume_snapshots.py`
 
 **Phase D exit:** Staging E2E script passes all D.1–D.6 scenarios.
 
@@ -287,6 +287,7 @@ All must be true:
 | 2026-06-07 | ASUS 2060 interim GPU; persist+terminate E2E; viewer attach guard test; hot-attach runbook |
 | 2026-06-07 | Live hot-attach (`mount_volume`/`unmount_volume`); billing audit script; `--hot-attach` smoke |
 | 2026-06-07 | Admin infra volume section; `volumes_reopen_luks.py`; disk caps runbook; team monthly cost UX |
+| 2026-06-07 | Snapshots smoke + UI; Prometheus volume gauges; mount-fail aborts job; region attach warning |
 
 ---
 

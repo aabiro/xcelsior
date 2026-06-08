@@ -13,7 +13,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 | # | Initiative | Primary outcome | Est. effort |
 |---|------------|-----------------|-------------|
-| 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | ~2 days remaining (snapshots deferred) |
+| 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | Done (2026-06-07) |
 | 2 | PayPal marketplace provider payouts | Second payout rail for GPU providers | 3–5 days |
 | 3 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | 1 week |
 | 4 | Web terminal rewrite | Usable in-browser shell on running instances | 1–2 weeks |
@@ -55,7 +55,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **`list_volumes_for_owner_ids` bug** fixed (`NameError` on loop variable) — 2026-06-07
 - [x] **Create volume API** returns `owner_id` in response (full `get_volume` payload)
 - [x] **Encrypted volume reopen** after NFS server reboot — `scripts/volumes_reopen_luks.py` + runbook (2026-06-07)
-- [ ] **Region affinity** enforced or warned when attaching cross-region (optional P1)
+- [x] **Region affinity** warned when attaching cross-region — API `region_warning` + attach UI hint (2026-06-07)
 
 ### 1.3 Worker / scheduler attach path
 
@@ -64,7 +64,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] NFS mount at `/mnt/xcelsior-volumes/{volume_id}` on ASUS `aaryn-tuf-rtx2060` (2026-06-07)
   - [x] Bind-mount into container at `/workspace` — persist E2E PASS
   - [x] Data gravity: scheduler `get_volume_host_ids` + binpack 1.3x preference — code in `scheduler.py`
-  - [~] Failure mode: mount fail skips volume (worker logs warning); launch-not-blocked today
+  - [x] Failure mode: required `volume_ids` mount fail → job `failed` (scheduler + worker_agent) (2026-06-07)
 - [x] **Detach / terminate cleanup**
   - [x] `detach_all_for_instance` on terminate (`billing.terminate_instance`)
   - [x] Orphan mount cleanup on worker (`cleanup_orphaned_volume_mounts`) — code + periodic thread
