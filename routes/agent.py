@@ -203,6 +203,14 @@ def api_agent_work(host_id: str, request: Request):
                         mounts[vid] = "/workspace" if _idx == 0 else f"/workspace/vol-{_idx}"
                     _idx += 1
                 j["volume_mounts"] = mounts
+                if not j.get("nfs_server"):
+                    try:
+                        from volumes import NFS_SERVER as vol_nfs_server
+
+                        if vol_nfs_server:
+                            j["nfs_server"] = vol_nfs_server
+                    except Exception:
+                        pass
     except Exception:
         pass  # Best-effort: worker falls back to /workspace
 

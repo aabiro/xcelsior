@@ -25,7 +25,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 | NFS health in readiness | ✅ `nfs_storage_healthcheck` in `/readyz` (2026-06-07) |
 | Prod NFS configured | ✅ Mac appliance `100.64.0.3`, mode `full` (2026-06-08) |
 | E2E create → launch → delete | ✅ `volumes_e2e_smoke.py` + `ops_infra_smoke.py` PASS (2026-06-08) |
-| E2E persist across instance restart | ⚠️ script ready; skipped when no GPU host (2026-06-07) |
+| E2E persist across instance restart | ✅ `--persist` PASS on ASUS `aaryn-tuf-rtx2060` (2026-06-07) |
 
 ---
 
@@ -107,7 +107,8 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Headscale ACL: `autogroup:member` → `tag:mac-nfs:12049`
 - [x] VPS NFS mount test to Mac — PASS (`nfsvers=4.0,port=12049`)
 - [x] VPS worker-mount smoke — `volumes_e2e_smoke.py --worker-mount` PASS (2026-06-07)
-- [ ] Test from live GPU worker host (e.g. `aarynfans-prod`) — mount + write
+- [x] Test from live GPU worker host — ASUS `100.64.0.6` mount + persist PASS (2026-06-07)
+- [ ] Test from `aarynfans-prod` (optional second worker)
 - [ ] `nfs-common` on workers (verify at next instance launch with `volume_ids`)
 
 **Phase B exit:** Manual `mkdir` on NFS via API SSH succeeds; worker test mount succeeds.
@@ -164,9 +165,9 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 ### D.2 Launch with volumes (new instance)
 
 - [x] Launch instance with `volume_ids` — `volumes_e2e_smoke.py` PASS (2026-06-08)
-- [~] Scheduler NFS-mount on GPU host — VPS mount smoke PASS; live worker pending
-- [~] Write persist marker inside instance — `--persist` smoke ready
-- [~] Stop/start instance → file still present — skipped (no GPU host online 2026-06-07)
+- [x] Scheduler NFS-mount on GPU host — ASUS `aaryn-tuf-rtx2060` Mac NFS mount PASS (2026-06-07)
+- [x] Write persist marker inside instance — `--persist` smoke PASS
+- [x] Stop/start instance → file still present — `--persist` smoke PASS
 - [ ] Terminate instance → volume status returns `available`, data on NFS intact
 
 ### D.3 Attach to running instance
@@ -248,7 +249,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 Phase A  Correctness     [x] code complete (tests green)
 Phase B  NFS infra       [x] Mac appliance live in prod (2026-06-08)
 Phase C  Health/runbook  [x] health + runbook done; metrics optional
-Phase D  E2E workflows   [~] CRUD + launch + encrypted OK; persist needs GPU host
+Phase D  E2E workflows   [~] CRUD + launch + encrypted + persist OK; attach/delete pending
 Phase E  Frontend polish  [x] error UX + launch filter done (2026-06-07)
 Phase F  Scripts/CI      [x] smoke scripts PASS in prod
 Phase G  Security         [~] partial

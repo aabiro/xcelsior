@@ -161,7 +161,8 @@ def _test_persist_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: st
             "vram_needed_gb": 1,
             "volume_ids": [volume_id],
             "image": LAUNCH_IMAGE,
-            "command": f'sh -c "echo {PERSIST_MARKER} > /workspace/{PERSIST_MARKER}.txt && sleep infinity"',
+            "interactive": False,
+            "command": f"echo {PERSIST_MARKER} > /workspace/{PERSIST_MARKER}.txt && sleep infinity",
         },
     )
     if launch.status_code == 402:

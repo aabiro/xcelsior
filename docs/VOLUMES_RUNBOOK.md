@@ -234,8 +234,11 @@ python3 scripts/volumes_e2e_smoke.py --infra-only --encrypted
 # VPS→Mac NFS mount (simulates GPU worker mesh mount):
 python3 scripts/volumes_e2e_smoke.py --infra-only --worker-mount
 
-# Persist across stop/start (requires running GPU host; skips gracefully if queued):
+# Persist across stop/start (requires admitted GPU worker, e.g. ASUS aaryn-tuf-rtx2060):
 python3 scripts/volumes_e2e_smoke.py --infra-only --persist
+
+# Interim prod GPU worker (until tower-server returns): ASUS RTX 2060 at 100.64.0.6
+# Worker env must include Mac NFS settings — see ~/.xcelsior/worker.env on the host.
 
 # Full path including instance launch (requires funded wallet):
 python3 scripts/volumes_e2e_smoke.py --base-url https://xcelsior.ca

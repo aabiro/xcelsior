@@ -1992,6 +1992,15 @@ def fetch_popular_images():
 # ── NFS Support ──────────────────────────────────────────────────────
 
 
+def _nfs_mount_fstype() -> str:
+    """Return ``mount -t`` type for configured NFS mount options."""
+    opts = os.environ.get(
+        "XCELSIOR_NFS_MOUNT_OPTS",
+        "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp",
+    )
+    return "nfs4" if "nfsvers=4" in opts else "nfs"
+
+
 def _mount_nfs(server, path, mount_point):
     """Mount an NFS share for shared model/data storage.
 
@@ -2023,7 +2032,7 @@ def _mount_nfs(server, path, mount_point):
         mount_cmd = [
             "mount",
             "-t",
-            "nfs",
+            _nfs_mount_fstype(),
             "-o",
             os.environ.get(
                 "XCELSIOR_NFS_MOUNT_OPTS",
@@ -2761,9 +2770,11 @@ def run_job(job):
             return
 
     try:
-        # 0. Mount NFS volume (if configured — skip for interactive instances
-        #    which don't need shared storage and the 30s timeout blocks startup)
-        if nfs_server and nfs_path and not is_interactive:
+        # 0. Mount legacy shared NFS (models/datasets). Skip when managed
+        # volume_ids are present — those mount per-volume under /mnt/xcelsior-volumes/{id}.
+        # Also skip interactive instances (30s mount timeout blocks SSH startup).
+        has_managed_volumes = bool(job.get("volume_ids"))
+        if nfs_server and nfs_path and not is_interactive and not has_managed_volumes:
             nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
             if nfs_mounted:
                 log.info("NFS mounted: %s:%s → %s", nfs_server, nfs_path, nfs_mount_point)
@@ -2786,7 +2797,8 @@ def run_job(job):
                     log.warning("Encrypted volume %s attach failed — skipping", vol_id)
 
         # 0c. Mount managed volumes (volume_ids from job payload)
-        nfs_vol_server = os.environ.get("XCELSIOR_NFS_SERVER", "")
+        # Prefer API-injected nfs_server (prod Mac appliance); fall back to worker env.
+        nfs_vol_server = job.get("nfs_server") or os.environ.get("XCELSIOR_NFS_SERVER", "")
         nfs_vol_export_base = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
         vol_mount_paths = job.get("volume_mounts", {})  # vid → container path from API
         _vol_idx = 0
@@ -2920,7 +2932,9 @@ def run_job(job):
         gpu_info = get_gpu_info()
         runtime_name = "runc"
         is_interactive = bool(job.get("interactive", False))
-        if PREFER_GVISOR and not is_interactive:
+        if has_managed_volumes:
+            log.info("Runtime: runc (managed NFS volume bind-mount)")
+        elif PREFER_GVISOR and not is_interactive:
             runtime_name, reason = recommend_runtime(gpu_info["gpu_model"])
             log.info("Runtime: %s (%s)", runtime_name, reason)
         elif is_interactive:
@@ -2945,6 +2959,15 @@ def run_job(job):
         # and expose SSH port for user access
         extra_docker_args = []
         effective_command = command
+        if effective_command and not is_interactive:
+            if isinstance(effective_command, list):
+                pass
+            elif isinstance(effective_command, str):
+                stripped = effective_command.strip()
+                if stripped.startswith("sh -c "):
+                    stripped = stripped[6:].strip().strip('"').strip("'")
+                extra_docker_args.extend(["--entrypoint", "sh"])
+                effective_command = ["-c", stripped]
         if is_interactive:
             log.info("INTERACTIVE MODE for job %s — container will stay running", job_id)
             # --- Interactive terminal UI (stdout banner + status notes) ---
@@ -5444,7 +5467,19 @@ def main():
                         popular = fetch_popular_images()
                         if popular:
                             log.info("Idle — pre-pulling %d popular images", len(popular))
-                            cache_prepull_popular(popular)
+
+                            def _idle_prepull(images):
+                                try:
+                                    cache_prepull_popular(images)
+                                except Exception as exc:
+                                    log.debug("Idle pre-pull error: %s", exc)
+
+                            threading.Thread(
+                                target=_idle_prepull,
+                                args=(popular,),
+                                name="idle-prepull",
+                                daemon=True,
+                            ).start()
 
             consecutive_poll_failures = 0
 

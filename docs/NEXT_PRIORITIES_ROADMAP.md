@@ -106,7 +106,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **Staging E2E script** [`scripts/volumes_e2e_smoke.py`](../scripts/volumes_e2e_smoke.py)
   - [x] Create → list → get → launch with `volume_ids` → delete — PASS prod 2026-06-08
   - [x] `ops_infra_smoke.py` — PayPal + NFS + volume CRUD PASS
-  - [~] Write file → restart instance → file persists → detach — `--persist` smoke; skipped (no GPU host)
+  - [x] Write file → restart instance → file persists — `--persist` PASS on ASUS 2060 (2026-06-07)
   - [x] Encrypted volume round-trip — `--encrypted` PASS prod (2026-06-07)
 - [ ] **Post-deploy audit** includes `/dashboard/volumes` in Playwright crawl (already in dashboard audit list)
 
