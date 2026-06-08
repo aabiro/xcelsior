@@ -41,9 +41,11 @@ def _load_cfg() -> dict[str, str]:
                 continue
             k, v = line.split("=", 1)
             cfg[k.strip()] = v.strip()
-    cfg["base"] = (
-        os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "http://localhost:8000"
-    ).rstrip("/")
+    port = os.environ.get("XCELSIOR_API_PORT", "").strip()
+    default_base = f"http://127.0.0.1:{port}" if port else "http://localhost:8000"
+    cfg["base"] = (os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or default_base).rstrip(
+        "/"
+    )
     return cfg
 
 
@@ -72,6 +74,12 @@ def _register(session: requests.Session, base: str, label: str) -> dict:
     )
     if reg.status_code != 200:
         raise RuntimeError(f"register {label}: {reg.status_code} {reg.text[:200]}")
+    reg_body = reg.json()
+    if reg_body.get("email_verification_required"):
+        raise RuntimeError(
+            f"register {label}: email verification required on {base}. "
+            "Run with XCELSIOR_ENV=test (local/staging) or use pre-verified accounts."
+        )
     login = session.post(
         f"{base}/api/auth/login",
         json={"email": email, "password": password},
@@ -80,8 +88,10 @@ def _register(session: requests.Session, base: str, label: str) -> dict:
     if login.status_code != 200:
         raise RuntimeError(f"login {label}: {login.status_code} {login.text[:200]}")
     body = login.json()
-    user = (reg.json().get("user") or body.get("user") or {})
-    token = body["access_token"]
+    user = (reg_body.get("user") or body.get("user") or {})
+    token = body.get("access_token") or reg_body.get("access_token")
+    if not token:
+        raise RuntimeError(f"register {label}: no access_token in register/login response")
     return {
         "email": email,
         "password": password,
