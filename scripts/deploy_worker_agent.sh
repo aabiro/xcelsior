@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
 WORKER_HOST="${WORKER_HOST:-100.64.0.6}"
-WORKER_USER="${WORKER_USER:-aaryn}"
+WORKER_USER="${WORKER_SSH_USER:-${WORKER_USER:-aaryn}}"
 REMOTE_DIR="${WORKER_REMOTE_DIR:-/home/aaryn/storage/projects/xcelsior}"
 
 while [[ $# -gt 0 ]]; do

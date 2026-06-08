@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-open encrypted LUKS volumes after Mac NFS appliance reboot.
+"""Re-open encrypted LUKS volumes after NFS host reboot (VPS or legacy Mac).
 
 After Ganesha/container restart, per-volume LUKS devices must be luksOpen'd
 again before workers can mount exports. Safe to re-run (idempotent when

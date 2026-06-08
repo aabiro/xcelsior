@@ -18,7 +18,8 @@ import { useLocale } from "@/lib/locale";
 import { useEventStream } from "@/hooks/useEventStream";
 import { toast } from "sonner";
 import type { EnhancedAnalytics, WalletTransaction } from "@/lib/api";
-import { getBillingCustomerId } from "@/lib/team-context";
+import { getBillingCustomerId, getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 import {
   SpendTrendChart, JobsTrendChart, UtilizationChart,
   CumulativeSpendChart, CostPerHourChart, GpuHoursChart,
@@ -278,6 +279,7 @@ export default function AnalyticsPage() {
   const sseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const api = useApi();
   const { user } = useAuth();
+  const team = getTeamContext(user);
   const { t } = useLocale();
 
   const isProvider = !!user?.provider_id;
@@ -499,6 +501,7 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
+      <TeamContextBanner team={team} variant="analytics" />
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>

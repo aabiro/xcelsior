@@ -39,7 +39,7 @@ NFS_LUKS_SSH_USER = (
     or os.environ.get("XCELSIOR_SSH_USER", "aaryn")
 )
 NFS_EXPORT_BASE = os.environ.get("XCELSIOR_NFS_EXPORT_BASE", "/exports/volumes")
-# Optional remote command wrapper (Mac: docker exec xcelsior-mac-nfs sh -c).
+# Optional remote command wrapper (legacy Mac appliance only; empty on VPS).
 NFS_SSH_CMD_WRAP = os.environ.get("XCELSIOR_NFS_SSH_CMD_WRAP", "").strip()
 
 _LOCAL_NFS_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -50,7 +50,7 @@ _LOCAL_NFS_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 # timeo=600: 60-second initial RPC timeout (in deciseconds); retrans=3: 3 retries.
 # rsize/wsize=1M: large buffers for GPU checkpoint throughput.
 # _netdev: wait for network before mounting at boot.
-# Mac appliance: set XCELSIOR_NFS_MOUNT_OPTS with nfsvers=4.0,port=12049.
+# Legacy Mac Ganesha: nfsvers=4.0,port=12049 — VPS uses kernel NFS defaults.
 _DEFAULT_NFS_MOUNT_OPTS = (
     "hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp"
 )
