@@ -1,11 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Check, DollarSign } from "lucide-react";
 import { m } from "@/components/marketing/motion";
-import { SavingsCalculator } from "./calculator";
 import { useLocale } from "@/lib/locale";
+
+const SavingsCalculator = dynamic(
+  () => import("./calculator").then((mod) => mod.SavingsCalculator),
+  { loading: () => <div className="h-48 animate-pulse rounded-xl bg-surface/50" aria-hidden /> },
+);
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },

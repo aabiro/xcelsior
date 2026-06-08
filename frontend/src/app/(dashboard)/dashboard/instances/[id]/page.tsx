@@ -201,14 +201,15 @@ export default function InstanceDetailPage() {
     prevStatusRef.current = instance?.status ?? null;
   }, [instance?.status]);
 
-  // Auto-open terminal when instance is running or starting
+  // Auto-open terminal when instance is running or starting (writers only)
   useEffect(() => {
+    if (readOnly) return;
     const s = instance?.status;
     if (s === "running" || s === "starting") {
       if (!terminalMounted) setTerminalMounted(true);
       if (!showTerminal) setShowTerminal(true);
     }
-  }, [instance?.status]);
+  }, [instance?.status, readOnly, showTerminal, terminalMounted]);
 
   // Tick uptime every 30s
   useEffect(() => {
@@ -690,7 +691,7 @@ export default function InstanceDetailPage() {
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-text-muted" />
               <h2 className="text-sm font-semibold text-text-secondary">Terminal</h2>
-              {(isRunning || status === "starting") && (
+              {!readOnly && (isRunning || status === "starting") && (
                 <Button size="sm" variant="outline" onClick={() => { setShowTerminal(!showTerminal); if (!terminalMounted) setTerminalMounted(true); }} className="ml-2 h-7 text-xs">
                   {showTerminal ? "Hide" : "Open"}
                 </Button>
@@ -754,7 +755,12 @@ export default function InstanceDetailPage() {
               </button>
             </div>
           )}
-          {terminalMounted && (isRunning || status === "starting") && (
+          {readOnly && (isRunning || status === "starting") && (
+            <p className="text-sm text-text-muted">
+              Team viewers cannot open the web terminal. Ask a team admin or member for shell access.
+            </p>
+          )}
+          {!readOnly && terminalMounted && (isRunning || status === "starting") && (
             <div className="h-[500px] rounded-lg overflow-hidden border border-border" style={{ display: showTerminal ? undefined : "none" }}>
               <WebTerminal instanceId={id} onClose={() => setShowTerminal(false)} />
             </div>

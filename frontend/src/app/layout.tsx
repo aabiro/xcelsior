@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
 import { RootClientWidgets } from "@/components/RootClientWidgets";
@@ -11,7 +11,6 @@ const GA_ID = /^G-[A-Z0-9]+$/.test(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID ?? 
   : null;
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"], display: "swap", preload: false });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], display: "swap", preload: false });
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -143,7 +142,7 @@ export default function RootLayout({
       </head>
       <body
         suppressHydrationWarning
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-navy text-text-primary`}
+        className={`${geistSans.variable} font-sans antialiased bg-navy text-text-primary`}
       >
         <Providers>
           {children}

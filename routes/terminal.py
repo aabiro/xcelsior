@@ -56,9 +56,12 @@ from routes._deps import (
     _get_ws_client_ip,
     _issue_ws_ticket,
     _require_auth,
+    _require_team_instance_write,
     _shared_state_update,
+    _user_owns_job,
     _validate_ws_auth,
     _validate_ws_origin,
+    append_user_audit_event,
     log,
 )
 from scheduler import (
@@ -814,6 +817,29 @@ def _sanitize_container_ref(container_ref: object) -> str | None:
     return value
 
 
+def _container_candidates_for_instance(instance: dict, *, instance_id: str) -> list[str]:
+    """Ordered Docker refs to probe — current naming first, then stored/legacy."""
+    job_id = str(instance.get("job_id") or instance_id or "").strip()
+    raw_candidates = [
+        f"xcl-{job_id}" if job_id else "",
+        str(instance.get("container_name") or "").strip(),
+        str(instance.get("container_id") or "").strip(),
+        f"xcelsior-{job_id}" if job_id else "",
+    ]
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for raw in raw_candidates:
+        ref = _sanitize_container_ref(raw)
+        if ref and ref not in seen:
+            seen.add(ref)
+            candidates.append(ref)
+    if not candidates and job_id:
+        fallback = _sanitize_container_ref(f"xcl-{job_id}")
+        if fallback:
+            candidates.append(fallback)
+    return candidates
+
+
 def _shell_path_allowed(shell: str) -> bool:
     return shell in _ALLOWED_SHELL_PATHS
 
@@ -931,13 +957,9 @@ def _ensure_remote_host_key_pinned(host_ip: str) -> None:
 def _check_terminal_access(user: dict, instance: dict | None, *, instance_id: str) -> None:
     if not instance:
         raise HTTPException(404, "Instance not found")
-    is_admin = user.get("role") == "admin" or bool(user.get("is_admin"))
-    if is_admin:
-        return
-    job_owner = instance.get("owner", "")
-    caller_id = user.get("customer_id", user.get("user_id", ""))
-    if job_owner and job_owner != caller_id:
+    if not _user_owns_job(user, instance):
         raise HTTPException(403, "Not authorized")
+    _require_team_instance_write(user)
 
 
 class TerminalTicketIn(BaseModel):
@@ -1136,14 +1158,16 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 return
 
         host_id = instance.get("host_id", "")
-        container_ref = _sanitize_container_ref(
-            instance.get("container_name") or f"xcl-{instance_id}"
+        container_candidates = _container_candidates_for_instance(
+            instance,
+            instance_id=instance_id,
         )
-        if not container_ref:
+        if not container_candidates:
             await _send_error(websocket, "Invalid container reference", 4003)
             await websocket.close(code=4003)
             _conn_errors.labels(reason="invalid_container_ref").inc()  # type: ignore[attr-defined]
             return
+        container_ref = container_candidates[0]
 
         host_ip = str(instance.get("host_ip") or "").strip()
         if not host_ip and host_id:
@@ -1218,30 +1242,39 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         last_probe_error: str | None = None
         while True:
             attempt += 1
-            probe_result = await loop.run_in_executor(
-                None,
-                _container_probe,
-                container_ref,
-                host_ip if is_remote else None,
-            )
-            if probe_result["found"]:
+            found_ref: str | None = None
+            unreachable_error: str | None = None
+            for candidate in container_candidates:
+                probe_result = await loop.run_in_executor(
+                    None,
+                    _container_probe,
+                    candidate,
+                    host_ip if is_remote else None,
+                )
+                if probe_result["found"]:
+                    found_ref = candidate
+                    break
+                last_probe_error = probe_result.get("error")
+                if probe_result.get("reason") == "unreachable":
+                    unreachable_error = last_probe_error
+                    break
+            if found_ref:
+                container_ref = found_ref
                 break
-            last_probe_error = probe_result.get("error")
-            # Non-NotFound failure → fail immediately with actionable detail.
-            if last_probe_error and probe_result.get("reason") != "not_found":
+            if unreachable_error:
                 await _send_error(
                     websocket,
-                    f"Cannot reach docker daemon on host: {last_probe_error}",
+                    f"Cannot reach docker daemon on host: {unreachable_error}",
                     4410,
                 )
                 await websocket.close(code=4410)
                 _conn_errors.labels(reason="docker_unreachable").inc()  # type: ignore[attr-defined]
                 return
-            # Genuine "container not yet created" — wait briefly and retry until budget.
             if time.monotonic() >= attach_deadline:
+                tried = ", ".join(container_candidates)
                 await _send_error(
                     websocket,
-                    f"Container {container_ref} was not created within "
+                    f"Container not found (tried: {tried}) within "
                     f"{_CONTAINER_POLL_BUDGET_SEC:.0f} s — the instance may have "
                     "failed to start. Check the instance logs for details.",
                     4410,
@@ -1251,7 +1284,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 return
             await _send_status(
                 websocket,
-                f"Waiting for container {container_ref}…",
+                f"Waiting for container ({container_ref})…",
                 retry=True,
             )
             await asyncio.sleep(_CONTAINER_POLL_INTERVAL_SEC)
@@ -1424,6 +1457,17 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         _active_sessions.inc()  # type: ignore[attr-defined]
         _sessions_opened.inc()  # type: ignore[attr-defined]
         session_opened = True
+        append_user_audit_event(
+            "user.terminal.session_started",
+            "job",
+            instance_id,
+            user,
+            data={
+                "container_ref": container_ref,
+                "remote": is_remote,
+                "tmux": has_tmux,
+            },
+        )
 
         session_start = time.monotonic()
         # Per-session byte tallies (module-level counters are cumulative across
@@ -1745,6 +1789,19 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                     exit_code,
                     is_remote,
                     has_tmux,
+                )
+                append_user_audit_event(
+                    "user.terminal.session_ended",
+                    "job",
+                    instance_id,
+                    user,
+                    data={
+                        "duration_sec": round(_duration, 1),
+                        "rx_bytes": session_bytes["rx"],
+                        "tx_bytes": session_bytes["tx"],
+                        "exit_code": exit_code,
+                        "container_ref": container_ref,
+                    },
                 )
 
             try:
