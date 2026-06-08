@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -78,11 +79,14 @@ def _poll_instance(client: httpx.Client, hdrs: dict[str, str], job_id: str) -> d
 
 
 def _nfs_write_marker(volume_id: str, marker: str, filename: str) -> bool:
-    """Write a marker file on Mac NFS for a volume (requires SSH to Mac)."""
+    """Write a marker file on NFS export (SSH to VPS host)."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    mac = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
-    wrap = "/Users/aaryn/.local/bin/xcelsior-nfs-exec"
+    host = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
+    wrap = os.environ.get("XCELSIOR_NFS_SSH_CMD_WRAP", "").strip()
     path = f"/exports/volumes/{volume_id}/{filename}"
+    remote = f"sh -c 'echo {marker} > {path}'"
+    if wrap:
+        remote = f"{wrap} {shlex.quote(remote)}"
     cmd = [
         "ssh",
         "-i",
@@ -91,9 +95,8 @@ def _nfs_write_marker(volume_id: str, marker: str, filename: str) -> bool:
         "BatchMode=yes",
         "-o",
         "StrictHostKeyChecking=accept-new",
-        mac,
-        f"export PATH=/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin:$PATH; "
-        f"{wrap} 'sh -c \"echo {marker} > {path}\"'",
+        host,
+        remote,
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -129,11 +132,14 @@ def _worker_docker_cat(host_ip: str, job_id: str, container_path: str) -> str | 
 
 
 def _nfs_read_marker(volume_id: str) -> str | None:
-    """Read persist marker from Mac NFS appliance (requires SSH to Mac)."""
+    """Read persist marker from NFS export (SSH to VPS host)."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    mac = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
-    wrap = "/Users/aaryn/.local/bin/xcelsior-nfs-exec"
+    host = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
+    wrap = os.environ.get("XCELSIOR_NFS_SSH_CMD_WRAP", "").strip()
     path = f"/exports/volumes/{volume_id}/{PERSIST_MARKER}.txt"
+    remote = f"cat {path}"
+    if wrap:
+        remote = f"{wrap} {shlex.quote(remote)}"
     cmd = [
         "ssh",
         "-i",
@@ -142,9 +148,8 @@ def _nfs_read_marker(volume_id: str) -> str | None:
         "BatchMode=yes",
         "-o",
         "StrictHostKeyChecking=accept-new",
-        mac,
-        f"export PATH=/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin:$PATH; "
-        f"{wrap} 'cat {path}'",
+        host,
+        remote,
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
