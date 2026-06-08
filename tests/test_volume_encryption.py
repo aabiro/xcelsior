@@ -461,6 +461,7 @@ class TestCreateVolumeEncryption:
     def test_encrypted_stores_key(self, monkeypatch):
         conn_rows = [
             None,  # FOR UPDATE lock
+            {"cnt": 0},  # volume count cap
             {"total": 0},  # capacity check
             None,  # name uniqueness
         ]
@@ -476,6 +477,7 @@ class TestCreateVolumeEncryption:
     def test_unencrypted_no_key(self, monkeypatch):
         conn_rows = [
             None,
+            {"cnt": 0},
             {"total": 0},
             None,
         ]

@@ -24,7 +24,10 @@ log = logging.getLogger("xcelsior.volumes")
 VOLUME_PRICE_PER_GB_MONTH_CAD = 0.03
 MAX_VOLUME_SIZE_GB = int(os.environ.get("XCELSIOR_MAX_VOLUME_GB", "2000"))
 MAX_TOTAL_STORAGE_GB = int(os.environ.get("XCELSIOR_MAX_TOTAL_STORAGE_GB", "2000"))
+MAX_VOLUMES_PER_OWNER = int(os.environ.get("XCELSIOR_MAX_VOLUMES_PER_OWNER", "50"))
+MANAGED_VOLUME_HOST_DIR = "/mnt/xcelsior-volumes"
 DEFAULT_MOUNT_PATH = "/workspace"
+HOT_MOUNT_POLL_TIMEOUT_SEC = int(os.environ.get("XCELSIOR_HOT_MOUNT_TIMEOUT_SEC", "45"))
 NFS_SERVER = os.environ.get("XCELSIOR_NFS_SERVER", "")
 # SSH target for provision/destroy (may differ from mount server when API colocates NFS).
 NFS_SSH_HOST = os.environ.get("XCELSIOR_NFS_SSH_HOST", "") or NFS_SERVER
@@ -164,9 +167,13 @@ class VolumeEngine:
             return ["-i", SSH_KEY_PATH]
         return []
 
-    def _wrap_remote_cmd(self, cmd: str) -> str:
-        """Apply optional SSH command wrapper (e.g. docker exec on Mac NFS appliance)."""
-        if not NFS_SSH_CMD_WRAP:
+    def _wrap_remote_cmd(self, cmd: str, ip: str) -> str:
+        """Apply optional SSH command wrapper (e.g. docker exec on Mac NFS appliance).
+
+        Only applied when targeting the NFS SSH host — worker GPU hosts must
+        receive commands directly, not via the Mac ``xcelsior-nfs-exec`` wrap.
+        """
+        if not NFS_SSH_CMD_WRAP or ip != NFS_SSH_HOST:
             return cmd
         inner = cmd.replace("'", "'\\''")
         return f"{NFS_SSH_CMD_WRAP} '{inner}'"
@@ -182,7 +189,7 @@ class VolumeEngine:
     ) -> tuple[int, str, str]:
         """Execute a command on the NFS host via SSH (or locally when colocated)."""
         ssh_user = user or NFS_SSH_USER
-        remote_cmd = self._wrap_remote_cmd(cmd)
+        remote_cmd = self._wrap_remote_cmd(cmd, ip)
         if self._nfs_is_local_host(ip) and not force_ssh:
             return self._local_exec(cmd, timeout=timeout)
 
@@ -265,7 +272,7 @@ class VolumeEngine:
         (never written to disk on the remote host).
         """
         ssh_user = user or NFS_SSH_USER
-        remote_cmd = self._wrap_remote_cmd(cmd)
+        remote_cmd = self._wrap_remote_cmd(cmd, ip)
         if self._nfs_is_local_host(ip) and not force_ssh:
             return self._local_exec(cmd, timeout=timeout, stdin_data=stdin_data)
 
@@ -417,20 +424,114 @@ class VolumeEngine:
         log.debug("Volume %s: %s → %s", volume_id, current, new_status)
         return new_status
 
+    def _worker_ssh_user(self) -> str:
+        """SSH user for GPU worker hosts (distinct from NFS provision user)."""
+        from scheduler import SSH_USER
+
+        return SSH_USER
+
+    def _get_instance_host(self, instance_id: str) -> tuple[str | None, str | None]:
+        """Return (host_id, host_ip) for an instance, or (None, None)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT j.host_id, h.payload->>'ip' AS ip FROM jobs j
+                   JOIN hosts h ON j.host_id = h.host_id
+                   WHERE j.job_id = %s AND j.host_id IS NOT NULL""",
+                (instance_id,),
+            ).fetchone()
+            if not row:
+                return None, None
+            return str(row["host_id"] or "") or None, row["ip"]
+
     def _get_instance_host_ip(self, instance_id: str) -> Optional[str]:
         """Look up which host an instance was/is running on, return its IP.
 
         Does NOT filter by job status — volumes must be unmountable even after
         the job reaches a terminal state (completed, failed, terminated).
         """
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT h.payload->>'ip' AS ip FROM hosts h
-                   JOIN jobs j ON j.host_id = h.host_id
-                   WHERE j.job_id = %s AND j.host_id IS NOT NULL""",
-                (instance_id,),
-            ).fetchone()
-            return row["ip"] if row else None
+        _, host_ip = self._get_instance_host(instance_id)
+        return host_ip
+
+    def _get_instance_host_id(self, instance_id: str) -> Optional[str]:
+        host_id, _ = self._get_instance_host(instance_id)
+        return host_id
+
+    def _managed_host_mount(self, volume_id: str) -> str:
+        return f"{MANAGED_VOLUME_HOST_DIR}/{volume_id}"
+
+    def _wait_for_hot_mount(
+        self,
+        host_ip: str,
+        volume_id: str,
+        instance_id: str,
+        container_path: str,
+        *,
+        timeout_sec: int | None = None,
+    ) -> bool:
+        """Poll worker until NFS host mount and container bind are present."""
+        timeout = timeout_sec or HOT_MOUNT_POLL_TIMEOUT_SEC
+        host_mount = self._managed_host_mount(volume_id)
+        container_name = f"xcl-{instance_id}"
+        safe_host = shlex.quote(host_mount)
+        safe_cname = shlex.quote(container_name)
+        safe_path = shlex.quote(container_path)
+        check_cmd = (
+            f"mountpoint -q {safe_host} && "
+            f"docker inspect -f '{{{{.State.Running}}}}' {safe_cname} | grep -q true && "
+            f"docker exec {safe_cname} test -d {safe_path}"
+        )
+        deadline = time.time() + timeout
+        worker_user = self._worker_ssh_user()
+        while time.time() < deadline:
+            rc, _, _ = self._ssh_exec(host_ip, check_cmd, user=worker_user, timeout=15)
+            if rc == 0:
+                return True
+            time.sleep(2)
+        return False
+
+    def _enqueue_hot_mount(
+        self,
+        host_id: str,
+        instance_id: str,
+        volume_id: str,
+        mount_path: str,
+        mode: str,
+    ) -> None:
+        from routes.agent import enqueue_agent_command
+
+        enqueue_agent_command(
+            host_id=host_id,
+            command="mount_volume",
+            args={
+                "job_id": instance_id,
+                "volume_id": volume_id,
+                "container_path": mount_path,
+                "mode": mode,
+                "nfs_server": NFS_SERVER,
+                "nfs_export_base": NFS_EXPORT_BASE,
+            },
+            created_by="volume-engine",
+        )
+
+    def _enqueue_hot_unmount(
+        self,
+        host_id: str,
+        instance_id: str,
+        volume_id: str,
+        mount_path: str,
+    ) -> None:
+        from routes.agent import enqueue_agent_command
+
+        enqueue_agent_command(
+            host_id=host_id,
+            command="unmount_volume",
+            args={
+                "job_id": instance_id,
+                "volume_id": volume_id,
+                "container_path": mount_path,
+            },
+            created_by="volume-engine",
+        )
 
     def create_volume(
         self,
@@ -470,6 +571,14 @@ class VolumeEngine:
                 "SELECT volume_id FROM volumes WHERE owner_id = %s AND status != 'deleted' FOR UPDATE",
                 (owner_id,),
             )
+            vol_count = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM volumes WHERE owner_id = %s AND status != 'deleted'",
+                (owner_id,),
+            ).fetchone()
+            if vol_count["cnt"] >= MAX_VOLUMES_PER_OWNER:
+                raise ValueError(
+                    f"Volume count limit reached ({MAX_VOLUMES_PER_OWNER} volumes per owner)"
+                )
             total = conn.execute(
                 "SELECT COALESCE(SUM(size_gb), 0) AS total FROM volumes WHERE owner_id = %s AND status != 'deleted'",
                 (owner_id,),
@@ -1335,14 +1444,14 @@ class VolumeEngine:
         }
 
     def _mount_on_host(self, volume_id: str, instance_id: str, mount_path: str, mode: str) -> bool:
-        """NFS-mount the volume on the host where the instance runs."""
+        """Hot-attach: NFS-mount on GPU host and bind into the running container."""
         if not NFS_SERVER:
             log.warning(
                 "XCELSIOR_NFS_SERVER not configured — skipping real mount for %s", volume_id
             )
             return True  # Allow metadata-only in dev/test
 
-        host_ip = self._get_instance_host_ip(instance_id)
+        host_id, host_ip = self._get_instance_host(instance_id)
         if not host_ip:
             log.error(
                 "Cannot mount volume %s: instance %s has no host IP (not running?)",
@@ -1351,21 +1460,36 @@ class VolumeEngine:
             )
             return False
 
-        nfs_src = f"{NFS_SERVER}:{NFS_EXPORT_BASE}/{volume_id}"
-        safe_mount = shlex.quote(mount_path)
-        safe_src = shlex.quote(nfs_src)
-        ro_flag = ",ro" if mode == "ro" else ""
-        fstype = nfs_mount_fstype()
-        cmd = (
-            f"mkdir -p {safe_mount} && "
-            f"mount -t {fstype} -o {NFS_MOUNT_OPTS}{ro_flag} {safe_src} {safe_mount}"
-        )
-        rc, _, stderr = self._ssh_exec_with_retry(host_ip, cmd)
-        if rc != 0:
-            log.error("NFS mount failed for volume %s on host %s: %s", volume_id, host_ip, stderr)
-            return False
-        log.info("NFS mounted %s on %s at %s", volume_id, host_ip, mount_path)
-        return True
+        if host_id:
+            try:
+                self._enqueue_hot_mount(host_id, instance_id, volume_id, mount_path, mode)
+                if self._wait_for_hot_mount(host_ip, volume_id, instance_id, mount_path):
+                    log.info(
+                        "Hot-attached volume %s on host %s at %s (%s)",
+                        volume_id,
+                        host_id,
+                        mount_path,
+                        mode,
+                    )
+                    return True
+                log.error(
+                    "Hot mount timed out for volume %s on host %s (%s)",
+                    volume_id,
+                    host_id,
+                    host_ip,
+                )
+                return False
+            except Exception as e:
+                log.warning(
+                    "Agent mount_volume failed for %s on %s, cannot hot-attach: %s",
+                    volume_id,
+                    host_id,
+                    e,
+                )
+                return False
+
+        log.error("Cannot mount volume %s: instance %s has no host_id", volume_id, instance_id)
+        return False
 
     def detach_volume(self, volume_id: str, instance_id: str | None = None) -> dict:
         """Detach a volume from an instance.
@@ -1420,14 +1544,14 @@ class VolumeEngine:
         return {"volume_id": volume_id, "instance_id": instance_id, "status": "detached"}
 
     def _unmount_from_host(self, volume_id: str, instance_id: str, mount_path: str) -> bool:
-        """NFS-unmount the volume on the host where the instance runs."""
+        """Hot-detach: unbind from container and lazy-unmount host NFS mount."""
         if not NFS_SERVER:
             log.warning(
                 "XCELSIOR_NFS_SERVER not configured — skipping real unmount for %s", volume_id
             )
             return True
 
-        host_ip = self._get_instance_host_ip(instance_id)
+        host_id, host_ip = self._get_instance_host(instance_id)
         if not host_ip:
             log.warning(
                 "Cannot unmount volume %s: instance %s has no host IP (already stopped?)",
@@ -1436,14 +1560,19 @@ class VolumeEngine:
             )
             return True  # Instance already gone, nothing to unmount
 
-        safe_mount = shlex.quote(mount_path)
-        # Lazy unmount to avoid hanging on busy mount
-        cmd = f"umount -l {safe_mount} 2>/dev/null; true"
-        rc, _, stderr = self._ssh_exec(host_ip, cmd)
-        if rc != 0:
-            log.error("NFS unmount failed for volume %s on host %s: %s", volume_id, host_ip, stderr)
-            return False
-        log.info("NFS unmounted %s from %s at %s", volume_id, host_ip, mount_path)
+        if host_id:
+            try:
+                self._enqueue_hot_unmount(host_id, instance_id, volume_id, mount_path)
+            except Exception as e:
+                log.warning(
+                    "Agent unmount_volume enqueue failed for %s on %s: %s",
+                    volume_id,
+                    host_id,
+                    e,
+                )
+                return False
+
+        log.info("Hot-unmount enqueued for volume %s on %s at %s", volume_id, host_ip, mount_path)
         return True
 
     def get_volume_host_ids(self, volume_ids: list[str]) -> set[str]:

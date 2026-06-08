@@ -23,6 +23,8 @@ def test_c7_allowlist_covers_known_commands():
         "start_container",
         "reset_container",
         "snapshot_container",
+        "mount_volume",
+        "unmount_volume",
     }
     assert worker_agent._AGENT_COMMAND_ALLOWED == expected
 

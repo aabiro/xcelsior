@@ -29,6 +29,8 @@
 | `XCELSIOR_NFS_REQUIRED` | If `true`, `/readyz` fails when NFS unreachable |
 | `XCELSIOR_MAX_VOLUME_GB` | Per-volume size cap (default 2000) |
 | `XCELSIOR_MAX_TOTAL_STORAGE_GB` | Per-owner total cap (default 2000) |
+| `XCELSIOR_MAX_VOLUMES_PER_OWNER` | Max volume count per owner (default 50) |
+| `XCELSIOR_HOT_MOUNT_TIMEOUT_SEC` | Hot-attach poll timeout in API (default 45) |
 
 **Critical:** `XCELSIOR_NFS_EXPORT_BASE` on API must match the path exported by the NFS server. Mismatch → provision succeeds on wrong path or mount fails on workers.
 
@@ -140,8 +142,8 @@ bash scripts/check_mac_nfs_disk.sh
 | Path | Behavior |
 |------|----------|
 | **Launch with `volume_ids`** | Worker NFS-mounts at job start and bind-mounts into container (`/workspace` by default). Verified on ASUS `aaryn-tuf-rtx2060`. |
-| **`POST /api/v2/volumes/{id}/attach`** | Updates DB attachment only. **Does not remount a running container** — user must **stop/start** (or terminate and relaunch) for the worker to pick up the mount. |
-| **Detach** | `POST .../detach` updates DB; worker cleans mounts on terminate via `detach_all_for_instance`. |
+| **`POST /api/v2/volumes/{id}/attach`** | Hot-attach: enqueues `mount_volume` on the instance host; worker NFS-mounts at `/mnt/xcelsior-volumes/{volume_id}` and `nsenter` bind-mounts into the running container. Poll timeout `XCELSIOR_HOT_MOUNT_TIMEOUT_SEC` (default 45s). |
+| **Detach** | `POST .../detach` enqueues `unmount_volume`; worker unbinds and lazy-unmounts host NFS. Terminate also runs `detach_all_for_instance`. |
 
 ---
 

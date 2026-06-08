@@ -35,7 +35,16 @@ class TestVolumeLifecycle:
                 result = MagicMock()
                 sql_lower = sql.strip().lower()
 
-                if "coalesce(sum(size_gb)" in sql_lower:
+                if "count(*) as cnt" in sql_lower and "owner_id" in sql_lower:
+                    owner_id = params[0]
+                    cnt = sum(
+                        1
+                        for v in outer._volumes.values()
+                        if v["owner_id"] == owner_id and v["status"] != "deleted"
+                    )
+                    result.fetchone.return_value = {"cnt": cnt}
+
+                elif "coalesce(sum(size_gb)" in sql_lower:
                     total = sum(
                         v["size_gb"] for v in outer._volumes.values() if v["status"] != "deleted"
                     )

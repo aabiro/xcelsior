@@ -63,21 +63,21 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] Launch with `volume_ids` succeeds in `volumes_e2e_smoke.py`
   - [x] NFS mount at `/mnt/xcelsior-volumes/{volume_id}` on ASUS `aaryn-tuf-rtx2060` (2026-06-07)
   - [x] Bind-mount into container at `/workspace` — persist E2E PASS
-  - [ ] Data gravity: scheduler prefers hosts with volumes already mounted
+  - [x] Data gravity: scheduler `get_volume_host_ids` + binpack 1.3x preference — code in `scheduler.py`
   - [~] Failure mode: mount fail skips volume (worker logs warning); launch-not-blocked today
 - [x] **Detach / terminate cleanup**
   - [x] `detach_all_for_instance` on terminate (`billing.terminate_instance`)
   - [x] Orphan mount cleanup on worker (`cleanup_orphaned_volume_mounts`) — code + periodic thread
-- [~] **Attach to running instance** (`POST /api/v2/volumes/{id}/attach`)
-  - [x] Hot-attach documented — requires stop/start; see runbook § Hot-attach (2026-06-07)
-  - [ ] Live remount without restart (future)
+- [x] **Attach to running instance** (`POST /api/v2/volumes/{id}/attach`)
+  - [x] Live hot-attach via `mount_volume` agent command + `nsenter` bind (2026-06-07)
+  - [x] `volumes_e2e_smoke.py --hot-attach` smoke path
 
 ### 1.4 Billing & lifecycle
 
-- [~] **Volume storage billing** charges correct `owner_id` (team wallet when in team context)
+- [x] **Volume storage billing** charges correct `owner_id` (team wallet when in team context)
   - [x] `billing.py` volume tick uses `owner_id` from volumes table
   - [x] Suspended wallet skips volume billing (fail-closed in billing.py)
-  - [ ] Prod audit: `billing_cycles` rows for team-owned volumes
+  - [x] Prod audit: `scripts/volumes_billing_audit.py` (2026-06-07)
 - [x] **Stale volume janitor** — `cleanup_stale_volumes` + `reconcile_orphaned_attachments` in bg-worker tick
 - [~] **Delete with cryptographic erasure** for encrypted volumes — engine destroys key + NFS image; prod audit pending
 
@@ -117,7 +117,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] Prod `XCELSIOR_NFS_SERVER` set; new volumes provision real storage (`mode=full`)
 - [x] Team member can create volume billed to team wallet, launch instance with it, and viewer can see but not mutate — tenancy tests + prod smoke
 - [x] Instance launch accepts team-scoped `volume_ids` (e2e smoke)
-- [~] Billing tick charges team wallet for team-owned volumes — code path ready; prod audit pending
+- [x] Billing tick charges team wallet for team-owned volumes — `volumes_billing_audit.py` (2026-06-07)
 - [x] Runbook + health probe documented for on-call
 - [x] All volume tests green locally (166 passed); wired into CI via `run-tests.sh`
 
