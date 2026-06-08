@@ -11,6 +11,7 @@ from routes._deps import (
     _require_volume_write_role,
     _volume_owner_ids_readable,
     _volume_scope_owner_id,
+    append_user_audit_event,
     broadcast_sse,
     log,
 )
@@ -58,6 +59,13 @@ def api_volume_create(body: VolumeCreate, request: Request):
         broadcast_sse(
             "volume.created",
             {"volume_id": vol["volume_id"], "name": vol["name"], "size_gb": vol["size_gb"]},
+        )
+        append_user_audit_event(
+            "user.volume.created",
+            "volume",
+            vol["volume_id"],
+            user,
+            data={"name": vol["name"], "size_gb": vol["size_gb"], "owner_id": owner_id},
         )
         return {"ok": True, "volume": vol}
     except ValueError as e:
@@ -237,6 +245,13 @@ def api_volume_delete(volume_id: str, request: Request):
     try:
         result = ve.delete_volume(volume_id, owner_id=vol["owner_id"])
         broadcast_sse("volume.deleted", {"volume_id": volume_id})
+        append_user_audit_event(
+            "user.volume.deleted",
+            "volume",
+            volume_id,
+            user,
+            data={"owner_id": vol["owner_id"]},
+        )
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(409, str(e))

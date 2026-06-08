@@ -624,6 +624,15 @@ def api_deposit(customer_id: str, req: DepositRequest, request: Request):
         )
     be = get_billing_engine()
     result = be.deposit(customer_id, req.amount_cad, req.description)
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "user.billing.deposit",
+        "billing",
+        customer_id,
+        user,
+        data={"amount_cad": req.amount_cad, "description": req.description},
+    )
     return {"ok": True, **result}
 
 
