@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FERN_DIR = ROOT / "fern"
 OVERRIDES_PATH = FERN_DIR / "openapi-overrides.yml"
 OUTPUT_PATH = FERN_DIR / "openapi.json"
+PUBLIC_OUTPUT_PATH = ROOT / "public" / "openapi.json"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
 CLIENT_OPERATION_ALLOWLIST = {
     ("/.well-known/oauth-authorization-server", "get"),
@@ -241,9 +242,15 @@ def build_public_spec() -> dict:
 
 def main() -> None:
     spec = build_public_spec()
-    OUTPUT_PATH.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    payload = json.dumps(spec, indent=2, ensure_ascii=False) + "\n"
+    OUTPUT_PATH.write_text(payload, encoding="utf-8")
+    PUBLIC_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PUBLIC_OUTPUT_PATH.write_text(payload, encoding="utf-8")
     operation_count = sum(len(path_item) for path_item in spec.get("paths", {}).values())
-    print(f"Wrote {OUTPUT_PATH} with {len(spec.get('paths', {}))} paths / {operation_count} operations")
+    print(
+        f"Wrote {OUTPUT_PATH} and {PUBLIC_OUTPUT_PATH} with "
+        f"{len(spec.get('paths', {}))} paths / {operation_count} operations"
+    )
 
 
 if __name__ == "__main__":
