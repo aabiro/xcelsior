@@ -117,6 +117,43 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 - `GET /readyz` — Readiness probe (checks DB + storage)
 - `GET /metrics` — Prometheus-style metrics snapshot
 
+### Serverless Inference (autoscaling GPU endpoints)
+Management API (session auth):
+- `GET /api/v2/serverless/enabled` — Feature flag probe
+- `POST /api/v2/serverless/endpoints` — Create endpoint (preset vLLM or custom Docker)
+- `GET /api/v2/serverless/endpoints` — List endpoints
+- `GET /api/v2/serverless/endpoints/{id}/health` — Worker health
+- `GET /api/v2/serverless/endpoints/{id}/usage` — Metrics and cost
+- `POST /api/v2/serverless/endpoints/{id}/keys` — Issue per-endpoint API key (`xcel_` prefix)
+
+Job API (per-endpoint key or session):
+- `POST /v1/serverless/{id}/run` — Async enqueue → `{id, status: IN_QUEUE}`
+- `POST /v1/serverless/{id}/runsync` — Sync wait (timeout bounded)
+- `GET /v1/serverless/{id}/status/{job_id}` — Poll status/output
+- `GET /v1/serverless/{id}/stream/{job_id}` — SSE token stream
+- `POST /v1/serverless/{id}/cancel/{job_id}` — Cancel job
+
+OpenAI-compatible (change base_url + key):
+- `POST /v1/serverless/{id}/openai/v1/chat/completions` — Chat (streaming SSE supported)
+- `GET /v1/serverless/{id}/openai/v1/models` — List models
+
+Legacy aliases: `/api/v2/inference/endpoints/*` → same handlers.
+
+OpenAI SDK example:
+```python
+from openai import OpenAI
+client = OpenAI(
+    base_url="https://xcelsior.ca/v1/serverless/{endpoint_id}/openai/v1",
+    api_key="xcel_...",
+)
+```
+
+TypeScript SDK: `client.serverless.createEndpoint()`, `.runJob()`, `.chatCompletions()`.
+
+### OpenAPI (client-facing)
+- `GET /openapi.json` — Curated public spec (~70 paths, 79 operations). Internal/admin routes excluded.
+- Full Fern source: `fern/openapi.json` (regenerate via `python3 scripts/generate_public_openapi.py`).
+
 ## Data Models
 
 ### HostIn (PUT /host)

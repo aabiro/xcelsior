@@ -462,6 +462,31 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Public OpenAPI (curated client-facing spec) ───────────────────────
+_PUBLIC_OPENAPI_CACHE: dict | None = None
+
+
+def _load_public_openapi_spec() -> dict:
+    """Return the curated Fern/public spec (not the full internal FastAPI schema)."""
+    global _PUBLIC_OPENAPI_CACHE
+    if _PUBLIC_OPENAPI_CACHE is not None:
+        return _PUBLIC_OPENAPI_CACHE
+    spec_path = Path(__file__).resolve().parent / "fern" / "openapi.json"
+    if spec_path.exists():
+        _PUBLIC_OPENAPI_CACHE = json.loads(spec_path.read_text(encoding="utf-8"))
+        return _PUBLIC_OPENAPI_CACHE
+    from scripts.generate_public_openapi import build_public_spec
+
+    _PUBLIC_OPENAPI_CACHE = build_public_spec()
+    return _PUBLIC_OPENAPI_CACHE
+
+
+def public_openapi() -> dict:
+    return _load_public_openapi_spec()
+
+
+app.openapi = public_openapi  # type: ignore[method-assign]
+
 
 # ── CORS ──────────────────────────────────────────────────────────────
 
