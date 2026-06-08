@@ -532,6 +532,8 @@ def create_oauth_client(
     created_by_email: str | None,
     client_type: str = "confidential",
     is_first_party: bool = False,
+    workspace_customer_id: str | None = None,
+    team_id: str | None = None,
 ) -> dict[str, Any]:
     now = time.time()
     client_id = f"oauth_{uuid.uuid4().hex[:16]}"
@@ -553,6 +555,8 @@ def create_oauth_client(
         "client_secret_salt": secret_salt,
         "created_by_email": created_by_email,
         "is_first_party": 1 if is_first_party else 0,
+        "workspace_customer_id": workspace_customer_id,
+        "team_id": team_id,
         "created_at": now,
         "updated_at": now,
     }
@@ -565,6 +569,9 @@ def create_oauth_client(
         "grant_types": grant_types,
         "scopes": scopes,
         "status": "active",
+        "workspace_customer_id": workspace_customer_id,
+        "team_id": team_id,
+        "workspace_label": "team" if team_id else "personal",
         "created_at": now,
         "updated_at": now,
         "last_used": None,

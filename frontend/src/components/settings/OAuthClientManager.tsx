@@ -18,6 +18,12 @@ import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { OAuthClientInfo } from "@/lib/api";
+import type { TeamContext } from "@/lib/team-context";
+import {
+  CredentialScopePanel,
+  ScopeChipRow,
+  WorkspaceScopeBadge,
+} from "@/components/settings/credential-scope-panel";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -169,8 +175,12 @@ function ScopeMatrix({
 
 function CreateClientForm({
   onCreated,
+  team,
+  disabled,
 }: {
   onCreated: (client: OAuthClientInfo, secret: string) => void;
+  team: TeamContext;
+  disabled?: boolean;
 }) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
@@ -203,8 +213,12 @@ function CreateClientForm({
   return (
     <div className="rounded-lg border border-dashed border-border/80 bg-navy-light/20 overflow-hidden">
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-surface-hover/30 transition-colors"
+        onClick={() => !disabled && setExpanded(!expanded)}
+        disabled={disabled}
+        className={cn(
+          "flex w-full items-center gap-2 px-4 py-3 text-left transition-colors",
+          disabled ? "cursor-not-allowed opacity-60" : "hover:bg-surface-hover/30",
+        )}
       >
         {expanded
           ? <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
@@ -223,7 +237,16 @@ function CreateClientForm({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 space-y-3 border-t border-border/40">
-              <div className="pt-3">
+              <div className="pt-3 flex flex-wrap items-center justify-between gap-2">
+                <WorkspaceScopeBadge
+                  workspaceLabel={team.isTeamMember ? "team" : "personal"}
+                  teamName={team.teamName}
+                />
+                <span className="text-[10px] text-text-muted">
+                  {t("dash.settings.credentials.create_in_workspace")}
+                </span>
+              </div>
+              <div>
                 <Label className="text-xs text-text-muted mb-1.5 block">{t("dash.settings.oauth.create_name_label")}</Label>
                 <Input
                   placeholder={t("dash.settings.oauth.create_name_placeholder")}
@@ -507,12 +530,16 @@ function RotateSecretDialog({
 
 function ClientRow({
   client,
+  team,
+  readOnly,
   onEdit,
   onRotate,
   onToggleStatus,
   onDelete,
 }: {
   client: OAuthClientInfo;
+  team: TeamContext;
+  readOnly?: boolean;
   onEdit: () => void;
   onRotate: () => void;
   onToggleStatus: () => void;
@@ -567,15 +594,19 @@ function ClientRow({
                 {t("dash.settings.oauth.first_party")}
               </span>
             )}
+            <WorkspaceScopeBadge
+              workspaceLabel={client.workspace_label}
+              teamName={client.workspace_label === "team" ? team.teamName : undefined}
+              compact
+            />
           </div>
           <code className="mt-0.5 block text-xs text-text-muted font-mono truncate">
             {client.client_id}
           </code>
-          <div className="mt-1 flex items-center gap-3 text-[11px] text-text-muted flex-wrap">
-            <span className="flex items-center gap-1">
-              <Shield className="h-3 w-3" />
-              {(client.scopes || []).join(", ")}
-            </span>
+          <div className="mt-2">
+            <ScopeChipRow scopes={client.scopes || []} maxVisible={4} />
+          </div>
+          <div className="mt-1.5 flex items-center gap-3 text-[11px] text-text-muted flex-wrap">
             {client.last_used != null && (
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
@@ -597,7 +628,7 @@ function ClientRow({
           >
             {copiedId === client.client_id ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
-          {!client.is_first_party && (
+          {!client.is_first_party && !readOnly && (
             <>
               <button
                 onClick={onEdit}
@@ -730,9 +761,10 @@ function ClientRow({
 interface OAuthClientManagerProps {
   clients: OAuthClientInfo[];
   onClientsChange: (clients: OAuthClientInfo[]) => void;
+  team: TeamContext;
 }
 
-export function OAuthClientManager({ clients, onClientsChange }: OAuthClientManagerProps) {
+export function OAuthClientManager({ clients, onClientsChange, team }: OAuthClientManagerProps) {
   const { t } = useLocale();
   // Modal state
   const [editingClient, setEditingClient] = useState<OAuthClientInfo | null>(null);
@@ -747,6 +779,14 @@ export function OAuthClientManager({ clients, onClientsChange }: OAuthClientMana
       onClientsChange(res.clients || []);
     } catch { /* silent */ }
   }, [onClientsChange]);
+
+  useEffect(() => {
+    const onTeamChanged = () => { void refreshClients(); };
+    window.addEventListener("xcelsior-team-changed", onTeamChanged);
+    return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
+  }, [refreshClients]);
+
+  const writeBlocked = team.isTeamMember && !team.canWriteInstances;
 
   const handleCreated = (client: OAuthClientInfo, secret: string) => {
     if (secret) {
@@ -822,13 +862,21 @@ export function OAuthClientManager({ clients, onClientsChange }: OAuthClientMana
         </div>
 
         <div className="p-5 space-y-4">
+          <CredentialScopePanel team={team} clientCount={clients.length} />
+
           {/* Info callout */}
           <div className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 p-3 text-xs text-text-secondary">
             {t("dash.settings.oauth.info", { grantType: "client_credentials" })}
           </div>
 
+          {writeBlocked && (
+            <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/10 px-3 py-2 text-xs text-accent-gold">
+              {t("dash.settings.credentials.viewer_create_blocked")}
+            </div>
+          )}
+
           {/* Create form */}
-          <CreateClientForm onCreated={handleCreated} />
+          <CreateClientForm onCreated={handleCreated} team={team} disabled={writeBlocked} />
 
           {/* Secret reveal */}
           <AnimatePresence>
@@ -857,10 +905,12 @@ export function OAuthClientManager({ clients, onClientsChange }: OAuthClientMana
                 <ClientRow
                   key={client.client_id}
                   client={client}
-                  onEdit={() => setEditingClient(client)}
-                  onRotate={() => setRotatingClient(client)}
-                  onToggleStatus={() => setTogglingClient(client)}
-                  onDelete={() => setDeletingClient(client)}
+                  team={team}
+                  readOnly={writeBlocked}
+                  onEdit={() => !writeBlocked && setEditingClient(client)}
+                  onRotate={() => !writeBlocked && setRotatingClient(client)}
+                  onToggleStatus={() => !writeBlocked && setTogglingClient(client)}
+                  onDelete={() => !writeBlocked && setDeletingClient(client)}
                 />
               ))}
             </div>

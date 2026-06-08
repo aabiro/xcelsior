@@ -26,7 +26,8 @@ import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { describePasskeyRegistrationError } from "@/lib/passkeys";
-import { applyActiveTeamSwitch } from "@/lib/team-context";
+import { applyActiveTeamSwitch, getTeamContext } from "@/lib/team-context";
+import { TeamContextBanner } from "@/components/team/team-context-banner";
 
 import {
   PASSWORD_MAX_LENGTH,
@@ -284,7 +285,12 @@ export default function SettingsPage() {
   }, [userId, loadTeams, loadMfa, loadSessions]);
 
   useEffect(() => {
-    const onTeamChanged = () => { void loadTeams(); };
+    const onTeamChanged = () => {
+      void loadTeams();
+      api.fetchOAuthClients()
+        .then((res) => setOauthClients(res.clients || []))
+        .catch(() => {});
+    };
     window.addEventListener("xcelsior-team-changed", onTeamChanged);
     return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
   }, [loadTeams]);
@@ -761,13 +767,9 @@ export default function SettingsPage() {
           {activeTab === "api-keys" && (
             <ApiKeysTab
               t={t}
+              team={getTeamContext(user)}
               oauthClients={oauthClients}
               onOAuthClientsChange={setOauthClients}
-              apiKeys={apiKeys} newKeyName={newKeyName} setNewKeyName={setNewKeyName}
-              newKeyScope={newKeyScope} setNewKeyScope={setNewKeyScope}
-              generatedKey={generatedKey} setGeneratedKey={setGeneratedKey}
-              generatingKey={generatingKey}
-              onGenerateKey={handleGenerateKey} onRevokeKey={handleRevokeKey}
               sshPubKey={sshPubKey} generatingSsh={generatingSsh}
               userSshKeys={userSshKeys}
               newSshKeyName={newSshKeyName} setNewSshKeyName={setNewSshKeyName}
@@ -1390,213 +1392,29 @@ function SecurityTab({
 // ═══════════════════════════════��════════════════════════════════════
 
 function ApiKeysTab({
-  t, oauthClients, onOAuthClientsChange,
-  apiKeys, newKeyName, setNewKeyName, newKeyScope, setNewKeyScope,
-  generatedKey, setGeneratedKey, generatingKey, onGenerateKey, onRevokeKey,
+  t, team, oauthClients, onOAuthClientsChange,
   sshPubKey, generatingSsh, userSshKeys,
   newSshKeyName, setNewSshKeyName, newSshKeyValue, setNewSshKeyValue,
   addingSshKey, onGenerateSsh, onAddSshKey, onDeleteSshKey,
 }: {
   t: (k: string) => string;
+  team: import("@/lib/team-context").TeamContext;
   oauthClients: OAuthClientInfo[];
   onOAuthClientsChange: (clients: OAuthClientInfo[]) => void;
-  apiKeys: ApiKeyInfo[]; newKeyName: string; setNewKeyName: (v: string) => void;
-  newKeyScope: "full-access" | "read-only"; setNewKeyScope: (v: "full-access" | "read-only") => void;
-  generatedKey: string | null; setGeneratedKey: (v: string | null) => void;
-  generatingKey: boolean; onGenerateKey: () => void; onRevokeKey: (p: string) => void;
   sshPubKey: string; generatingSsh: boolean; userSshKeys: UserSshKey[];
   newSshKeyName: string; setNewSshKeyName: (v: string) => void;
   newSshKeyValue: string; setNewSshKeyValue: (v: string) => void;
   addingSshKey: boolean; onGenerateSsh: () => void; onAddSshKey: () => void;
   onDeleteSshKey: (id: string) => void;
 }) {
-  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
-  const [showPlatformKey, setShowPlatformKey] = useState(false);
-  const [showGenKey, setShowGenKey] = useState(true);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const toggleReveal = (preview: string) => {
-    setRevealedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(preview)) next.delete(preview); else next.add(preview);
-      return next;
-    });
-  };
-
-  const copyWithFeedback = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    toast.success("Copied to clipboard");
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const maskKey = (preview: string) => `${preview}${"*".repeat(28)}`;
-
   return (
     <StaggerList className="space-y-5">
-      {/* OAuth clients */}
       <StaggerItem>
-        <OAuthClientManager clients={oauthClients} onClientsChange={onOAuthClientsChange} />
+        <TeamContextBanner team={team} variant="general" />
       </StaggerItem>
 
-      {/* API Keys */}
       <StaggerItem>
-        <div className="glow-card rounded-xl border border-border bg-surface brand-top-accent">
-          <div className="border-b border-border/60 px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <IconBadge icon={Key} color="text-accent-gold" bg="bg-accent-gold/10" />
-                <div>
-                  <h3 className="text-sm font-semibold">{t("dash.settings.api_keys")}</h3>
-                  <p className="text-xs text-text-muted">{t("dash.settings.api_keys_desc")}</p>
-                </div>
-              </div>
-              {apiKeys.length > 0 && (
-                <span className="rounded-full bg-accent-gold/10 px-2.5 py-0.5 text-[11px] font-medium text-accent-gold ring-1 ring-accent-gold/20">
-                  {apiKeys.length} key{apiKeys.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="p-5 space-y-4">
-            {/* Generate new key */}
-            <div className="rounded-lg border border-dashed border-border/80 bg-navy-light/20 p-4 space-y-3">
-              <p className="text-xs font-medium text-text-muted uppercase tracking-wider">Create New Key</p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input placeholder={t("dash.settings.key_name_placeholder")} value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} className="flex-1 min-w-0" />
-                <div className="flex gap-2">
-                  <Select value={newKeyScope} onChange={(e) => setNewKeyScope(e.target.value as "full-access" | "read-only")}>
-                    <option value="full-access">{t("dash.settings.full_access")}</option>
-                    <option value="read-only">{t("dash.settings.read_only")}</option>
-                  </Select>
-                  <Button onClick={onGenerateKey} disabled={generatingKey} size="sm">
-                    {generatingKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                    {t("dash.settings.generate")}
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* Newly generated key — prominent reveal */}
-            <AnimatePresence>
-              {generatedKey && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.97, y: -4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.97, y: -4 }}
-                  className="rounded-xl border border-accent-gold/40 bg-gradient-to-b from-accent-gold/8 to-accent-gold/3 p-4 space-y-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-gold/20">
-                      <AlertTriangle className="h-3.5 w-3.5 text-accent-gold" />
-                    </div>
-                    <span className="text-sm font-semibold text-accent-gold">Copy your key now — it won&apos;t be shown again</span>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-lg bg-background/80 border border-border/60 p-1">
-                    <code className="flex-1 px-3 py-2 font-mono text-xs break-all select-all">
-                      {showGenKey ? generatedKey : generatedKey.slice(0, 8) + "*".repeat(generatedKey.length - 8)}
-                    </code>
-                    <div className="flex shrink-0 gap-1 pr-1">
-                      <button
-                        onClick={() => setShowGenKey(!showGenKey)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                        title={showGenKey ? "Hide" : "Reveal"}
-                      >
-                        {showGenKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                      <button
-                        onClick={() => copyWithFeedback(generatedKey, "gen")}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                          copiedId === "gen" ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-                        )}
-                        title="Copy"
-                      >
-                        {copiedId === "gen" ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-                  <button onClick={() => setGeneratedKey(null)} className="text-xs text-text-muted hover:text-text-secondary transition-colors">
-                    Dismiss
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Existing keys */}
-            {apiKeys.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover mb-3">
-                  <Key className="h-5 w-5 text-text-muted" />
-                </div>
-                <p className="text-sm text-text-muted">{t("dash.settings.no_keys")}</p>
-                <p className="text-xs text-text-muted mt-1">Create your first API key above to get started</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {apiKeys.map((k) => {
-                  const revealed = revealedKeys.has(k.preview);
-                  return (
-                    <div
-                      key={k.preview}
-                      className="group rounded-lg border border-border/60 bg-navy-light/30 overflow-hidden transition-all hover:border-border hover:bg-surface-hover"
-                    >
-                      <div className="flex items-center gap-3 p-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-gold/8 ring-1 ring-accent-gold/15">
-                          <Key className="h-4 w-4 text-accent-gold" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium truncate">{k.name}</p>
-                            <span className={cn(
-                              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
-                              k.scope === "full-access"
-                                ? "bg-accent-cyan/10 text-accent-cyan ring-accent-cyan/20"
-                                : "bg-surface-hover text-text-muted ring-border",
-                            )}>
-                              {k.scope === "full-access" ? "Full Access" : "Read Only"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <code className="text-xs text-text-muted font-mono">
-                              {revealed ? k.preview : maskKey(k.preview.slice(0, 10))}
-                            </code>
-                            <button
-                              onClick={() => toggleReveal(k.preview)}
-                              className="text-text-muted hover:text-text-secondary transition-colors"
-                              title={revealed ? "Hide" : "Reveal"}
-                            >
-                              {revealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => copyWithFeedback(k.preview, k.preview)}
-                            className={cn(
-                              "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                              copiedId === k.preview ? "text-emerald bg-emerald/10" : "text-text-muted hover:text-text-primary hover:bg-surface-hover",
-                            )}
-                            title="Copy preview"
-                          >
-                            {copiedId === k.preview ? <CheckCircle className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                          </button>
-                          <button
-                            onClick={() => onRevokeKey(k.preview)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors"
-                            title="Revoke key"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <OAuthClientManager clients={oauthClients} onClientsChange={onOAuthClientsChange} team={team} />
       </StaggerItem>
 
       {/* SSH Keys */}

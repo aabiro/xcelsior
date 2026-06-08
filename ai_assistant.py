@@ -960,10 +960,11 @@ def _tool_get_account_info(_args: dict, user: dict) -> dict:
 
 def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
     from billing import get_billing_engine
+    from routes._deps import _effective_billing_customer_id
 
-    user_id = user.get("user_id", user.get("email", ""))
+    customer_id = _effective_billing_customer_id(user)
     engine = get_billing_engine()
-    wallet = engine.get_wallet(user_id)
+    wallet = engine.get_wallet(customer_id)
     balance_cents = wallet.get("balance_cents", 0) if wallet else 0
     # Recent usage from usage_meters — use _ai_db() for consistent connection handling
     try:
@@ -971,7 +972,7 @@ def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
             meters = conn.execute(
                 "SELECT gpu_model, duration_sec, total_cost_cad, started_at "
                 "FROM usage_meters WHERE owner = %s ORDER BY started_at DESC LIMIT %s",
-                (user_id, RECENT_USAGE_LIMIT),
+                (customer_id, RECENT_USAGE_LIMIT),
             ).fetchall()
     except Exception as e:
         log.error("Failed to fetch usage meters: %s", e)
@@ -983,14 +984,11 @@ def _tool_get_billing_summary(_args: dict, user: dict) -> dict:
 
 
 def _tool_list_jobs(args: dict, user: dict) -> dict:
+    from routes._deps import _filter_jobs_for_user
     from scheduler import list_jobs
 
     all_jobs = list_jobs()
-    user_id = user.get("user_id", user.get("email", ""))
-    # Filter to user's jobs
-    user_jobs = [
-        j for j in all_jobs if j.get("submitted_by") == user_id or j.get("user_id") == user_id
-    ]
+    user_jobs = _filter_jobs_for_user(all_jobs, user)
     status_filter = args.get("status")
     if status_filter:
         user_jobs = [j for j in user_jobs if j.get("status") == status_filter]
@@ -1013,11 +1011,19 @@ def _tool_list_jobs(args: dict, user: dict) -> dict:
 
 
 def _tool_get_job_details(args: dict, user: dict) -> dict:
-    from scheduler import list_jobs
+    from routes._deps import _check_job_access
+    from scheduler import get_job
 
     job_id = args.get("job_id", "")
-    all_jobs = list_jobs()
-    job = next((j for j in all_jobs if j.get("job_id") == job_id or j.get("id") == job_id), None)
+    if not job_id:
+        return {"error": "Job ID is required."}
+    from fastapi import HTTPException
+
+    try:
+        _check_job_access(user, job_id)
+    except HTTPException:
+        return {"error": f"Job {job_id} not found."}
+    job = get_job(job_id)
     if not job:
         return {"error": f"Job {job_id} not found."}
     return {
@@ -1363,7 +1369,15 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
         return {
             "error": f"Invalid docker image format: {image!r}. Expected format: 'registry/image:tag'."
         }
-    customer_id = user.get("customer_id", user.get("user_id", ""))
+    from routes._deps import _effective_billing_customer_id, _require_team_instance_write
+
+    from fastapi import HTTPException
+
+    try:
+        _require_team_instance_write(user)
+    except HTTPException:
+        return {"error": "Team viewers cannot launch instances."}
+    customer_id = _effective_billing_customer_id(user)
     # Wallet pre-flight
     from billing import get_billing_engine
     import time as _time
@@ -1394,25 +1408,22 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
 
 
 def _tool_stop_job(args: dict, user: dict) -> dict:
-    from scheduler import update_job_status, list_jobs
+    from routes._deps import _check_job_write_access
+    from scheduler import get_job, update_job_status
 
     job_id = args.get("job_id", "")
     if not job_id:
         return {"error": "Job ID is required."}
-    # Verify job exists and belongs to user
-    all_jobs = list_jobs()
-    user_id = user.get("user_id", user.get("email", ""))
-    job = next(
-        (
-            j
-            for j in all_jobs
-            if (j.get("job_id") == job_id or j.get("id") == job_id)
-            and (j.get("submitted_by") == user_id or j.get("user_id") == user_id)
-        ),
-        None,
-    )
+    from fastapi import HTTPException
+
+    try:
+        _check_job_write_access(user, job_id)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        return {"error": f"Job {job_id} not found or not permitted: {detail}"}
+    job = get_job(job_id)
     if not job:
-        return {"error": f"Job {job_id} not found or does not belong to you."}
+        return {"error": f"Job {job_id} not found."}
     if job.get("status") not in ("queued", "assigned", "running"):
         return {"error": f"Job {job_id} is already {job.get('status')} and cannot be stopped."}
     update_job_status(job_id, "cancelled")
@@ -1850,15 +1861,19 @@ def _tool_get_sla_status(args: dict, user: dict) -> dict:
 
 
 def _tool_get_inference_endpoints(_args: dict, user: dict) -> dict:
-    """List user's serverless inference endpoints."""
-    user_id = user.get("user_id", user.get("email", ""))
+    """List serverless inference endpoints visible in the active workspace."""
+    from routes._deps import _inference_owner_ids_readable
+
+    owner_ids = sorted(_inference_owner_ids_readable(user))
+    if not owner_ids:
+        return {"endpoints": [], "count": 0}
     try:
         with _ai_db() as conn:
             rows = conn.execute(
                 "SELECT endpoint_id, model_id, model_revision, gpu_type, vram_required_gb, "
                 "status, total_requests, total_tokens_generated, total_cost_cad, created_at, updated_at "
-                "FROM inference_endpoints WHERE owner_id = %s ORDER BY created_at DESC",
-                (user_id,),
+                "FROM inference_endpoints WHERE owner_id = ANY(%s) ORDER BY created_at DESC",
+                (owner_ids,),
             ).fetchall()
         return {"endpoints": [dict(r) for r in rows], "count": len(rows)}
     except Exception as e:

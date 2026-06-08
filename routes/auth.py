@@ -35,6 +35,13 @@ from routes._deps import (
     _require_auth as _deps_require_auth,
     _require_user_grant as _deps_require_user_grant,
     _require_write_access as _deps_require_write_access,
+    _canonical_owner_id,
+    _oauth_workspace_customer_id,
+    _oauth_workspace_team_id,
+    _require_oauth_client_access,
+    _require_oauth_client_write,
+    _user_can_access_oauth_client,
+    _require_team_instance_write,
     _sessions,
     _set_auth_cookie as _deps_set_auth_cookie,
     _set_session_cookies,
@@ -579,13 +586,37 @@ def oauth_verify_device(body: DeviceVerificationRequest, request: Request):
     return resp
 
 
+def _safe_oauth_client_payload(client: dict) -> dict:
+    team_id = str(client.get("team_id") or "").strip() or None
+    return {
+        "client_id": client["client_id"],
+        "client_name": client["client_name"],
+        "client_type": client["client_type"],
+        "redirect_uris": list(client.get("redirect_uris") or []),
+        "grant_types": list(client.get("grant_types") or []),
+        "scopes": list(client.get("scopes") or []),
+        "is_first_party": bool(client.get("is_first_party")),
+        "created_by_email": client.get("created_by_email"),
+        "status": client.get("status", "active"),
+        "workspace_customer_id": client.get("workspace_customer_id"),
+        "team_id": team_id,
+        "workspace_label": "team" if team_id else "personal",
+        "created_at": client.get("created_at"),
+        "updated_at": client.get("updated_at"),
+        "last_used": client.get("last_used"),
+    }
+
+
 @router.post("/api/oauth/clients", tags=["Auth"])
 def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
     user = _require_user_grant(request)
+    _require_team_instance_write(user)
     if body.client_type not in {"public", "confidential"}:
         raise HTTPException(400, "client_type must be public or confidential")
     if body.is_first_party and not _is_platform_admin(user):
         raise HTTPException(403, "Only admins can create first-party OAuth clients")
+    workspace_customer_id = _oauth_workspace_customer_id(user)
+    team_id = _oauth_workspace_team_id(user)
     client = create_oauth_client(
         client_name=body.client_name.strip(),
         redirect_uris=list(body.redirect_uris),
@@ -594,6 +625,8 @@ def api_create_oauth_client(body: OAuthClientCreateRequest, request: Request):
         created_by_email=user["email"],
         client_type=body.client_type,
         is_first_party=body.is_first_party,
+        workspace_customer_id=workspace_customer_id,
+        team_id=team_id,
     )
     return {"ok": True, "client": client}
 
@@ -603,25 +636,22 @@ def api_list_oauth_clients(request: Request):
     user = _require_user_grant(request)
     from db import OAuthStore
 
-    clients = OAuthStore.list_clients(None if _is_platform_admin(user) else user["email"])
-    safe_clients = [
-        {
-            "client_id": client["client_id"],
-            "client_name": client["client_name"],
-            "client_type": client["client_type"],
-            "redirect_uris": list(client.get("redirect_uris") or []),
-            "grant_types": list(client.get("grant_types") or []),
-            "scopes": list(client.get("scopes") or []),
-            "is_first_party": bool(client.get("is_first_party")),
-            "created_by_email": client.get("created_by_email"),
-            "status": client.get("status", "active"),
-            "created_at": client.get("created_at"),
-            "updated_at": client.get("updated_at"),
-            "last_used": client.get("last_used"),
-        }
-        for client in clients
-    ]
-    return {"ok": True, "clients": safe_clients}
+    if _is_platform_admin(user):
+        clients = OAuthStore.list_clients(None)
+    else:
+        clients = OAuthStore.list_clients(
+            user["email"],
+            workspace_customer_id=_oauth_workspace_customer_id(user),
+            personal_customer_id=_canonical_owner_id(user),
+        )
+        clients = [c for c in clients if _user_can_access_oauth_client(user, c)]
+    safe_clients = [_safe_oauth_client_payload(client) for client in clients]
+    return {
+        "ok": True,
+        "clients": safe_clients,
+        "workspace_customer_id": _oauth_workspace_customer_id(user),
+        "team_id": _oauth_workspace_team_id(user),
+    }
 
 
 @router.delete("/api/oauth/clients/{client_id}", tags=["Auth"])
@@ -629,9 +659,19 @@ def api_delete_oauth_client(client_id: str, request: Request):
     user = _require_user_grant(request)
     from db import OAuthStore
 
-    deleted = OAuthStore.delete_client(
-        client_id, None if _is_platform_admin(user) else user["email"]
-    )
+    if _is_platform_admin(user):
+        deleted = OAuthStore.delete_client(client_id, None)
+    else:
+        client = OAuthStore.get_client(client_id)
+        if not client:
+            raise HTTPException(404, "OAuth client not found")
+        _require_oauth_client_write(user, client)
+        deleted = OAuthStore.delete_client_in_workspace(
+            client_id,
+            workspace_customer_id=_oauth_workspace_customer_id(user),
+            personal_customer_id=_canonical_owner_id(user),
+            user_email=user["email"],
+        )
     if not deleted:
         raise HTTPException(404, "OAuth client not found")
     return {"ok": True}
@@ -1885,9 +1925,20 @@ def api_update_oauth_client(client_id: str, body: OAuthClientUpdateRequest, requ
         raise HTTPException(400, "No fields to update")
     from db import OAuthStore
 
-    ok = OAuthStore.update_client(
-        client_id, updates, None if _is_platform_admin(user) else user["email"]
-    )
+    if _is_platform_admin(user):
+        ok = OAuthStore.update_client(client_id, updates, None)
+    else:
+        client = OAuthStore.get_client(client_id)
+        if not client:
+            raise HTTPException(404, "OAuth client not found or not permitted")
+        _require_oauth_client_write(user, client)
+        ok = OAuthStore.update_client_in_workspace(
+            client_id,
+            updates,
+            workspace_customer_id=_oauth_workspace_customer_id(user),
+            personal_customer_id=_canonical_owner_id(user),
+            user_email=user["email"],
+        )
     if not ok:
         raise HTTPException(404, "OAuth client not found or not permitted")
     return {"ok": True}
@@ -1901,9 +1952,21 @@ def api_rotate_oauth_client_secret(client_id: str, request: Request):
     hash_, salt = hash_secret(new_secret)
     from db import OAuthStore
 
-    ok = OAuthStore.rotate_client_secret(
-        client_id, hash_, salt, None if _is_platform_admin(user) else user["email"]
-    )
+    if _is_platform_admin(user):
+        ok = OAuthStore.rotate_client_secret(client_id, hash_, salt, None)
+    else:
+        client = OAuthStore.get_client(client_id)
+        if not client:
+            raise HTTPException(404, "OAuth client not found or not permitted")
+        _require_oauth_client_write(user, client)
+        ok = OAuthStore.rotate_client_secret_in_workspace(
+            client_id,
+            hash_,
+            salt,
+            workspace_customer_id=_oauth_workspace_customer_id(user),
+            personal_customer_id=_canonical_owner_id(user),
+            user_email=user["email"],
+        )
     if not ok:
         raise HTTPException(404, "OAuth client not found or not permitted")
     return {"ok": True, "client_id": client_id, "client_secret": new_secret}
