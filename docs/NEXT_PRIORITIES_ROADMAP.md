@@ -115,11 +115,11 @@ This document records the **six highest-priority initiatives** agreed for the ne
 ### 1.8 Acceptance criteria (volumes “done”)
 
 - [x] Prod `XCELSIOR_NFS_SERVER` set; new volumes provision real storage (`mode=full`)
-- [~] Team member can create volume billed to team wallet, launch instance with it, and viewer can see but not mutate
+- [x] Team member can create volume billed to team wallet, launch instance with it, and viewer can see but not mutate — tenancy tests + prod smoke
 - [x] Instance launch accepts team-scoped `volume_ids` (e2e smoke)
-- [ ] Billing tick charges team wallet for team-owned volumes
+- [~] Billing tick charges team wallet for team-owned volumes — code path ready; prod audit pending
 - [x] Runbook + health probe documented for on-call
-- [x] All volume tests green locally (153 passed); wire into CI job
+- [x] All volume tests green locally (166 passed); wired into CI via `run-tests.sh`
 
 ---
 
