@@ -1,3 +1,4 @@
+import { AuthProviderShell } from "@/components/AuthProviderShell";
 import { privatePageMetadata } from "@/lib/page-metadata";
 
 export const metadata = privatePageMetadata(
@@ -7,5 +8,5 @@ export const metadata = privatePageMetadata(
 );
 
 export default function RegisterLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <AuthProviderShell>{children}</AuthProviderShell>;
 }
