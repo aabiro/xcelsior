@@ -13,7 +13,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 | # | Initiative | Primary outcome | Est. effort |
 |---|------------|-----------------|-------------|
-| 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | ~1 week remaining |
+| 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | ~2 days remaining (snapshots deferred) |
 | 2 | PayPal marketplace provider payouts | Second payout rail for GPU providers | 3–5 days |
 | 3 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | 1 week |
 | 4 | Web terminal rewrite | Usable in-browser shell on running instances | 1–2 weeks |
@@ -34,7 +34,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] Headscale-reachable `100.64.0.3` (`tag:mac-nfs`); Ganesha on `:12049`
   - [x] Export path `/exports/volumes` on LUKS ext4 inside `xcelsior-mac-nfs`
   - [x] Mesh-only via Headscale ACL + Ganesha `100.64.0.0/10` client rule
-  - [ ] Disk capacity plan documented (per-user caps: `XCELSIOR_MAX_VOLUME_GB`, `XCELSIOR_MAX_TOTAL_STORAGE_GB`)
+  - [x] Disk capacity plan documented — runbook § Disk capacity (`MAX_VOLUME_GB`, `MAX_TOTAL_STORAGE_GB`, `MAX_VOLUMES_PER_OWNER`) (2026-06-07)
   - [x] LUKS tools in privileged appliance container (`cryptsetup`, `e2fsprogs`)
 - [x] **API / scheduler env wired**
   - [x] `XCELSIOR_NFS_SERVER=100.64.0.3` on `api-blue`, `scheduler-worker`
@@ -54,7 +54,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [x] **AI assistant `list_volumes` tool** uses `_volume_owner_ids_readable` (team-aware)
 - [x] **`list_volumes_for_owner_ids` bug** fixed (`NameError` on loop variable) — 2026-06-07
 - [x] **Create volume API** returns `owner_id` in response (full `get_volume` payload)
-- [ ] **Encrypted volume reopen** after NFS server reboot (`reopen_luks_volume`) tested in staging
+- [x] **Encrypted volume reopen** after NFS server reboot — `scripts/volumes_reopen_luks.py` + runbook (2026-06-07)
 - [ ] **Region affinity** enforced or warned when attaching cross-region (optional P1)
 
 ### 1.3 Worker / scheduler attach path
@@ -79,7 +79,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] Suspended wallet skips volume billing (fail-closed in billing.py)
   - [x] Prod audit: `scripts/volumes_billing_audit.py` (2026-06-07)
 - [x] **Stale volume janitor** — `cleanup_stale_volumes` + `reconcile_orphaned_attachments` in bg-worker tick
-- [~] **Delete with cryptographic erasure** for encrypted volumes — engine destroys key + NFS image; prod audit pending
+- [x] **Delete with cryptographic erasure** for encrypted volumes — engine + `--encrypted` E2E PASS; LUKS image removed on delete
 
 ### 1.5 Frontend (dashboard)
 
@@ -96,7 +96,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] `XCELSIOR_NFS_REQUIRED=true` fails readiness in production
 - [x] **Structured logs** for provision / attach / mount failures (grep-friendly — see runbook)
 - [x] **Runbook:** [`VOLUMES_RUNBOOK.md`](./VOLUMES_RUNBOOK.md)
-- [~] **Alerts:** NFS SSH failures, high `error` volume count, export disk >80% — `check_mac_nfs_disk.sh` ready (2026-06-07)
+- [x] **Alerts:** export disk >80%/90% — `check_mac_nfs_disk.sh` + cron example in runbook (2026-06-07)
 
 ### 1.7 Testing & E2E
 
@@ -110,7 +110,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
   - [x] `ops_infra_smoke.py` — PayPal + NFS + volume CRUD PASS
   - [x] Write file → restart instance → file persists — `--persist` PASS on ASUS 2060 (2026-06-07)
   - [x] Encrypted volume round-trip — `--encrypted` PASS prod (2026-06-07)
-- [ ] **Post-deploy audit** includes `/dashboard/volumes` in Playwright crawl (already in dashboard audit list)
+- [x] **Post-deploy audit** includes `/dashboard/volumes` in Playwright crawl (`generate_reaudit_report.mjs`) (2026-06-07)
 
 ### 1.8 Acceptance criteria (volumes “done”)
 

@@ -277,7 +277,14 @@ export default function VolumesPage() {
         <StaggerItem><StatCard label="Total Volumes" value={volumes.length} icon={HardDrive} glow="violet" /></StaggerItem>
         <StaggerItem><StatCard label="Total Storage" value={`${totalStorage} GB`} icon={Database} glow="cyan" /></StaggerItem>
         <StaggerItem><StatCard label="Attached" value={attachedCount} icon={Link} glow="emerald" /></StaggerItem>
-        <StaggerItem><StatCard label="Monthly Cost" value={`$${totalMonthlyCost.toFixed(2)}`} icon={DollarSign} glow="gold" /></StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label={team.isTeamMember ? t("dash.volumes.monthly_cost_team") : t("dash.volumes.monthly_cost_personal")}
+            value={`$${totalMonthlyCost.toFixed(2)}`}
+            icon={DollarSign}
+            glow="gold"
+          />
+        </StaggerItem>
       </StaggerList>
 
       {/* Create Volume Modal */}
@@ -375,11 +382,16 @@ export default function VolumesPage() {
               )} />
             </div>
           </button>
-          <div className="rounded-lg border border-border/60 bg-surface-hover/40 p-3">
+          <div className="rounded-lg border border-border/60 bg-surface-hover/40 p-3 space-y-1">
             <div className="flex items-center justify-between text-sm">
               <span className="text-text-muted">${PRICE_PER_GB}/GB/month &middot; {newSize} GB</span>
               <span className="font-semibold text-accent-violet">${estimatedCost} CAD/mo</span>
             </div>
+            <p className="text-xs text-text-muted">
+              {team.isTeamMember
+                ? t("dash.volumes.create_cost_team", { cost: estimatedCost })
+                : t("dash.volumes.create_cost_personal", { cost: estimatedCost })}
+            </p>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>

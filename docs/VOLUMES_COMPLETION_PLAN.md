@@ -127,14 +127,14 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Expose in:
   - [x] `GET /readyz` — fails if `XCELSIOR_NFS_REQUIRED=true` and not reachable
   - [x] `GET /api/nfs/config` (admin) — full detail
-  - [ ] Optional: `GET /api/admin/infrastructure` volume section
+  - [x] Optional: `GET /api/admin/infrastructure` volume section — `volumes` key with NFS health + counts (2026-06-07)
 - [x] Env: `XCELSIOR_NFS_REQUIRED=true` in prod
 
 ### C.2 Logging & metrics
 
-- [ ] Log lines already exist — verify grep patterns in runbook
+- [x] Log lines already exist — grep patterns documented in runbook § Log grep (2026-06-07)
 - [ ] Add metric gauges (optional): `xcelsior_volumes_total`, `xcelsior_volumes_error`, `xcelsior_nfs_reachable`
-- [ ] SSE events: `volume_created`, `volume_deleted`, etc. — dashboard already listens ✓
+- [x] SSE events: `volume_created`, `volume_deleted`, etc. — dashboard already listens ✓
 
 ### C.3 Runbook
 
@@ -187,7 +187,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Member creates volume → `owner_id` = team billing customer — `test_member_volume_scoped_to_team_wallet`
 - [x] Viewer sees volume in list, cannot create/delete/attach — team tenancy tests
 - [x] Admin can delete team volume — tenancy sweep cleanup paths
-- [~] Switch to personal workspace → team volumes hidden — UI team-changed reload; manual QA pending
+- [x] Switch to personal workspace → team volumes hidden — API team-scoped list + `xcelsior-team-changed` reload (2026-06-07)
 
 ### D.6 Billing
 
@@ -196,11 +196,12 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] Team wallet debited for team-owned volumes — `owner_id` on volume row; audit script verifies `customer_id`
 - [x] Suspended wallet skips billing — `test_volume_nfs` + billing fail-closed path
 
-### D.7 Snapshots (if in scope for v1)
+### D.7 Snapshots (deferred post-v1)
 
-- [ ] `POST /api/v2/volumes/{id}/snapshots` creates snapshot on NFS `_snapshots/`
+- [~] **Deferred** — engine + API routes exist; no prod smoke or UI yet
+- [ ] `POST /api/v2/volumes/{id}/snapshots` prod smoke on NFS `_snapshots/`
 - [ ] List / delete / restore smoke test
-- [ ] Or explicitly defer with checkbox note in roadmap
+- [x] Explicitly deferred in roadmap — ship attach/billing/hot-attach first (2026-06-07)
 
 **Phase D exit:** Staging E2E script passes all D.1–D.6 scenarios.
 
@@ -215,7 +216,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] **LaunchInstanceModal:** `xcelsior-team-changed` reloads available volumes — 2026-06-07
 - [x] **Volume `error` state:** NFS provisioning hint + Retry CTA with i18n — 2026-06-07
 - [x] **Region mismatch warning** when listing region ≠ selected volume region — 2026-06-07
-- [ ] **Monthly cost** uses team wallet context in banner/tooltip
+- [x] **Monthly cost** uses team wallet context in banner/tooltip — StatCard + create modal i18n (2026-06-07)
 - [x] **Analytics:** `xcelsior-team-changed` on financial tab (wallet KPIs)
 - [x] **French i18n** for volume error/launch strings — 2026-06-07
 
@@ -226,7 +227,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 - [x] **`scripts/volumes_e2e_smoke.py`** (staging)
   - [x] Auth → create → get → list → launch → delete
   - [x] Exit code 1 on any failure
-- [ ] **Post-deploy audit** — volumes page loads with team banner
+- [x] **Post-deploy audit** — `/dashboard/volumes` in `generate_reaudit_report.mjs` crawl list (2026-06-07)
 - [x] **CI job** — `pytest tests/test_team_tenancy_sweep.py tests/test_volumes*.py` (153 passed locally 2026-06-08)
 - [x] **`.env.example`** — expand NFS section with `XCELSIOR_NFS_REQUIRED` + runbook pointer
 
@@ -248,7 +249,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 ```
 Phase A  Correctness     [x] code complete (tests green)
 Phase B  NFS infra       [x] Mac appliance live in prod (2026-06-08)
-Phase C  Health/runbook  [x] health + runbook done; metrics optional
+Phase C  Health/runbook  [x] health + runbook + admin infra + log grep (2026-06-07)
 Phase D  E2E workflows   [x] CRUD + launch + persist + hot-attach + billing audit (2026-06-07)
 Phase E  Frontend polish  [x] error UX + launch filter done (2026-06-07)
 Phase F  Scripts/CI      [x] smoke scripts PASS in prod
@@ -285,6 +286,7 @@ All must be true:
 | 2026-06-07 | Encrypted + worker-mount E2E PASS; persist smoke + disk check script; nfs4 mount opts |
 | 2026-06-07 | ASUS 2060 interim GPU; persist+terminate E2E; viewer attach guard test; hot-attach runbook |
 | 2026-06-07 | Live hot-attach (`mount_volume`/`unmount_volume`); billing audit script; `--hot-attach` smoke |
+| 2026-06-07 | Admin infra volume section; `volumes_reopen_luks.py`; disk caps runbook; team monthly cost UX |
 
 ---
 

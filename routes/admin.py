@@ -638,6 +638,36 @@ def api_admin_infrastructure(request: Request):
     except Exception as e:
         log.warning("admin_infrastructure: failed to fetch reputation data", exc_info=True)
 
+    # Persistent volumes (NFS-backed storage)
+    volume_stats: dict = {}
+    try:
+        from volumes import nfs_storage_healthcheck
+
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            by_status = conn.execute(
+                """SELECT status, COUNT(*) AS cnt
+                   FROM volumes WHERE status != 'deleted'
+                   GROUP BY status"""
+            ).fetchall()
+            totals = conn.execute(
+                """SELECT COUNT(*) AS total,
+                          COALESCE(SUM(size_gb), 0) AS total_gb,
+                          COUNT(*) FILTER (WHERE encrypted) AS encrypted_count
+                   FROM volumes WHERE status != 'deleted'"""
+            ).fetchone()
+        volume_stats = {
+            "nfs": nfs_storage_healthcheck(),
+            "total": int(totals["total"] or 0),
+            "total_gb": int(totals["total_gb"] or 0),
+            "encrypted_count": int(totals["encrypted_count"] or 0),
+            "by_status": [{"status": r["status"], "count": r["cnt"]} for r in by_status],
+        }
+    except Exception as e:
+        log.warning("admin_infrastructure: failed to fetch volume data", exc_info=True)
+        volume_stats = {"error": str(e)[:200]}
+
     return {
         "ok": True,
         "total_hosts": len(hosts),
@@ -646,6 +676,7 @@ def api_admin_infrastructure(request: Request):
         "by_province": [{"province": k, "count": v} for k, v in province_counts.items()],
         "verification": [{"state": k, "count": v} for k, v in verification_stats.items()],
         "reputation_tiers": [{"tier": k, "count": v} for k, v in reputation_tiers.items()],
+        "volumes": volume_stats,
     }
 
 
