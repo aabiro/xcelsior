@@ -243,26 +243,26 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 4.1 Frontend (Phase 1–2)
 
-- [ ] Add xterm addons: `@xterm/addon-webgl`, `@xterm/addon-search`, `@xterm/addon-unicode11`
-- [ ] Terminal config: `customGlyphs`, `convertEol: false`, `macOptionIsMeta`
-- [ ] WebGL addon with `clearTextureAtlas` on visibility change + resize
-- [ ] Unicode11 wide-char support
-- [ ] Binary WebSocket for output (`arraybuffer`); JSON for control messages
-- [ ] Exponential backoff reconnect (8 attempts, 30s cap)
-- [ ] Toolbar: connection status, reconnect, search (Ctrl+Shift+F)
+- [x] Add xterm addons: `@xterm/addon-webgl`, `@xterm/addon-search`, `@xterm/addon-unicode11` (2026-06-08)
+- [x] Terminal config: `customGlyphs`, `convertEol: false`, `macOptionIsMeta` (2026-06-08)
+- [x] WebGL addon with `clearTextureAtlas` on visibility change + resize (2026-06-08)
+- [x] Unicode11 wide-char support (2026-06-08)
+- [x] Binary WebSocket for output (`arraybuffer`); JSON for control messages (2026-06-08)
+- [x] Exponential backoff reconnect (8 attempts, 30s cap) (2026-06-08)
+- [x] Toolbar: connection status, reconnect, search (Ctrl+Shift+F) (2026-06-08)
 
 ### 4.2 Backend (Phase 3)
 
-- [ ] **Container name resolution** — resolve live container ID, not stale DB name
-- [ ] **PTY streaming** — binary frames, backpressure
-- [ ] **Rate limits** on terminal WS (per user + per job)
-- [ ] **Team access** — viewer read-only or block terminal for viewers (product decision)
-- [ ] **Audit** — log terminal session start/end
+- [x] **Container name resolution** — candidate probe order: `xcl-{id}` → stored name → container_id → legacy (2026-06-08)
+- [x] **PTY streaming** — binary frames, backpressure (2026-06-08)
+- [x] **Rate limits** on terminal WS (per user + per job) (2026-06-08)
+- [x] **Team access** — team viewers blocked (API + instance detail UI) (2026-06-08)
+- [x] **Audit** — `user.terminal.session_started` / `session_ended` via `append_user_audit_event` (2026-06-08)
 
 ### 4.3 Infrastructure (Phase 4)
 
-- [ ] **tmux persistence** optional — survive brief disconnects
-- [ ] **SSH mesh path** verified under Headscale ACLs
+- [x] **tmux persistence** optional — survive brief disconnects (2026-06-08)
+- [~] **SSH mesh path** verified under Headscale ACLs — prod path in use; formal ACL matrix pending
 
 ### 4.4 Testing
 
@@ -272,9 +272,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 4.5 Acceptance criteria
 
-- [ ] New user can open terminal on running instance within 10s, type `ls`, see clean output
-- [ ] No React #418 / glyph overlap after tab switch
-- [ ] Stale container name does not cause immediate "No such container"
+- [~] New user can open terminal on running instance within 10s, type `ls`, see clean output — manual matrix pending
+- [x] No React #418 / glyph overlap after tab switch — WebGL atlas clear + Unicode11 (2026-06-08)
+- [x] Stale container name does not cause immediate "No such container" — candidate probe loop (2026-06-08)
 
 ---
 
@@ -292,8 +292,11 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 5.2 Code splitting & deferral
 
-- [ ] Route-level dynamic imports for heavy dashboard-only libs (already partial)
+- [x] Route-level dynamic imports for heavy dashboard-only libs (2026-06-08)
 - [x] Marketing pages: AuthProvider removed from root — mounted only on dashboard + auth routes (2026-06-08)
+- [x] Homepage below-fold deferred via `dynamic()` — lucide/ProviderLogo/framer split from hero (2026-06-08)
+- [x] Pricing `SavingsCalculator` dynamically imported (2026-06-08)
+- [x] `Geist_Mono` loaded on dashboard layout only — marketing sans-only (2026-06-08)
 - [ ] Defer PostHog / GTM further (`lazyOnload` done — verify no regression)
 - [ ] `framer-motion` lazy load on marketing (done — verify)
 - [ ] Font subsetting / `next/font` preload only critical weights
@@ -379,9 +382,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 1. **Volumes** (#1) — done; VPS NFS `100.64.0.1` — see [`VOLUMES_COMPLETION_PLAN.md`](./VOLUMES_COMPLETION_PLAN.md)
 2. **Team sweep** (#2) — finish artifacts/templates/analytics while team context is fresh
 3. **PayPal** — backlog (code ready; prod env/webhook verify when needed)
-4. **Terminal** (#4) — retention on interactive instances
-5. **Mobile perf** (#5) — conversion on marketing
-6. **Inference** (#6) — larger bet; start design while 1–3 land
+4. **Mobile perf** (#5) — conversion on marketing (in progress)
+5. **Terminal** (#4) — surgical fixes landed; manual matrix + Playwright audit remain
+6. **Inference** (#6) — after mobile perf
 
 ---
 

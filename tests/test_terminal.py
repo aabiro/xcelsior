@@ -517,6 +517,73 @@ class TestWsAuthOptions:
         assert deps_mod._validate_ws_auth(ws, allow_query_token=False) is None
 
 
+class TestContainerCandidates:
+    def test_priority_prefers_xcl_prefix(self):
+        instance = {
+            "job_id": "abc",
+            "container_name": "xcelsior-abc",
+            "container_id": "deadbeef12",
+        }
+        candidates = term_mod._container_candidates_for_instance(
+            instance,
+            instance_id="abc",
+        )
+        assert candidates == ["xcl-abc", "xcelsior-abc", "deadbeef12"]
+
+    def test_dedupes_identical_refs(self):
+        instance = {"job_id": "j1", "container_name": "xcl-j1"}
+        candidates = term_mod._container_candidates_for_instance(
+            instance,
+            instance_id="j1",
+        )
+        assert candidates == ["xcl-j1", "xcelsior-j1"]
+
+    def test_rejects_unsafe_refs(self):
+        instance = {
+            "job_id": "j1",
+            "container_name": "bad;name",
+            "container_id": "okid1234",
+        }
+        candidates = term_mod._container_candidates_for_instance(
+            instance,
+            instance_id="j1",
+        )
+        assert candidates == ["xcl-j1", "okid1234", "xcelsior-j1"]
+
+
+class TestTerminalAccess:
+    def test_viewer_blocked(self, monkeypatch):
+        user = {"user_id": "viewer-1", "customer_id": "team-bc", "email": "v@test"}
+        job = {"job_id": "j1", "owner": "team-bc"}
+        monkeypatch.setattr(deps_mod, "_user_owns_job", lambda _u, _j: True)
+        monkeypatch.setattr(deps_mod, "_team_can_write_instances", lambda _u: False)
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            term_mod._check_terminal_access(user, job, instance_id="j1")
+        assert exc.value.status_code == 403
+
+    def test_team_member_allowed(self, monkeypatch):
+        user = {"user_id": "member-1", "customer_id": "team-bc", "email": "m@test"}
+        job = {"job_id": "j1", "owner": "team-bc"}
+        monkeypatch.setattr(deps_mod, "_user_owns_job", lambda _u, _j: True)
+        monkeypatch.setattr(deps_mod, "_team_can_write_instances", lambda _u: True)
+
+        term_mod._check_terminal_access(user, job, instance_id="j1")
+
+    def test_non_owner_rejected(self, monkeypatch):
+        user = {"user_id": "other", "customer_id": "other", "email": "o@test"}
+        job = {"job_id": "j1", "owner": "team-bc"}
+        monkeypatch.setattr(deps_mod, "_user_owns_job", lambda _u, _j: False)
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            term_mod._check_terminal_access(user, job, instance_id="j1")
+        assert exc.value.status_code == 403
+
+
 class TestContainerIdentity:
     def test_accepts_matching_labelled_container(self):
         container = SimpleNamespace(
@@ -1075,6 +1142,42 @@ class TestWsInstanceResolution:
 
 
 class TestContainerPolling:
+    def test_stale_container_name_resolves_via_candidates(self, monkeypatch):
+        """Stale DB container_name does not block attach when xcl-{id} exists."""
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        _inject_job(
+            job_id="j-stale",
+            status="running",
+            owner="user-1",
+            container_name="xcelsior-j-stale",
+        )
+
+        def _probe(ref, host_ip=None):
+            if ref == "xcl-j-stale":
+                return {"found": True, "reason": "ok", "error": None}
+            return {"found": False, "reason": "not_found", "error": None}
+
+        monkeypatch.setattr(term_mod, "_container_probe", _probe)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        from docker.errors import DockerException
+
+        mock_client = MagicMock()
+        mock_client.containers.get.side_effect = DockerException("test: no real docker")
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: mock_client)
+
+        with client.websocket_connect("/ws/terminal/j-stale") as ws:
+            msgs = []
+            try:
+                while True:
+                    msgs.append(ws.receive_json())
+            except Exception:
+                pass
+            codes = [m.get("code") for m in msgs if m.get("type") == "error"]
+            assert 4410 not in codes
+
     def test_container_not_found_after_max_attempts(self, monkeypatch):
         """Returns 4410 when container never starts."""
         monkeypatch.setattr(
