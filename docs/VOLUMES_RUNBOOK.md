@@ -177,7 +177,13 @@ Encrypted volumes need LUKS reopened after NFS host reboot.
 
 **API method:** `VolumeEngine.reopen_luks_volume(volume_id)` — retrieves key from DB, `luksOpen`, mount.
 
-**Ops:** Trigger retry on affected volumes or run batch reopen script (TODO: add `scripts/volumes_reopen_luks.py`).
+**Ops:** Batch reopen all encrypted volumes:
+
+```bash
+docker compose exec -T api-blue python scripts/volumes_reopen_luks.py
+docker compose exec -T api-blue python scripts/volumes_reopen_luks.py --volume-id vol-XXXXXXXXXXXX
+docker compose exec -T api-blue python scripts/volumes_reopen_luks.py --dry-run
+```
 
 ---
 
@@ -231,6 +237,38 @@ umount -l /mnt/xcelsior-volumes/vol-*   # careful — verify not in use
 
 ---
 
+## Disk capacity & per-owner caps
+
+| Limit | Env var | Default | Notes |
+|-------|---------|---------|-------|
+| Per-volume size | `XCELSIOR_MAX_VOLUME_GB` | 2000 | UI create modal caps at 2000 GB |
+| Total GB per owner | `XCELSIOR_MAX_TOTAL_STORAGE_GB` | 2000 | Team wallet shares one cap |
+| Volume count per owner | `XCELSIOR_MAX_VOLUMES_PER_OWNER` | 50 | Abuse guard for many 1 GB volumes |
+
+**Mac appliance disk:** Monitor InferenceData SSD with `scripts/check_mac_nfs_disk.sh` (warn 80%, crit 90%).
+
+**Suggested cron** (workstation or monitoring host with mesh SSH to Mac):
+
+```cron
+# Daily 06:00 — Mac NFS disk check
+0 6 * * * /path/to/xcelsior/scripts/check_mac_nfs_disk.sh >> /var/log/xcelsior-mac-nfs-disk.log 2>&1
+```
+
+---
+
+## Log grep patterns (ops)
+
+| Symptom | Grep (API / worker logs) |
+|---------|--------------------------|
+| Provision failure | `NFS volume provision failed` / `LUKS luksFormat failed` |
+| Hot-attach | `Hot-attached volume` / `Hot mount timed out` / `mount_volume` |
+| Hot-detach | `Hot-unmount enqueued` / `unmount_volume` |
+| Billing tick | `AUTO-BILLING:.*volumes` |
+| Orphan reconcile | `Orphan volume reconciliation` |
+| Worker NFS skip | `Managed volume.*mount failed` |
+
+---
+
 ## Staging smoke
 
 ```bash
@@ -248,6 +286,15 @@ python3 scripts/volumes_e2e_smoke.py --infra-only --worker-mount
 
 # Persist across stop/start (requires admitted GPU worker, e.g. ASUS aaryn-tuf-rtx2060):
 python3 scripts/volumes_e2e_smoke.py --infra-only --persist
+
+# Hot-attach to running instance (requires GPU worker + mesh SSH for verify):
+python3 scripts/volumes_e2e_smoke.py --hot-attach
+
+# Volume billing tick audit (prod):
+docker compose exec -T api-blue python scripts/volumes_billing_audit.py
+
+# LUKS reopen after Mac NFS reboot:
+docker compose exec -T api-blue python scripts/volumes_reopen_luks.py --dry-run
 
 # Interim prod GPU worker (until tower-server returns): ASUS RTX 2060 at 100.64.0.6
 # Worker env must include Mac NFS settings — see ~/.xcelsior/worker.env on the host.
@@ -271,4 +318,4 @@ python3 scripts/ops_infra_smoke.py
 
 ---
 
-*Last updated: 2026-06-08*
+*Last updated: 2026-06-07*

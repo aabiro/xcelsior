@@ -57,7 +57,11 @@ def test_admin_revenue():
 def test_admin_infrastructure():
     r = client.get("/api/admin/infrastructure", headers=_admin_headers())
     assert r.status_code == 200
-    assert r.json().get("ok") is True
+    body = r.json()
+    assert body.get("ok") is True
+    volumes = body.get("volumes")
+    assert isinstance(volumes, dict)
+    assert "nfs" in volumes or "error" in volumes
 
 
 def test_admin_activity():
