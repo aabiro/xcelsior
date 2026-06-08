@@ -194,7 +194,7 @@ def main() -> int:
         scaled = client.patch(
             f"/api/v2/serverless/endpoints/{endpoint_id}",
             headers=hdrs,
-            json={"min_workers": 0, "max_workers": 0, "idle_timeout_sec": 60},
+            json={"min_workers": 0, "max_workers": 1, "idle_timeout_sec": 60},
         )
         if not _step("scale_to_zero", scaled.status_code == 200, scaled.text[:120]):
             failures += 1

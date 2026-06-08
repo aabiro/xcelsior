@@ -98,6 +98,24 @@ def main() -> int:
         timeout=30,
     )
     results["paypal_create_order"] = paypal_order.status_code
+    if paypal_order.status_code == 200:
+        po_body = paypal_order.json()
+        results["paypal_order_id"] = po_body.get("order_id") or po_body.get("id")
+
+    if pi.status_code == 200:
+        pi_body = pi.json()
+        intent = pi_body.get("intent") if isinstance(pi_body.get("intent"), dict) else pi_body
+        results["stripe_payment_intent_id"] = intent.get("stripe_intent_id") or intent.get("intent_id")
+        results["stripe_client_secret"] = bool(intent.get("client_secret"))
+
+    # Capture without buyer approval must fail safely (no wallet credit).
+    if results.get("paypal_order_id"):
+        bogus_capture = s.post(
+            f"{base}/api/billing/paypal/capture-order",
+            json={"order_id": results["paypal_order_id"], "customer_id": cid},
+            timeout=30,
+        )
+        results["paypal_capture_unapproved"] = bogus_capture.status_code
 
     paypal_idor = s.post(
         f"{base}/api/billing/paypal/create-order",
@@ -115,6 +133,8 @@ def main() -> int:
         and paypal_on is True
         and results["paypal_create_order"] != 401
         and results["paypal_create_order_idor"] == 403
+        and results.get("stripe_client_secret") is True
+        and bool(results.get("paypal_order_id"))
     )
     results["pass"] = ok
     print(json.dumps(results, indent=2))

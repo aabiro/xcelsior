@@ -14,6 +14,9 @@ fi
 export CI="${CI:-true}"
 export XCELSIOR_ENV="${XCELSIOR_ENV:-test}"
 
+echo "▸ Regenerating public OpenAPI spec…"
+python3 scripts/generate_public_openapi.py
+
 PYTEST_TARGETS=(tests/test_*_coverage.py)
 PYTEST_TARGETS+=(
   tests/test_resource_access_control.py
