@@ -23,7 +23,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 | Instance launch `volume_ids` team scope | ✅ `_user_can_access_volume` (2026-06-07) |
 | AI assistant `list_volumes` | ✅ team-aware owner ids (2026-06-07) |
 | NFS health in readiness | ✅ `nfs_storage_healthcheck` in `/readyz` (2026-06-07) |
-| Prod NFS configured | ✅ Mac appliance `100.64.0.3`, mode `full` (2026-06-08) |
+| Prod NFS configured | ✅ VPS colocated `100.64.0.1`, mode `full` (2026-06-08; Mac retired) |
 | E2E create → launch → delete | ✅ `volumes_e2e_smoke.py` + `ops_infra_smoke.py` PASS (2026-06-08) |
 | E2E persist across instance restart | ✅ `--persist` PASS on ASUS `aaryn-tuf-rtx2060` (2026-06-07) |
 
@@ -80,32 +80,29 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 
 ### B.1 Storage server
 
-- [x] Choose NFS host — **Mac InferenceData** (`100.64.0.3`, `tag:mac-nfs`)
-- [x] NFS server — **NFS-Ganesha** in `xcelsior-mac-nfs` container (userspace; avoids macOS kernel `nfsd` on `:2049`)
-- [x] Export directory `/exports/volumes` on LUKS ext4 (`inference.luks` on InferenceData SSD)
-- [x] Mesh-only access — Headscale ACL `100.64.0.0/10` in `ganesha.conf` + `tag:xcelsior` / `autogroup:member` rules
-- [x] Published on host `:12049` (container `:2049`); mount opts `nfsvers=4.0,port=12049`
-- [x] Disk quota monitoring (alert at 80% / 90%) — `scripts/check_mac_nfs_disk.sh` (2026-06-07)
+- [x] Choose NFS host — **VPS pixelenhance-labs** (`100.64.0.1`) — moved from Mac 2026-06-08 (Docker Desktop mangled NFS RPC)
+- [x] NFS server — kernel `nfs-kernel-server` on VPS; export `/exports/volumes`
+- [x] Export directory `/exports/volumes` on VPS ext4
+- [x] Mesh-only access — Headscale mesh `100.64.0.0/10`; workers mount VPS export
+- [x] Standard NFS `:2049`; mount opts default (no `port=12049`)
+- [x] Disk quota monitoring — `df -h /exports/volumes` on VPS (legacy Mac: `check_mac_nfs_disk.sh`)
 
 ### B.2 LUKS prerequisites (encrypted volumes default ON in UI)
 
 - [x] `cryptsetup`, `e2fsprogs` in Mac appliance container (privileged Docker)
 - [x] Bulk LUKS: `inference.luks` + keyfile `~/.config/xcelsior/inference.key`
-- [x] Per-volume LUKS via `xcelsior-nfs-exec` inside appliance (API SSH → Mac → docker exec)
-- [x] Sudoers on Mac host — N/A (privileged container; no host sudo)
+- [x] Per-volume LUKS via API SSH to VPS (`127.0.0.1` / `root`)
+- [x] Mac LUKS path retired with appliance — VPS `cryptsetup` when encrypted volumes enabled
 - [x] Encrypted volume round-trip E2E in prod — `volumes_e2e_smoke.py --encrypted` PASS (2026-06-07)
 
 ### B.3 API host connectivity
 
-- [x] VPS `~/.ssh/xcelsior` in Mac `authorized_keys` for `aaryn`
-- [x] API container provision via SSH + `xcelsior-nfs-exec` — verified `ops_infra_smoke.py` volume CRUD
-- [x] Prod env set — see [`VOLUMES_RUNBOOK.md`](./VOLUMES_RUNBOOK.md) Mac appliance section
-- [x] Headscale ACL: `tag:xcelsior` → `tag:mac-nfs:22,12049`
+- [x] API container provision via SSH loopback to VPS host — verified `ops_infra_smoke.py` volume CRUD
+- [x] Prod env set — see [`VOLUMES_RUNBOOK.md`](./VOLUMES_RUNBOOK.md) VPS section (`100.64.0.1`)
 
 ### B.4 GPU worker connectivity
 
-- [x] Headscale ACL: `autogroup:member` → `tag:mac-nfs:12049`
-- [x] VPS NFS mount test to Mac — PASS (`nfsvers=4.0,port=12049`)
+- [x] GPU worker NFS mount test to VPS — PASS (`100.64.0.1:/exports/volumes`, ASUS 2026-06-08)
 - [x] VPS worker-mount smoke — `volumes_e2e_smoke.py --worker-mount` PASS (2026-06-07)
 - [x] Test from live GPU worker host — ASUS `100.64.0.6` mount + persist PASS (2026-06-07)
 - [x] Test from `aarynfans-prod` (optional second worker) — `volumes_worker_mount_smoke.py` + `--worker-host`; SKIP if host not registered (2026-06-07)
@@ -248,7 +245,7 @@ Track every task required to move volumes from **metadata-only dev mode** to **p
 
 ```
 Phase A  Correctness     [x] code complete (tests green)
-Phase B  NFS infra       [x] Mac appliance live in prod (2026-06-08)
+Phase B  NFS infra       [x] VPS colocated NFS live in prod (2026-06-08)
 Phase C  Health/runbook  [x] health + runbook + admin infra + log grep (2026-06-07)
 Phase D  E2E workflows   [x] CRUD + launch + persist + hot-attach + billing audit (2026-06-07)
 Phase E  Frontend polish  [x] error UX + launch filter done (2026-06-07)
@@ -282,7 +279,8 @@ All must be true:
 | 2026-06-07 | Phase A started: launch ownership fix, AI tool, NFS health, tests |
 | 2026-06-07 | Phase A complete: 18 team tenancy tests pass; smoke script; runbook; analytics team-changed |
 | 2026-06-07 | Phase E: volume error UX + i18n; launch modal team-changed + region warning |
-| 2026-06-08 | Mac NFS appliance prod cutover; Headscale ACL `tag:mac-nfs`; ops + e2e smoke PASS |
+| 2026-06-08 | Mac NFS appliance prod cutover (later retired — Docker Desktop RPC issues) |
+| 2026-06-08 | NFS moved to VPS `100.64.0.1`; worker env + mount smoke PASS on ASUS |
 | 2026-06-07 | Encrypted + worker-mount E2E PASS; persist smoke + disk check script; nfs4 mount opts |
 | 2026-06-07 | ASUS 2060 interim GPU; persist+terminate E2E; viewer attach guard test; hot-attach runbook |
 | 2026-06-07 | Live hot-attach (`mount_volume`/`unmount_volume`); billing audit script; `--hot-attach` smoke |
