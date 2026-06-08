@@ -80,7 +80,7 @@ def _poll_instance(client: httpx.Client, hdrs: dict[str, str], job_id: str) -> d
 def _nfs_write_marker(volume_id: str, marker: str, filename: str) -> bool:
     """Write a marker file on Mac NFS for a volume (requires SSH to Mac)."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    mac = os.environ.get("MAC_NFS_HOST", "aaryn@100.64.0.3")
+    mac = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
     wrap = "/Users/aaryn/.local/bin/xcelsior-nfs-exec"
     path = f"/exports/volumes/{volume_id}/{filename}"
     cmd = [
@@ -131,7 +131,7 @@ def _worker_docker_cat(host_ip: str, job_id: str, container_path: str) -> str | 
 def _nfs_read_marker(volume_id: str) -> str | None:
     """Read persist marker from Mac NFS appliance (requires SSH to Mac)."""
     ssh_key = os.environ.get("XCELSIOR_SSH_KEY", str(Path.home() / ".ssh" / "xcelsior"))
-    mac = os.environ.get("MAC_NFS_HOST", "aaryn@100.64.0.3")
+    mac = os.environ.get("NFS_SSH_HOST", os.environ.get("MAC_NFS_HOST", "linuxuser@100.64.0.1"))
     wrap = "/Users/aaryn/.local/bin/xcelsior-nfs-exec"
     path = f"/exports/volumes/{volume_id}/{PERSIST_MARKER}.txt"
     cmd = [

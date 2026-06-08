@@ -18,14 +18,14 @@
 
 | Variable | Purpose |
 |----------|---------|
-| `XCELSIOR_NFS_SERVER` | Mesh IP workers mount (e.g. `100.64.0.3` Mac appliance) |
-| `XCELSIOR_NFS_SSH_HOST` | SSH target for API provision/destroy |
-| `XCELSIOR_NFS_SSH_USER` | SSH user for remote provision (`aaryn` on Mac; `root` on colocated VPS) |
-| `XCELSIOR_NFS_SSH_CMD_WRAP` | Optional remote command wrapper (Mac: `/Users/aaryn/.local/bin/xcelsior-nfs-exec`) |
+| `XCELSIOR_NFS_SERVER` | Mesh IP workers mount (prod: `100.64.0.1` VPS) |
+| `XCELSIOR_NFS_SSH_HOST` | SSH target for API provision/destroy (`127.0.0.1` when colocated on VPS) |
+| `XCELSIOR_NFS_SSH_USER` | SSH user for remote provision (`root` on colocated VPS) |
+| `XCELSIOR_NFS_SSH_CMD_WRAP` | Optional remote command wrapper (legacy Mac only) |
 | `XCELSIOR_NFS_EXPORT_BASE` | Export path prefix (must match server export), e.g. `/exports/volumes` |
 | `XCELSIOR_NFS_PATH` | Legacy per-job shared NFS path (models/datasets) |
 | `XCELSIOR_NFS_MOUNT` | Default mount point on workers for legacy NFS |
-| `XCELSIOR_NFS_MOUNT_OPTS` | Override mount options; **Mac appliance requires** `nfsvers=4.0,port=12049` |
+| `XCELSIOR_NFS_MOUNT_OPTS` | Override mount options; VPS uses kernel NFS on `:2049` (default opts OK) |
 | `XCELSIOR_NFS_REQUIRED` | If `true`, `/readyz` fails when NFS unreachable |
 | `XCELSIOR_MAX_VOLUME_GB` | Per-volume size cap (default 2000) |
 | `XCELSIOR_MAX_TOTAL_STORAGE_GB` | Per-owner total cap (default 2000) |
@@ -34,54 +34,46 @@
 
 **Critical:** `XCELSIOR_NFS_EXPORT_BASE` on API must match the path exported by the NFS server. Mismatch → provision succeeds on wrong path or mount fails on workers.
 
-### Production — Mac InferenceData appliance (current)
+### Production — VPS colocated NFS (current)
 
-LUKS-backed ext4 inside Docker + NFS-Ganesha on the Mac external SSD (`aaryns-macbook-pro`, `100.64.0.3`).
+NFS export on **pixelenhance-labs** (`100.64.0.1`). API containers SSH to `127.0.0.1` for provision/destroy; GPU workers mount `100.64.0.1:/exports/volumes/{volume_id}`.
 
-**Deploy (from workstation):**
+**Why not Mac:** Docker Desktop port-forwarding mangled NFS RPC; Ganesha on `:12049` was unreliable. Moved to kernel NFS on the VPS (2026-06-08).
 
-```bash
-bash scripts/deploy_mac_nfs_appliance.sh   # builds xcelsior-mac-nfs on Mac
-bash scripts/switch_prod_nfs_mac.sh        # points VPS .env at Mac + restarts API
-```
-
-**Production `.env` (on VPS):**
+**Production `.env` (on VPS `/opt/xcelsior/.env`):**
 
 ```
-XCELSIOR_NFS_SERVER=100.64.0.3
-XCELSIOR_NFS_SSH_HOST=100.64.0.3
-XCELSIOR_NFS_SSH_USER=aaryn
+XCELSIOR_NFS_SERVER=100.64.0.1
+XCELSIOR_NFS_SSH_HOST=127.0.0.1
+XCELSIOR_NFS_SSH_USER=root
 XCELSIOR_NFS_EXPORT_BASE=/exports/volumes
-XCELSIOR_NFS_SSH_CMD_WRAP=/Users/aaryn/.local/bin/xcelsior-nfs-exec
-XCELSIOR_NFS_MOUNT_OPTS=hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp,nfsvers=4.0,port=12049
+XCELSIOR_NFS_SSH_CMD_WRAP=
 XCELSIOR_NFS_REQUIRED=true
 ```
 
-**Architecture notes:**
+**Setup:**
 
-- Bulk LUKS: `/Volumes/InferenceData/inference.luks` (80G sparse) opened inside `xcelsior-mac-nfs`.
-- Export path inside container: `/exports/volumes/{volume_id}`.
-- Ganesha listens on container `:2049`, published as host **`:12049`** (macOS `nfsd` owns `:2049`).
-- Clients **must** use `nfsvers=4.0` — Ganesha 3.5 does not support NFSv4.2 negotiation.
-- API SSH runs commands on Mac; `xcelsior-nfs-exec` wraps them as `docker exec xcelsior-mac-nfs`.
+1. `sudo bash scripts/setup_nfs_vps.sh` (if not already done)
+2. `docker-compose.yml` bind-mounts `/exports:/exports` on API + scheduler-worker
+3. Worker `~/.xcelsior/worker.env`: `XCELSIOR_NFS_SERVER=100.64.0.1` (no `port=12049`)
 
-**Headscale ACL** (`infra/headscale/acl.hujson`):
+**GPU worker deploy** (`worker_agent.py`):
 
-- Mac node tagged `tag:mac-nfs`.
-- `tag:xcelsior` (VPS) → `tag:mac-nfs:22,12049` (SSH provision + NFS).
-- `autogroup:member` → `tag:mac-nfs:12049` (GPU workers mount exports).
+```bash
+# From dev machine (mesh SSH works as aaryn@, not xcelsior@):
+cd /path/to/xcelsior
+bash scripts/deploy_worker_agent.sh --host 100.64.0.6 --user aaryn
 
-Apply: `bash scripts/headscale_apply_acl.sh`
+# From VPS (repo is /opt/xcelsior — not ~/storage/projects/xcelsior):
+cd /opt/xcelsior
+bash scripts/deploy_worker_agent.sh --host 100.64.0.6 --user aaryn
+```
 
-**Per-volume LUKS:** Encrypted volumes use `cryptsetup` inside the appliance container (privileged). Requires Linux device-mapper in the container — works on Docker Desktop Mac; not native macOS cryptsetup.
+VPS → worker `:22` may time out; deploy from a workstation with direct mesh SSH to the worker.
 
-### Alternate — VPS colocated NFS
+### Deprecated — Mac InferenceData appliance
 
-When API and NFS run on the same VPS:
-
-1. `sudo bash scripts/setup_nfs_vps.sh`
-2. `.env`: `XCELSIOR_NFS_SERVER=100.64.0.1`, `XCELSIOR_NFS_SSH_HOST=127.0.0.1`, `XCELSIOR_NFS_SSH_USER=root`
-3. `docker-compose.yml` bind-mounts `/exports:/exports` on API + scheduler-worker.
+LUKS + NFS-Ganesha on Mac (`100.64.0.3`, `:12049`) — **retired** due to Docker Desktop NFS RPC issues. Scripts remain for reference: `deploy_mac_nfs_appliance.sh`, `switch_prod_nfs_mac.sh`, `check_mac_nfs_disk.sh`.
 
 ---
 
@@ -97,11 +89,11 @@ curl -s https://xcelsior.ca/readyz | jq .
 # Admin NFS config
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" https://xcelsior.ca/api/nfs/config | jq .
 
-# Mac InferenceData disk usage (warn 80%, crit 90% — exit 1/2)
-bash scripts/check_mac_nfs_disk.sh
+# VPS export disk usage
+df -h /exports/volumes
 ```
 
-**Disk quota monitoring:** Run `check_mac_nfs_disk.sh` from cron or a monitoring agent (SSH to Mac required). Exit codes: `0` OK, `1` warn (≥80%), `2` crit (≥90%). Override thresholds with `WARN_PCT` / `CRIT_PCT`.
+**Disk quota monitoring:** `df -h /exports/volumes` on VPS; alert at 80%/90% used. Legacy Mac check: `scripts/check_mac_nfs_disk.sh`.
 
 **Log grep patterns:**
 
@@ -159,10 +151,10 @@ bash scripts/check_mac_nfs_disk.sh
    mount | grep xcelsior-volumes
    ls -la /mnt/xcelsior-volumes/
    ```
-3. Manual mount test (Mac appliance — note `nfsvers=4.0,port=12049`):
+3. Manual mount test (VPS — kernel NFS on `:2049`):
    ```bash
    mkdir -p /mnt/xcelsior-volumes/vol-XXXXXXXXXXXX
-   mount -t nfs4 -o hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp,nfsvers=4.0,port=12049 \
+   mount -t nfs4 -o hard,timeo=600,retrans=3,rsize=1048576,wsize=1048576,noatime,nosuid,nodev,_netdev,tcp,nfsvers=4 \
      $XCELSIOR_NFS_SERVER:$XCELSIOR_NFS_EXPORT_BASE/vol-XXXXXXXXXXXX \
      /mnt/xcelsior-volumes/vol-XXXXXXXXXXXX
    ```

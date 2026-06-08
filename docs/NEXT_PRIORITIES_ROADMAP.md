@@ -14,8 +14,8 @@ This document records the **six highest-priority initiatives** agreed for the ne
 | # | Initiative | Primary outcome | Est. effort |
 |---|------------|-----------------|-------------|
 | 1 | Production persistent volumes (NFS) | Real block storage for ML workloads | Done (2026-06-07) |
-| 2 | PayPal marketplace provider payouts | Second payout rail for GPU providers | 3–5 days |
-| 3 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | 1 week |
+| 2 | Team tenancy app-wide sweep | B2B-ready shared wallet + RBAC everywhere | 1 week |
+| — | PayPal marketplace provider payouts | Second payout rail (deferred — Stripe sufficient for now) | backlog |
 | 4 | Web terminal rewrite | Usable in-browser shell on running instances | 1–2 weeks |
 | 5 | Mobile performance (F-003 phase 3) | Sub-acceptable TBT on slow 4G marketing pages | 3–5 days |
 | 6 | Serverless inference endpoints | Deploy model → REST API (competitive parity) | 3–4 weeks |
@@ -30,21 +30,19 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 1.1 Infrastructure & configuration
 
-- [x] **NFS storage server provisioned** (prod — Mac InferenceData appliance)
-  - [x] Headscale-reachable `100.64.0.3` (`tag:mac-nfs`); Ganesha on `:12049`
-  - [x] Export path `/exports/volumes` on LUKS ext4 inside `xcelsior-mac-nfs`
-  - [x] Mesh-only via Headscale ACL + Ganesha `100.64.0.0/10` client rule
+- [x] **NFS storage server provisioned** (prod — VPS pixelenhance-labs `100.64.0.1`)
+  - [x] Kernel NFS export `/exports/volumes` on VPS (Mac appliance retired 2026-06-08)
+  - [x] Mesh-only via Headscale; workers mount `100.64.0.1:/exports/volumes`
   - [x] Disk capacity plan documented — runbook § Disk capacity (`MAX_VOLUME_GB`, `MAX_TOTAL_STORAGE_GB`, `MAX_VOLUMES_PER_OWNER`) (2026-06-07)
   - [x] LUKS tools in privileged appliance container (`cryptsetup`, `e2fsprogs`)
 - [x] **API / scheduler env wired**
-  - [x] `XCELSIOR_NFS_SERVER=100.64.0.3` on `api-blue`, `scheduler-worker`
+  - [x] `XCELSIOR_NFS_SERVER=100.64.0.1` on `api-blue`, `scheduler-worker`, GPU workers
   - [x] `XCELSIOR_NFS_EXPORT_BASE=/exports/volumes` consistent across API, scheduler, volumes engine
-  - [x] `XCELSIOR_NFS_MOUNT_OPTS` includes `nfsvers=4.0,port=12049` — see runbook
+  - [x] `XCELSIOR_NFS_SSH_HOST=127.0.0.1` for colocated VPS provision
   - [x] `.env.example` and `docker-compose.yml` updated (`NFS_SSH_CMD_WRAP`)
 - [x] **SSH from API to NFS server**
-  - [x] VPS `~/.ssh/xcelsior` authorized on Mac for `aaryn`
-  - [x] `VolumeEngine._ssh_exec_with_retry` + `xcelsior-nfs-exec` verified in prod
-  - [x] Headscale ACL: `tag:xcelsior` → `tag:mac-nfs:22,12049`
+  - [x] API SSH loopback to VPS host for provision/destroy
+  - [x] `VolumeEngine._ssh_exec_with_retry` verified in prod (`mode=full`, `reachable=true`)
 
 ### 1.2 Backend correctness (team + launch)
 
@@ -59,7 +57,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 1.3 Worker / scheduler attach path
 
-- [x] **Managed volume mount on GPU host** (worker_agent + Mac NFS)
+- [x] **Managed volume mount on GPU host** (worker_agent + VPS NFS)
   - [x] Launch with `volume_ids` succeeds in `volumes_e2e_smoke.py`
   - [x] NFS mount at `/mnt/xcelsior-volumes/{volume_id}` on ASUS `aaryn-tuf-rtx2060` (2026-06-07)
   - [x] Bind-mount into container at `/workspace` — persist E2E PASS
@@ -123,7 +121,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ---
 
-## 2. PayPal marketplace provider payouts
+## 2. PayPal marketplace provider payouts *(deferred — not a current priority)*
+
+**Status:** Code landed and tested; **production rollout deferred** — Stripe Connect is sufficient for now. Revisit when provider demand requires a second rail.
 
 **Goal:** GPU providers can onboard PayPal as a disbursement rail alongside Stripe Connect; marketplace jobs record a single `payment_rail` per payout split.
 
@@ -181,7 +181,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ---
 
-## 3. Team tenancy app-wide sweep
+## 3. Team tenancy app-wide sweep *(next priority after volumes)*
 
 **Goal:** Every customer-scoped resource respects active workspace (personal vs team): wallet, jobs, volumes, artifacts, templates, analytics, AI tools.
 
@@ -376,9 +376,9 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ## Suggested execution order
 
-1. **Volumes** (#1) — prod NFS live (Mac appliance); persist/restart + encrypted E2E remaining — see [`VOLUMES_COMPLETION_PLAN.md`](./VOLUMES_COMPLETION_PLAN.md)
-2. **PayPal ship** (#2) — unblocks provider supply; code largely written
-3. **Team sweep** (#3) — finish artifacts/templates/analytics while team context is fresh
+1. **Volumes** (#1) — done; VPS NFS `100.64.0.1` — see [`VOLUMES_COMPLETION_PLAN.md`](./VOLUMES_COMPLETION_PLAN.md)
+2. **Team sweep** (#2) — finish artifacts/templates/analytics while team context is fresh
+3. **PayPal** — backlog (code ready; prod env/webhook verify when needed)
 4. **Terminal** (#4) — retention on interactive instances
 5. **Mobile perf** (#5) — conversion on marketing
 6. **Inference** (#6) — larger bet; start design while 1–3 land
