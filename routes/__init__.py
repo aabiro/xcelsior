@@ -14,6 +14,7 @@ from routes.gpu import router as gpu_router
 from routes.health import router as health_router
 from routes.hosts import router as hosts_router
 from routes.inference import router as inference_router
+from routes.serverless import router as serverless_router
 from routes.instances import router as instances_router
 from routes.jurisdiction import router as jurisdiction_router
 from routes.terminal import router as terminal_router
@@ -48,6 +49,7 @@ ALL_ROUTERS = [
     health_router,
     hosts_router,
     inference_router,
+    serverless_router,
     instances_router,
     jurisdiction_router,
     terminal_router,

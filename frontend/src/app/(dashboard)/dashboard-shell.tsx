@@ -27,6 +27,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { CreditsButton } from "@/components/CreditsButton";
 import { TeamSwitcher } from "@/components/team/team-switcher";
 import { useDesktopRuntime } from "@/lib/desktop/runtime";
+import * as api from "@/lib/api";
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 const SIDEBAR_COLLAPSED_KEY = "xcelsior-sidebar-collapsed";
@@ -62,6 +63,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [supportPopoutOpen, setSupportPopoutOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [serverlessEnabled, setServerlessEnabled] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -129,6 +131,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       window.location.href = `/login?redirect=${encodeURIComponent(pathname)}`;
     }
   }, [authLoading, user, pathname]);
+
+  useEffect(() => {
+    if (!user) {
+      setServerlessEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    void api.getServerlessEnabled()
+      .then((res) => { if (!cancelled) setServerlessEnabled(!!res.enabled); })
+      .catch(() => { if (!cancelled) setServerlessEnabled(false); });
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Close mobile drawer on route change
   useEffect(() => { setMobileOpen(false); setProfileOpen(false); setGearOpen(false); setOnboardingOpen(false); }, [pathname]);
@@ -246,6 +260,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
         {navItems
           .filter((item) => !item.roles || item.roles.some(canAccessRole))
+          .filter((item) => item.href !== "/dashboard/inference" || serverlessEnabled)
           .map((item) => {
           const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
           const label = t(item.key);

@@ -649,7 +649,7 @@ const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join 
 ## Option A: SDK + AI Onboarding Wizard (Recommended)
 
 \`\`\`bash
-npm install -g @xcelsior-gpu/sdk @xcelsior/wizard
+npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard
 xcelsior-wizard setup
 \`\`\`
 
@@ -772,7 +772,7 @@ function CodeSnippet({
 
 function HostSetupGuideCard({ onRegister }: { onRegister: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const sdkInstall = "npm install -g @xcelsior-gpu/sdk @xcelsior/wizard";
+  const sdkInstall = "npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard";
   const wizardCmd = "xcelsior-wizard setup";
 
   function handleCopy(label: string, text: string) {
@@ -1121,7 +1121,7 @@ function InstallWorkerSection() {
 /* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
 function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
-  const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior/wizard`;
+  const sdkInstall = `npm install -g @xcelsior-gpu/sdk @xcelsior-gpu/wizard`;
   const wizardCmd = `xcelsior-wizard setup`;
   const quickCmds = `# Check worker status
 xcelsior status

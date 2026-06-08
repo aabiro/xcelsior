@@ -29,10 +29,11 @@ GET https://xcelsior.ca/openapi.json
 ```
 
 Returns OpenAPI 3.1.0 with:
-- client-facing endpoint definitions only
+- client-facing endpoint definitions only (70 paths / 79 operations)
 - 50+ request/response schemas
 - Security scheme definitions
 - Server URLs (production + development)
+- **Serverless inference** (`/api/v2/serverless/*`, `/v1/serverless/{id}/*`) plus legacy `/api/v2/inference/endpoints` aliases
 
 ## Using with AI Agents
 
@@ -67,6 +68,27 @@ Xcelsior's API is designed to work with Model Context Protocol (MCP) servers. Th
   "api_spec": "https://xcelsior.ca/openapi.json"
 }
 ```
+
+## Serverless inference for agents
+
+For LLM workloads (chat completions, async jobs, streaming), use the **serverless inference** surface instead of batch `/v1/inference`:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://xcelsior.ca/v1/serverless/{endpoint_id}/openai/v1",
+    api_key="xcel_...",  # per-endpoint key from dashboard
+)
+response = client.chat.completions.create(
+    model="meta-llama/Llama-3-8B-Instruct",
+    messages=[{"role": "user", "content": "Summarize Canadian GPU scheduling."}],
+)
+```
+
+Async job flow (RunPod-style): `POST /v1/serverless/{id}/run` → poll `GET /v1/serverless/{id}/status/{job_id}` → optional `GET .../stream/{job_id}` for SSE tokens.
+
+Management (create endpoints, keys, usage): `client.serverless.*` in the TypeScript SDK or `/api/v2/serverless/endpoints`.
 
 ## Rate Limits
 

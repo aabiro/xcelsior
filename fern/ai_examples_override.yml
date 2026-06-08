@@ -618,18 +618,60 @@ paths:
     post:
       x-fern-examples:
         - request:
-            model_name: gpt-4-xcelsior
-            gpu_type: NVIDIA A100
-            region: ca-on
-            docker_image: xcelsior/vllm:1.2.0
-            min_workers: 2
-            max_workers: 5
-            max_batch_size: 16
-            max_concurrent: 8
-            scaledown_window_sec: 600
-            mode: async
-            health_endpoint: /healthz
-            api_format: openai
+            name: llama-3-8b-ca
+            mode: preset
+            model_name: meta-llama/Llama-3-8B-Instruct
+            gpu_type: rtx4090
+            region: ca-east
+            min_workers: 0
+            max_workers: 4
+            max_concurrency: 4
+            idle_timeout_sec: 300
+            scaling_policy_type: queue_request_count
+            scaling_policy_value: 2
+  /api/v2/serverless/endpoints:
+    post:
+      x-fern-examples:
+        - request:
+            name: llama-3-8b-ca
+            mode: preset
+            model_name: meta-llama/Llama-3-8B-Instruct
+            gpu_tier: rtx4090
+            region: ca-east
+            min_workers: 0
+            max_workers: 4
+            max_concurrency: 4
+            idle_timeout_sec: 300
+            scaling_policy_type: queue_request_count
+            scaling_policy_value: 2
+          response:
+            body:
+              id: ep_a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
+              status: provisioning
+  /v1/serverless/{endpoint_id}/run:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: ep_a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
+          request:
+            input:
+              prompt: Summarize Canadian GPU scheduling in two sentences.
+          response:
+            body:
+              id: job_b7e8f9a0-1c2d-4e3f-8a9b-0c1d2e3f4a5b
+              status: IN_QUEUE
+  /v1/serverless/{endpoint_id}/openai/v1/chat/completions:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: ep_a3f1c9e2-7b4d-4f8a-9d2e-5c6b7f8a1234
+          request:
+            model: meta-llama/Llama-3-8B-Instruct
+            messages:
+              - role: user
+                content: What is serverless GPU inference?
+            max_tokens: 256
+            temperature: 0.7
   /api/inference/job_id/result:
     post:
       x-fern-examples:
@@ -854,3 +896,81 @@ paths:
                 authenticatorData: YXV0aERhdGE=
                 signature: c2lnbmF0dXJl
                 userHandle: dXNlcklkMTIz
+  /api/billing/paypal/capture-order:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cst_9f8e7d6c5b4a3e2f1d0c
+            order_id: 5O190127TN364715T
+  /api/v2/serverless/endpoints/endpoint_id/keys:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            name: ModelInferenceKey
+            scopes: inference:write
+            rate_limit_rpm: 120
+  /api/v2/serverless/endpoints/endpoint_id:
+    patch:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            name: ImageProcessingEndpoint
+            min_workers: 2
+            max_workers: 8
+            max_concurrency: 64
+            idle_timeout_sec: 300
+            scaling_policy_type: cpu_utilization
+            scaling_policy_value: 75
+            request_timeout_sec: 120
+            max_queue_size: 500
+            keep_warm: true
+  /v1/serverless/endpoint_id/runsync:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            input:
+              task: image-classification
+              image_url: https://example.com/images/cat.jpg
+              parameters:
+                confidence_threshold: 0.75
+                max_results: 5
+            webhook: https://webhook.site/123e4567-e89b-12d3-a456-426614174000
+  /v1/serverless/endpoint_id/openai/v1/chat/completions:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            model: gpt-4o-mini
+            messages:
+              - role: system
+                content: You are a helpful assistant specialized in AI and cloud computing.
+              - role: user
+                content: Explain the benefits of using distributed GPU orchestration for machine learning workloads.
+            max_tokens: 1024
+            temperature: 0.7
+            stream: false
+  /api/billing/paypal/create-order:
+    post:
+      x-fern-examples:
+        - request:
+            customer_id: cst_9f8e7d6c5b4a3
+            amount_cad: 150.75
+  /v1/serverless/endpoint_id/run:
+    post:
+      x-fern-examples:
+        - path-parameters:
+            endpoint_id: endpoint_id
+          request:
+            input:
+              task: image-classification
+              image_url: https://example.com/images/cat.jpg
+              parameters:
+                model: resnet50
+                confidence_threshold: 0.75
+            webhook: https://webhook.site/123e4567-e89b-12d3-a456-426614174000

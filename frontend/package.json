@@ -10,6 +10,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:serverless": "vitest run --pool=forks --maxWorkers=1 src/lib/serverless-api.test.ts src/__tests__/serverless-inference.test.tsx src/__tests__/serverless-deploy-studio.test.tsx src/__tests__/serverless-endpoint-detail.test.tsx",
+    "test:serverless:e2e": "playwright test e2e/serverless-smoke.spec.ts",
     "test:watch": "vitest",
     "verify:pwa": "node ./scripts/verify-pwa-build.mjs",
     "test:pwa:smoke": "playwright test e2e/pwa-smoke.spec.ts",

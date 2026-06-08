@@ -1,0 +1,126 @@
+---
+title: Serverless Inference
+subtitle: Autoscaling GPU endpoints with OpenAI-compatible APIs, async jobs, and per-second billing.
+slug: serverless-inference
+---
+
+## Overview
+
+Serverless inference deploys **managed vLLM presets** or **custom Docker handlers** behind autoscaling GPU workers. You get RunPod-style `/run` + `/status` job APIs, Novita-style deploy settings, and OpenAI SDK compatibility — billed in **GPU-seconds** from your wallet.
+
+Feature access is gated by `XCELSIOR_SERVERLESS_ENABLED` and an optional owner allowlist. Probe availability:
+
+```bash
+GET /api/v2/serverless/enabled
+```
+
+## Quick start
+
+### 1. Create an endpoint
+
+```bash
+curl -X POST https://xcelsior.ca/api/v2/serverless/endpoints \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-llama",
+    "mode": "preset",
+    "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+    "min_workers": 0,
+    "max_workers": 2,
+    "idle_timeout_sec": 300
+  }'
+```
+
+Custom mode: set `"mode": "custom"`, `"docker_image"`, `"startup_command"`, `"http_port"`, and `"health_check_path"`.
+
+### 2. Issue an API key
+
+```bash
+curl -X POST "https://xcelsior.ca/api/v2/serverless/endpoints/$ENDPOINT_ID/keys" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name": "production"}'
+```
+
+The raw key (`xcel_…`) is shown **once**. Store it securely.
+
+### 3. Run a job (async)
+
+```bash
+curl -X POST "https://xcelsior.ca/v1/serverless/$ENDPOINT_ID/run" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"prompt": "Hello"}}'
+```
+
+Poll status:
+
+```bash
+GET /v1/serverless/{endpoint_id}/status/{job_id}
+```
+
+Stream events (SSE):
+
+```bash
+GET /v1/serverless/{endpoint_id}/stream/{job_id}
+```
+
+Cancel:
+
+```bash
+POST /v1/serverless/{endpoint_id}/cancel/{job_id}
+```
+
+### 4. OpenAI SDK (preset endpoints)
+
+Point the OpenAI client at your endpoint namespace:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="xcel_…",
+    base_url="https://xcelsior.ca/v1/serverless/ENDPOINT_ID/openai/v1",
+)
+resp = client.chat.completions.create(
+    model="meta-llama/Llama-3.1-8B-Instruct",
+    messages=[{"role": "user", "content": "Hello"}],
+    stream=True,
+)
+for chunk in resp:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+## Autoscaling
+
+Workers scale between `min_workers` and `max_workers` from queue depth or queue-delay policy. Set `min_workers: 0` for **scale-to-zero**; first request after idle may incur a **cold start** (billable GPU-seconds during boot).
+
+| Setting | Purpose |
+|---------|---------|
+| `max_concurrency` | Jobs per worker before scale-up |
+| `idle_timeout_sec` | Drain idle workers after this many seconds |
+| `scaling_policy_type` | `queue_request_count` or `queue_delay` |
+| `max_queue_size` | Backpressure — returns 429 when full |
+
+## Idempotency & webhooks
+
+- Send `Idempotency-Key` on `POST /run` to dedupe retries.
+- Optional `webhook` URL on `/run` — HMAC-signed terminal callbacks (SSRF-safe, size-capped).
+
+## Legacy paths
+
+| Legacy | Current |
+|--------|---------|
+| `/api/v2/inference/endpoints/*` | `/api/v2/serverless/endpoints/*` (compat aliases) |
+| `/api/inference` | Short-lived HuggingFace batch jobs (scheduler) |
+| `/v1/inference/*` | Sync/async batch poll API |
+
+## Billing
+
+Charges accrue as **GPU-seconds** while workers are allocated. Cold-start boot time is included. Check spend:
+
+```bash
+GET /api/v2/serverless/endpoints/{endpoint_id}/usage
+```
+
+Suspended wallets block new enqueues at the API layer.

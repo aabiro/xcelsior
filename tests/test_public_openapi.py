@@ -55,6 +55,8 @@ def test_public_openapi_excludes_internal_routes():
     assert "/api/v2/marketplace/offers" not in paths
     assert "/api/v2/marketplace/allocate" not in paths
     assert "/api/v2/inference/complete/{request_id}" not in paths
+    assert "/api/v2/serverless/endpoints" in paths
+    assert "/v1/serverless/{endpoint_id}/run" in paths
 
     operation_count = sum(len(methods) for methods in paths.values())
-    assert operation_count <= 60
+    assert 70 <= operation_count <= 85

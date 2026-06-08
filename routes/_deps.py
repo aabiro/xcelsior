@@ -130,6 +130,7 @@ PUBLIC_PATHS = {
     "/api/billing/lightning/rate",
     "/api/billing/paypal/enabled",
     "/api/billing/paypal/webhook",
+    "/api/v2/serverless/enabled",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
@@ -758,6 +759,108 @@ def _require_inference_endpoint_access(user: dict, ep: dict) -> None:
 def _require_inference_endpoint_write(user: dict, ep: dict) -> None:
     _require_inference_endpoint_access(user, ep)
     _require_team_instance_write(user)
+
+
+def _serverless_owner_ids_readable(user: dict) -> set[str]:
+    """Serverless endpoint owner_id values visible to the caller."""
+    return _customer_ids_accessible_by_user(user)
+
+
+def _serverless_scope_owner_id(user: dict) -> str:
+    """owner_id for newly created serverless endpoints in the active workspace."""
+    return _effective_billing_customer_id(user)
+
+
+def _user_can_access_serverless_endpoint(user: dict, ep: dict) -> bool:
+    if _is_platform_admin(user):
+        return True
+    owner = str(ep.get("owner_id") or "").strip()
+    return owner in _serverless_owner_ids_readable(user)
+
+
+def _require_serverless_endpoint_access(user: dict, ep: dict) -> None:
+    if not _user_can_access_serverless_endpoint(user, ep):
+        raise HTTPException(404, "Endpoint not found")
+
+
+def _require_serverless_endpoint_write(user: dict, ep: dict) -> None:
+    _require_serverless_endpoint_access(user, ep)
+    _require_team_instance_write(user)
+
+
+def _user_has_serverless_feature(user: dict | None) -> bool:
+    from serverless.feature import serverless_enabled_for_owner
+
+    if user and _is_platform_admin(user):
+        return True
+    if not user:
+        return serverless_enabled_for_owner("")
+    return serverless_enabled_for_owner(_serverless_scope_owner_id(user))
+
+
+def _require_serverless_feature(
+    *,
+    user: dict | None = None,
+    owner_id: str | None = None,
+) -> None:
+    from serverless.feature import serverless_enabled_for_owner
+
+    if user and _is_platform_admin(user):
+        return
+    oid = (owner_id or "").strip()
+    if not oid and user:
+        oid = _serverless_scope_owner_id(user)
+    if not serverless_enabled_for_owner(oid):
+        raise HTTPException(404, "Endpoint not found")
+
+
+def _resolve_serverless_endpoint_auth(
+    request: Request,
+    endpoint_id: str,
+    *,
+    write: bool = False,
+) -> tuple[dict | None, dict | None, dict]:
+    """
+    Resolve session user and/or per-endpoint API key.
+    Returns (user, api_key_row, endpoint_row). Raises HTTPException on failure.
+    """
+    from serverless.repo import ServerlessRepo
+    from serverless.keys import KEY_PREFIX, validate_key
+
+    repo = ServerlessRepo()
+    ep = repo.get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(404, "Endpoint not found")
+
+    _require_serverless_feature(user=_get_current_user(request), owner_id=str(ep["owner_id"]))
+
+    auth = request.headers.get("Authorization", "")
+    key_row = None
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+        if token.startswith(KEY_PREFIX):
+            key_row = validate_key(repo, token)
+            if not key_row:
+                raise HTTPException(401, "Invalid API key")
+            if key_row.get("endpoint_id") and str(key_row["endpoint_id"]) != endpoint_id:
+                raise HTTPException(404, "Endpoint not found")
+            if write:
+                from serverless.keys import key_has_scope
+
+                if not key_has_scope(key_row, "inference:write"):
+                    raise HTTPException(403, "Insufficient API key scope")
+
+    user = _get_current_user(request)
+    if user:
+        _require_serverless_endpoint_access(user, ep)
+        if write:
+            _require_serverless_endpoint_write(user, ep)
+        return user, key_row, ep
+
+    if key_row:
+        return None, key_row, ep
+
+    raise HTTPException(401, "Not authenticated")
 
 
 def _user_image_owner_ids_readable(user: dict) -> set[str]:

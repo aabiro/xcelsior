@@ -362,6 +362,9 @@ export class BillingClient {
     /**
      * Deposit credits into a customer wallet.
      *
+     * Production deposits must flow through Stripe webhooks, PayPal capture, or
+     * crypto/Lightning — not this direct credit endpoint.
+     *
      * @param {XcelsiorApi.DepositRequest} request
      * @param {BillingClient.RequestOptions} requestOptions - Request-specific configuration.
      *

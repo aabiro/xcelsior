@@ -54,5 +54,96 @@
     "score": 1.0,
     "details": null,
     "run_at": 1780570271.3413694
+  },
+  {
+    "host_id": "h-slv",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780917423.2970302
+  },
+  {
+    "host_id": "h-slv-3a7e4ea0",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780917486.582669
+  },
+  {
+    "host_id": "h-slv-04dfb529",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780918478.0738823
+  },
+  {
+    "host_id": "h-slv-09a4ca2e",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780919115.2447076
+  },
+  {
+    "host_id": "h-slv-40fc6433",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780920655.3476858
+  },
+  {
+    "host_id": "h-slv-190a031b",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780923744.862751
+  },
+  {
+    "host_id": "h-slv-f053c9a9",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780924784.493076
+  },
+  {
+    "host_id": "h-slv-c3b9458c",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780925525.8558269
+  },
+  {
+    "host_id": "h-slv-0d566be9",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780930085.792643
+  },
+  {
+    "host_id": "h-slv-34e398bd",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780934725.4184737
+  },
+  {
+    "host_id": "h-slv-e5b9d07c",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780935359.5451422
+  },
+  {
+    "host_id": "h-slv-118f0bbb",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780936491.235671
+  },
+  {
+    "host_id": "h-slv-e76e3ac5",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780946128.0343928
   }
 ]

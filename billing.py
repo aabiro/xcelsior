@@ -2092,109 +2092,14 @@ class BillingEngine:
         except Exception as e:
             log.error("Volume billing scan error: %s", e)
 
-        # ── Bill active inference endpoints (real-time GPU compute) ──
+        # ── Bill active serverless workers (incremental GPU-seconds) ──
         inference_billed = 0
         try:
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                active_eps = conn.execute(
-                    """SELECT endpoint_id, owner_id, gpu_type, region, min_workers,
-                              worker_job_id, created_at
-                       FROM inference_endpoints
-                       WHERE status = 'active' AND worker_job_id IS NOT NULL""",
-                ).fetchall()
+            from serverless.metering import bill_active_serverless_workers
 
-            for ep in active_eps:
-                try:
-                    ep_id = ep["endpoint_id"]
-                    ep_owner = ep["owner_id"]
-                    gpu_type = ep.get("gpu_type", "")
-                    if not gpu_type:
-                        continue
-
-                    # Find last inference billing cycle
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        last_ic = conn.execute(
-                            """SELECT period_end FROM billing_cycles
-                               WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
-                            (ep_id,),
-                        ).fetchone()
-
-                    iperiod_start = last_ic["period_end"] if last_ic else float(ep["created_at"])
-                    iperiod_end = now
-
-                    if iperiod_end - iperiod_start < 60:
-                        continue
-
-                    iduration_sec = iperiod_end - iperiod_start
-
-                    # Look up GPU cost per hour
-                    from inference import get_inference_engine
-
-                    ie = get_inference_engine()
-                    cost_per_hour = ie._get_gpu_cost_per_hour(gpu_type, ep.get("region", "ca-east"))
-                    if cost_per_hour <= 0:
-                        continue
-
-                    iamount = round((iduration_sec / 3600) * cost_per_hour, 4)
-                    if iamount <= 0:
-                        continue
-
-                    icharge = self.charge(
-                        ep_owner,
-                        iamount,
-                        job_id=ep_id,
-                        description=f"Inference compute: {gpu_type} ({iduration_sec/60:.1f}min)",
-                    )
-
-                    icycle_id = f"IC-{int(now)}-{os.urandom(3).hex()}"
-                    istatus = "charged" if icharge.get("charged") else "failed"
-
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        conn.execute(
-                            """INSERT INTO billing_cycles
-                               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                                amount_cad, status, created_at)
-                               VALUES (%s, %s, %s, %s, 'inference', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (
-                                icycle_id,
-                                ep_id,
-                                ep_owner,
-                                "",
-                                iperiod_start,
-                                iperiod_end,
-                                iduration_sec,
-                                cost_per_hour,
-                                gpu_type,
-                                "inference",
-                                1.0,
-                                iamount,
-                                istatus,
-                                now,
-                            ),
-                        )
-                        conn.commit()
-
-                    # Update total_cost_cad on the endpoint
-                    with pool.connection() as conn:
-                        conn.row_factory = dict_row
-                        conn.execute(
-                            """UPDATE inference_endpoints
-                               SET total_cost_cad = COALESCE(total_cost_cad, 0) + %s, updated_at = %s
-                               WHERE endpoint_id = %s""",
-                            (iamount, now, ep_id),
-                        )
-                        conn.commit()
-
-                    inference_billed += 1
-                except Exception as e:
-                    errors += 1
-                    log.error("Inference billing error for %s: %s", ep.get("endpoint_id", "?"), e)
+            inference_billed = bill_active_serverless_workers(self, now=now)
         except Exception as e:
-            log.error("Inference billing scan error: %s", e)
+            log.error("Serverless billing scan error: %s", e)
 
         # ── Bill stopped instances for storage ───────────────────────
         # Charges per GB per hour based on storage_type. Requires the
@@ -2591,6 +2496,27 @@ class BillingEngine:
             "status": "pending",
         }
 
+    def charge_serverless_execution(
+        self,
+        worker: dict,
+        endpoint: dict,
+        *,
+        period_end: float | None = None,
+        final: bool = False,
+    ) -> dict:
+        """Bill an unbilled serverless worker uptime slice (Novita: $/s × running seconds)."""
+        from serverless.metering import charge_serverless_execution as _charge
+        from serverless.repo import ServerlessRepo
+
+        return _charge(
+            self,
+            ServerlessRepo(),
+            worker,
+            endpoint,
+            period_end=period_end,
+            final=final,
+        )
+
     def stop_jobs_for_suspended_wallets(self) -> int:
         """Find suspended wallets and stop their running jobs.
 
@@ -2662,6 +2588,24 @@ class BillingEngine:
                             )
             except Exception as e:
                 log.warning("Container cleanup enqueue failed: %s", e)
+
+        # Deprovision serverless workers owned by suspended wallets
+        try:
+            from serverless.repo import ServerlessRepo
+            from serverless.service import get_serverless_service
+
+            sl_repo = ServerlessRepo()
+            sl_svc = get_serverless_service()
+            for w in suspended:
+                cid = w["customer_id"]
+                for ep in sl_repo.list_endpoints(cid):
+                    for worker in sl_repo.list_workers(str(ep["endpoint_id"])):
+                        state = str(worker.get("state") or "")
+                        if state in ("booting", "ready", "idle", "draining"):
+                            sl_svc.deprovision_worker(str(worker["worker_id"]), charge=False)
+                            stopped += 1
+        except Exception as e:
+            log.warning("Serverless suspend enforcement failed: %s", e)
 
         if stopped:
             log.info("ENFORCEMENT: Stopped %d jobs for suspended wallets", stopped)

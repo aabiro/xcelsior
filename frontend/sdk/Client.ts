@@ -10,7 +10,6 @@ import { EventsClient } from "./api/resources/events/client/Client.js";
 import { GpuClient } from "./api/resources/gpu/client/Client.js";
 import { HostsClient } from "./api/resources/hosts/client/Client.js";
 import { InferenceClient } from "./api/resources/inference/client/Client.js";
-import { InferenceV2Client } from "./api/resources/inferenceV2/client/Client.js";
 import { InfrastructureClient } from "./api/resources/infrastructure/client/Client.js";
 import { InstancesClient } from "./api/resources/instances/client/Client.js";
 import { JurisdictionClient } from "./api/resources/jurisdiction/client/Client.js";
@@ -21,6 +20,7 @@ import { NotificationsClient } from "./api/resources/notifications/client/Client
 import { PrivacyClient } from "./api/resources/privacy/client/Client.js";
 import { ProvidersClient } from "./api/resources/providers/client/Client.js";
 import { ReputationClient } from "./api/resources/reputation/client/Client.js";
+import { ServerlessClient } from "./api/resources/serverless/client/Client.js";
 import { SlaClient } from "./api/resources/sla/client/Client.js";
 import { SpotPricingClient } from "./api/resources/spotPricing/client/Client.js";
 import { SshKeysClient } from "./api/resources/sshKeys/client/Client.js";
@@ -42,7 +42,8 @@ export class XcelsiorApiClient {
     protected _artifacts: ArtifactsClient | undefined;
     protected _auth: AuthClient | undefined;
     protected _billing: BillingClient | undefined;
-    protected _inferenceV2: InferenceV2Client | undefined;
+    protected _inference: InferenceClient | undefined;
+    protected _serverless: ServerlessClient | undefined;
     protected _instances: InstancesClient | undefined;
     protected _marketplace: MarketplaceClient | undefined;
     protected _marketplaceV2: MarketplaceV2Client | undefined;
@@ -54,7 +55,6 @@ export class XcelsiorApiClient {
     protected _privacy: PrivacyClient | undefined;
     protected _sla: SlaClient | undefined;
     protected _providers: ProvidersClient | undefined;
-    protected _inference: InferenceClient | undefined;
     protected _notifications: NotificationsClient | undefined;
     protected _chat: ChatClient | undefined;
     protected _aiAssistant: AiAssistantClient | undefined;
@@ -83,8 +83,12 @@ export class XcelsiorApiClient {
         return (this._billing ??= new BillingClient(this._options));
     }
 
-    public get inferenceV2(): InferenceV2Client {
-        return (this._inferenceV2 ??= new InferenceV2Client(this._options));
+    public get inference(): InferenceClient {
+        return (this._inference ??= new InferenceClient(this._options));
+    }
+
+    public get serverless(): ServerlessClient {
+        return (this._serverless ??= new ServerlessClient(this._options));
     }
 
     public get instances(): InstancesClient {
@@ -129,10 +133,6 @@ export class XcelsiorApiClient {
 
     public get providers(): ProvidersClient {
         return (this._providers ??= new ProvidersClient(this._options));
-    }
-
-    public get inference(): InferenceClient {
-        return (this._inference ??= new InferenceClient(this._options));
     }
 
     public get notifications(): NotificationsClient {

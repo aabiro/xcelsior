@@ -458,7 +458,7 @@ def test_viewer_cannot_patch_team_template(team_roles):
     assert "viewer" in blocked.text.lower()
 
 
-_INFERENCE_ENDPOINT_BODY = {
+_SERVERLESS_ENDPOINT_BODY = {
     "model_name": "distilbert-base-uncased-finetuned-sst-2-english",
     "gpu_type": "",
     "min_workers": 0,
@@ -466,45 +466,45 @@ _INFERENCE_ENDPOINT_BODY = {
 }
 
 
-def test_inference_endpoint_uses_team_billing_customer(team_roles):
+def test_serverless_endpoint_uses_team_billing_customer(team_roles):
     created = client.post(
-        "/api/v2/inference/endpoints",
+        "/api/v2/serverless/endpoints",
         headers=team_roles["member"]["headers"],
-        json=_INFERENCE_ENDPOINT_BODY,
+        json=_SERVERLESS_ENDPOINT_BODY,
     )
     assert created.status_code == 200, created.text[:300]
     ep_id = created.json()["endpoint"]["endpoint_id"]
 
     fetched = client.get(
-        f"/api/v2/inference/endpoints/{ep_id}",
+        f"/api/v2/serverless/endpoints/{ep_id}",
         headers=team_roles["member"]["headers"],
     )
     assert fetched.status_code == 200, fetched.text[:200]
     assert fetched.json()["endpoint"]["owner_id"] == team_roles["billing_customer_id"]
 
     viewer_get = client.get(
-        f"/api/v2/inference/endpoints/{ep_id}",
+        f"/api/v2/serverless/endpoints/{ep_id}",
         headers=team_roles["viewer"]["headers"],
     )
     assert viewer_get.status_code == 200, viewer_get.text[:200]
 
     outsider_get = client.get(
-        f"/api/v2/inference/endpoints/{ep_id}",
+        f"/api/v2/serverless/endpoints/{ep_id}",
         headers=team_roles["outsider"]["headers"],
     )
-    assert outsider_get.status_code == 403, outsider_get.text[:200]
+    assert outsider_get.status_code == 404, outsider_get.text[:200]
 
     client.delete(
-        f"/api/v2/inference/endpoints/{ep_id}",
+        f"/api/v2/serverless/endpoints/{ep_id}",
         headers=team_roles["admin"]["headers"],
     )
 
 
-def test_viewer_cannot_create_inference_endpoint(team_roles):
+def test_viewer_cannot_create_serverless_endpoint(team_roles):
     blocked = client.post(
-        "/api/v2/inference/endpoints",
+        "/api/v2/serverless/endpoints",
         headers=team_roles["viewer"]["headers"],
-        json=_INFERENCE_ENDPOINT_BODY,
+        json=_SERVERLESS_ENDPOINT_BODY,
     )
     assert blocked.status_code == 403, blocked.text[:200]
     assert "viewer" in blocked.text.lower()

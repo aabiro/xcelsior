@@ -33,7 +33,8 @@ The public reference is intentionally organized around the workflows most custom
 | **Marketplace** | Search and reserve GPU capacity | `GET /marketplace`, `POST /api/v2/marketplace/search` |
 | **Volumes** | Persistent storage volumes | `POST /api/v2/volumes`, `GET /api/v2/volumes` |
 | **Artifacts** | Upload/download URLs for outputs and checkpoints | `POST /api/artifacts/upload`, `GET /api/artifacts/{job_id}` |
-| **Inference** | OpenAI-compatible inference and managed endpoints | `POST /v1/chat/completions`, `POST /api/v2/inference/endpoints` |
+| **Serverless** | Autoscaling inference endpoints (preset vLLM + custom containers) | `POST /api/v2/serverless/endpoints`, `POST /v1/serverless/{id}/run` |
+| **Inference (batch)** | Short-lived HuggingFace scheduler jobs | `POST /api/inference`, `POST /v1/inference` |
 
 Account settings, worker registration, admin, maintenance, callback, and other internal surfaces are intentionally kept out of the public developer reference.
 

@@ -639,40 +639,101 @@ paths:
       x-fern-sdk-group-name: inference
       x-fern-sdk-method-name: postResult
 
-  # ── Inference v2 ──────────────────────────────────────────────────
-  /api/v2/inference/endpoints:
+  # ── Serverless inference (managed endpoints + queue API) ─────────
+  /api/v2/serverless/enabled:
     get:
-      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: enabled
+  /api/v2/serverless/endpoints:
+    get:
+      x-fern-sdk-group-name: serverless
       x-fern-sdk-method-name: listEndpoints
     post:
-      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-group-name: serverless
       x-fern-sdk-method-name: createEndpoint
+  /api/v2/serverless/endpoints/{endpoint_id}:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getEndpoint
+    patch:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: patchEndpoint
+    delete:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: deleteEndpoint
+  /api/v2/serverless/endpoints/{endpoint_id}/health:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getEndpointHealth
+  /api/v2/serverless/endpoints/{endpoint_id}/usage:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getEndpointUsage
+  /api/v2/serverless/endpoints/{endpoint_id}/keys:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: listKeys
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: createKey
+  /api/v2/serverless/endpoints/{endpoint_id}/keys/{key_id}:
+    delete:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: revokeKey
+  /v1/serverless/{endpoint_id}/run:
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: runJob
+  /v1/serverless/{endpoint_id}/runsync:
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: runJobSync
+  /v1/serverless/{endpoint_id}/status/{job_id}:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getJobStatus
+  /v1/serverless/{endpoint_id}/stream/{job_id}:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: streamJob
+  /v1/serverless/{endpoint_id}/cancel/{job_id}:
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: cancelJob
+  /v1/serverless/{endpoint_id}/openai/v1/chat/completions:
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: chatCompletions
+  /v1/serverless/{endpoint_id}/openai/v1/models:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: listModels
+  # Deprecated aliases (same handlers as /api/v2/serverless/*)
+  /api/v2/inference/endpoints:
+    get:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: listEndpointsCompat
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: createEndpointCompat
   /api/v2/inference/endpoints/{endpoint_id}:
     get:
-      x-fern-sdk-group-name: inferenceV2
-      x-fern-sdk-method-name: getEndpoint
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getEndpointCompat
     delete:
-      x-fern-sdk-group-name: inferenceV2
-      x-fern-sdk-method-name: deleteEndpoint
-  /api/v2/inference/complete/{request_id}:
-    post:
-      x-fern-sdk-group-name: inferenceV2
-      x-fern-sdk-method-name: complete
-  /v1/chat/completions:
-    post:
-      x-fern-sdk-group-name: inferenceV2
-      x-fern-sdk-method-name: chatCompletions
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: deleteEndpointCompat
   /v1/inference:
     post:
-      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-group-name: inference
       x-fern-sdk-method-name: sync
   /v1/inference/async:
     post:
-      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-group-name: inference
       x-fern-sdk-method-name: async
   /v1/inference/{job_id}:
     get:
-      x-fern-sdk-group-name: inferenceV2
+      x-fern-sdk-group-name: inference
       x-fern-sdk-method-name: poll
 
   # ── Notifications ─────────────────────────────────────────────────
@@ -1237,15 +1298,14 @@ paths:
       x-fern-sdk-group-name: gpu
       x-fern-sdk-method-name: listAvailable
 
-  # ── Additional Inference v2 ───────────────────────────────────────
   /api/v2/inference/endpoints/{endpoint_id}/health:
     get:
-      x-fern-sdk-group-name: inferenceV2
-      x-fern-sdk-method-name: getEndpointHealth
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getEndpointHealthCompat
   /api/v2/inference/endpoints/{endpoint_id}/usage:
     get:
-      x-fern-sdk-group-name: inferenceV2
-      x-fern-sdk-method-name: getEndpointUsage
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: getEndpointUsageCompat
 
 
   # ══════════════════════════════════════════════════════════════

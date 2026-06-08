@@ -122,6 +122,13 @@ def test_reconcile_task_registered_with_60s_interval():
     assert interval == 60
 
 
+def test_serverless_reconcile_task_registered_with_45s_interval():
+    closures = _extract_closures()
+    assert "serverless_reconcile" in closures, list(closures)
+    _, interval = closures["serverless_reconcile"]
+    assert interval == 45
+
+
 def test_user_images_sweeper_registered_with_300s_interval():
     closures = _extract_closures()
     assert "user_images_pending_sweeper" in closures, list(closures)

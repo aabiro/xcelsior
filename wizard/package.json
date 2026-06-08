@@ -1,10 +1,19 @@
 {
-  "name": "@xcelsior/wizard",
+  "name": "@xcelsior-gpu/wizard",
   "version": "0.1.0",
   "description": "Xcelsior interactive CLI wizard — Ink-based setup & onboarding",
   "type": "module",
   "bin": {
-    "xcelsior-wizard": "./dist/index.js"
+    "xcelsior-wizard": "./dist/src/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "generate-frames": "tsx scripts/generate-wizard-frames.ts",
@@ -12,7 +21,8 @@
     "build": "tsc",
     "dev": "tsx src/index.tsx",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "chalk": "^5.3.0",

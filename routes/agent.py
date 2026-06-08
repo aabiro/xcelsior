@@ -190,7 +190,7 @@ def api_agent_work(host_id: str, request: Request):
         for j in jobs:
             vol_ids = j.get("volume_ids", [])
             if vol_ids:
-                mounts: dict[str, str] = {}
+                mounts: dict[str, str] = dict(j.get("volume_mounts") or {})
                 try:
                     for att in ve.get_instance_volumes(j["job_id"]):
                         mounts[att["volume_id"]] = att.get("mount_path", "/workspace")
@@ -255,6 +255,7 @@ _AGENT_COMMAND_ALLOWED = {
     "snapshot_container",  # P3.1 — docker commit → user_images
     "mount_volume",  # hot-attach managed NFS volume into running container
     "unmount_volume",
+    "prepull_image",  # serverless cold-start: pull image on idle host
 }
 
 
