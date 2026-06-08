@@ -145,8 +145,9 @@ def api_artifact_expiry(job_id: str, request: Request):
 
 @router.get("/api/artifacts", tags=["Artifacts"])
 def api_list_all_artifacts(request: Request):
-    """List all artifacts (no job filter)."""
-    from routes._deps import _get_current_user, _require_scope
+    """List artifacts for jobs the caller can access (team-scoped)."""
+    from routes._deps import _filter_jobs_for_user, _get_current_user, _require_scope
+    from scheduler import list_jobs
 
     user = _get_current_user(request)
     if not user:
@@ -155,10 +156,17 @@ def api_list_all_artifacts(request: Request):
     mgr = get_artifact_manager()
     try:
         artifacts = []
-        from artifacts import ArtifactType as AT
-
-        for atype in AT:
-            artifacts.extend(mgr.primary.list_objects(f"{atype.value}/"))
+        jobs = _filter_jobs_for_user(list_jobs(), user)
+        seen_keys: set[str] = set()
+        for job in jobs:
+            job_id = str(job.get("job_id") or job.get("id") or "").strip()
+            if not job_id:
+                continue
+            for art in mgr.get_job_artifacts(job_id):
+                key = str(art.get("key") or "")
+                if key and key not in seen_keys:
+                    seen_keys.add(key)
+                    artifacts.append(art)
         return {"ok": True, "artifacts": artifacts}
-    except Exception as e:
+    except Exception:
         return {"ok": True, "artifacts": []}

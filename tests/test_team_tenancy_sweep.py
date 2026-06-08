@@ -383,6 +383,133 @@ def test_viewer_cannot_attach_or_delete_team_volume(team_roles):
     client.delete(f"/api/v2/volumes/{volume_id}", headers=team_roles["admin"]["headers"])
 
 
+def test_artifacts_global_list_scoped_to_accessible_jobs(team_roles, monkeypatch):
+    job_id = team_roles["job_id"]
+
+    def fake_get_job_artifacts(self, jid):
+        if jid == job_id:
+            return [{"key": f"job_output/{jid}/out.bin", "size_bytes": 100}]
+        return []
+
+    monkeypatch.setattr("artifacts.ArtifactManager.get_job_artifacts", fake_get_job_artifacts)
+
+    member_list = client.get("/api/artifacts", headers=team_roles["member"]["headers"])
+    assert member_list.status_code == 200, member_list.text[:200]
+    member_keys = [a.get("key", "") for a in member_list.json().get("artifacts") or []]
+    assert any(job_id in k for k in member_keys)
+
+    outsider_list = client.get("/api/artifacts", headers=team_roles["outsider"]["headers"])
+    assert outsider_list.status_code == 200, outsider_list.text[:200]
+    outsider_keys = [a.get("key", "") for a in outsider_list.json().get("artifacts") or []]
+    assert not any(job_id in k for k in outsider_keys)
+
+
+def _insert_team_template(billing_customer_id: str) -> str:
+    import time
+    from routes.instances import _user_images_pool
+
+    image_id = f"img-{uuid.uuid4().hex[:12]}"
+    pool = _user_images_pool()
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO user_images (
+                image_id, owner_id, name, tag, description,
+                source_job_id, host_id, image_ref, size_bytes,
+                status, created_at, deleted_at
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s,0)
+            """,
+            (
+                image_id,
+                billing_customer_id,
+                f"team-tpl-{uuid.uuid4().hex[:6]}",
+                "latest",
+                "team tenancy test",
+                "",
+                "",
+                f"registry.example/{image_id}:latest",
+                "ready",
+                time.time(),
+            ),
+        )
+    return image_id
+
+
+def test_team_templates_visible_in_workspace_scope(team_roles):
+    image_id = _insert_team_template(team_roles["billing_customer_id"])
+
+    listed = client.get("/user-images?scope=mine", headers=team_roles["viewer"]["headers"])
+    assert listed.status_code == 200, listed.text[:200]
+    rows = listed.json().get("images") or []
+    match = next((i for i in rows if i["image_id"] == image_id), None)
+    assert match is not None
+    assert match["owner_id"] == team_roles["billing_customer_id"]
+
+
+def test_viewer_cannot_patch_team_template(team_roles):
+    image_id = _insert_team_template(team_roles["billing_customer_id"])
+
+    blocked = client.patch(
+        f"/user-images/{image_id}",
+        json={"description": "blocked"},
+        headers=team_roles["viewer"]["headers"],
+    )
+    assert blocked.status_code == 403, blocked.text[:200]
+    assert "viewer" in blocked.text.lower()
+
+
+_INFERENCE_ENDPOINT_BODY = {
+    "model_name": "distilbert-base-uncased-finetuned-sst-2-english",
+    "gpu_type": "",
+    "min_workers": 0,
+    "max_workers": 1,
+}
+
+
+def test_inference_endpoint_uses_team_billing_customer(team_roles):
+    created = client.post(
+        "/api/v2/inference/endpoints",
+        headers=team_roles["member"]["headers"],
+        json=_INFERENCE_ENDPOINT_BODY,
+    )
+    assert created.status_code == 200, created.text[:300]
+    ep_id = created.json()["endpoint"]["endpoint_id"]
+
+    fetched = client.get(
+        f"/api/v2/inference/endpoints/{ep_id}",
+        headers=team_roles["member"]["headers"],
+    )
+    assert fetched.status_code == 200, fetched.text[:200]
+    assert fetched.json()["endpoint"]["owner_id"] == team_roles["billing_customer_id"]
+
+    viewer_get = client.get(
+        f"/api/v2/inference/endpoints/{ep_id}",
+        headers=team_roles["viewer"]["headers"],
+    )
+    assert viewer_get.status_code == 200, viewer_get.text[:200]
+
+    outsider_get = client.get(
+        f"/api/v2/inference/endpoints/{ep_id}",
+        headers=team_roles["outsider"]["headers"],
+    )
+    assert outsider_get.status_code == 403, outsider_get.text[:200]
+
+    client.delete(
+        f"/api/v2/inference/endpoints/{ep_id}",
+        headers=team_roles["admin"]["headers"],
+    )
+
+
+def test_viewer_cannot_create_inference_endpoint(team_roles):
+    blocked = client.post(
+        "/api/v2/inference/endpoints",
+        headers=team_roles["viewer"]["headers"],
+        json=_INFERENCE_ENDPOINT_BODY,
+    )
+    assert blocked.status_code == 403, blocked.text[:200]
+    assert "viewer" in blocked.text.lower()
+
+
 def test_personal_user_concurrency_isolated_from_team(team_roles, monkeypatch):
     import routes.instances as inst
 

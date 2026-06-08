@@ -193,10 +193,10 @@ This document records the **six highest-priority initiatives** agreed for the ne
 - [ ] **Volumes** — create/list/mutate scoped (done); launch validation (see #1)
 - [ ] **Billing / wallet** — `_require_customer_access`, team admin for deposits (P0 done)
 - [ ] **Concurrency pool** — shared per team plan (P2 done)
-- [ ] **Artifacts** — list/upload/download scoped to team `billing_customer_id` / accessible owner ids
-- [ ] **User image templates** — create/list/delete scoped to team workspace
-- [ ] **Snapshots (instance)** — rate limit and ownership via team billing id
-- [ ] **Inference endpoints** (`routes/inference.py`) — wallet + `owner_id` use `_effective_billing_customer_id`
+- [x] **Artifacts** — list/upload/download scoped to team `billing_customer_id` / accessible owner ids (2026-06-08)
+- [x] **User image templates** — create/list/delete scoped to team workspace (2026-06-08)
+- [x] **Snapshots (instance)** — rate limit and ownership via team billing id (2026-06-08)
+- [x] **Inference endpoints** (`routes/inference.py`) — wallet + `owner_id` use `_effective_billing_customer_id` (2026-06-08)
 - [ ] **Chat / AI assistant tools** — `list_volumes`, `list_instances`, wallet tools team-aware
 - [ ] **SSH keys** — attach to team instances (read scope for viewers)
 - [ ] **Analytics API** — usage queries filter by effective billing customer when in team context
@@ -211,7 +211,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 ### 3.3 Frontend — consistent UX
 
-- [~] **`TeamContextBanner`** on: billing, instances, volumes, analytics, artifacts (2026-06-08); **add:** launch modal header
+- [x] **`TeamContextBanner`** on: billing, instances, volumes, analytics, artifacts, launch modal (2026-06-08)
 - [ ] **`TeamSwitcher`** visible when `teams.length >= 1` (done)
 - [ ] **Settings workspace picker** for single-team users (done)
 - [~] **`xcelsior-team-changed` listener** on: billing, instances, credits, volumes, analytics, artifacts (2026-06-08)
@@ -222,7 +222,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 - [ ] `test_team_tenancy_p0.py` — wallet + job ownership
 - [ ] `test_team_tenancy_sweep.py` — roles, concurrency, volumes, login, personal workspace (16 tests)
-- [ ] `test_team_tenancy_sweep` extended: artifacts, templates, inference (new)
+- [x] `test_team_tenancy_sweep` extended: artifacts, templates, inference (2026-06-08)
 - [ ] `frontend/src/__tests__/team-context.test.ts`
 - [ ] Security sweep: cross-team IDOR on artifacts, volumes, jobs
 

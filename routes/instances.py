@@ -23,6 +23,8 @@ from routes._deps import (
     _user_team_id,
     _check_job_access,
     _check_job_write_access,
+    _require_user_image_write,
+    _user_image_scope_owner_id,
     _check_ws_connect_rate_limit,
     _require_team_instance_write,
     _user_can_access_volume,
@@ -1892,7 +1894,8 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     """
     user = _require_auth(request)
     _require_scope(user, "instances:write")
-    owner_id = _canonical_owner_id(user)
+    _require_team_instance_write(user)
+    owner_id = _user_image_scope_owner_id(user)
     if not owner_id:
         raise HTTPException(401, "Authentication required")
     # P3/B4 — throttle before doing any DB / agent work.
@@ -1902,10 +1905,11 @@ def api_snapshot_instance(job_id: str, body: SnapshotIn, request: Request):
     if not job:
         _snapshot_requests_total.labels(outcome="not_found").inc()
         raise HTTPException(404, "Instance not found")
-    is_admin = bool(user.get("is_admin") or user.get("admin"))
-    if job.get("owner") != owner_id and not is_admin:
+    try:
+        _check_job_write_access(user, job_id)
+    except HTTPException:
         _snapshot_requests_total.labels(outcome="forbidden").inc()
-        raise HTTPException(403, "Not your instance")
+        raise
     status = str(job.get("status") or "")
     # Only running containers can be snapshotted — billing pause / stop
     # flows `docker rm -f` the container, after which `docker commit`
@@ -2068,8 +2072,8 @@ def api_list_user_images(
     the partial indexes keep all three scopes O(page) without a seq scan.
     """
     user = _require_auth(request)
-    owner_id = _canonical_owner_id(user)
-    if not owner_id:
+    scope_owner_id = _user_image_scope_owner_id(user)
+    if not scope_owner_id:
         raise HTTPException(401, "Authentication required")
     is_admin = bool(user.get("is_admin") or user.get("admin"))
     # Clamp pagination — defensive; the SQL driver handles large numbers
@@ -2090,7 +2094,7 @@ def api_list_user_images(
     params: list = []
     if scope == "mine":
         where.append("owner_id=%s")
-        params.append(owner_id)
+        params.append(scope_owner_id)
     elif scope == "public":
         where.append("is_public=true")
     # scope == "all" adds no owner filter (admin-only above).
@@ -2140,7 +2144,7 @@ def api_list_user_images(
             "labels": r[12] or [],
             "starred_at": float(r[13]) if r[13] is not None else None,
             "starred": r[13] is not None,
-            "is_mine": r[1] == owner_id,
+            "is_mine": r[1] == scope_owner_id,
         }
         for r in rows
     ]
@@ -2216,8 +2220,7 @@ class _UserImagePatchIn(BaseModel):
 def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Request):
     """Phase D — update description/labels/visibility/star on a template."""
     user = _require_auth(request)
-    owner_id = _canonical_owner_id(user)
-    if not owner_id:
+    if not _user_image_scope_owner_id(user):
         raise HTTPException(401, "Authentication required")
     is_admin = bool(user.get("is_admin") or user.get("admin"))
 
@@ -2250,8 +2253,11 @@ def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Reques
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Image not found")
-        if row[0] != owner_id and not is_admin:
-            raise HTTPException(403, "Not your image")
+        row_owner = row[0]
+        if is_admin:
+            pass
+        else:
+            _require_user_image_write(user, row_owner)
         params.append(image_id)
         cur.execute(
             cast(Any, f"UPDATE user_images SET {', '.join(sets)} WHERE image_id=%s"),
@@ -2260,7 +2266,7 @@ def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Reques
     try:
         broadcast_sse(
             "user_image_updated",
-            {"image_id": image_id, "owner_id": owner_id},
+            {"image_id": image_id, "owner_id": row_owner},
         )
     except Exception as e:
         log.debug("broadcast_sse(user_image_updated) failed: %s", e)
@@ -2271,8 +2277,7 @@ def api_patch_user_image(image_id: str, body: _UserImagePatchIn, request: Reques
 def api_delete_user_image(image_id: str, request: Request):
     """Soft-delete a user image record. (Underlying docker image not removed.)"""
     user = _require_auth(request)
-    owner_id = _canonical_owner_id(user)
-    if not owner_id:
+    if not _user_image_scope_owner_id(user):
         raise HTTPException(401, "Authentication required")
     is_admin = bool(user.get("is_admin") or user.get("admin"))
     pool = _user_images_pool()
@@ -2287,14 +2292,16 @@ def api_delete_user_image(image_id: str, request: Request):
         # Named access defends against the shared pool's row_factory
         # possibly being mutated to dict_row by another caller.
         row_owner = row["owner_id"] if isinstance(row, dict) else row[0]
-        if row_owner != owner_id and not is_admin:
-            raise HTTPException(403, "Not your image")
+        if is_admin:
+            pass
+        else:
+            _require_user_image_write(user, row_owner)
         cur.execute(
             "UPDATE user_images SET deleted_at=%s WHERE image_id=%s",
             (time.time(), image_id),
         )
     try:
-        broadcast_sse("user_image_deleted", {"image_id": image_id, "owner_id": owner_id})
+        broadcast_sse("user_image_deleted", {"image_id": image_id, "owner_id": row_owner})
     except Exception as e:
         log.debug("broadcast_sse(user_image_deleted) failed: %s", e)
     return {"ok": True}

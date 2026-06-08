@@ -10,11 +10,16 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from routes._deps import (
+    _effective_billing_customer_id,
     _get_current_user,
-    _is_platform_admin,
+    _inference_owner_ids_readable,
+    _inference_scope_owner_id,
     _require_auth,
+    _require_inference_endpoint_access,
+    _require_inference_endpoint_write,
     _require_inference_job_access,
     _require_scope,
+    _require_team_instance_write,
     broadcast_sse,
     otel_span,
 )
@@ -31,12 +36,6 @@ from inference_store import (
 from inference import get_inference_engine
 
 router = APIRouter()
-
-
-def _require_inference_endpoint_access(user: dict, ep: dict) -> None:
-    owner_id = user.get("user_id", user.get("email", ""))
-    if ep.get("owner_id") != owner_id and not _is_platform_admin(user):
-        raise HTTPException(403, "Forbidden")
 
 
 # ── Model: InferenceRequest ──
@@ -61,11 +60,10 @@ def api_inference_submit(req: InferenceRequest, request: Request):
     Schedules a short-lived GPU job that runs the specified model on the
     provided inputs. Returns a job_id to poll for results.
     """
-    from routes.instances import _canonical_owner_id
-
     user = _require_auth(request)
     _require_scope(user, "inference:write")
-    customer_id = _canonical_owner_id(user) or "anon"
+    _require_team_instance_write(user)
+    customer_id = _effective_billing_customer_id(user) or "anon"
     inputs_list = [req.inputs] if isinstance(req.inputs, str) else req.inputs
 
     # Wallet pre-flight
@@ -219,7 +217,8 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
     If stream=true, returns SSE text/event-stream with token deltas.
     """
     user = _require_auth(request)
-    customer_id = user.get("customer_id", user.get("email", "anon"))
+    _require_team_instance_write(user)
+    customer_id = _effective_billing_customer_id(user) or "anon"
     inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
 
     # Wallet pre-flight
@@ -307,7 +306,8 @@ def api_v1_inference_sync(body: V1InferenceRequest, request: Request):
 def api_v1_inference_async(body: V1InferenceRequest, request: Request):
     """Asynchronous inference — returns job_id immediately for polling."""
     user = _require_auth(request)
-    customer_id = user.get("customer_id", user.get("email", "anon"))
+    _require_team_instance_write(user)
+    customer_id = _effective_billing_customer_id(user) or "anon"
     inputs_list = [body.inputs] if isinstance(body.inputs, str) else body.inputs
 
     # Wallet pre-flight
@@ -405,6 +405,7 @@ def api_inference_create_endpoint(body: InferenceEndpointCreate, request: Reques
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
+    _require_team_instance_write(user)
     if body.mode not in ("sync", "async"):
         raise HTTPException(400, "mode must be 'sync' or 'async'")
     if body.api_format not in ("openai", "custom"):
@@ -412,7 +413,7 @@ def api_inference_create_endpoint(body: InferenceEndpointCreate, request: Reques
     ie = get_inference_engine()
     try:
         ep = ie.create_endpoint(
-            owner_id=user.get("user_id", user.get("email", "")),
+            owner_id=_inference_scope_owner_id(user),
             model_id=body.model_name,
             gpu_type=body.gpu_type,
             region=body.region,
@@ -438,7 +439,14 @@ def api_inference_list_endpoints(request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     ie = get_inference_engine()
-    endpoints = ie.list_endpoints(user.get("user_id", user.get("email", "")))
+    endpoints: list[dict] = []
+    seen: set[str] = set()
+    for owner_id in sorted(_inference_owner_ids_readable(user)):
+        for ep in ie.list_endpoints(owner_id):
+            eid = str(ep.get("endpoint_id") or "")
+            if eid and eid not in seen:
+                seen.add(eid)
+                endpoints.append(ep)
     return {"ok": True, "endpoints": endpoints}
 
 
@@ -496,7 +504,7 @@ def api_inference_delete_endpoint(endpoint_id: str, request: Request):
     ep = ie.get_endpoint(endpoint_id)
     if not ep:
         raise HTTPException(404, "Endpoint not found")
-    _require_inference_endpoint_access(user, ep)
+    _require_inference_endpoint_write(user, ep)
     ie.delete_endpoint(endpoint_id)
     return {"ok": True}
 
@@ -524,7 +532,8 @@ def api_openai_chat_completions(body: ChatCompletionRequest, request: Request):
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "inference:write")
-    customer_id = user.get("customer_id", user.get("user_id", user.get("email", "anon")))
+    _require_team_instance_write(user)
+    customer_id = _effective_billing_customer_id(user) or "anon"
 
     ie = get_inference_engine()
     from inference import InferenceRequest as InfReq
