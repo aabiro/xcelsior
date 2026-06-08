@@ -1255,6 +1255,16 @@ def submit_job(
     # Spot tier: mark job as interruptible
     is_spot = PRIORITY_TIERS.get(tier, {}).get("spot", False)
 
+    resolved_nfs_server = nfs_server or ""
+    if not resolved_nfs_server and volume_ids:
+        try:
+            from volumes import NFS_SERVER as _vol_nfs_server
+
+            if _vol_nfs_server:
+                resolved_nfs_server = _vol_nfs_server
+        except Exception:
+            pass
+
     job = {
         "job_id": str(uuid.uuid4())[:8],
         "name": name,
@@ -1271,7 +1281,7 @@ def submit_job(
         "max_retries": 3,
         "num_gpus": max(1, int(num_gpus or 1)),
         "gpu_model": gpu_model or "",
-        "nfs_server": nfs_server or "",
+        "nfs_server": resolved_nfs_server,
         "nfs_path": nfs_path or "",
         "nfs_mount_point": nfs_mount_point or "",
         "image": image or "",
