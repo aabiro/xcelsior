@@ -37,13 +37,40 @@ if not STRIPE_SECRET_KEY:
         "Stripe Connect V2 routes will return errors until a valid key is provided."
     )
 
-# Stripe webhook secret for thin events. Obtain from
-# Stripe Dashboard → Developers → Webhooks. Missing secret → webhook
-# signature verification will fail (webhooks will be rejected).
+# Stripe webhook secrets for thin (v2) events. Obtain from
+# Stripe Dashboard → Developers → Webhooks. A single endpoint can be the target
+# of multiple destinations (each with its own secret), so we accept several.
+# STRIPE_WEBHOOK_SECRET stays a module global for back-compat and so tests can
+# monkeypatch it; _thin_webhook_secrets() includes it among the candidates.
 STRIPE_WEBHOOK_SECRET = os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", "")
-if not STRIPE_WEBHOOK_SECRET:
+
+
+def _thin_webhook_secrets() -> list:
+    """Signing secrets accepted on the thin endpoint /api/connect/webhooks.
+
+    Primary is the "xcelsior-connect-thin" destination secret; the general and
+    sandbox secrets are accepted as fallbacks so a misrouted destination still
+    verifies. Tried in order until one succeeds.
+    """
+    raw = [
+        os.environ.get("XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET", ""),
+        STRIPE_WEBHOOK_SECRET,
+        os.environ.get("XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET", ""),
+    ]
+    seen = set()
+    out = []
+    for secret in raw:
+        if secret and secret not in seen:
+            seen.add(secret)
+            out.append(secret)
+    return out
+
+
+if not _thin_webhook_secrets():
     log.warning(
-        "XCELSIOR_STRIPE_WEBHOOK_SECRET is not set. " "Webhook signature verification will fail."
+        "No Stripe thin webhook secret set "
+        "(XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET / XCELSIOR_STRIPE_WEBHOOK_SECRET). "
+        "Thin webhook signature verification will fail."
     )
 
 # Base URL for redirect URLs (onboarding return/refresh, checkout success).
@@ -51,6 +78,11 @@ BASE_URL = os.environ.get("XCELSIOR_BASE_URL", "http://localhost:8000")
 
 # Platform application fee in cents (applied to each checkout).
 PLATFORM_FEE_CENTS = int(os.environ.get("XCELSIOR_PLATFORM_FEE_CENTS", "200"))
+
+# Default country (ISO 3166-1 alpha-2) for new connected accounts. xcelsior.ca
+# is a Canadian platform, so default to "ca"; override per-request via
+# CreateAccountRequest.country or globally via XCELSIOR_CONNECT_COUNTRY.
+CONNECT_COUNTRY = os.environ.get("XCELSIOR_CONNECT_COUNTRY", "ca").lower()
 
 
 # ── Stripe Client (singleton) ────────────────────────────────────────
@@ -132,6 +164,7 @@ class CreateAccountRequest(BaseModel):
 
     display_name: str  # Human-readable name for the connected account
     contact_email: str  # Email address used for onboarding communications
+    country: str | None = None  # ISO 3166-1 alpha-2; defaults to CONNECT_COUNTRY
 
 
 class CreateProductRequest(BaseModel):
@@ -184,7 +217,7 @@ def create_connected_account(req: CreateAccountRequest):
             "display_name": req.display_name,
             "contact_email": req.contact_email,
             "identity": {
-                "country": "us",
+                "country": (req.country or CONNECT_COUNTRY).lower(),
             },
             "dashboard": "express",
             "defaults": {
@@ -490,6 +523,12 @@ def create_checkout_session(req: CheckoutRequest):
                 },
             },
             "mode": "payment",
+            # Traceability: the checkout.session.completed handler reads these
+            # to record the sale against the right provider/product.
+            "metadata": {
+                "product_id": req.product_id,
+                "destination_account": product["account_id"],
+            },
             # {CHECKOUT_SESSION_ID} is a Stripe template variable that gets
             # replaced with the actual session ID after payment.
             "success_url": f"{BASE_URL}/connect/success?session_id={{CHECKOUT_SESSION_ID}}",
@@ -543,20 +582,32 @@ async def handle_thin_webhook(request: Request):
     if not sig_header:
         raise HTTPException(400, "Missing Stripe-Signature header")
 
-    if not STRIPE_WEBHOOK_SECRET:
+    secrets = _thin_webhook_secrets()
+    if not secrets:
         raise HTTPException(
             503,
-            "Webhook secret not configured. Set XCELSIOR_STRIPE_WEBHOOK_SECRET.",
+            "Webhook secret not configured. Set XCELSIOR_STRIPE_THIN_WEBHOOK_SECRET.",
         )
 
     # Step 1: Parse the thin event.
     # parse_event_notification verifies the signature and returns a lightweight
-    # event object containing { id, type, ... }.
-    try:
-        thin_event = client.parse_event_notification(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except Exception as e:
-        log.warning("Webhook signature verification failed: %s", e)
-        raise HTTPException(400, "Invalid webhook signature") from e
+    # event object containing { id, type, ... }. Try each configured secret so
+    # sibling destinations targeting this endpoint all verify.
+    thin_event = None
+    last_err = None
+    for secret in secrets:
+        try:
+            thin_event = client.parse_event_notification(payload, sig_header, secret)
+            break
+        except Exception as e:
+            last_err = e
+    if thin_event is None:
+        log.warning(
+            "Webhook signature verification failed against %d secret(s): %s",
+            len(secrets),
+            last_err,
+        )
+        raise HTTPException(400, "Invalid webhook signature") from last_err
 
     event_type = thin_event.type
     log.info("Received thin event: %s (id=%s)", event_type, thin_event.id)

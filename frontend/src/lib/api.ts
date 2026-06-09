@@ -2613,8 +2613,12 @@ export async function fetchAvailableGPUs() {
 export type ServerlessEndpointCreatePayload = {
   name?: string;
   mode?: string;
+  managed_engine?: string;
   model_name?: string;
   model_ref?: string;
+  source_type?: string;
+  source_ref?: string;
+  source_ref_branch?: string;
   gpu_type?: string;
   gpu_tier?: string;
   gpu_count?: number;

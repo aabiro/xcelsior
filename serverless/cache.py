@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import TYPE_CHECKING
 
@@ -60,3 +61,38 @@ def resolve_cache_volume(
 def attach_cache_to_endpoint_spec(spec, volume_id: str | None) -> None:
     if volume_id:
         spec.cache_volume_id = volume_id
+
+
+def cache_replicate_regions() -> list[str]:
+    raw = os.environ.get("XCELSIOR_SERVERLESS_CACHE_REPLICATE_REGIONS", "")
+    return [r.strip() for r in raw.split(",") if r.strip()]
+
+
+def replicate_cache_volumes(
+    repo: ServerlessRepo,
+    owner_id: str,
+    model_ref: str,
+    revision: str,
+    primary_region: str,
+    *,
+    size_gb: int = 50,
+) -> dict[str, str | None]:
+    """
+    Provision NFS weight-cache volumes in the primary region plus configured peers.
+
+    Returns {region: volume_id} for all regions touched (primary included).
+    """
+    regions = [primary_region] + [
+        r for r in cache_replicate_regions() if r and r != primary_region
+    ]
+    out: dict[str, str | None] = {}
+    for region in regions:
+        out[region] = resolve_cache_volume(
+            repo,
+            owner_id,
+            model_ref,
+            revision,
+            region,
+            size_gb=size_gb,
+        )
+    return out

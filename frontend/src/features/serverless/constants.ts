@@ -29,6 +29,10 @@ export const DEPLOY_STUDIO_STEPS = [
 export const DEFAULT_FORM: DeployStudioForm = {
   name: "",
   method: "preset",
+  managedEngine: "vllm",
+  customSource: "docker",
+  githubRepo: "",
+  githubBranch: "main",
   modelRef: PRESET_MODELS[0].id,
   imageRef: PRESET_IMAGE,
   startupCommand: "",

@@ -7,9 +7,16 @@ export interface EnvRow {
   value: string;
 }
 
+export type ManagedEngineId = "vllm" | "tgi" | "sglang";
+export type CustomSourceType = "docker" | "github";
+
 export interface DeployStudioForm {
   name: string;
   method: DeployMethod;
+  managedEngine: ManagedEngineId;
+  customSource: CustomSourceType;
+  githubRepo: string;
+  githubBranch: string;
   modelRef: string;
   imageRef: string;
   startupCommand: string;
