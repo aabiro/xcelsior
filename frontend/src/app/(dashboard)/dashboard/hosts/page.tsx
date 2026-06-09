@@ -332,8 +332,13 @@ export default function HostsPage() {
                             <Server className="h-5 w-5" />
                           </div>
                           <div>
-                            <p className="font-medium text-text-primary group-hover/link:text-accent-cyan transition-colors">
+                            <p className="font-medium text-text-primary group-hover/link:text-accent-cyan transition-colors flex items-center gap-2 flex-wrap">
                               {host.hostname || "Unnamed Host"}
+                              {host.spot_enabled !== false && (
+                                <span className="rounded-full border border-emerald/30 bg-emerald/10 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide text-emerald">
+                                  Spot
+                                </span>
+                              )}
                             </p>
                             <p className="text-xs text-text-muted font-mono mt-0.5">
                               {host.host_id?.slice(0, 12)}...
@@ -408,6 +413,8 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
   const [vramGb, setVramGb] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
+  const [spotEnabled, setSpotEnabled] = useState(true);
+  const [spotMinCents, setSpotMinCents] = useState(0);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -446,13 +453,15 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         setLoading(false);
         return;
       }
-      await api.registerHostWeb({ 
-        hostname: trimmedHostname, 
+      await api.registerHostWeb({
+        hostname: trimmedHostname,
         gpu_model: gpuModel,
         vram_gb: parsedVram,
         country,
         province,
         notes: notes.trim() || undefined,
+        spot_enabled: spotEnabled,
+        spot_min_cents: spotEnabled ? spotMinCents : 0,
       });
       toast.success("Host registered successfully! Install the worker agent to bring it online.");
       onDone();
@@ -520,6 +529,9 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
               onChange={({ model, vram_gb }) => {
                 setGpuModel(model);
                 setVramGb(String(vram_gb));
+                api.fetchSpotFloorSuggestion(model)
+                  .then((res) => setSpotMinCents(res.suggested_min_cents))
+                  .catch(() => {});
               }}
               placeholder="Search GPUs..."
             />
@@ -597,6 +609,42 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
                 <option value="ap-south">AP South</option>
               </optgroup>
             </Select>
+          </div>
+
+          <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Enable spot instances</p>
+                <p className="text-xs text-text-muted">Accept interruptible workloads at spot rates</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpotEnabled(!spotEnabled)}
+                className={cn(
+                  "h-5 w-9 rounded-full relative shrink-0 transition-colors",
+                  spotEnabled ? "bg-emerald" : "bg-border",
+                )}
+              >
+                <div
+                  className={cn(
+                    "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform shadow-sm",
+                    spotEnabled ? "translate-x-4" : "translate-x-0.5",
+                  )}
+                />
+              </button>
+            </div>
+            {spotEnabled && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Minimum spot floor (¢/hr)</Label>
+                <NumberInput
+                  min={0}
+                  max={100000}
+                  value={spotMinCents}
+                  onChange={(v) => setSpotMinCents(Math.max(0, v))}
+                />
+                <p className="text-[10px] text-text-muted">Suggested defaults apply per GPU class — no bidding required</p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

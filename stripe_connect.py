@@ -738,10 +738,16 @@ class StripeConnectManager:
             row = conn.execute(
                 """SELECT
                     COUNT(*) as total_jobs,
-                    COALESCE(SUM(provider_share_cad), 0) as total_earned_cad,
-                    COALESCE(SUM(platform_share_cad), 0) as total_platform_cad,
-                    COALESCE(SUM(gst_hst_cad), 0) as total_tax_cad
-                   FROM payout_splits WHERE provider_id=%s""",
+                    COALESCE(SUM(ps.provider_share_cad), 0) as total_earned_cad,
+                    COALESCE(SUM(ps.platform_share_cad), 0) as total_platform_cad,
+                    COALESCE(SUM(ps.gst_hst_cad), 0) as total_tax_cad,
+                    COALESCE(SUM(CASE WHEN COALESCE(j.pricing_mode, 'on_demand') = 'spot'
+                        THEN ps.provider_share_cad ELSE 0 END), 0) as spot_earned_cad,
+                    COALESCE(SUM(CASE WHEN COALESCE(j.pricing_mode, 'on_demand') != 'spot'
+                        THEN ps.provider_share_cad ELSE 0 END), 0) as on_demand_earned_cad
+                   FROM payout_splits ps
+                   LEFT JOIN jobs j ON j.job_id = ps.job_id
+                   WHERE ps.provider_id=%s""",
                 (provider_id,),
             ).fetchone()
             return (
@@ -752,6 +758,8 @@ class StripeConnectManager:
                     "total_earned_cad": 0,
                     "total_platform_cad": 0,
                     "total_tax_cad": 0,
+                    "spot_earned_cad": 0,
+                    "on_demand_earned_cad": 0,
                 }
             )
 

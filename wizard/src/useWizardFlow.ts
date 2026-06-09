@@ -157,6 +157,8 @@ export interface ProviderSummaryData {
     runtimeRecommendation: string;
     reputationPoints: number;
     tier: string;
+    spotEnabled?: boolean;
+    spotMinCents?: number;
 }
 
 export interface PendingConfirmation {
@@ -1180,6 +1182,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     if (v.version) versions[v.component] = v.version;
                 }
 
+                const spotEnabled = currentAnswers["spot-enabled"] !== "no";
+                const spotMinRaw = currentAnswers["spot-min-cents"] as string | undefined;
+                const spotMinCents = spotEnabled && spotMinRaw
+                    ? parseInt(spotMinRaw, 10)
+                    : 0;
+
                 try {
                     const host = await registerHost(API_BASE_URL, token, {
                         host_id: hostId,
@@ -1189,6 +1197,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         free_vram_gb: gpu.free_vram_gb,
                         cost_per_hour: costPerHour,
                         versions,
+                        spot_enabled: spotEnabled,
+                        spot_min_cents: spotMinCents,
                     });
 
                     // Store host ID and cost
@@ -1251,6 +1261,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         runtimeRecommendation: runtime,
                         reputationPoints: (result.details as Record<string, number>)?.reputation_points ?? 0,
                         tier: (result.details as Record<string, string>)?.tier ?? "Unranked",
+                        spotEnabled: currentAnswers["spot-enabled"] !== "no",
+                        spotMinCents: currentAnswers["spot-enabled"] !== "no"
+                            ? parseInt(String(currentAnswers["spot-min-cents"] || "0"), 10) || 0
+                            : 0,
                     });
 
                     return [

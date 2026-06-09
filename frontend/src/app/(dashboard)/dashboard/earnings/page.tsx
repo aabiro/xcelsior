@@ -43,6 +43,7 @@ export default function EarningsPage() {
   const [earnings, setEarnings] = useState<{
     total_jobs: number; total_earned_cad: number;
     total_platform_cad: number; total_tax_cad: number;
+    spot_earned_cad?: number; on_demand_earned_cad?: number;
   } | null>(null);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
@@ -272,6 +273,33 @@ export default function EarningsPage() {
               glow="gold"
             />
           </div>
+
+          {(earnings?.spot_earned_cad != null || earnings?.on_demand_earned_cad != null) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Revenue by pricing mode</CardTitle>
+                <CardDescription>
+                  Spot jobs may be interrupted — payout reflects actual runtime only.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4">
+                    <p className="text-xs text-text-muted">Spot earnings</p>
+                    <p className="text-xl font-bold font-mono text-emerald mt-1">
+                      ${(earnings?.spot_earned_cad ?? 0).toFixed(2)} CAD
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-surface/50 p-4">
+                    <p className="text-xs text-text-muted">On-demand earnings</p>
+                    <p className="text-xl font-bold font-mono mt-1">
+                      ${(earnings?.on_demand_earned_cad ?? 0).toFixed(2)} CAD
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Payout methods + GST */}
           <div className="space-y-3">

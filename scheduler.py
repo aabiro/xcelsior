@@ -988,7 +988,18 @@ def save_hosts(hosts):
 
 
 def register_host(
-    host_id, ip, gpu_model, total_vram_gb, free_vram_gb, cost_per_hour=0.20, country="", province=""
+    host_id,
+    ip,
+    gpu_model,
+    total_vram_gb,
+    free_vram_gb,
+    cost_per_hour=0.20,
+    country="",
+    province="",
+    *,
+    spot_enabled: bool | None = None,
+    spot_gpu_slots: int | None = None,
+    spot_min_cents: int | None = None,
 ):
     """
     Register a host. If it exists, update it. If not, add it.
@@ -1007,8 +1018,9 @@ def register_host(
             "free_vram_gb": free_vram_gb,
             "cost_per_hour": cost_per_hour,
             "gpu_count": gpu_count,
-            "spot_enabled": True,
-            "spot_gpu_slots": gpu_count,
+            "spot_enabled": True if spot_enabled is None else bool(spot_enabled),
+            "spot_gpu_slots": gpu_count if spot_gpu_slots is None else max(0, min(int(spot_gpu_slots), gpu_count)),
+            "spot_min_cents": 0 if spot_min_cents is None else max(0, int(spot_min_cents)),
             "registered_at": time.time(),
             "last_seen": time.time(),
             "status": "active",
@@ -1028,6 +1040,7 @@ def register_host(
                 "gpu_count",
                 "spot_enabled",
                 "spot_gpu_slots",
+                "spot_min_cents",
             ):
                 if field in existing and field not in entry:
                     entry[field] = existing[field]
@@ -1059,6 +1072,54 @@ def register_host(
         cost_per_hour,
     )
     return entry
+
+
+def update_host_spot_settings(
+    host_id: str,
+    *,
+    spot_enabled: bool | None = None,
+    spot_gpu_slots: int | None = None,
+    spot_min_cents: int | None = None,
+) -> dict | None:
+    """Update provider spot controls on a host and sync marketplace offer."""
+    with _atomic_mutation() as conn:
+        _migrate_hosts_if_needed(conn)
+        host = _get_host_by_id_conn(conn, host_id)
+        if not host:
+            return None
+
+        if spot_enabled is not None:
+            host["spot_enabled"] = bool(spot_enabled)
+        if spot_gpu_slots is not None:
+            gpu_count = max(1, int(host.get("gpu_count", 1) or 1))
+            host["spot_gpu_slots"] = max(0, min(int(spot_gpu_slots), gpu_count))
+        if spot_min_cents is not None:
+            host["spot_min_cents"] = max(0, int(spot_min_cents))
+
+        _upsert_host_row(conn, host)
+
+    try:
+        from marketplace import get_marketplace_engine
+
+        me = get_marketplace_engine()
+        ask_cents = max(1, int(round(float(host.get("cost_per_hour", 0.20) or 0.20) * 100)))
+        me.upsert_offer(
+            provider_id=str(host.get("owner") or host_id),
+            host_id=host_id,
+            gpu_model=str(host.get("gpu_model") or "unknown"),
+            gpu_count_total=max(1, int(host.get("gpu_count", 1) or 1)),
+            vram_gb=float(host.get("total_vram_gb") or host.get("vram_gb") or 0),
+            ask_cents_per_hour=ask_cents,
+            region=str(host.get("region") or host.get("province") or "ca-east"),
+            province=str(host.get("province") or ""),
+            spot_enabled=bool(host.get("spot_enabled", True)),
+            spot_min_cents=int(host.get("spot_min_cents", 0) or 0),
+        )
+    except Exception as exc:
+        log.debug("Spot settings marketplace sync skipped for %s: %s", host_id, exc)
+
+    emit_event("host_update", {"host_id": host_id, "spot_enabled": host.get("spot_enabled")})
+    return host
 
 
 def remove_host(host_id):

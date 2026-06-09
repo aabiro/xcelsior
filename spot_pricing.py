@@ -48,6 +48,53 @@ class SpotQuote:
         }
 
 
+# Suggested provider spot floors (¢/hr) by GPU class — guidance at offer creation.
+_SPOT_MIN_SUGGESTIONS_CENTS: dict[str, int] = {
+    "RTX 3060": 8,
+    "RTX 3090": 12,
+    "RTX 4080": 15,
+    "RTX 4090": 15,
+    "RTX 4090 HF": 18,
+    "A100 40GB": 50,
+    "A100 80GB": 60,
+    "H100 80GB": 150,
+    "H200": 150,
+    "L40S": 50,
+    "T4": 10,
+}
+
+
+def suggested_spot_min_cents(gpu_model: str) -> int:
+    """Return suggested spot_min_cents for a GPU model (provider floor guidance)."""
+    model = (gpu_model or "").strip()
+    if model in _SPOT_MIN_SUGGESTIONS_CENTS:
+        return _SPOT_MIN_SUGGESTIONS_CENTS[model]
+    upper = model.upper()
+    if "H100" in upper or "H200" in upper:
+        return 150
+    if "A100" in upper or "L40" in upper:
+        return 50
+    if "4090" in upper or "3090" in upper or "4080" in upper:
+        return 15
+    return 10
+
+
+def effective_spot_rate_cad(gpu_model: str, spot_min_cents: int) -> dict[str, Any]:
+    """Preview spot rate for a provider floor vs live unified quote."""
+    quote = compute_live_spot_quote(gpu_model)
+    floor_cad = max(0, int(spot_min_cents or 0)) / 100.0
+    effective = max(floor_cad, quote.rate_cad)
+    return {
+        "gpu_model": gpu_model,
+        "suggested_min_cents": suggested_spot_min_cents(gpu_model),
+        "spot_min_cents": int(spot_min_cents or 0),
+        "live_spot_cad": round(quote.rate_cad, 4),
+        "on_demand_cad": round(quote.on_demand_cad, 4),
+        "effective_spot_cad": round(effective, 4),
+        "savings_pct": quote.savings_pct,
+    }
+
+
 def demand_factor(demand: int, supply: int) -> float:
     """Capped surge multiplier component (max +50%)."""
     if supply <= 0:

@@ -406,6 +406,25 @@ export interface RegisterHostWebPayload {
   country?: string;
   province?: string;
   notes?: string;
+  spot_enabled?: boolean;
+  spot_gpu_slots?: number;
+  spot_min_cents?: number;
+}
+
+export interface SpotRatePreview {
+  gpu_model: string;
+  suggested_min_cents: number;
+  spot_min_cents: number;
+  live_spot_cad: number;
+  on_demand_cad: number;
+  effective_spot_cad: number;
+  savings_pct: number;
+}
+
+export interface HostSpotSettingsPayload {
+  spot_enabled?: boolean;
+  spot_gpu_slots?: number;
+  spot_min_cents?: number;
 }
 
 export async function registerHostWeb(data: RegisterHostWebPayload) {
@@ -895,7 +914,14 @@ export async function fetchReservations(customerId?: string) {
 export async function fetchProviderEarnings(providerId: string) {
   return apiFetch<{
     ok: boolean;
-    earnings: { total_jobs: number; total_earned_cad: number; total_platform_cad: number; total_tax_cad: number };
+    earnings: {
+      total_jobs: number;
+      total_earned_cad: number;
+      total_platform_cad: number;
+      total_tax_cad: number;
+      spot_earned_cad?: number;
+      on_demand_earned_cad?: number;
+    };
     recent_payouts: Payout[];
   }>(`/api/providers/${encodeURIComponent(providerId)}/earnings`);
 }
@@ -1225,6 +1251,28 @@ export async function requeueInstance(instanceId: string) {
 // ── Host Detail ───────────────────────────────────────────────────────
 export async function fetchHost(hostId: string) {
   return apiFetch<{ ok: boolean; host: Host }>(`/host/${encodeURIComponent(hostId)}`);
+}
+
+export async function updateHostSpotSettings(hostId: string, settings: HostSpotSettingsPayload) {
+  return apiFetch<{ ok: boolean; host: Host; spot_preview: SpotRatePreview }>(
+    `/api/hosts/${encodeURIComponent(hostId)}/spot-settings`,
+    { method: "PATCH", body: JSON.stringify(settings) },
+  );
+}
+
+export async function fetchHostSpotPreview(hostId: string, spotMinCents?: number) {
+  const qs = spotMinCents != null ? `?spot_min_cents=${spotMinCents}` : "";
+  return apiFetch<{ ok: boolean; host_id: string; spot_preview: SpotRatePreview }>(
+    `/api/hosts/${encodeURIComponent(hostId)}/spot-preview${qs}`,
+  );
+}
+
+export async function fetchSpotFloorSuggestion(gpuModel: string, spotMinCents?: number) {
+  const params = new URLSearchParams({ gpu_model: gpuModel });
+  if (spotMinCents != null) params.set("spot_min_cents", String(spotMinCents));
+  return apiFetch<SpotRatePreview & { ok: boolean }>(
+    `/api/pricing/spot-floor-suggestion?${params.toString()}`,
+  );
 }
 
 export async function fetchComputeScore(hostId: string) {
@@ -2111,6 +2159,10 @@ export interface Host {
   verified?: boolean;
   compute_score?: number;
   admitted?: boolean;
+  gpu_count?: number;
+  spot_enabled?: boolean;
+  spot_gpu_slots?: number;
+  spot_min_cents?: number;
 }
 
 export interface Instance {
