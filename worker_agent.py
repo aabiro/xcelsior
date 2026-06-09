@@ -886,6 +886,26 @@ def report_versions(versions):
         return False, {"error": str(e)}
 
 
+def _report_agent_degraded(reason: str, *, context: str = "", level: str = "warning") -> None:
+    """Surface hot-loop failures to logs + control plane (B11)."""
+    msg = f"agent_degraded reason={reason}"
+    if context:
+        msg = f"{msg} context={context}"
+    if level == "error":
+        log.error(msg)
+    else:
+        log.warning(msg)
+    try:
+        requests.post(
+            _api_url("/agent/degraded"),
+            json={"host_id": HOST_ID, "reason": reason, "context": context},
+            headers=_api_headers(),
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass  # best-effort — heartbeat will also reflect degraded state
+
+
 def poll_for_work():
     """Poll the scheduler for work assigned to this host.
 
@@ -904,10 +924,10 @@ def poll_for_work():
         elif resp.status_code == 204:
             return []
         else:
-            log.debug("Poll returned %d", resp.status_code)
+            _report_agent_degraded("poll_non_200", context=f"status={resp.status_code}")
             return []
     except requests.RequestException as e:
-        log.debug("Poll failed: %s", e)
+        _report_agent_degraded("poll_transport_error", context=str(e))
         return []
 
 
@@ -1040,12 +1060,16 @@ def _handle_upgrade_agent(args: dict, cmd_id: str = "", by: str = "?") -> bool:
             log.warning("upgrade_agent backup failed (continuing): %s", e)
 
         os.replace(new_path, self_path)
+        # B12 — mark post-upgrade boot so heartbeat_loop can auto-rollback on failure.
+        try:
+            (self_path.parent / ".upgrade_boot").write_text(actual_sha[:12], encoding="utf-8")
+        except OSError:
+            pass
         log.warning(
             "upgrade_agent cmd=%s installed new agent sha=%s — exiting for systemd restart",
             cmd_id,
             actual_sha[:12],
         )
-        # Flush handlers and exit cleanly. systemd Restart=always respawns us.
         logging.shutdown()
         os._exit(0)
     except Exception as e:
@@ -1101,7 +1125,7 @@ def drain_agent_commands() -> int:
             return 0
         commands = resp.json().get("commands", []) or []
     except requests.RequestException as e:
-        log.debug("drain_agent_commands: request failed: %s", e)
+        _report_agent_degraded("drain_commands_error", context=str(e))
         return 0
 
     dispatched = 0
@@ -1666,7 +1690,7 @@ def renew_lease(job_id):
             log.warning("Lease renewal failed for job %s: HTTP %d", job_id, resp.status_code)
             return None
     except requests.RequestException as e:
-        log.debug("Lease renewal error for job %s: %s", job_id, e)
+        _report_agent_degraded("lease_renew_error", context=f"job={job_id} err={e}")
         return None
 
 
@@ -1677,14 +1701,16 @@ def release_lease(job_id, reason="completed"):
     """
     data = {"job_id": job_id, "reason": reason}
     try:
-        requests.post(
+        resp = requests.post(
             _api_url("/agent/lease/release"),
             json=data,
             headers=_api_headers(),
             timeout=10,
         )
-    except requests.RequestException:
-        pass  # Best-effort
+        if resp.status_code not in (200, 204):
+            _report_agent_degraded("lease_release_non_200", context=f"job={job_id} status={resp.status_code}")
+    except requests.RequestException as e:
+        _report_agent_degraded("lease_release_error", context=f"job={job_id} err={e}")
 
 
 def report_mining_alert(gpu_index, confidence, reason):
@@ -5191,9 +5217,31 @@ def mining_detection_loop():
 # ── Heartbeat Thread ─────────────────────────────────────────────────
 
 
+def _maybe_rollback_after_upgrade(consecutive_failures: int) -> bool:
+    """Revert to .bak if post-upgrade heartbeats fail (B12 local watchdog)."""
+    if consecutive_failures < 3:
+        return False
+    self_path = Path(__file__).resolve()
+    boot_marker = self_path.parent / ".upgrade_boot"
+    bak_path = self_path.with_suffix(".py.bak")
+    if not boot_marker.is_file() or not bak_path.is_file():
+        return False
+    try:
+        os.replace(bak_path, self_path)
+        boot_marker.unlink(missing_ok=True)
+        log.error("Post-upgrade heartbeat failures — rolled back to previous agent")
+        logging.shutdown()
+        os._exit(1)
+    except OSError as e:
+        log.error("Post-upgrade rollback failed: %s", e)
+    return False
+
+
 def heartbeat_loop(host_ip, compute_score=None):
     """Background thread: periodic heartbeat/registration updates."""
     consecutive_failures = 0
+    self_path = Path(__file__).resolve()
+    boot_marker = self_path.parent / ".upgrade_boot"
 
     while not _shutdown.is_set():
         try:
@@ -5202,8 +5250,12 @@ def heartbeat_loop(host_ip, compute_score=None):
 
             if success:
                 consecutive_failures = 0
+                if boot_marker.is_file():
+                    boot_marker.unlink(missing_ok=True)
             else:
                 consecutive_failures += 1
+                if _maybe_rollback_after_upgrade(consecutive_failures):
+                    return
                 if consecutive_failures > MAX_CONSECUTIVE_FAILURES:
                     log.error(
                         "Too many heartbeat failures (%d) — shutting down", consecutive_failures

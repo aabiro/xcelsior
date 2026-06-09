@@ -123,6 +123,13 @@ jobs:
           if [ -n "${{ secrets.XCELSIOR_STRIPE_SECRET_KEY }}" ]; then
             echo "XCELSIOR_STRIPE_SECRET_KEY=${{ secrets.XCELSIOR_STRIPE_SECRET_KEY }}" >> "$GITHUB_ENV"
           fi
+      - name: Verify agent signatures present
+        run: |
+          test -f scripts/worker_agent.py.sig
+          test -f scripts/security.py.sig
+          test -f scripts/agent-signing.pub
+          python3 scripts/sign-static-agent.py
+          git diff --exit-code scripts/*.sig || (echo "Agent signatures out of date — run scripts/sign-static-agent.py" && exit 1)
       - name: Run tests
         # P1.3 — single entrypoint. run-tests.sh centralises target
         # mappings (quick / ai / billing / security / e2e / live) and

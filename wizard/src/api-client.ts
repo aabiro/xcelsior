@@ -3,6 +3,8 @@
 
 import http from "node:http";
 import https from "node:https";
+import { parseSseBuffer } from "./sse-parser.js";
+import { redactSecrets } from "./wizard-state.js";
 
 export interface SSEEvent {
     type: "meta" | "token" | "tool_call" | "tool_result" | "confirmation_required" | "done" | "error";
@@ -18,9 +20,23 @@ export interface SSEEvent {
 }
 
 export interface ApiClientConfig {
-    baseUrl: string;       // e.g. "https://xcelsior.ca" or "http://localhost:9500"
-    apiKey: string;        // Bearer token for auth
-    pageContext?: string;  // optional context hint
+    baseUrl: string;
+    apiKey: string;
+    pageContext?: string;
+}
+
+export class WizardError extends Error {
+    code: string;
+    remediation?: string;
+    url?: string;
+
+    constructor(message: string, opts: { code: string; remediation?: string; url?: string }) {
+        super(message);
+        this.name = "WizardError";
+        this.code = opts.code;
+        this.remediation = opts.remediation;
+        this.url = opts.url;
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -29,13 +45,59 @@ function transport(url: URL) {
     return url.protocol === "https:" ? https : http;
 }
 
-async function jsonRequest<T>(
+const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504]);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT"]);
+
+function retryDelay(attempt: number, retryAfterSec?: number): number {
+    if (retryAfterSec && retryAfterSec > 0) return Math.min(retryAfterSec * 1000, 120_000);
+    const cap = Math.min(30_000, 1000 * 2 ** attempt);
+    return Math.floor(Math.random() * cap);
+}
+
+function mapHttpError(status: number, detail: string, baseUrl: string): WizardError {
+    if (status === 401) {
+        return new WizardError(detail || "Unauthorized", {
+            code: "auth_required",
+            remediation: "Re-authenticate with device flow (Enter) or paste a fresh OAuth token (m).",
+        });
+    }
+    if (status === 402) {
+        return new WizardError(detail || "Payment required", {
+            code: "payment_required",
+            remediation: "Add funds or resolve billing suspension in the dashboard.",
+            url: `${baseUrl.replace(/\/api$/, "")}/dashboard/billing`,
+        });
+    }
+    if (status === 403) {
+        return new WizardError(detail || "Forbidden", {
+            code: "forbidden",
+            remediation: "Check account permissions or contact support.",
+        });
+    }
+    if (status === 404) {
+        return new WizardError(detail || "Not found", {
+            code: "not_found",
+            remediation: "Verify the resource exists and your account has access.",
+        });
+    }
+    return new WizardError(detail || `HTTP ${status}`, {
+        code: "http_error",
+        remediation: "Retry in a moment. If this persists, check connectivity to the API.",
+    });
+}
+
+async function sleep(ms: number): Promise<void> {
+    await new Promise((r) => setTimeout(r, ms));
+}
+
+async function jsonRequestOnce<T>(
     method: string,
     baseUrl: string,
     path: string,
     body?: Record<string, unknown>,
     token?: string,
-): Promise<{ status: number; data: T }> {
+    timeoutMs = 30_000,
+): Promise<{ status: number; data: T; retryAfterSec?: number }> {
     const url = new URL(path, baseUrl);
     const t = transport(url);
 
@@ -52,7 +114,7 @@ async function jsonRequest<T>(
                 path: url.pathname + url.search,
                 method,
                 headers,
-                timeout: 30_000,
+                timeout: timeoutMs,
             },
             resolve,
         );
@@ -69,17 +131,80 @@ async function jsonRequest<T>(
     try {
         data = text ? JSON.parse(text) as T : {} as T;
     } catch {
-        throw new Error(`Invalid JSON response (HTTP ${response.statusCode ?? "?"}): ${text.slice(0, 200)}`);
+        throw new WizardError(
+            `Invalid JSON response (HTTP ${response.statusCode ?? "?"}): ${text.slice(0, 200)}`,
+            { code: "bad_json", remediation: "The API returned a non-JSON body. Retry or check API status." },
+        );
     }
-    return { status: response.statusCode ?? 500, data };
+    const retryAfter = response.headers["retry-after"];
+    const retryAfterSec = retryAfter ? Number(Array.isArray(retryAfter) ? retryAfter[0] : retryAfter) : undefined;
+    return { status: response.statusCode ?? 500, data, retryAfterSec: Number.isFinite(retryAfterSec) ? retryAfterSec : undefined };
+}
+
+async function jsonRequest<T>(
+    method: string,
+    baseUrl: string,
+    path: string,
+    body?: Record<string, unknown>,
+    token?: string,
+    opts?: { maxRetries?: number; timeoutMs?: number },
+): Promise<{ status: number; data: T }> {
+    const maxRetries = opts?.maxRetries ?? 4;
+    const retriable = IDEMPOTENT_METHODS.has(method.toUpperCase())
+        || path.includes("/api/auth/token")
+        || path.includes("/api/auth/device");
+    let lastErr: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const result = await jsonRequestOnce<T>(
+                method, baseUrl, path, body, token, opts?.timeoutMs ?? 30_000,
+            );
+            if (retriable && RETRYABLE_STATUS.has(result.status) && attempt < maxRetries) {
+                await sleep(retryDelay(attempt, result.retryAfterSec));
+                continue;
+            }
+            return { status: result.status, data: result.data };
+        } catch (err) {
+            lastErr = err instanceof Error ? err : new Error(String(err));
+            if (!retriable || attempt >= maxRetries) break;
+            await sleep(retryDelay(attempt));
+        }
+    }
+    throw new WizardError(redactSecrets(lastErr?.message ?? "Request failed"), {
+        code: "network_error",
+        remediation: "Check network connectivity and retry.",
+    });
+}
+
+async function* readSseResponse(response: http.IncomingMessage): AsyncGenerator<SSEEvent> {
+    let buffer = "";
+    for await (const chunk of response) {
+        buffer += chunk.toString();
+        const { frames, remainder } = parseSseBuffer(buffer);
+        buffer = remainder;
+        for (const frame of frames) {
+            const jsonStr = frame.data.trim();
+            if (!jsonStr || jsonStr === "[DONE]") continue;
+            try {
+                yield JSON.parse(jsonStr) as SSEEvent;
+            } catch {
+                // skip malformed frame
+            }
+        }
+    }
+    if (buffer.trim()) {
+        const { frames } = parseSseBuffer(buffer + "\n\n");
+        for (const frame of frames) {
+            const jsonStr = frame.data.trim();
+            if (!jsonStr || jsonStr === "[DONE]") continue;
+            try { yield JSON.parse(jsonStr) as SSEEvent; } catch { /* skip */ }
+        }
+    }
 }
 
 // ── AI Chat ──────────────────────────────────────────────────────────
 
-/**
- * Stream a chat message to the Hexara AI assistant.
- * Yields parsed SSE events as they arrive.
- */
 export async function* streamChat(
     config: ApiClientConfig,
     message: string,
@@ -124,37 +249,9 @@ export async function* streamChat(
         return;
     }
 
-    // Parse SSE stream
-    let buffer = "";
-    for await (const chunk of response) {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === "[DONE]") continue;
-            try {
-                const event = JSON.parse(jsonStr) as SSEEvent;
-                yield event;
-            } catch {
-                // skip malformed SSE lines
-            }
-        }
-    }
-    // Process remaining buffer after stream ends
-    if (buffer.startsWith("data: ")) {
-        const jsonStr = buffer.slice(6).trim();
-        if (jsonStr && jsonStr !== "[DONE]") {
-            try { yield JSON.parse(jsonStr) as SSEEvent; } catch { /* skip */ }
-        }
-    }
+    yield* readSseResponse(response);
 }
 
-/**
- * Confirm or reject a pending write action.
- */
 export async function* confirmAction(
     config: ApiClientConfig,
     confirmationId: string,
@@ -186,7 +283,6 @@ export async function* confirmAction(
         req.end();
     });
 
-    // Guard against non-200 responses
     if (response.statusCode !== 200) {
         const chunks: Buffer[] = [];
         for await (const chunk of response) chunks.push(chunk as Buffer);
@@ -195,30 +291,7 @@ export async function* confirmAction(
         return;
     }
 
-    let buffer = "";
-    for await (const chunk of response) {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === "[DONE]") continue;
-            try {
-                yield JSON.parse(jsonStr) as SSEEvent;
-            } catch {
-                // skip
-            }
-        }
-    }
-    // Process remaining buffer after stream ends
-    if (buffer.startsWith("data: ")) {
-        const jsonStr = buffer.slice(6).trim();
-        if (jsonStr && jsonStr !== "[DONE]") {
-            try { yield JSON.parse(jsonStr) as SSEEvent; } catch { /* skip */ }
-        }
-    }
+    yield* readSseResponse(response);
 }
 
 // ── Device Auth (RFC 8628) ───────────────────────────────────────────
@@ -237,81 +310,46 @@ export interface DeviceTokenResult {
     expires_in: number;
 }
 
-/** Initiate device authorization flow. */
+export type DevicePollResult =
+    | { status: "authorized"; token: DeviceTokenResult }
+    | { status: "pending" }
+    | { status: "slow_down"; intervalSec?: number }
+    | { status: "expired" }
+    | { status: "error"; message: string };
+
 export async function requestDeviceCode(baseUrl: string): Promise<DeviceCodeResult> {
     const { status, data } = await jsonRequest<DeviceCodeResult>(
         "POST", baseUrl, "/api/auth/device",
     );
     if (status !== 200) {
-        throw new Error(`Device auth init failed: HTTP ${status}`);
+        throw mapHttpError(status, `Device auth init failed: HTTP ${status}`, baseUrl);
     }
     return data;
 }
 
-/**
- * Poll for device token. Returns the token result or null if still pending.
- * Throws on expired or invalid codes.
- */
 export async function pollDeviceToken(
     baseUrl: string,
     deviceCode: string,
-): Promise<DeviceTokenResult | null> {
-    const { status, data } = await jsonRequest<DeviceTokenResult & { detail?: string }>(
+): Promise<DevicePollResult> {
+    const { status, data } = await jsonRequest<DeviceTokenResult & { detail?: string; error?: string }>(
         "POST", baseUrl, "/api/auth/token",
         { device_code: deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" },
     );
 
-    if (status === 200) return data;
-    if (status === 428) return null; // authorization_pending
+    if (status === 200) return { status: "authorized", token: data };
+    if (status === 428) return { status: "pending" };
+    if (status === 429) return { status: "slow_down" };
+    if (status === 410) return { status: "expired" };
 
-    const detail = (data as { detail?: string }).detail ?? "unknown error";
-    throw new Error(detail);
+    const detail = (data as { detail?: string }).detail
+        ?? (data as { error?: string }).error
+        ?? "unknown error";
+    if (detail.includes("slow_down")) return { status: "slow_down" };
+    if (detail.includes("expired")) return { status: "expired" };
+    return { status: "error", message: detail };
 }
 
-// ── API Key Generation ───────────────────────────────────────────────
-
-/** Generate a proper API key that appears in the user's dashboard Settings. */
-export async function generateApiKey(
-    baseUrl: string,
-    sessionToken: string,
-    name: string = "CLI Wizard",
-): Promise<{ key: string; name: string }> {
-    const { status, data } = await jsonRequest<{ ok: boolean; key: string; name: string }>(
-        "POST", baseUrl, "/api/keys/generate",
-        { name, scope: "full-access" },
-        sessionToken,
-    );
-    if (status !== 200 || !data.ok) throw new Error("Failed to generate API key");
-    return { key: data.key, name: data.name };
-}
-
-// ── User Profile ─────────────────────────────────────────────────────
-
-export interface UserProfile {
-    user_id: string;
-    email: string;
-    name: string;
-    role: string;
-    customer_id: string;
-    country: string;
-    province: string;
-}
-
-/** Get current user profile. */
-export async function getMe(
-    baseUrl: string,
-    token: string,
-): Promise<UserProfile> {
-    const { status, data } = await jsonRequest<{ ok: boolean; user: UserProfile }>(
-        "GET", baseUrl, "/api/auth/me", undefined, token,
-    );
-    if (status !== 200 || !data.user) {
-        throw new Error(`Failed to get user profile: HTTP ${status}`);
-    }
-    return data.user;
-}
-
-// ── OAuth Client Management ──────────────────────────────────────────
+// ── OAuth client (replaces deprecated API key generation — A4) ───────
 
 export interface OAuthClientCreateParams {
     client_name: string;
@@ -331,7 +369,40 @@ export interface OAuthClientCredentials {
     scopes: string[];
 }
 
-/** Create a confidential OAuth client for worker client_credentials auth. */
+/** @deprecated API keys are permanently disabled — wizard uses OAuth session + scoped worker clients */
+export async function generateApiKey(
+    _baseUrl: string,
+    _sessionToken: string,
+    _name: string = "CLI Wizard",
+): Promise<{ key: string; name: string }> {
+    throw new WizardError("API keys are disabled — use OAuth device/session tokens", {
+        code: "api_keys_disabled",
+        remediation: "Continue with the session token from device auth; worker credentials use OAuth client_credentials.",
+    });
+}
+
+// ── User Profile ─────────────────────────────────────────────────────
+
+export interface UserProfile {
+    user_id: string;
+    email: string;
+    name: string;
+    role: string;
+    customer_id: string;
+    country: string;
+    province: string;
+}
+
+export async function getMe(baseUrl: string, token: string): Promise<UserProfile> {
+    const { status, data } = await jsonRequest<{ ok: boolean; user: UserProfile }>(
+        "GET", baseUrl, "/api/auth/me", undefined, token,
+    );
+    if (status !== 200 || !data.user) {
+        throw mapHttpError(status, `Failed to get user profile: HTTP ${status}`, baseUrl);
+    }
+    return data.user;
+}
+
 export async function createOAuthClient(
     baseUrl: string,
     token: string,
@@ -355,7 +426,7 @@ export async function createOAuthClient(
         token,
     );
     if (status !== 200 || !data.client?.client_id || !data.client?.client_secret) {
-        throw new Error(`OAuth client creation failed: HTTP ${status}`);
+        throw mapHttpError(status, `OAuth client creation failed: HTTP ${status}`, baseUrl);
     }
     return data.client;
 }
@@ -388,7 +459,6 @@ export interface MarketplaceFilters {
     limit?: number;
 }
 
-/** Search the GPU marketplace. */
 export async function searchMarketplace(
     baseUrl: string,
     token: string,
@@ -408,7 +478,7 @@ export async function searchMarketplace(
         "GET", baseUrl, path, undefined, token,
     );
     if (status !== 200) {
-        throw new Error(`Marketplace search failed: HTTP ${status}`);
+        throw mapHttpError(status, `Marketplace search failed: HTTP ${status}`, baseUrl);
     }
     return data;
 }
@@ -423,7 +493,6 @@ export interface Wallet {
     status: string;
 }
 
-/** Get wallet for a customer. */
 export async function getWallet(
     baseUrl: string,
     token: string,
@@ -434,12 +503,11 @@ export async function getWallet(
         undefined, token,
     );
     if (status !== 200) {
-        throw new Error(`Wallet fetch failed: HTTP ${status}`);
+        throw mapHttpError(status, `Wallet fetch failed: HTTP ${status}`, baseUrl);
     }
     return data.wallet;
 }
 
-/** Claim one-time free credits ($10 CAD). Idempotent. */
 export async function claimFreeCredits(
     baseUrl: string,
     token: string,
@@ -449,13 +517,11 @@ export async function claimFreeCredits(
         "POST", baseUrl, `/api/billing/free-credits/${encodeURIComponent(customerId)}`,
         undefined, token,
     );
-    // Both 200 (claimed) and 409 (already claimed) are acceptable
     if (status === 200) return { ok: true, amount: data.amount ?? 10, already_claimed: false };
     if (status === 409) return { ok: true, amount: 0, already_claimed: true };
-    throw new Error(`Free credits claim failed: HTTP ${status}`);
+    throw mapHttpError(status, `Free credits claim failed: HTTP ${status}`, baseUrl);
 }
 
-/** Check if free credits were already claimed. */
 export async function checkFreeCreditStatus(
     baseUrl: string,
     token: string,
@@ -493,7 +559,6 @@ export interface InstanceInfo {
     submitted_by?: string;
 }
 
-/** Launch a new instance. */
 export async function launchInstance(
     baseUrl: string,
     token: string,
@@ -517,14 +582,17 @@ export async function launchInstance(
             const msg = typeof detail === "string" && /suspend/i.test(detail)
                 ? "Wallet suspended — visit the dashboard to resolve"
                 : `Insufficient balance — add funds at ${baseUrl.replace(/\/api$/, "")}/dashboard/billing`;
-            throw new Error(msg);
+            throw new WizardError(msg, {
+                code: "payment_required",
+                remediation: "Add funds in the billing dashboard.",
+                url: `${baseUrl.replace(/\/api$/, "")}/dashboard/billing`,
+            });
         }
-        throw new Error(typeof detail === "string" ? detail : `Instance launch failed: HTTP ${status}`);
+        throw mapHttpError(status, typeof detail === "string" ? detail : `Instance launch failed: HTTP ${status}`, baseUrl);
     }
     return data.instance;
 }
 
-/** Get instance details (enriched with connection info). */
 export async function getInstance(
     baseUrl: string,
     token: string,
@@ -535,7 +603,7 @@ export async function getInstance(
         undefined, token,
     );
     if (status !== 200 || !data.instance) {
-        throw new Error(`Instance fetch failed: HTTP ${status}`);
+        throw mapHttpError(status, `Instance fetch failed: HTTP ${status}`, baseUrl);
     }
     return data.instance;
 }
@@ -563,7 +631,6 @@ export interface HostInfo {
     ip: string;
 }
 
-/** Register or update a host. */
 export async function registerHost(
     baseUrl: string,
     token: string,
@@ -573,12 +640,11 @@ export async function registerHost(
         "PUT", baseUrl, "/host", host as unknown as Record<string, unknown>, token,
     );
     if (status !== 200 || !data.host) {
-        throw new Error(`Host registration failed: HTTP ${status}`);
+        throw mapHttpError(status, `Host registration failed: HTTP ${status}`, baseUrl);
     }
     return data.host;
 }
 
-/** Get host status. */
 export async function getHostStatus(
     baseUrl: string,
     token: string,
@@ -589,7 +655,7 @@ export async function getHostStatus(
         undefined, token,
     );
     if (status !== 200 || !data.host) {
-        throw new Error(`Host status fetch failed: HTTP ${status}`);
+        throw mapHttpError(status, `Host status fetch failed: HTTP ${status}`, baseUrl);
     }
     return data.host;
 }
@@ -602,7 +668,6 @@ export interface VersionReportResult {
     details: Record<string, unknown>;
 }
 
-/** Report component versions for admission check. */
 export async function reportVersions(
     baseUrl: string,
     token: string,
@@ -614,7 +679,7 @@ export async function reportVersions(
         { host_id: hostId, versions }, token,
     );
     if (status !== 200) {
-        throw new Error(`Version report failed: HTTP ${status}`);
+        throw mapHttpError(status, `Version report failed: HTTP ${status}`, baseUrl);
     }
     return data;
 }
@@ -624,7 +689,6 @@ export interface BenchmarkReportResult {
     xcu: number;
 }
 
-/** Report benchmark scores. */
 export async function reportBenchmark(
     baseUrl: string,
     token: string,
@@ -639,7 +703,7 @@ export async function reportBenchmark(
         { host_id: hostId, gpu_model: gpuModel, score, tflops, details }, token,
     );
     if (status !== 200) {
-        throw new Error(`Benchmark report failed: HTTP ${status}`);
+        throw mapHttpError(status, `Benchmark report failed: HTTP ${status}`, baseUrl);
     }
     return data;
 }
@@ -653,7 +717,6 @@ export interface VerifyResult {
     gpu_fingerprint: string;
 }
 
-/** Submit verification report. */
 export async function reportVerification(
     baseUrl: string,
     token: string,
@@ -665,7 +728,7 @@ export async function reportVerification(
         { host_id: hostId, report }, token,
     );
     if (status !== 200) {
-        throw new Error(`Verification report failed: HTTP ${status}`);
+        throw mapHttpError(status, `Verification report failed: HTTP ${status}`, baseUrl);
     }
     return data;
 }

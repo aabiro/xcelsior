@@ -58,6 +58,16 @@ export const IMAGE_TEMPLATES: ImageTemplate[] = [
     { label: "🐧 Ubuntu + CUDA", value: "nvidia/cuda:12.4.1-devel-ubuntu22.04", vram: 8 },
 ];
 
+/** Static per-step help when AI is unavailable (A6). */
+export const STATIC_STEP_HELP: Record<string, string[]> = {
+    "api-check": ["Check XCELSIOR_API_URL is reachable.", "Try: curl -fsSL $XCELSIOR_API_URL/health"],
+    versions: ["Upgrade NVIDIA driver, Container Toolkit, Docker, and runc to minimum versions."],
+    benchmark: ["Ensure GPU is idle and cool; re-run benchmark after driver install."],
+    verify: ["Fix any failed verification checks before registering the host."],
+    "host-register": ["Confirm credentials and that the host IP is reachable from the control plane."],
+    "worker-install": ["Use install.sh --agent-only for headless worker setup."],
+};
+
 export const WORKLOAD_IMAGE_MAP: Record<string, string> = {
     training: "nvcr.io/nvidia/pytorch:24.01-py3",
     inference: "vllm/vllm-openai:latest",

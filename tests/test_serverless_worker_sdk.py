@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import time
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -95,18 +96,29 @@ class TestHandlerNormalization:
         async def fn(job):
             return {"echo": job["input"]}
 
-        out, events = asyncio.run(invoke_handler(fn, {"input": {"x": 1}}))
+        out, events, usage = asyncio.run(invoke_handler(fn, {"input": {"x": 1}}))
         assert out == {"echo": {"x": 1}}
         assert events == []
+        assert usage == {}
 
     def test_sync_generator(self):
         def gen():
             yield progress_event("half", pct=50)
             yield {"done": True}
 
-        out, events = normalize_handler_result(gen())
+        out, events, usage = normalize_handler_result(gen())
         assert events[0]["type"] == "progress"
         assert out == {"done": True}
+        assert usage == {}
+
+    def test_usage_extraction(self):
+        out, events, usage = normalize_handler_result({
+            "result": "ok",
+            "usage": {"input_tokens": 5, "output_tokens": 9},
+        })
+        assert out == {"result": "ok"}
+        assert usage["input_tokens"] == 5
+        assert usage["output_tokens"] == 9
 
 
 class TestWorkerServiceCallbacks:
@@ -234,6 +246,41 @@ class TestWorkerClientRetries:
                 result = wc.claim_job()
         assert result is None
         assert mock_client.post.call_count == 2
+
+
+class TestRunWorkerConcurrency:
+    def test_reports_token_usage_on_complete(self):
+        import serverless.worker_sdk.runtime as rt
+
+        mock_client = MagicMock()
+        mock_client.worker_id = "swkr-tok"
+        mock_client.is_job_cancelled.return_value = False
+        mock_client.signal_ready.return_value = {"ok": True}
+        mock_client.heartbeat.return_value = {"ok": True}
+        mock_client.claim_job.side_effect = [
+            {"job_id": "tok-job", "payload": {"x": 1}, "input": {"x": 1}},
+            None,
+        ]
+
+        @handler
+        def with_usage(job, cancel=None):
+            return {"ok": True, "usage": {"input_tokens": 3, "output_tokens": 7}}
+
+        def _complete_and_exit(_job_id, **kwargs):
+            rt._draining = True
+            return {"ok": True, "kwargs": kwargs}
+
+        mock_client.complete_job.side_effect = lambda job_id, **kw: _complete_and_exit(job_id, **kw)
+
+        rt._draining = False
+        with patch("serverless.worker_sdk.runtime.time.sleep"), patch(
+            "serverless.worker_sdk.runtime.start_health_server"
+        ), patch.object(rt._HeartbeatThread, "start"), patch.object(rt._HeartbeatThread, "stop"):
+            run_worker(client=mock_client, skip_fitness=True, poll_interval_sec=0, max_concurrency=2)
+
+        _args, kwargs = mock_client.complete_job.call_args
+        assert kwargs.get("input_tokens") == 3
+        assert kwargs.get("output_tokens") == 7
 
 
 class TestRunWorkerLoop:
