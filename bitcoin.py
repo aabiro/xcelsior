@@ -28,7 +28,7 @@ BTC_CONFIRMATIONS = int(os.environ.get("XCELSIOR_BTC_CONFIRMATIONS", "3"))
 BTC_DEPOSIT_EXPIRY = int(os.environ.get("XCELSIOR_BTC_DEPOSIT_EXPIRY", "1800"))  # 30 min
 BTC_ENABLED = os.environ.get("XCELSIOR_BTC_ENABLED", "false").lower() == "true"
 BTC_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_RPC_TIMEOUT", "3"))
-BTC_STATUS_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_STATUS_RPC_TIMEOUT", "5"))
+BTC_STATUS_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_STATUS_RPC_TIMEOUT", "20"))
 BTC_RPC_FALLBACK_HOSTS = tuple(
     host.strip()
     for host in os.environ.get("XCELSIOR_BTC_RPC_FALLBACK_HOSTS", "").split(",")
