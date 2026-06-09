@@ -256,7 +256,7 @@ from routes._deps import _get_current_user, _require_provider_or_admin
 from pydantic import BaseModel, Field
 from scheduler import (
     get_current_spot_prices, update_spot_prices,
-    submit_spot_job, preemption_cycle,
+    preemption_cycle,
 )
 """,
     "events": """\

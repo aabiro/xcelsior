@@ -1225,6 +1225,7 @@ def submit_job(
     exposed_ports=None,
     source_template_id=None,
     job_type=None,
+    pricing_mode="on_demand",
 ):
     """
     Submit a job to the queue.
@@ -1242,6 +1243,12 @@ def submit_job(
 
         image = validate_docker_image(image)
 
+    pricing_mode = (pricing_mode or "on_demand").strip().lower()
+    if pricing_mode not in ("on_demand", "spot", "reserved"):
+        pricing_mode = "on_demand"
+
+    if pricing_mode == "spot":
+        tier = "spot"
     # Tier overrides raw priority
     if tier and tier in PRIORITY_TIERS:
         tier_info = PRIORITY_TIERS[tier]
@@ -1253,8 +1260,15 @@ def submit_job(
     else:
         tier = get_tier_by_priority(priority)
 
+    if pricing_mode == "spot":
+        tier = "spot"
+        tier_info = PRIORITY_TIERS["spot"]
+        priority = tier_info["priority"]
+
     # Spot tier: mark job as interruptible
-    is_spot = PRIORITY_TIERS.get(tier, {}).get("spot", False)
+    is_spot = pricing_mode == "spot" or PRIORITY_TIERS.get(tier, {}).get("spot", False)
+    if is_spot:
+        pricing_mode = "spot"
 
     resolved_nfs_server = nfs_server or ""
     if not resolved_nfs_server and volume_ids:
@@ -1298,12 +1312,14 @@ def submit_job(
         "exposed_ports": list(exposed_ports or []),
         "source_template_id": source_template_id or "",
         "job_type": (job_type or "").strip(),
+        "pricing_mode": pricing_mode,
     }
 
-    # Spot jobs are preemptible and participate in the spot pricing market
+    # Spot jobs are preemptible interruptible instances (no bidding).
     if is_spot:
         job["spot"] = True
         job["preemptible"] = True
+        job["pricing_mode"] = "spot"
 
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
@@ -1640,28 +1656,15 @@ def process_queue():
     If no host fits a job, skip it — try the next one.
     If no hosts left, stop.
 
-    Spot jobs are only scheduled when max_bid >= current spot price.
+    Spot and on-demand jobs share the same queue; spot capacity gating
+    is applied in allocate() (Phase 3).
     """
     assigned = []
-    spot_prices = get_current_spot_prices()
 
     queued = list_jobs(status="queued")
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
     for job in queued:
-        # Spot job gating: skip if bid is below current spot price
-        if job.get("spot") and job.get("max_bid") is not None:
-            # Spot jobs need at least one GPU type within their bid
-            if spot_prices:
-                affordable = any(job["max_bid"] >= price for price in spot_prices.values())
-                if not affordable:
-                    log.debug(
-                        "QUEUE SKIP spot job %s: max_bid $%s below all spot prices",
-                        job.get("job_id"),
-                        job["max_bid"],
-                    )
-                    continue
-
         hosts = list_hosts()
         if not hosts:
             break
@@ -4085,44 +4088,13 @@ def get_current_spot_prices():
 
 
 def identify_preemptible_jobs(spot_prices=None):
-    """Find jobs whose max_bid is below current spot price.
+    """Return spot jobs eligible for capacity-based preemption.
 
-    Returns list of (job, reason) tuples.
+    Bid-based eviction is retired. Capacity preemption (on-demand contention)
+    is implemented in Phase 7; until then this returns an empty list.
     """
-    if spot_prices is None:
-        spot_prices = get_current_spot_prices()
-
-    jobs = load_jobs()
-    hosts = load_hosts(active_only=False)
-    host_map = {h["host_id"]: h for h in hosts}
-
-    preemptible = []
-    for j in jobs:
-        if j["status"] != "running":
-            continue
-
-        max_bid = j.get("max_bid")
-        if max_bid is None:
-            continue  # No bid = on-demand, not preemptible
-
-        host = host_map.get(j.get("host_id"))
-        if not host:
-            continue
-
-        gpu = host.get("gpu_model", "unknown")
-        current_price = spot_prices.get(gpu)
-        if current_price is None:
-            continue
-
-        if max_bid < current_price:
-            preemptible.append(
-                (
-                    j,
-                    f"bid ${max_bid} < spot ${current_price} for {gpu}",
-                )
-            )
-
-    return preemptible
+    del spot_prices  # reserved for Phase 7 capacity model
+    return []
 
 
 def preempt_job(job_id):
@@ -4149,7 +4121,7 @@ def preempt_job(job_id):
         _upsert_job_row(conn, j)
 
     emit_event("job_preempted", {"job_id": job_id, "name": j.get("name")})
-    log.warning("JOB PREEMPTED %s | %s | requeued for lower-price host", job_id, j.get("name"))
+    log.warning("JOB PREEMPTED %s | %s | requeued", job_id, j.get("name"))
 
     # Detach volumes — job is leaving this host
     try:
@@ -4429,48 +4401,6 @@ def process_queue_sovereign(canada_only=None, province=None, trust_tier=None):
         assigned.append((updated, host))
 
     return assigned
-
-
-# ── Spot Job Submission ───────────────────────────────────────────────
-
-
-def submit_spot_job(
-    name, vram_needed_gb, max_bid, priority=0, tier=None, owner="", image=None, gpu_model=None
-):
-    """Submit a spot/interruptible job with a maximum bid price.
-
-    Spot jobs are:
-    - Cheaper (run when spot price < max_bid)
-    - Preemptible (evicted when demand exceeds bid)
-    - Automatically requeued on preemption
-    """
-    job = submit_job(
-        name,
-        vram_needed_gb,
-        priority,
-        tier=tier,
-        owner=owner,
-        image=image,
-        gpu_model=gpu_model,
-    )
-
-    _set_job_fields(
-        job["job_id"],
-        max_bid=max_bid,
-        spot=True,
-        preemptible=True,
-    )
-    job["max_bid"] = max_bid
-    job["spot"] = True
-    job["preemptible"] = True
-
-    log.info(
-        "SPOT JOB SUBMITTED %s | %s | max_bid=$%s/hr",
-        job["job_id"],
-        name,
-        max_bid,
-    )
-    return job
 
 
 if __name__ == "__main__":

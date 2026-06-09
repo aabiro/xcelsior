@@ -898,10 +898,6 @@ paths:
       x-fern-ignore: true
       x-fern-sdk-group-name: spotPricing
       x-fern-sdk-method-name: update
-  /spot/instance:
-    post:
-      x-fern-sdk-group-name: spotPricing
-      x-fern-sdk-method-name: submitSpotInstance
   /spot/preemption-cycle:
     post:
       x-fern-ignore: true

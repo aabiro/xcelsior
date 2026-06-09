@@ -455,7 +455,6 @@ def scan_imports_needed(code_text):
         "configure_alerts",
         "get_current_spot_prices",
         "update_spot_prices",
-        "spot_submit",
         "preemption_cycle",
         "add_to_pool",
         "remove_from_pool",

@@ -1302,7 +1302,7 @@ def api_reserved_plans():
     - **3_month**: 30% discount, minimum 4 hrs/day usage
     - **1_year**: 45% discount, no minimum daily usage
 
-    Compare with on-demand (`POST /job`) and spot/interruptible (`POST /spot/job`).
+    Compare with on-demand (`POST /instance`) and spot (`POST /instance` with `pricing_mode=spot`).
     """
     # Enrich each tier with sample pricing based on reference GPU pricing
     enriched = {}

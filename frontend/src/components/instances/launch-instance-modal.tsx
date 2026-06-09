@@ -133,7 +133,6 @@ export function LaunchInstanceModal({
   const [numGpus, setNumGpus] = useState("1");
   const [pricingMode, setPricingMode] = useState<"on_demand" | "spot">("on_demand");
   const [tier, setTier] = useState("standard");
-  const [maxBid, setMaxBid] = useState("");
   const [priority, setPriority] = useState<string>("normal");
   const [province, setProvince] = useState("");
 
@@ -269,6 +268,9 @@ export function LaunchInstanceModal({
   const spotRate = listing
     ? (spotPrices[listing.gpu_model] ?? listingRate * 0.7)
     : spotPrices[resolvedGpu] ?? selectedPricing?.spot_cad;
+  const onDemandRate = listing
+    ? listingRate
+    : selectedPricing?.on_demand_cad ?? selectedInventory?.minPricePerHourCad ?? null;
   const totalPerHour = dynamicRate
     ? dynamicRate.total_per_hour
     : effectiveRate != null ? effectiveRate * Number(numGpus) : null;
@@ -392,7 +394,6 @@ export function LaunchInstanceModal({
       setVramGb("");
       setPricingMode("on_demand");
       setTier("standard");
-      setMaxBid("");
       setPriority("normal");
       setSelectedVolumeIds(preSelectedVolumeIds ?? []);
       setLaunchError(null);
@@ -426,13 +427,7 @@ export function LaunchInstanceModal({
       };
       if (listing?.host_id) params.host_id = listing.host_id;
       if (pricingMode === "spot") {
-        const bid = maxBid ? Number(maxBid) : spotRate;
-        if (!(bid && bid > 0)) {
-          toast.error(isAutoGpuSelection ? "Enter a max bid when using Auto GPU with spot pricing" : "Enter a valid max bid");
-          setSubmitting(false);
-          return;
-        }
-        params.max_bid = bid;
+        params.pricing_mode = "spot";
       }
       const res = await launchInstance(params);
       const jobId = res.instance?.job_id || "";
@@ -695,22 +690,28 @@ export function LaunchInstanceModal({
                   </div>
                 </div>
 
-                {/* Spot max bid */}
                 {pricingMode === "spot" && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Max Bid ($/hr CAD)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min={0.01}
-                      placeholder={spotRate != null ? `Current spot: $${spotRate.toFixed(2)}/hr` : "Enter your max bid"}
-                      value={maxBid}
-                      onChange={(e) => setMaxBid(e.target.value)}
-                    />
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      Interruptible spot instance
+                    </div>
+                    {spotRate != null ? (
+                      <p className="text-sm font-mono text-emerald">
+                        ${spotRate.toFixed(2)}
+                        <span className="text-xs font-normal text-text-muted">/hr CAD</span>
+                        {onDemandRate != null && onDemandRate > spotRate && (
+                          <span className="ml-2 text-xs text-text-muted line-through">
+                            ${onDemandRate.toFixed(2)}/hr on-demand
+                          </span>
+                        )}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-text-muted">Loading spot rate…</p>
+                    )}
                     <p className="text-xs text-text-muted">
-                      {spotRate != null
-                        ? "Leave empty to bid at current spot price. Your instance may be preempted if outbid."
-                        : "Auto GPU selection needs an explicit max bid because the final spot market depends on the assigned host."}
+                      Published spot pricing with no bidding. Your instance may be reclaimed at any
+                      time when capacity is needed and will automatically requeue when GPUs are free.
                     </p>
                   </div>
                 )}

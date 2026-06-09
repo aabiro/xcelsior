@@ -283,10 +283,6 @@
   .slurm-job-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid #1a1a1a; font-size: 12px; }
   .slurm-job-row:hover { background: #161616; }
   .slurm-script-preview { background: #050505; border: 1px solid #222; border-radius: 4px; padding: 12px; font-family: 'Courier New', monospace; font-size: 11px; color: #4caf50; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
-  .spot-bid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .spot-bid-form .form-group { display: flex; flex-direction: column; gap: 4px; }
-  .spot-bid-form label { font-size: 11px; color: #888; text-transform: uppercase; }
-  .spot-bid-form input, .spot-bid-form select { background: #0a0a0a; border: 1px solid #333; color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-family: inherit; font-size: 12px; }
   .sla-credit-table { font-size: 12px; }
   .sla-credit-table th { color: #ff3333; font-size: 11px; text-transform: uppercase; }
   .sla-credit-table td.pct-good { color: #4caf50; }
@@ -302,7 +298,6 @@
     .stat-row { flex-wrap: wrap; }
     .stat { min-width: 100px; flex: 1 1 calc(50% - 8px); }
     .slurm-form { grid-template-columns: 1fr; }
-    .spot-bid-form { grid-template-columns: 1fr; }
   }
   @media (max-width: 768px) {
     body { padding: 8px; }
@@ -322,7 +317,6 @@
     .btn-row { flex-wrap: wrap; }
     .btn { font-size: 11px; padding: 5px 10px; }
     .slurm-form { grid-template-columns: 1fr; }
-    .spot-bid-form { grid-template-columns: 1fr; }
     .provider-stats { grid-template-columns: 1fr 1fr; }
     .notif-grid { grid-template-columns: 1fr auto; }
     /* Mobile-friendly modals */
@@ -626,28 +620,6 @@
       <div style="display:flex;justify-content:space-between;font-size:9px;color:#555">
         <span>24h ago</span><span>12h</span><span>Now</span>
       </div>
-    </div>
-    <div style="margin-top:12px;padding-top:10px;border-top:1px solid #222">
-      <h3 style="font-size:13px;color:#ff3333;margin-bottom:10px">💰 Place Spot Bid</h3>
-      <div class="spot-bid-form">
-        <div class="form-group">
-          <label>Job Name</label>
-          <input id="spot-bid-name" type="text" placeholder="spot-inference-run">
-        </div>
-        <div class="form-group">
-          <label>VRAM (GB)</label>
-          <input id="spot-bid-vram" type="number" value="16" min="1">
-        </div>
-        <div class="form-group">
-          <label>Max Bid ($/hr)</label>
-          <input id="spot-bid-max" type="number" value="0.50" min="0.01" step="0.01">
-        </div>
-        <div class="form-group">
-          <label>Priority (0–10)</label>
-          <input id="spot-bid-priority" type="number" value="5" min="0" max="10">
-        </div>
-      </div>
-      <button class="btn" onclick="submitSpotBid()" style="margin-top:8px;width:100%;background:#ff9800">💹 Submit Spot Bid</button>
     </div>
   </div>
   <div class="card">
@@ -4841,32 +4813,6 @@ function renderSlurmRecent() {
     <span class="status status-${j.status}">${j.status}</span>
     <span style="color:#666">${j.time}</span>
   </div>`).join('');
-}
-
-// ── Spot Bid ────────────────────────────────────────────────────────
-async function submitSpotBid() {
-  const name = document.getElementById('spot-bid-name').value.trim();
-  if (!name) { showToast('Job name is required', 'error'); return; }
-  const body = {
-    name,
-    vram_needed_gb: parseFloat(document.getElementById('spot-bid-vram').value) || 16,
-    max_bid: parseFloat(document.getElementById('spot-bid-max').value) || 0.50,
-    priority: parseInt(document.getElementById('spot-bid-priority').value) || 5
-  };
-  try {
-    const r = await fetch(`${API}/spot/job`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
-    });
-    const d = await r.json();
-    if (!r.ok) { showToast(d.detail || 'Spot bid failed', 'error'); return; }
-    showToast(`Spot bid placed: ${d.job?.job_id || 'submitted'}`, 'success');
-    document.getElementById('spot-bid-name').value = '';
-    refresh();
-  } catch(e) {
-    showToast('Failed to submit spot bid', 'error');
-  }
 }
 
 // ── SLA Hosts Summary ───────────────────────────────────────────────

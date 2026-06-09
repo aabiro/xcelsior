@@ -449,7 +449,7 @@ export interface LaunchInstanceParams {
   tier?: string;
   host_id?: string;
   gpu_model?: string;
-  max_bid?: number;
+  pricing_mode?: "on_demand" | "spot";
   nfs_path?: string;
   nfs_server?: string;
   nfs_mount_point?: string;
@@ -1109,16 +1109,6 @@ export async function fetchReservedPlans() {
 // ── Spot ──────────────────────────────────────────────────────────────
 export async function fetchSpotPrices() {
   return apiFetch<{ ok: boolean; spot_prices: Record<string, number>; prices?: Record<string, number> }>("/spot-prices");
-}
-
-/** @deprecated Use launchInstance with max_bid instead */
-export async function submitSpotInstance(data: {
-  name: string; vram_needed_gb: number; max_bid: number;
-  priority?: number; tier?: string; image?: string;
-}) {
-  return apiFetch<{ ok: boolean; instance: { job_id: string; name: string } }>(
-    "/spot/instance", { method: "POST", body: JSON.stringify(data) },
-  );
 }
 
 // ── Reputation ────────────────────────────────────────────────────────

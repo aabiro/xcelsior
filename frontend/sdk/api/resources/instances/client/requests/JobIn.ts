@@ -21,7 +21,7 @@ export interface JobIn {
     interactive?: boolean;
     command?: string | null;
     ssh_port?: number;
-    max_bid?: number | null;
+    pricing_mode?: "on_demand" | "spot";
     volume_ids?: string[] | null;
     encrypted_workspace?: boolean;
     init_script?: string | null;

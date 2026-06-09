@@ -3499,17 +3499,11 @@
             "title": "Ssh Port",
             "default": 22
           },
-          "max_bid": {
-            "anyOf": [
-              {
-                "type": "number",
-                "exclusiveMinimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Bid"
+          "pricing_mode": {
+            "type": "string",
+            "enum": ["on_demand", "spot"],
+            "title": "Pricing Mode",
+            "default": "on_demand"
           },
           "volume_ids": {
             "anyOf": [

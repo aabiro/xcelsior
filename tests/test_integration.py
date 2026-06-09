@@ -264,10 +264,10 @@ class TestSpotPricingLifecycle:
         scheduler.register_host("spot-h1", "10.0.0.30", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("spot-h1", admitted=True)
 
-        spot_job = scheduler.submit_spot_job("spot-train", 8, max_bid=0.30)
+        spot_job = scheduler.submit_job("spot-train", 8, pricing_mode="spot")
         assert spot_job["spot"] is True
         assert spot_job["preemptible"] is True
-        assert spot_job["max_bid"] == 0.30
+        assert spot_job["pricing_mode"] == "spot"
 
     def test_spot_and_normal_job_coexist(self):
         """Both spot and normal jobs can be submitted and processed."""
@@ -296,7 +296,7 @@ class TestSpotPricingLifecycle:
         ).json()["instance"]
 
         # Spot job via scheduler
-        spot = scheduler.submit_spot_job("spot-job", 8, max_bid=0.50)
+        spot = scheduler.submit_job("spot-job", 8, pricing_mode="spot")
 
         # Process queue — both should be handled
         resp = client.post("/queue/process")
@@ -308,7 +308,7 @@ class TestSpotPricingLifecycle:
         scheduler.register_host("pre-h1", "10.0.0.32", "RTX 4090", 24, 24, 0.50)
         scheduler._set_host_fields("pre-h1", admitted=True)
 
-        spot = scheduler.submit_spot_job("preempt-me", 8, max_bid=0.20)
+        spot = scheduler.submit_job("preempt-me", 8, pricing_mode="spot")
         scheduler.update_job_status(spot["job_id"], "running", host_id="pre-h1")
 
         # Preempt
