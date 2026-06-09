@@ -9,6 +9,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DepositModal } from "@/components/billing/deposit-modal";
+
 import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
 import { PaymentMethodModal } from "@/components/billing/payment-method-modal";
@@ -112,8 +113,10 @@ export default function BillingPage() {
     payment_method_id: string;
   }>({ enabled: false, amount_cad: 25, threshold_cad: 5, payment_method_id: "" });
   const [savingTopup, setSavingTopup] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showDeposit, setShowDeposit] = useState(false);
+
   const searchParams = useSearchParams();
 
   // Auto-open deposit modal from ?topup=true (Credits button link)
@@ -276,6 +279,22 @@ export default function BillingPage() {
     },
     [loadPaymentMethods],
   );
+
+  const handleOpenStripePortal = useCallback(async () => {
+    setOpeningPortal(true);
+    try {
+      const res = await api.createBillingPortalSession();
+      if (res.url) {
+        window.location.href = res.url;
+        return;
+      }
+      toast.error("Stripe portal unavailable");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not open billing portal");
+    } finally {
+      setOpeningPortal(false);
+    }
+  }, []);
 
   // Check crypto payment rails together so the funding section does not pop in later.
   useEffect(() => {
@@ -1224,12 +1243,29 @@ export default function BillingPage() {
 
           {/* Invoices */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
                 <CardTitle>{t("dash.billing.invoices")}</CardTitle>
                 <CardDescription>{t("dash.billing.invoices_desc")}</CardDescription>
               </div>
-              <Receipt className="h-4 w-4 text-text-muted" />
+              <div className="flex items-center gap-2">
+                {canManageBilling && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleOpenStripePortal()}
+                    disabled={openingPortal}
+                  >
+                    {openingPortal ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Receipt className="h-3.5 w-3.5" />
+                    )}
+                    Stripe portal
+                  </Button>
+                )}
+                <Receipt className="h-4 w-4 text-text-muted hidden sm:block" aria-hidden />
+              </div>
             </CardHeader>
             <CardContent>
               {invoices.length === 0 ? (
@@ -1335,7 +1371,9 @@ export default function BillingPage() {
           <Card>
             <CardHeader>
                 <CardTitle>{t("dash.billing.transactions")}</CardTitle>
-              <CardDescription>{t("dash.billing.transactions_desc")}</CardDescription>
+              <CardDescription>
+                {t("dash.billing.transactions_desc")} Top-ups and refunds appear here; usage is debited automatically from your wallet.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {transactions.length === 0 ? (

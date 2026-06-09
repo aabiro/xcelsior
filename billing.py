@@ -186,6 +186,10 @@ class InvoiceLineItem:
     job_id: str = ""
     host_id: str = ""
     province: str = ""
+    line_type: str = "compute"  # compute | serverless | storage
+    pricing_mode: str = ""
+    gpu_model: str = ""
+    stripe_product_id: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -421,58 +425,169 @@ class BillingEngine:
         tax_rate: Optional[float] = None,  # None = auto-detect by province
         customer_province: str = "ON",  # Used for tax rate lookup
     ) -> Invoice:
-        """Generate an AI Compute Access Fund–aligned invoice.
+        """Generate an itemized usage invoice for a billing period.
 
-        Groups usage by:
-        - Canadian vs non-Canadian compute
-        - Cost category (compute, storage, monitoring, security)
-        - Trust tier
-        - Province
-
-        Tax rate is auto-detected from customer province if not specified.
-        Produces line items that map directly to Fund eligible categories.
+        Wallet debits happen continuously; this invoice is what customers see
+        on request or on monthly summaries. Line items are grouped (not per-job
+        pickers): GPU by model × tier × mode, serverless by GPU tier, storage
+        by volume.
         """
         if tax_rate is None:
             tax_rate, _desc = get_tax_rate_for_province(customer_province)
         from jurisdiction import compute_fund_eligible_amount
 
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT * FROM usage_meters
-                   WHERE owner = %s AND started_at >= %s AND completed_at <= %s
-                   ORDER BY started_at""",
-                (customer_id, period_start, period_end),
-            ).fetchall()
-
-        line_items = []
+        line_items: list[dict] = []
         ca_total = 0.0
         non_ca_total = 0.0
 
-        for row in rows:
-            cost = float(row["total_cost_cad"])
-            is_ca = bool(row["is_canadian_compute"])
+        def _mode_label(mode: str) -> str:
+            labels = {
+                "on_demand": "On-Demand",
+                "spot": "Spot",
+                "reserved_1mo": "Reserved 1 Month",
+                "reserved_3mo": "Reserved 3 Months",
+                "reserved_1yr": "Reserved 1 Year",
+            }
+            return labels.get(mode, mode.replace("_", " ").title())
 
-            mode = (row.get("pricing_mode") or "on_demand").strip().lower()
-            mode_label = "Spot" if mode == "spot" else "On-Demand"
-            li = InvoiceLineItem(
-                description=f"{mode_label} — {row['gpu_model']} ({row['trust_tier']} tier)",
-                category="compute",
-                quantity=round(row["duration_sec"] / 3600, 4),
-                unit="GPU-hours",
-                unit_price_cad=float(row["base_rate_per_hour"]) * float(row["tier_multiplier"]),
-                subtotal_cad=cost,
-                is_canadian_compute=is_ca,
-                trust_tier=row["trust_tier"],
-                job_id=row["job_id"],
-                host_id=row["host_id"],
-                province=row["province"],
-            )
-            line_items.append(li.to_dict())
+        with self._conn() as conn:
+            # ── GPU instances (grouped) ──
+            gpu_rows = conn.execute(
+                """SELECT
+                    gpu_model,
+                    trust_tier,
+                    COALESCE(pricing_mode, 'on_demand') AS pricing_mode,
+                    ROUND((SUM(duration_sec) / 3600.0)::numeric, 4) AS gpu_hours,
+                    ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 4) AS subtotal_cad,
+                    ROUND(COALESCE(AVG(base_rate_per_hour * tier_multiplier), 0)::numeric, 4)
+                        AS unit_price_cad,
+                    (MAX(is_canadian_compute) = 1) AS is_canadian_compute,
+                    MAX(province) AS province
+                FROM usage_meters
+                WHERE owner = %s
+                  AND started_at >= %s
+                  AND completed_at <= %s
+                  AND total_cost_cad > 0
+                GROUP BY gpu_model, trust_tier, COALESCE(pricing_mode, 'on_demand')
+                HAVING SUM(total_cost_cad) > 0
+                ORDER BY subtotal_cad DESC""",
+                (customer_id, period_start, period_end),
+            ).fetchall()
 
-            if is_ca:
+            for row in gpu_rows:
+                cost = float(row["subtotal_cad"])
+                is_ca = bool(row["is_canadian_compute"])
+                mode = str(row["pricing_mode"])
+                li = InvoiceLineItem(
+                    description=(
+                        f"{row['gpu_model']} — {_mode_label(mode)} "
+                        f"({row['trust_tier']} tier)"
+                    ),
+                    category="compute",
+                    quantity=float(row["gpu_hours"]),
+                    unit="GPU-hours",
+                    unit_price_cad=float(row["unit_price_cad"] or 0),
+                    subtotal_cad=cost,
+                    is_canadian_compute=is_ca,
+                    trust_tier=row["trust_tier"],
+                    province=row["province"] or "",
+                    line_type="compute",
+                    pricing_mode=mode,
+                    gpu_model=row["gpu_model"],
+                )
+                line_items.append(li.to_dict())
+                if is_ca:
+                    ca_total += cost
+                else:
+                    non_ca_total += cost
+
+            # ── Serverless inference (grouped by GPU tier) ──
+            sl_rows = conn.execute(
+                """SELECT
+                    gpu_model,
+                    resource_type,
+                    ROUND(COALESCE(SUM(duration_seconds), 0)::numeric, 0) AS worker_seconds,
+                    ROUND(COALESCE(SUM(amount_cad), 0)::numeric, 4) AS subtotal_cad,
+                    ROUND(COALESCE(AVG(rate_per_hour), 0)::numeric, 4) AS rate_per_hour
+                FROM billing_cycles
+                WHERE customer_id = %s
+                  AND resource_type IN ('serverless_gpu', 'serverless_gpu_cold_start')
+                  AND status = 'charged'
+                  AND period_start >= %s
+                  AND period_end <= %s
+                GROUP BY gpu_model, resource_type
+                HAVING SUM(amount_cad) > 0
+                ORDER BY subtotal_cad DESC""",
+                (customer_id, period_start, period_end),
+            ).fetchall()
+
+            for row in sl_rows:
+                cost = float(row["subtotal_cad"])
+                gpu_tier = str(row["gpu_model"] or "serverless")
+                rtype = str(row["resource_type"])
+                cold = " (cold start)" if rtype == "serverless_gpu_cold_start" else ""
+                seconds = int(row["worker_seconds"] or 0)
+                li = InvoiceLineItem(
+                    description=f"Serverless — {gpu_tier}{cold}",
+                    category="compute",
+                    quantity=round(seconds / 3600.0, 4),
+                    unit="GPU-hours",
+                    unit_price_cad=float(row["rate_per_hour"] or 0),
+                    subtotal_cad=cost,
+                    is_canadian_compute=True,
+                    line_type="serverless",
+                    gpu_model=gpu_tier,
+                    pricing_mode="on_demand",
+                )
+                line_items.append(li.to_dict())
                 ca_total += cost
-            else:
-                non_ca_total += cost
+
+            # ── Persistent storage (per volume) ──
+            vol_rows = conn.execute(
+                """SELECT
+                    bc.job_id,
+                    COALESCE(v.name, bc.job_id) AS volume_name,
+                    COALESCE(v.size_gb, 0) AS size_gb,
+                    ROUND(COALESCE(SUM(bc.duration_seconds), 0)::numeric, 0) AS billed_seconds,
+                    ROUND(COALESCE(SUM(bc.amount_cad), 0)::numeric, 4) AS subtotal_cad
+                FROM billing_cycles bc
+                LEFT JOIN volumes v ON v.volume_id = bc.job_id
+                WHERE bc.customer_id = %s
+                  AND bc.resource_type = 'volume'
+                  AND bc.status = 'charged'
+                  AND bc.period_start >= %s
+                  AND bc.period_end <= %s
+                GROUP BY bc.job_id, v.name, v.size_gb
+                HAVING SUM(bc.amount_cad) > 0
+                ORDER BY subtotal_cad DESC""",
+                (customer_id, period_start, period_end),
+            ).fetchall()
+
+            for row in vol_rows:
+                cost = float(row["subtotal_cad"])
+                size_gb = int(row["size_gb"] or 0)
+                hours = round(float(row["billed_seconds"] or 0) / 3600.0, 4)
+                li = InvoiceLineItem(
+                    description=f"Storage — {row['volume_name']} ({size_gb} GB)",
+                    category="storage",
+                    quantity=hours,
+                    unit="GB-hours",
+                    unit_price_cad=round(cost / hours, 6) if hours > 0 else 0.0,
+                    subtotal_cad=cost,
+                    is_canadian_compute=True,
+                    job_id=row["job_id"],
+                    line_type="storage",
+                    gpu_model="storage",
+                )
+                line_items.append(li.to_dict())
+                ca_total += cost
+
+        try:
+            from stripe_catalog import enrich_invoice_lines_with_catalog
+
+            enrich_invoice_lines_with_catalog(line_items)
+        except Exception as exc:
+            log.debug("Stripe catalog enrichment skipped: %s", exc)
 
         subtotal = ca_total + non_ca_total
         tax = round(subtotal * tax_rate, 2)
@@ -1684,6 +1799,40 @@ class BillingEngine:
         log.info("Created Stripe customer %s for %s", cust.id, customer_id)
         return cust.id
 
+    def create_billing_portal_session(self, customer_id: str, email: str = "") -> dict:
+        """Open Stripe Customer Portal (invoices, payment methods, profile)."""
+        import json
+        from pathlib import Path
+
+        from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
+
+        if not STRIPE_ENABLED or not _stripe_mod:
+            raise RuntimeError("Stripe is not configured")
+
+        stripe_customer_id = self.ensure_stripe_customer(customer_id, email)
+        base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca").rstrip("/")
+        kwargs: dict = {
+            "customer": stripe_customer_id,
+            "return_url": f"{base_url}/dashboard/billing",
+        }
+        dash_path = Path(__file__).resolve().parent / "config" / "stripe_dashboard.json"
+        if dash_path.exists():
+            try:
+                portal_cfg = json.loads(dash_path.read_text()).get(
+                    "billing_portal_configuration_id"
+                )
+                if portal_cfg:
+                    kwargs["configuration"] = portal_cfg
+            except Exception as exc:
+                log.debug("Could not load portal configuration: %s", exc)
+
+        session = _stripe_mod.billing_portal.Session.create(**kwargs)
+        return {
+            "url": session.url,
+            "session_id": session.id,
+            "stripe_customer_id": stripe_customer_id,
+        }
+
     def create_setup_intent(self, customer_id: str, email: str = "") -> dict:
         """Create a Stripe SetupIntent so the client can save a card off-session."""
         from stripe_connect import STRIPE_ENABLED, stripe as _stripe_mod
@@ -1695,7 +1844,7 @@ class BillingEngine:
         si = _stripe_mod.SetupIntent.create(
             customer=stripe_customer_id,
             usage="off_session",
-            payment_method_types=["card"],
+            automatic_payment_methods={"enabled": True},
             metadata={"xcelsior_customer_id": customer_id},
         )
         return {

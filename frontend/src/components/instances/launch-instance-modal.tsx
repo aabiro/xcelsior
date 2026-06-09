@@ -53,6 +53,12 @@ import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
+import {
+  SpotInterruptWarning,
+  SpotKillSwitchBanner,
+  SpotRateDisplay,
+  SpotSavingsPill,
+} from "@/components/spot/spot-surface";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -732,10 +738,7 @@ export function LaunchInstanceModal({
                 <div className="space-y-1.5">
                   <Label className="text-xs">Pricing</Label>
                   {!spotFeature.enabled && (
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                      {spotFeature.message
-                        || "Spot instances are temporarily unavailable. On-demand launches are unaffected."}
-                    </div>
+                    <SpotKillSwitchBanner message={spotFeature.message} />
                   )}
                   <div className="grid grid-cols-2 gap-2">
                     {PRICING_MODES.map((mode) => {
@@ -776,11 +779,7 @@ export function LaunchInstanceModal({
                 </div>
 
                 {effectivePricingMode === "spot" && (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
-                      <AlertTriangle className="h-4 w-4 shrink-0" />
-                      Interruptible spot instance
-                    </div>
+                  <SpotInterruptWarning>
                     {spotQuoteError ? (
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs text-accent-red">{spotQuoteError}</p>
@@ -788,35 +787,27 @@ export function LaunchInstanceModal({
                           <RefreshCw className="h-3 w-3" /> Retry
                         </Button>
                       </div>
-                    ) : spotQuoteLoading && spotRate == null ? (
-                      <p className="text-xs text-text-muted flex items-center gap-1.5">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading spot rate…
-                      </p>
-                    ) : spotRate != null ? (
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <p className="text-2xl font-bold font-mono text-emerald">
-                          ${spotRate.toFixed(2)}
-                          <span className="text-sm font-normal text-text-muted">/hr CAD</span>
-                        </p>
+                    ) : spotRate != null || spotQuoteLoading ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SpotRateDisplay
+                          rateCad={spotRate}
+                          onDemandCad={onDemandRate}
+                          savingsPct={savingsPct}
+                          loading={spotQuoteLoading && spotRate == null}
+                          size="lg"
+                        />
                         {savingsPct != null && savingsPct > 0 && (
-                          <span className="rounded-full bg-emerald/20 px-2 py-0.5 text-xs font-semibold text-emerald">
-                            Save {savingsPct}%
-                          </span>
-                        )}
-                        {onDemandRate != null && onDemandRate > spotRate && (
-                          <span className="text-xs text-text-muted line-through">
-                            ${onDemandRate.toFixed(2)}/hr on-demand
-                          </span>
+                          <SpotSavingsPill pct={savingsPct} className="text-xs" />
                         )}
                       </div>
                     ) : (
                       <p className="text-xs text-text-muted">Select a GPU to see the spot rate.</p>
                     )}
                     <p className="text-xs text-text-muted">
-                      Published spot pricing with no bidding. Your instance may be reclaimed at any
-                      time when capacity is needed and will automatically requeue when GPUs are free.
+                      Published spot pricing with no bidding. Your instance may be reclaimed when
+                      capacity is needed and will automatically requeue when GPUs are free.
                     </p>
-                  </div>
+                  </SpotInterruptWarning>
                 )}
 
                 {/* Service Tier */}

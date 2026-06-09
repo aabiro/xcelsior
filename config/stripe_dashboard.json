@@ -1,0 +1,23 @@
+{
+  "brand_icon_file_id": "file_1TgQ3YQ42F8F9fI30zqF49Hz",
+  "brand_logo_file_id": "file_1TgQ3YQ42F8F9fI3bI4FNXnr",
+  "brand_colors": {
+    "primary": "#00d4ff",
+    "secondary": "#060a13"
+  },
+  "billing_portal_configuration_id": "bpc_1TgQ3aQ42F8F9fI3YaLqZ7r4",
+  "customer_portal_login_url": "https://billing.stripe.com/p/login/fZucN76QI2GS4IhbBT7ok00",
+  "customer_portal_activated": true,
+  "customer_portal_next_gen": true,
+  "webhook_endpoints": {
+    "xcelsior-platform-webhook": "we_1TgEofQ42F8F9fI381JegOl0",
+    "xcelsior-connect-thin-webhook": "we_1TgQ27Q42F8F9fI3Sx8daeGz"
+  },
+  "tax_settings": {
+    "status": "active",
+    "provider": "stripe",
+    "head_office_country": "CA"
+  },
+  "stripe_mode": "live",
+  "base_url": "https://xcelsior.ca"
+}

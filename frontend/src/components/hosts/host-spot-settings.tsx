@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label, NumberInput } from "@/components/ui/input";
-import { AlertTriangle, Loader2, TrendingDown, Zap } from "lucide-react";
+import { Loader2, TrendingDown, Zap } from "lucide-react";
 import {
   fetchHostSpotPreview,
   fetchSpotFloorSuggestion,
@@ -13,6 +13,11 @@ import {
 import type { Host, SpotRatePreview } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  SpotInterruptWarning,
+  SpotRateDisplay,
+  SpotSurface,
+} from "@/components/spot/spot-surface";
 
 interface HostSpotSettingsProps {
   host: Host;
@@ -86,10 +91,15 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
   }
 
   return (
-    <Card className={cn(compact ? "p-4" : "p-5")}>
+    <Card className={cn(compact ? "p-4" : "p-5", "brand-top-accent overflow-hidden")}>
       <div className="flex items-center gap-2 mb-4">
-        <TrendingDown className="h-4 w-4 text-emerald" />
-        <h2 className="text-sm font-semibold text-text-secondary">Spot Instance Settings</h2>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald/10 ring-1 ring-emerald/20">
+          <TrendingDown className="h-4 w-4 text-emerald" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold">Spot Instance Settings</h2>
+          <p className="text-[10px] text-text-muted">Host interruptible capacity & floor rates</p>
+        </div>
       </div>
 
       <button
@@ -156,40 +166,21 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
             </div>
           </div>
 
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+          <SpotInterruptWarning title="Interruptible workloads">
             <p className="text-xs text-text-secondary">
               Spot jobs may be interrupted when capacity is needed. You are paid for actual runtime only.
             </p>
-          </div>
+          </SpotInterruptWarning>
 
-          <div className="rounded-lg border border-border/60 bg-surface/50 p-3">
-            <p className="text-xs text-text-muted mb-1">Your effective spot rate</p>
-            {loadingPreview ? (
-              <p className="text-sm flex items-center gap-1.5 text-text-muted">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Calculating…
-              </p>
-            ) : preview ? (
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="text-xl font-bold font-mono text-emerald">
-                  ${preview.effective_spot_cad.toFixed(2)}
-                </span>
-                <span className="text-xs text-text-muted">/hr CAD</span>
-                {preview.on_demand_cad > preview.effective_spot_cad && (
-                  <span className="text-xs text-text-muted line-through font-mono">
-                    ${preview.on_demand_cad.toFixed(2)} on-demand
-                  </span>
-                )}
-                {preview.savings_pct > 0 && (
-                  <span className="text-[10px] rounded-full bg-emerald/15 px-1.5 py-0.5 text-emerald font-medium">
-                    −{preview.savings_pct}%
-                  </span>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-text-muted">—</p>
-            )}
-          </div>
+          <SpotSurface className="p-3.5">
+            <p className="text-xs text-text-muted mb-1.5 font-medium uppercase tracking-wide">Effective spot rate</p>
+            <SpotRateDisplay
+              rateCad={preview?.effective_spot_cad}
+              onDemandCad={preview?.on_demand_cad}
+              savingsPct={preview?.savings_pct}
+              loading={loadingPreview}
+            />
+          </SpotSurface>
         </div>
       )}
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { Cpu, MapPin, Zap, ArrowRight } from "lucide-react";
+import { Cpu, MapPin, ArrowRight } from "lucide-react";
 import type { MarketplaceListing } from "@/lib/api";
+import { SpotSavingsPill } from "@/components/spot/spot-surface";
 
 interface ListingCardProps {
   listing: MarketplaceListing;
@@ -13,6 +14,10 @@ interface ListingCardProps {
 export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps) {
   const price = listing.price_per_hour_cad ?? listing.price_per_hour ?? 0;
   const spot = spotRateCad ?? null;
+  const savingsPct =
+    spot != null && spot > 0 && price > spot
+      ? Math.round((1 - spot / price) * 100)
+      : null;
   const region = listing.region || "Canada";
   const model = listing.gpu_model || "GPU";
   const vram = listing.vram_gb ? `${listing.vram_gb}GB` : null;
@@ -73,9 +78,11 @@ export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps)
             <span className="text-xs text-text-muted">/hr on-demand</span>
           </div>
           {spot != null && spot > 0 && (
-            <div className="mt-0.5 flex items-center gap-1 text-[11px] font-mono text-emerald/80">
-              <Zap className="h-3 w-3" />
-              ${spot.toFixed(2)}/hr spot
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-[11px] font-mono font-semibold text-emerald tabular-nums">
+                ${spot.toFixed(2)}/hr spot
+              </span>
+              {savingsPct != null && savingsPct > 0 && <SpotSavingsPill pct={savingsPct} />}
             </div>
           )}
         </div>

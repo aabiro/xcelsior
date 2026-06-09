@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   listAvailableVolumes: vi.fn(),
   detectProvince: vi.fn(),
   fetchPricingRates: vi.fn(),
+  fetchSpotFeatureStatus: vi.fn(),
   classifyLaunchError: vi.fn(),
 }));
 
@@ -58,6 +59,7 @@ describe("LaunchInstanceModal spot flow", () => {
     apiMocks.fetchProvinces.mockResolvedValue({ provinces: { ON: { name: "Ontario", tax_rate: 0.13, tax_description: "HST" } } });
     apiMocks.fetchImageTemplates.mockResolvedValue({ templates: [] });
     apiMocks.fetchSpotPrices.mockResolvedValue({ spot_prices: { "RTX 4090": 0.22 } });
+    apiMocks.fetchSpotFeatureStatus.mockResolvedValue({ enabled: true, message: null });
     apiMocks.listAvailableVolumes.mockResolvedValue({ volumes: [] });
     apiMocks.detectProvince.mockResolvedValue({ province: "ON" });
     apiMocks.fetchPricingRates.mockResolvedValue({

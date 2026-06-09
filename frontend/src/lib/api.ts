@@ -3062,6 +3062,15 @@ export interface SavedPaymentMethod {
   is_default: boolean;
 }
 
+export async function createBillingPortalSession() {
+  return apiFetch<{
+    ok: boolean;
+    url: string;
+    session_id: string;
+    stripe_customer_id: string;
+  }>("/api/billing/portal-session", { method: "POST" });
+}
+
 export async function createSetupIntent() {
   return apiFetch<{
     ok: boolean;

@@ -23,10 +23,15 @@ export const metadata: Metadata = {
 
 interface GpuPricing {
   gpu_model: string;
+  vram_gb?: number;
   base_rate_cad: number;
-  subsidized_starter_cad: number;
-  min_rate_cad: number;
-  premium_rate_cad: number;
+  spot_cad?: number;
+  reserved_1mo_cad?: number;
+  reserved_3mo_cad?: number;
+  reserved_1yr_cad?: number;
+  subsidized_starter_cad?: number;
+  min_rate_cad?: number;
+  premium_rate_cad?: number;
 }
 
 async function fetchPricing(): Promise<GpuPricing[]> {
@@ -76,14 +81,17 @@ export default async function PricingPage() {
   const [apiPricing, liveSpot] = await Promise.all([fetchPricing(), fetchLiveSpotRates()]);
 
   const gpus = apiPricing.length > 0
-    ? apiPricing.map((p) => ({
-        model: p.gpu_model,
-        vram: p.gpu_model.includes("A100 80") ? 80 : p.gpu_model.includes("A100") ? 40 : p.gpu_model.includes("H100") ? 80 : p.gpu_model.includes("L40") ? 48 : 24,
-        onDemand: p.base_rate_cad,
-        spot: +(liveSpot[p.gpu_model] ?? p.min_rate_cad * 0.4).toFixed(2),
-        reserved1m: +(p.base_rate_cad * 0.8).toFixed(2),
-        reserved1y: +(p.base_rate_cad * 0.55).toFixed(2),
-      }))
+    ? apiPricing
+        .filter((p) => p.base_rate_cad > 0)
+        .slice(0, 12)
+        .map((p) => ({
+          model: p.gpu_model,
+          vram: p.vram_gb ?? (p.gpu_model.includes("A100 80") ? 80 : p.gpu_model.includes("A100") ? 40 : p.gpu_model.includes("H100") ? 80 : p.gpu_model.includes("L40") ? 48 : 24),
+          onDemand: p.base_rate_cad,
+          spot: +(liveSpot[p.gpu_model] ?? p.spot_cad ?? p.min_rate_cad ?? p.base_rate_cad * 0.4).toFixed(2),
+          reserved1m: +(p.reserved_1mo_cad ?? p.base_rate_cad * 0.8).toFixed(2),
+          reserved1y: +(p.reserved_1yr_cad ?? p.base_rate_cad * 0.55).toFixed(2),
+        }))
     : FALLBACK_GPUS;
 
   const productJsonLd = {

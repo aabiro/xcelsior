@@ -83,13 +83,14 @@ export function GPUAvailabilityContent() {
       for (const [model, entry] of byModel) {
         const ref = pricing[model] || {};
         const base = (ref.base_rate_cad as number) || 0;
+        const spot = (ref.spot_cad as number) || (base ? base * 0.4 : 0);
         summaries.push({
           gpu_model: model,
           available: entry.available,
           total: entry.total,
-          vram_gb: entry.vram,
+          vram_gb: entry.vram || (ref.vram_gb as number) || 0,
           price_cad: base,
-          spot_cad: base ? base * 0.6 : 0,
+          spot_cad: spot,
           locations: Array.from(entry.locations),
         });
       }
@@ -170,13 +171,14 @@ export function GPUAvailabilityContent() {
         for (const [model, entry] of byModel) {
           const ref = pricing[model] || {};
           const base = (ref.base_rate_cad as number) || 0;
+          const spot = (ref.spot_cad as number) || (base ? base * 0.4 : 0);
           summaries.push({
             gpu_model: model,
             available: entry.available,
             total: entry.total,
-            vram_gb: entry.vram,
+            vram_gb: entry.vram || (ref.vram_gb as number) || 0,
             price_cad: base,
-            spot_cad: base ? base * 0.6 : 0,
+            spot_cad: spot,
             locations: Array.from(entry.locations),
           });
         }
