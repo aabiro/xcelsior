@@ -1679,13 +1679,22 @@ def process_queue():
             )
             continue  # no host for THIS job, but maybe smaller jobs fit
 
-        # Write host's actual GPU info into job payload before persisting
+        assign_kwargs: dict = {
+            "host_gpu_model": host.get("gpu_model", ""),
+            "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
+        }
+        if job.get("pricing_mode") == "spot" or job.get("spot"):
+            from spot_pricing import lock_spot_rate_for_job
+
+            lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
+            assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+            assign_kwargs["pricing_mode"] = "spot"
+
         updated = update_job_status(
             job["job_id"],
             "assigned",
             host_id=host["host_id"],
-            host_gpu_model=host.get("gpu_model", ""),
-            host_vram_gb=host.get("total_vram_gb", host.get("free_vram_gb", 0)),
+            **assign_kwargs,
         )
         if not updated or updated.get("status") != "assigned":
             continue
@@ -3972,119 +3981,40 @@ SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
 PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
 
-SPOT_PRICES_FILE = os.environ.get(
-    "XCELSIOR_SPOT_PRICES_FILE", os.path.join(os.path.dirname(__file__), "spot_prices.json")
-)
-
-
 def load_spot_prices():
-    """Load spot price history."""
-    return _load_json(SPOT_PRICES_FILE)
+    """Load recent spot price history (in-memory / DB-backed via spot_pricing)."""
+    from spot_pricing import get_in_memory_history
+
+    return get_in_memory_history()
 
 
-def save_spot_prices(prices):
-    """Write spot price history."""
-    _save_json(SPOT_PRICES_FILE, prices)
+def save_spot_prices(_prices):
+    """No-op — spot history is persisted by spot_pricing.record_spot_history."""
 
 
 def compute_spot_price(base_price, demand, supply, k=None, threshold=None):
-    """Compute spot price using supply/demand curve with 50% cap.
+    """Compute spot price using unified supply/demand surge curve (CAD/hr)."""
+    del k, threshold
+    from spot_pricing import apply_surge
 
-    Formula: spot = base_price * (1 + demand_factor)
-    Demand factor capped: min(0.5, queue_depth / (available_gpus * 2))
-    Per Phase 2.2: max 50% surge above base price.
-    """
-    if supply <= 0:
-        return round(base_price * 1.5, 4)  # Cap at 50% surge
-
-    # Demand factor: capped at 0.5 (50% max surge)
-    demand_factor = min(0.5, demand / (supply * 2))
-    multiplier = 1.0 + demand_factor
-
-    return round(base_price * multiplier, 4)
+    return apply_surge(float(base_price), int(demand), int(supply))
 
 
 def update_spot_prices():
-    """Recalculate spot prices for all GPU types.
+    """Recalculate spot prices via unified spot_pricing service."""
+    from spot_pricing import update_all_spot_prices
 
-    Prices update periodically (every 10 minutes by default).
-    Returns dict of {gpu_model: current_spot_price}.
-    """
-    hosts = load_hosts(active_only=True)
-    jobs = load_jobs()
-
-    active_jobs = [j for j in jobs if j["status"] in ("running", "queued")]
-
-    # Group by GPU model
-    supply_by_gpu = {}
-    base_price_by_gpu = {}
-    for h in hosts:
-        gpu = h.get("gpu_model", "unknown")
-        supply_by_gpu[gpu] = supply_by_gpu.get(gpu, 0) + 1
-        # Track lowest base price per GPU type
-        cost = h.get("cost_per_hour", 0.20)
-        if gpu not in base_price_by_gpu or cost < base_price_by_gpu[gpu]:
-            base_price_by_gpu[gpu] = cost
-
-    demand_by_gpu = {}
-    for j in active_jobs:
-        host_id = j.get("host_id")
-        if host_id:
-            for h in hosts:
-                if h["host_id"] == host_id:
-                    gpu = h.get("gpu_model", "unknown")
-                    demand_by_gpu[gpu] = demand_by_gpu.get(gpu, 0) + 1
-                    break
-        else:
-            # Queued job: count as demand for any GPU type
-            for gpu in supply_by_gpu:
-                demand_by_gpu[gpu] = demand_by_gpu.get(gpu, 0) + 1
-
-    spot_prices = {}
-    now = time.time()
-    history = load_spot_prices()
-
-    for gpu in supply_by_gpu:
-        base = base_price_by_gpu.get(gpu, 0.20)
-        demand = demand_by_gpu.get(gpu, 0)
-        supply = supply_by_gpu[gpu]
-
-        price = compute_spot_price(base, demand, supply)
-        spot_prices[gpu] = price
-
-        history.append(
-            {
-                "gpu_model": gpu,
-                "price": price,
-                "supply": supply,
-                "demand": demand,
-                "computed_at": now,
-            }
-        )
-
-    # Keep last 1000 records
-    if len(history) > 1000:
-        history = history[-1000:]
-    save_spot_prices(history)
-
+    spot_prices = update_all_spot_prices()
     emit_event("spot_prices", spot_prices)
     log.info("SPOT PRICES UPDATED: %s", json.dumps(spot_prices))
     return spot_prices
 
 
 def get_current_spot_prices():
-    """Get the latest spot prices per GPU model."""
-    history = load_spot_prices()
-    if not history:
-        return {}
+    """Get the latest spot prices per GPU model (CAD/hr)."""
+    from spot_pricing import get_current_spot_prices as _current
 
-    latest = {}
-    for entry in reversed(history):
-        gpu = entry.get("gpu_model")
-        if gpu and gpu not in latest:
-            latest[gpu] = entry["price"]
-
-    return latest
+    return _current()
 
 
 def identify_preemptible_jobs(spot_prices=None):

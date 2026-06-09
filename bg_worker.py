@@ -84,9 +84,10 @@ def main():
     # 3. Spot price updater (every 10 minutes)
     def _spot_updater():
         from marketplace import get_marketplace_engine
+        from spot_pricing import update_all_spot_prices
 
+        update_all_spot_prices()
         me = get_marketplace_engine()
-        me.update_spot_prices()
         me.expire_reservations()
 
     tasks.append(("spot_updater", _spot_updater, 600))

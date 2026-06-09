@@ -6,26 +6,29 @@ from routes._deps import (
     _require_admin,
     broadcast_sse,
 )
-from scheduler import (
+from spot_pricing import (
     get_current_spot_prices,
-    preemption_cycle,
-    update_spot_prices,
+    get_current_spot_prices_list,
+    update_all_spot_prices,
 )
+from scheduler import preemption_cycle
 
 router = APIRouter()
 
 
 @router.get("/spot-prices", tags=["Spot Pricing"])
 def api_spot_prices():
-    """Get current spot prices for all GPU models."""
-    return {"ok": True, "prices": get_current_spot_prices()}
+    """Get current unified spot prices for all GPU models."""
+    prices_cad = get_current_spot_prices()
+    spot_prices = get_current_spot_prices_list()
+    return {"ok": True, "prices": prices_cad, "spot_prices": spot_prices}
 
 
 @router.post("/spot-prices/update", tags=["Spot Pricing"])
 def api_update_spot_prices(request: Request):
     """Trigger spot price recalculation."""
     _require_admin(request)
-    prices = update_spot_prices()
+    prices = update_all_spot_prices()
     broadcast_sse("spot_prices_updated", {"prices": prices})
     return {"ok": True, "prices": prices}
 

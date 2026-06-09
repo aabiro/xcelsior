@@ -259,8 +259,15 @@ class MarketplaceEngine:
             if allocation_type == "spot":
                 if not offer.get("spot_enabled", True):
                     return None
+                from spot_pricing import compute_live_spot_quote
+
+                quote = compute_live_spot_quote(offer["gpu_model"])
                 discounted = int(price_cents * offer.get("spot_multiplier", 0.6))
-                price_cents = max(int(offer.get("spot_min_cents", 0) or 0), discounted)
+                price_cents = max(
+                    int(offer.get("spot_min_cents", 0) or 0),
+                    discounted,
+                    quote.spot_cents,
+                )
 
             conn.execute(
                 """INSERT INTO gpu_allocations
@@ -332,68 +339,18 @@ class MarketplaceEngine:
         k: float = SPOT_SENSITIVITY,
         threshold: float = SPOT_THRESHOLD,
     ) -> int:
-        """Compute spot price in cents using supply/demand curve.
+        """Compute spot price in cents — delegates to unified spot_pricing."""
+        del k, threshold
+        from spot_pricing import compute_spot_price_cents
 
-        Formula: spot = base * (1 + demand_factor)
-        Demand factor capped: min(0.5, queue_depth / (available_gpus * 2))
-        Per Phase 2.2: max 50% surge above base price.
-        """
-        if supply <= 0:
-            return int(base_price_cents * 1.5)  # Cap at 50% surge
-
-        # Demand factor: capped at 0.5 (50% max surge)
-        demand_factor = min(0.5, demand / (supply * 2))
-        multiplier = 1.0 + demand_factor
-        return max(1, int(round(base_price_cents * multiplier)))
+        return compute_spot_price_cents(base_price_cents, demand, supply)
 
     def update_spot_prices(self) -> dict:
-        """Recalculate spot prices for all GPU types and record history.
+        """Recalculate spot prices via unified service. Returns {gpu_model: cents}."""
+        from spot_pricing import update_all_spot_prices
 
-        Returns {gpu_model: price_cents}.
-        """
-        with self._conn() as conn:
-            # Count supply per GPU model
-            supply_rows = conn.execute(
-                """SELECT gpu_model, SUM(gpu_count_available) as supply,
-                          MIN(ask_cents_per_hour) as min_ask
-                   FROM gpu_offers WHERE available = true
-                   GROUP BY gpu_model""",
-            ).fetchall()
-
-            # Count demand per GPU model (running + queued)
-            demand_rows = conn.execute(
-                """SELECT COALESCE(j.payload->>'gpu_model', 'unknown') as gpu_model, COUNT(*) as demand
-                   FROM jobs j
-                   WHERE j.status IN ('running', 'queued')
-                   GROUP BY j.payload->>'gpu_model'""",
-            ).fetchall()
-
-        supply_map = {
-            r["gpu_model"]: (int(r["supply"] or 0), int(r["min_ask"] or 20)) for r in supply_rows
-        }
-        demand_map = {r["gpu_model"]: int(r["demand"] or 0) for r in demand_rows}
-
-        spot_prices = {}
-        now = time.time()
-
-        all_gpus = set(supply_map.keys()) | set(demand_map.keys())
-        for gpu in all_gpus:
-            supply, base_cents = supply_map.get(gpu, (0, 20))
-            demand = demand_map.get(gpu, 0)
-            price = self.compute_spot_price(base_cents, demand, supply)
-            spot_prices[gpu] = price
-
-            # Record to history
-            with self._conn() as conn:
-                conn.execute(
-                    """INSERT INTO spot_price_history
-                       (gpu_model, clearing_price_cents, supply_count, demand_count, recorded_at)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (gpu, price, supply, demand, now),
-                )
-
-        log.info("SPOT PRICES: %s", {k: f"{v}¢" for k, v in spot_prices.items()})
-        return spot_prices
+        rates = update_all_spot_prices()
+        return {gpu: max(1, int(round(rate * 100))) for gpu, rate in rates.items()}
 
     def get_spot_price_history(
         self,
@@ -401,51 +358,20 @@ class MarketplaceEngine:
         hours: int = 24,
         limit: int = 200,
     ) -> list[dict]:
-        """Get spot price history for a GPU model."""
-        cutoff = time.time() - (hours * 3600)
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT gpu_model, clearing_price_cents, recorded_at
-                   FROM spot_price_history
-                   WHERE gpu_model = %s AND recorded_at >= %s
-                   ORDER BY recorded_at DESC LIMIT %s""",
-                (gpu_model, cutoff, limit),
-            ).fetchall()
-            return [
-                {
-                    "gpu_model": r["gpu_model"],
-                    "spot_cents": r["clearing_price_cents"],
-                    "recorded_at": r["recorded_at"],
-                }
-                for r in rows
-            ]
+        from spot_pricing import get_spot_price_history
+
+        return get_spot_price_history(gpu_model, hours=hours, limit=limit)
 
     def get_current_spot_prices(self) -> dict:
-        """Get latest spot price per GPU model (dict format for internal use)."""
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT DISTINCT ON (gpu_model) gpu_model, clearing_price_cents
-                   FROM spot_price_history
-                   ORDER BY gpu_model, recorded_at DESC""",
-            ).fetchall()
-            return {r["gpu_model"]: r["clearing_price_cents"] for r in rows}
+        from spot_pricing import get_current_spot_prices
+
+        rates = get_current_spot_prices()
+        return {gpu: max(1, int(round(rate * 100))) for gpu, rate in rates.items()}
 
     def get_current_spot_prices_list(self) -> list[dict]:
-        """Get latest spot price per GPU model (array format for API)."""
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT DISTINCT ON (gpu_model) gpu_model, clearing_price_cents, recorded_at
-                   FROM spot_price_history
-                   ORDER BY gpu_model, recorded_at DESC""",
-            ).fetchall()
-            return [
-                {
-                    "gpu_model": r["gpu_model"],
-                    "spot_cents": r["clearing_price_cents"],
-                    "recorded_at": r["recorded_at"],
-                }
-                for r in rows
-            ]
+        from spot_pricing import get_current_spot_prices_list
+
+        return get_current_spot_prices_list()
 
     # ── Reserved Instances ────────────────────────────────────────────
 
