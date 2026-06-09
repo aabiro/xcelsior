@@ -2427,6 +2427,9 @@ export interface ServerlessEndpoint {
   docker_image: string;
   image_ref?: string;
   mode: string;
+  managed_engine?: string;
+  vanity_slug?: string;
+  invoke_path?: string;
   startup_command?: string;
   http_port?: number;
   health_endpoint?: string;

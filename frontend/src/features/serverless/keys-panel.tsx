@@ -10,6 +10,7 @@ import * as api from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
 import { CopyableText } from "./copyable-text";
+import { ServerlessEmptyState } from "./serverless-ui";
 
 interface KeysPanelProps {
   endpointId: string;
@@ -83,16 +84,13 @@ export function KeysPanel({ endpointId, keys, canWrite, onRefresh }: KeysPanelPr
       )}
 
       {keys.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border py-12 text-center text-text-muted">
-          <Key className="mx-auto h-8 w-8 mb-2 opacity-40" />
-          <p className="text-sm">{t("dash.serverless.keys_empty")}</p>
-        </div>
+        <ServerlessEmptyState icon={Key} title={t("dash.serverless.keys_empty")} />
       ) : (
         <div className="space-y-2">
           {keys.map((k) => (
             <div
               key={k.key_id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3"
+              className="glow-card flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3 hover:border-accent-violet/20 transition-colors"
             >
               <div className="min-w-0">
                 <p className="font-medium text-sm">{k.name || "default"}</p>

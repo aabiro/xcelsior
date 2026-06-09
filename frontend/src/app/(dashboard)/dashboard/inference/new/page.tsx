@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
@@ -10,7 +9,8 @@ import type { GpuAvailability } from "@/lib/api";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { DeployStudio } from "@/features/serverless/deploy-studio";
-import { toast } from "sonner";
+import { ServerlessBackLink } from "@/features/serverless/serverless-ui";
+
 
 export default function DeployStudioPage() {
   const { user } = useAuth();
@@ -44,9 +44,7 @@ export default function DeployStudioPage() {
     return (
       <div className="space-y-4">
         <TeamContextBanner team={team} variant="general" />
-        <Link href="/dashboard/inference" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
-          <ArrowLeft className="h-4 w-4" /> {t("dash.serverless.back_list")}
-        </Link>
+        <ServerlessBackLink href="/dashboard/inference">{t("dash.serverless.back_list")}</ServerlessBackLink>
         <p className="text-text-muted py-12 text-center">{t("dash.serverless.viewer_blocked")}</p>
       </div>
     );
@@ -63,9 +61,7 @@ export default function DeployStudioPage() {
   return (
     <div className="space-y-6">
       <TeamContextBanner team={team} variant="general" />
-      <Link href="/dashboard/inference" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
-        <ArrowLeft className="h-4 w-4" /> {t("dash.serverless.back_list")}
-      </Link>
+      <ServerlessBackLink href="/dashboard/inference">{t("dash.serverless.back_list")}</ServerlessBackLink>
       <DeployStudio gpus={gpus} canWrite={canWrite} />
     </div>
   );

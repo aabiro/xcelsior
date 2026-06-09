@@ -5,6 +5,7 @@ import { Server, Loader2 } from "lucide-react";
 import type { ServerlessWorker } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
+import { ServerlessEmptyState } from "./serverless-ui";
 
 const STATE_COLORS: Record<string, string> = {
   ready: "active",
@@ -32,11 +33,11 @@ export function WorkersPanel({ workers, loading }: WorkersPanelProps) {
 
   if (workers.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border py-12 text-center text-text-muted">
-        <Server className="mx-auto h-8 w-8 mb-2 opacity-40" />
-        <p className="text-sm">{t("dash.serverless.workers_empty")}</p>
-        <p className="text-xs mt-1">{t("dash.serverless.workers_empty_desc")}</p>
-      </div>
+      <ServerlessEmptyState
+        icon={Server}
+        title={t("dash.serverless.workers_empty")}
+        description={t("dash.serverless.workers_empty_desc")}
+      />
     );
   }
 
@@ -45,7 +46,12 @@ export function WorkersPanel({ workers, loading }: WorkersPanelProps) {
       {workers.map((w) => (
         <div
           key={w.worker_id}
-          className="glow-card rounded-xl border border-border bg-surface p-4 flex items-start justify-between gap-3"
+          className={cn(
+            "glow-card rounded-xl border bg-surface p-4 flex items-start justify-between gap-3 transition-colors",
+            w.state === "ready" || w.state === "idle"
+              ? "border-accent-emerald/20 hover:border-accent-emerald/35"
+              : "border-border hover:border-accent-violet/20",
+          )}
         >
           <div className="min-w-0">
             <p className="font-mono text-xs text-text-muted truncate">{w.worker_id}</p>
