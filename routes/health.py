@@ -705,6 +705,30 @@ def metrics_prometheus():
         ]
     )
 
+    spot = snap.get("spot", {})
+    lines.extend(
+        [
+            "",
+            "# HELP xcelsior_spot_jobs_running Number of running spot (interruptible) jobs",
+            "# TYPE xcelsior_spot_jobs_running gauge",
+            f'xcelsior_spot_jobs_running {spot.get("jobs_running", 0)}',
+            "",
+            "# HELP xcelsior_spot_preemptions_total Total spot job preemptions",
+            "# TYPE xcelsior_spot_preemptions_total counter",
+            f'xcelsior_spot_preemptions_total {spot.get("preemptions_total", 0)}',
+        ]
+    )
+    for gpu_model, rate in (spot.get("rates_cad") or {}).items():
+        safe_model = str(gpu_model).replace('"', '\\"')
+        lines.extend(
+            [
+                "",
+                "# HELP xcelsior_spot_rate_cad Current unified spot rate in CAD per hour",
+                "# TYPE xcelsior_spot_rate_cad gauge",
+                f'xcelsior_spot_rate_cad{{gpu_model="{safe_model}"}} {rate}',
+            ]
+        )
+
     web_push = snap.get("web_push", {})
     lines.extend(
         [

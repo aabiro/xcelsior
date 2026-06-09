@@ -434,6 +434,15 @@ def _wallet_preflight(
     in_grace = float(wallet.get("grace_until", 0) or 0) >= time.time()
 
     if pricing_mode == "spot":
+        from spot.feature import spot_global_enabled
+
+        if not spot_global_enabled():
+            raise HTTPException(
+                503,
+                detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
+            )
+
+    if pricing_mode == "spot":
         from spot_pricing import compute_live_spot_quote
 
         model = (gpu_model or "").strip() or "RTX 4090"
@@ -621,6 +630,15 @@ def api_submit_instance(j: JobIn, request: Request):
                         detail=f"Volume {vid} is {vol.get('status', 'unknown')} and cannot be attached",
                     )
                 validated_volume_ids.append(vid)
+
+        if j.pricing_mode == "spot":
+            from spot.feature import spot_global_enabled
+
+            if not spot_global_enabled():
+                raise HTTPException(
+                    503,
+                    detail="Spot instances are temporarily unavailable. Please use on-demand or try again later.",
+                )
 
         if j.pricing_mode == "spot" and j.tier in ("premium", "sovereign"):
             raise HTTPException(

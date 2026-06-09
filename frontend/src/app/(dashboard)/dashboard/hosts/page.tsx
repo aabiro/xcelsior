@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,19 @@ import { cn } from "@/lib/utils";
 type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
 type SortDir = "asc" | "desc";
 
+function HostSortIcon({
+  col,
+  sortKey,
+  sortDir,
+}: {
+  col: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+}) {
+  if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+  return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+}
+
 export default function HostsPage() {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,20 +53,27 @@ export default function HostsPage() {
   const api = useApi();
   const { t } = useLocale();
 
-  const load = () => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api.fetchHosts()
       .then((res) => setHosts(res.hosts || []))
       .catch(() => toast.error("Failed to load hosts"))
       .finally(() => setLoading(false));
-  };
+  }, [api]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let active = true;
+    api.fetchHosts()
+      .then((res) => { if (active) setHosts(res.hosts || []); })
+      .catch(() => { if (active) toast.error("Failed to load hosts"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api]);
 
   // Live updates — re-fetch list on host changes
   useEventStream({
     eventTypes: ["host_registered", "host_removed", "job_status"],
-    onEvent: () => { load(); },
+    onEvent: () => { load({ refresh: true }); },
   });
 
   const filtered = hosts
@@ -72,17 +92,10 @@ export default function HostsPage() {
   const { paginate, totalPages } = usePagination(filtered, 10);
   const pageItems = paginate(page);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, statusFilter, sortKey, sortDir]);
-
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
     else { setSortKey(key); setSortDir("asc"); }
-  }
-
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
-    return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+    setPage(1);
   }
 
   const activeHosts = hosts.filter((h) => h.status === "active").length;
@@ -125,7 +138,7 @@ export default function HostsPage() {
             <Button
               variant="outline"
               className="h-10"
-              onClick={load}
+              onClick={() => load({ refresh: true })}
             >
               <RefreshCw className="h-4 w-4" />
               {t("common.refresh")}
@@ -169,7 +182,7 @@ export default function HostsPage() {
         description="Add your machine to the Xcelsior network and start earning from compute jobs."
         maxWidth="max-w-xl"
       >
-        <RegisterHostForm api={api} onDone={() => { setShowRegister(false); load(); }} />
+        <RegisterHostForm api={api} onDone={() => { setShowRegister(false); load({ refresh: true }); }} />
       </Dialog>
 
       {/* Install Worker Modal */}
@@ -198,13 +211,13 @@ export default function HostsPage() {
                 className="pl-10 h-10" 
                 placeholder="Search by hostname or ID..." 
                 value={search} 
-                onChange={(e) => setSearch(e.target.value)} 
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               />
             </div>
             <Select 
               className="h-10 min-w-[160px]" 
               value={statusFilter} 
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
@@ -266,7 +279,7 @@ export default function HostsPage() {
                     <span className="inline-flex items-center gap-2">
                       <Server className="h-3.5 w-3.5 text-text-muted" />
                       Host
-                      <SortIcon col="hostname" />
+                      <HostSortIcon col="hostname" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
                   <th 
@@ -276,7 +289,7 @@ export default function HostsPage() {
                     <span className="inline-flex items-center gap-2">
                       <Cpu className="h-3.5 w-3.5 text-text-muted" />
                       GPU Model
-                      <SortIcon col="gpu_model" />
+                      <HostSortIcon col="gpu_model" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
                   <th 
@@ -285,7 +298,7 @@ export default function HostsPage() {
                   >
                     <span className="inline-flex items-center gap-2 justify-center">
                       Status
-                      <SortIcon col="status" />
+                      <HostSortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
                   <th 
@@ -295,7 +308,7 @@ export default function HostsPage() {
                     <span className="inline-flex items-center gap-2 justify-center">
                       <HardDrive className="h-3.5 w-3.5 text-text-muted" />
                       VRAM
-                      <SortIcon col="vram_gb" />
+                      <HostSortIcon col="vram_gb" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
                   <th 
@@ -305,7 +318,7 @@ export default function HostsPage() {
                     <span className="inline-flex items-center gap-2 justify-center">
                       <DollarSign className="h-3.5 w-3.5 text-text-muted" />
                       Rate
-                      <SortIcon col="cost_per_hour" />
+                      <HostSortIcon col="cost_per_hour" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
                   <th className="h-12 px-5 text-right font-semibold text-text-primary">Actions</th>

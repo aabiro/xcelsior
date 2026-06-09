@@ -128,7 +128,7 @@ export default function EarningsPage() {
     const query = next.toString();
     router.replace(query ? `/dashboard/earnings?${query}` : "/dashboard/earnings", { scroll: false });
     setHandledStripeReturn(true);
-  }, [searchParams, handledStripeReturn, loading, provider?.status, router]);
+  }, [searchParams, handledStripeReturn, loading, provider?.status, router, load, customerId, providerId]);
 
   // Poll Stripe status after onboarding return until webhook-driven DB update lands.
   useEffect(() => {
@@ -167,7 +167,7 @@ export default function EarningsPage() {
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [pollingStatus, providerId, customerId]);
+  }, [pollingStatus, providerId, customerId, load, refreshUser]);
 
   const handleStripeConnect = async () => {
     const pid = providerId || customerId;
