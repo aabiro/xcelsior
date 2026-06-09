@@ -33,8 +33,40 @@ from serverless.repo import (
     WORKER_STATE_IDLE,
     WORKER_STATE_READY,
 )
-from serverless.service import ServerlessService, WalletPreflightError
+from serverless.service import (
+    ALLOWED_MANAGED_ENGINES,
+    ServerlessService,
+    WalletPreflightError,
+    _preset_image_for_engine,
+    _preset_startup_command,
+)
 from serverless.streams import format_done_chunk, format_sse_event
+
+
+class TestManagedEngines:
+    def test_allowed_managed_engines(self):
+        assert ALLOWED_MANAGED_ENGINES == frozenset({"vllm", "tgi", "sglang"})
+
+    def test_preset_image_for_engine(self):
+        assert _preset_image_for_engine("vllm") == "xcelsior/serverless-vllm:12.4"
+        assert "text-generation-inference" in _preset_image_for_engine("tgi")
+        assert "sglang" in _preset_image_for_engine("sglang")
+
+    def test_preset_startup_command_for_engine(self):
+        model = "meta-llama/Llama-3.1-8B-Instruct"
+        assert "--model" in _preset_startup_command("vllm", model)
+        assert _preset_startup_command("tgi", model) == f"--model-id {model}"
+        assert model in _preset_startup_command("sglang", model)
+
+    def test_rejects_unknown_managed_engine(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="preset",
+            managed_engine="tensorrt",
+            model_ref="meta-llama/Llama-3.1-8B-Instruct",
+        )
+        with pytest.raises(ValueError, match="managed_engine"):
+            ServerlessService.validate_endpoint_spec(spec)
 
 
 class TestAutoscalerMath:

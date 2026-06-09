@@ -48,7 +48,40 @@ from serverless.repo import (
 
 log = logging.getLogger("xcelsior.serverless.service")
 
+_QUEUE_DEPTH_HISTORY: dict[str, list[tuple[float, int]]] = {}
+_QUEUE_HISTORY_MAX = 20
+
+
+def _record_queue_depth_sample(endpoint_id: str, depth: int) -> list[tuple[float, int]]:
+    hist = _QUEUE_DEPTH_HISTORY.setdefault(endpoint_id, [])
+    hist.append((time.time(), depth))
+    if len(hist) > _QUEUE_HISTORY_MAX:
+        del hist[: len(hist) - _QUEUE_HISTORY_MAX]
+    return list(hist)
+
 DEFAULT_VLLM_IMAGE = "xcelsior/serverless-vllm:12.4"
+
+MANAGED_ENGINE_IMAGES: dict[str, str] = {
+    "vllm": DEFAULT_VLLM_IMAGE,
+    "tgi": "ghcr.io/huggingface/text-generation-inference:latest",
+    "sglang": "lmsysorg/sglang:latest",
+}
+ALLOWED_MANAGED_ENGINES = frozenset(MANAGED_ENGINE_IMAGES.keys())
+
+
+def _preset_image_for_engine(managed_engine: str) -> str:
+    return MANAGED_ENGINE_IMAGES.get(managed_engine, DEFAULT_VLLM_IMAGE)
+
+
+def _preset_startup_command(managed_engine: str, model_ref: str) -> str:
+    if managed_engine == "tgi":
+        return f"--model-id {model_ref}"
+    if managed_engine == "sglang":
+        return f"--model-path {model_ref} --port 8080"
+    return (
+        f"--model {model_ref} --max-model-len 4096 "
+        f"--chat-template-content-format openai"
+    )
 
 
 @dataclass
@@ -88,6 +121,10 @@ class ServerlessService:
             raise ValueError("mode must be 'preset' or 'custom'")
         if spec.mode == "preset" and not spec.model_ref:
             raise ValueError("model_ref is required for preset endpoints")
+        if spec.mode == "preset" and spec.managed_engine not in ALLOWED_MANAGED_ENGINES:
+            raise ValueError(
+                f"managed_engine must be one of: {', '.join(sorted(ALLOWED_MANAGED_ENGINES))}"
+            )
         if spec.mode == "custom" and not spec.image_ref:
             raise ValueError("image_ref is required for custom endpoints")
         if spec.min_workers < 0 or spec.max_workers < spec.min_workers:
@@ -119,14 +156,11 @@ class ServerlessService:
         self.wallet_preflight(spec.owner_id)
 
         if spec.mode == "preset" and not spec.image_ref:
-            spec.image_ref = DEFAULT_VLLM_IMAGE
+            spec.image_ref = _preset_image_for_engine(spec.managed_engine)
         if spec.mode == "preset" and spec.vram_required_gb <= 0:
             spec.vram_required_gb = self.estimate_vram_gb(spec.model_ref)
         if spec.mode == "preset" and not spec.startup_command:
-            spec.startup_command = (
-                f"--model {spec.model_ref} --max-model-len 4096 "
-                f"--chat-template-content-format openai"
-            )
+            spec.startup_command = _preset_startup_command(spec.managed_engine, spec.model_ref)
 
         vol_id = resolve_cache_volume(
             self.repo,
@@ -635,15 +669,18 @@ class ServerlessService:
             return {"endpoint_id": endpoint_id, "error": "not_found"}
 
         workers = self.repo.list_workers(endpoint_id)
+        queue_depth = self.repo.queue_depth(endpoint_id)
+        samples = _record_queue_depth_sample(endpoint_id, queue_depth)
         inp = AutoscalerInput(
             min_workers=int(ep.get("min_workers") or 0),
             max_workers=int(ep.get("max_workers") or 4),
             max_concurrency=int(ep.get("max_concurrency") or 4),
             scaling_policy_type=str(ep.get("scaling_policy_type") or "queue_request_count"),
             scaling_policy_value=int(ep.get("scaling_policy_value") or 1),
-            queue_depth=self.repo.queue_depth(endpoint_id),
+            queue_depth=queue_depth,
             max_queue_wait_sec=self.repo.max_queue_wait_sec(endpoint_id),
             workers=workers,
+            queue_depth_samples=samples,
         )
         desired = compute_desired_workers(inp)
         active = self.repo.count_active_workers(endpoint_id)

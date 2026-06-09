@@ -1,0 +1,29 @@
+{
+  "groups": {
+    "group:admin": ["xcelsior@"]
+  },
+  "tagOwners": {
+    "tag:xcelsior": ["xcelsior@"],
+    "tag:admin": ["xcelsior@"]
+  },
+  "acls": [
+    { "action": "accept", "src": ["group:admin"], "dst": ["*:*"] },
+    { "action": "accept", "src": ["tag:xcelsior"], "dst": ["autogroup:member:*"] },
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:xcelsior:*", "autogroup:self:*"] },
+    { "action": "accept", "src": ["tag:admin"], "dst": ["*:*"] }
+  ],
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["group:admin"],
+      "dst": ["tag:xcelsior"],
+      "users": ["linuxuser", "root"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["tag:xcelsior"],
+      "users": ["linuxuser"]
+    }
+  ]
+}

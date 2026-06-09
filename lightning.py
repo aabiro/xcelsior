@@ -249,7 +249,20 @@ def get_service_status() -> dict:
         result["network"] = info.get("network", "")
         result["available"] = True
     except Exception as e:
-        result["reason"] = f"Lightning node unavailable: {e}"
+        msg = str(e).lower()
+        if any(
+            token in msg
+            for token in (
+                "connection refused",
+                "connection failed",
+                "timed out",
+                "timeout",
+                "urlopen error",
+            )
+        ):
+            result["reason"] = "Lightning node is starting (waiting for Bitcoin node)"
+        else:
+            result["reason"] = f"Lightning node unavailable: {e}"
 
     return result
 
