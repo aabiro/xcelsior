@@ -1286,10 +1286,12 @@ def _tool_recommend_gpu(args: dict, _user: dict) -> dict:  # noqa: C901
 def _tool_estimate_cost(args: dict, _user: dict) -> dict:
     from reputation import GPU_REFERENCE_PRICING_CAD
     from scheduler import PRIORITY_TIERS, get_current_spot_prices
+    from spot_pricing import compute_live_spot_quote
 
     gpu_model = args.get("gpu_model", "RTX 4090")
     gpu_count = args.get("gpu_count", 1)
     hours = args.get("hours", 1)
+    use_spot = bool(args.get("spot") or args.get("pricing_mode") == "spot")
     if not isinstance(gpu_count, (int, float)) or gpu_count < 1 or gpu_count > MAX_GPU_COUNT:
         return {"error": "GPU count must be between 1 and 64."}
     if not isinstance(hours, (int, float)) or hours <= 0 or hours > MAX_JOB_HOURS:
@@ -1311,16 +1313,22 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
     reserved_mult = PRIORITY_TIERS.get("reserved", {}).get("multiplier", 0.8)
 
     on_demand = ref_price * on_demand_mult * gpu_count * hours
-    spot = ref_price * spot_mult * gpu_count * hours
     reserved = ref_price * reserved_mult * gpu_count * hours
 
-    # Also check real spot prices
+    try:
+        live_spot_rate = compute_live_spot_quote(gpu_model).rate_cad
+    except Exception:
+        live_spot_rate = None
+
     real_spots = get_current_spot_prices()
-    live_spot_price = None
-    for skey, sprice in real_spots.items():
-        if skey.lower().replace(" ", "") in gpu_model.lower().replace(" ", ""):
-            live_spot_price = sprice * gpu_count * hours
-            break
+    if live_spot_rate is None:
+        for skey, sprice in real_spots.items():
+            if skey.lower().replace(" ", "") in gpu_model.lower().replace(" ", ""):
+                live_spot_rate = sprice
+                break
+
+    spot_rate = live_spot_rate if live_spot_rate is not None else ref_price * spot_mult
+    spot = spot_rate * gpu_count * hours
 
     result = {
         "gpu_model": gpu_model,
@@ -1330,14 +1338,16 @@ def _tool_estimate_cost(args: dict, _user: dict) -> dict:
         "on_demand_cad": round(on_demand, 2),
         "spot_cad": round(spot, 2),
         "reserved_cad": round(reserved, 2),
+        "spot_rate_cad_per_gpu_hr": round(spot_rate, 4),
+        "pricing_mode": "spot" if use_spot else "on_demand",
         "tier_multipliers": {
             "on_demand": on_demand_mult,
             "spot": spot_mult,
             "reserved": reserved_mult,
         },
     }
-    if live_spot_price is not None:
-        result["live_spot_cad"] = round(live_spot_price, 2)
+    if use_spot:
+        result["estimate_cad"] = round(spot, 2)
     return result
 
 

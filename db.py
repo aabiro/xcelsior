@@ -463,6 +463,14 @@ def _ensure_pg_tables(conn):
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_billing_cycles_created_at " "ON billing_cycles (created_at)"
     )
+    cur.execute(
+        "ALTER TABLE billing_cycles "
+        "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
+    )
+    cur.execute(
+        "ALTER TABLE usage_meters "
+        "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
+    )
 
     # ── Persistent volumes ──
     cur.execute("""

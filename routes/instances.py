@@ -951,6 +951,16 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     """Update a job's status."""
     _require_worker_status_update(request)
     with otel_span("job.status_update", {"job.id": job_id, "job.status": update.status}):
+        if update.status == "preempted":
+            try:
+                from billing import get_billing_engine
+
+                get_billing_engine().bill_running_period(
+                    job_id, period_end=time.time(), min_seconds=0
+                )
+            except Exception as exc:
+                log.warning("Worker preempt billing close failed for %s: %s", job_id, exc)
+
         try:
             update_job_status(job_id, update.status, host_id=update.host_id)
         except ValueError as e:

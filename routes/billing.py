@@ -1664,7 +1664,11 @@ def api_usage_analytics(
                     "SELECT COUNT(*) AS total_jobs, "
                     "ROUND(COALESCE(SUM(total_cost_cad), 0)::numeric, 2) AS total_spend, "
                     "ROUND((COALESCE(SUM(gpu_seconds), 0) / 3600.0)::numeric, 2) AS total_gpu_hours, "
-                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util "
+                    "ROUND(COALESCE(AVG(gpu_utilization_pct), 0)::numeric, 1) AS avg_util, "
+                    "ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot' "
+                    "THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS spot_spend, "
+                    "ROUND(COALESCE(SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot' "
+                    "THEN total_cost_cad ELSE 0 END), 0)::numeric, 2) AS on_demand_spend "
                     f"FROM usage_meters WHERE {where_sql}",
                 ),
                 params,
@@ -1683,6 +1687,8 @@ def api_usage_analytics(
             "total_spend_cad": float(summary_row["total_spend"] or 0) if summary_row else 0,
             "total_gpu_hours": float(summary_row["total_gpu_hours"] or 0) if summary_row else 0,
             "avg_gpu_utilization_pct": float(summary_row["avg_util"] or 0) if summary_row else 0,
+            "spot_spend_cad": float(summary_row["spot_spend"] or 0) if summary_row else 0,
+            "on_demand_spend_cad": float(summary_row["on_demand_spend"] or 0) if summary_row else 0,
         },
     }
 
