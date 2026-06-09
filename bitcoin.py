@@ -485,7 +485,12 @@ def get_service_status() -> dict:
         status["wallet_ready"] = True
     except Exception as exc:
         log.warning("BTC wallet readiness check failed: %s", exc)
-        status["reason"] = describe_service_error(exc)
+        if _is_bitcoin_warming_up(exc):
+            status["reason"] = describe_service_error(exc)
+        elif _is_transport_error(exc):
+            status["reason"] = "Bitcoin wallet is loading — try again shortly"
+        else:
+            status["reason"] = describe_service_error(exc)
         return status
 
     status["available"] = True
