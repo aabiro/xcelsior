@@ -11,9 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_FRAGMENTS = (
     "migrations/versions/040_retire_spot_bidding.py",
     "tests/test_no_max_bid_references.py",
+    "tests/test_spot_e2e_staging.py",
     "docs/SPOT_INSTANCE_INTEGRATION_PLAN.md",
     "frontend/src/__tests__/launch-instance-modal-spot.test.tsx",
+    "scripts/spot_staging_smoke.py",
     "CHANGELOG.md",
+    "SPOT_ROLLOUT.md",
     "fern/pages/",
     "README.md",
 )
