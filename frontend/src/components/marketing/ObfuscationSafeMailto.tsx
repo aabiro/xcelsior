@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMounted } from "@/hooks/useMounted";
 
 /**
  * Cloudflare Email Obfuscation rewrites mailto text in the HTML edge response
@@ -16,11 +16,7 @@ export function ObfuscationSafeMailto({
   children: React.ReactNode;
   className?: string;
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useMounted();
 
   if (!mounted) {
     return (

@@ -33,6 +33,19 @@ import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-di
 
 type SortKey = "name" | "gpu_type" | "status" | "created_at";
 type SortDir = "asc" | "desc";
+
+function InstanceSortIcon({
+  col,
+  sortKey,
+  sortDir,
+}: {
+  col: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+}) {
+  if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+  return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+}
 type InstanceAction =
   | "stop" | "start" | "restart" | "reset" | "terminate"
   | "cancel" | "requeue" | "lock" | "unlock";
@@ -290,8 +303,8 @@ export default function InstancesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api.fetchInstances()
       .then((res) => {
         setInstances(res.instances || []);
@@ -301,7 +314,18 @@ export default function InstancesPage() {
       .finally(() => setLoading(false));
   }, [api]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    api.fetchInstances()
+      .then((res) => {
+        if (!active) return;
+        setInstances(res.instances || []);
+        setConcurrency(res.concurrency ?? null);
+      })
+      .catch(() => { if (active) toast.error("Failed to load instances"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api]);
 
   useEffect(() => {
     const onTeamChanged = () => { load(); };
@@ -422,16 +446,10 @@ export default function InstancesPage() {
   const { paginate, totalPages } = usePagination(filtered, 10);
   const pageItems = paginate(page);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter, sortKey, sortDir]);
-
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
     else { setSortKey(key); setSortDir("asc"); }
-  }
-
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
-    return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+    setPage(1);
   }
 
   return (
@@ -439,7 +457,7 @@ export default function InstancesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("dash.instances.title")}</h1>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={load}>
+          <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>
           <Button size="sm" onClick={openLaunchModal} disabled={!team.canWriteInstances}>
@@ -458,10 +476,10 @@ export default function InstancesPage() {
             className="pl-9"
             placeholder={t("dash.instances.search")}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
-        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+        <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
           <option value="all">{t("dash.instances.all_status")}</option>
           <option value="queued">{t("dash.instances.queued")}</option>
           <option value="running">{t("dash.instances.running")}</option>
@@ -497,7 +515,7 @@ export default function InstancesPage() {
                   onClick={() => toggleSort("name")}
                 >
                   <span className="inline-flex items-center gap-1">
-                    {t("dash.instances.col_job")} <SortIcon col="name" />
+                    {t("dash.instances.col_job")} <InstanceSortIcon col="name" sortKey={sortKey} sortDir={sortDir} />
                   </span>
                 </th>
                 <th
@@ -505,7 +523,7 @@ export default function InstancesPage() {
                   onClick={() => toggleSort("gpu_type")}
                 >
                   <span className="inline-flex items-center gap-1">
-                    {t("dash.instances.col_gpu")} <SortIcon col="gpu_type" />
+                    {t("dash.instances.col_gpu")} <InstanceSortIcon col="gpu_type" sortKey={sortKey} sortDir={sortDir} />
                   </span>
                 </th>
                 <th
@@ -513,7 +531,7 @@ export default function InstancesPage() {
                   onClick={() => toggleSort("status")}
                 >
                   <span className="inline-flex items-center gap-1 justify-center">
-                    {t("dash.instances.col_status")} <SortIcon col="status" />
+                    {t("dash.instances.col_status")} <InstanceSortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
                   </span>
                 </th>
                 <th
@@ -521,7 +539,7 @@ export default function InstancesPage() {
                   onClick={() => toggleSort("created_at")}
                 >
                   <span className="inline-flex items-center gap-1 justify-center">
-                    {t("dash.instances.col_created")} <SortIcon col="created_at" />
+                    {t("dash.instances.col_created")} <InstanceSortIcon col="created_at" sortKey={sortKey} sortDir={sortDir} />
                   </span>
                 </th>
                 <th className="py-3 px-4 text-right font-medium">{t("dash.instances.col_actions")}</th>

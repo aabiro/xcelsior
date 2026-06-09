@@ -404,7 +404,6 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       // Diagnostic — survives through production; cheap and invaluable when
       // debugging why a socket dropped (code 1006 = abnormal, 1011 = server
       // internal, 4xxx = our custom errors).
-      // eslint-disable-next-line no-console
       console.debug("[terminal] ws closed", event.code, event.reason);
 
       // Stop heartbeat timers on every close — they'll be restarted by

@@ -21,7 +21,7 @@ export interface JobIn {
     interactive?: boolean;
     command?: string | null;
     ssh_port?: number;
-    pricing_mode?: "on_demand" | "spot";
+    pricing_mode?: JobIn.PricingMode;
     volume_ids?: string[] | null;
     encrypted_workspace?: boolean;
     init_script?: string | null;
@@ -29,4 +29,12 @@ export interface JobIn {
     auto_launch?: string[] | null;
     exposed_ports?: number[] | null;
     template_image_id?: string | null;
+}
+
+export namespace JobIn {
+    export const PricingMode = {
+        OnDemand: "on_demand",
+        Spot: "spot",
+    } as const;
+    export type PricingMode = (typeof PricingMode)[keyof typeof PricingMode];
 }

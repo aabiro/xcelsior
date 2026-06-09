@@ -67,8 +67,8 @@ export default function CompliancePage() {
   const [slaTiers, setSlaTiers] = useState<SlaTier[]>([]);
   const [slaHosts, setSlaHosts] = useState<SlaHostSummary[]>([]);
 
-  const loadChecks = useCallback(() => {
-    setLoading(true);
+  const loadChecks = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     fetch("/api/compliance/status", { credentials: "include" })
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((d) => setChecks(Array.isArray(d.checks) ? d.checks : []))
@@ -77,7 +77,12 @@ export default function CompliancePage() {
   }, []);
 
   useEffect(() => {
-    loadChecks();
+    let active = true;
+    fetch("/api/compliance/status", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((d) => { if (active) setChecks(Array.isArray(d.checks) ? d.checks : []); })
+      .catch(() => { if (active) toast.error("Failed to load compliance data"); })
+      .finally(() => { if (active) setLoading(false); });
 
     // Province data — transform rates Record to array
     api.fetchTaxRates().then((d) => {
@@ -117,7 +122,7 @@ export default function CompliancePage() {
       }));
       setSlaHosts(hosts);
     }).catch((e) => console.error("Failed to load SLA hosts", e));
-  }, [loadChecks]);
+  }, []);
 
   const pass = checks.filter((c) => c.status === "pass").length;
   const warn = checks.filter((c) => c.status === "warn").length;
@@ -133,7 +138,7 @@ export default function CompliancePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("dash.comp.title")}</h1>
-        <Button variant="outline" size="sm" onClick={loadChecks}>
+        <Button variant="outline" size="sm" onClick={() => loadChecks({ refresh: true })}>
           <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
         </Button>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
@@ -47,8 +47,8 @@ export default function TelemetryPage() {
   const api = useApi();
   const { t } = useLocale();
 
-  const load = () => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api.fetchTelemetry()
       .then((res) => {
         // Backend returns { ok, hosts: { [host_id]: { timestamp, metrics: {...}, stale } } }
@@ -57,9 +57,20 @@ export default function TelemetryPage() {
       })
       .catch(() => toast.error("Failed to load telemetry"))
       .finally(() => setLoading(false));
-  };
+  }, [api]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let active = true;
+    api.fetchTelemetry()
+      .then((res) => {
+        if (!active) return;
+        const raw = (res as unknown as { hosts?: Record<string, Record<string, unknown>> }).hosts || {};
+        setHosts(Object.entries(raw).map(([id, v]) => mapHost(id, v)));
+      })
+      .catch(() => { if (active) toast.error("Failed to load telemetry"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api]);
 
   // Aggregate across all hosts (sum utilization, avg temp, sum memory/power)
   const count = hosts.length;
@@ -91,7 +102,7 @@ export default function TelemetryPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("dash.telemetry.title")}</h1>
-        <Button variant="outline" size="sm" onClick={load}>
+        <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
           <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
         </Button>
       </div>

@@ -24,8 +24,10 @@ export function GPUAvailabilityContent() {
   const [liveData, setLiveData] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  async function load() {
-    setLoadState((s) => (s === "ready" ? "ready" : "loading"));
+  async function load(opts?: { refresh?: boolean }) {
+    if (opts?.refresh) {
+      setLoadState((s) => (s === "ready" ? "ready" : "loading"));
+    }
     let hostsOk = false;
     let pricingOk = false;
     try {
@@ -109,9 +111,99 @@ export function GPUAvailabilityContent() {
   }
 
   useEffect(() => {
-    load();
-    const interval = setInterval(load, 30_000);
-    return () => clearInterval(interval);
+    let active = true;
+
+    async function fetchAvailability() {
+      let hostsOk = false;
+      let pricingOk = false;
+      try {
+        const [gpuRes, pricingRes] = await Promise.all([
+          fetch(`${API}/api/v2/gpu/available`, { credentials: "omit" }),
+          fetch(`${API}/api/pricing/reference`, { credentials: "omit" }),
+        ]);
+
+        if (!active) return;
+        hostsOk = gpuRes.ok;
+        pricingOk = pricingRes.ok;
+        const gpuBody = hostsOk ? await gpuRes.json() : { gpus: [] };
+        const pricingBody = pricingOk ? await pricingRes.json() : { pricing: {} };
+
+        const offers: Array<Record<string, unknown>> = gpuBody.gpus || [];
+        const pricing: Record<string, Record<string, number>> = pricingBody.pricing || {};
+
+        const byModel = new Map<
+          string,
+          { available: number; total: number; vram: number; locations: Set<string> }
+        >();
+
+        for (const row of offers) {
+          const model = (row.gpu_model as string) || "Unknown";
+          const vram = Number(row.vram_gb) || 0;
+          const count = Number(row.count_available) || 0;
+          const province = (row.province as string) || "";
+          if (!byModel.has(model)) {
+            byModel.set(model, { available: 0, total: 0, vram, locations: new Set() });
+          }
+          const entry = byModel.get(model)!;
+          entry.available += count;
+          entry.total += count;
+          if (province) entry.locations.add(province);
+          if (vram > entry.vram) entry.vram = vram;
+        }
+
+        for (const [model, info] of Object.entries(pricing)) {
+          if (!byModel.has(model)) {
+            const vram = model.includes("H100")
+              ? 80
+              : model.includes("A100")
+                ? 80
+                : model.includes("L40")
+                  ? 48
+                  : model.includes("4090")
+                    ? 24
+                    : 24;
+            byModel.set(model, { available: 0, total: 0, vram, locations: new Set() });
+          }
+        }
+
+        const summaries: HostSummary[] = [];
+        for (const [model, entry] of byModel) {
+          const ref = pricing[model] || {};
+          const base = (ref.base_rate_cad as number) || 0;
+          summaries.push({
+            gpu_model: model,
+            available: entry.available,
+            total: entry.total,
+            vram_gb: entry.vram,
+            price_cad: base,
+            spot_cad: base ? base * 0.6 : 0,
+            locations: Array.from(entry.locations),
+          });
+        }
+
+        summaries.sort(
+          (a, b) =>
+            (b.available > 0 ? 1 : 0) - (a.available > 0 ? 1 : 0) || a.price_cad - b.price_cad,
+        );
+
+        setGpus(summaries);
+        setLiveData(hostsOk && offers.length > 0);
+        setLastUpdated(new Date());
+        setLoadState(hostsOk || pricingOk ? (hostsOk ? "ready" : "degraded") : "error");
+      } catch {
+        if (!active) return;
+        setGpus([]);
+        setLiveData(false);
+        setLoadState("error");
+      }
+    }
+
+    void fetchAvailability();
+    const interval = setInterval(() => { void load({ refresh: true }); }, 30_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   return (

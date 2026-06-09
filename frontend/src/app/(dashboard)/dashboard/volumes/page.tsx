@@ -87,8 +87,8 @@ export default function VolumesPage() {
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [snapshotCreating, setSnapshotCreating] = useState(false);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     Promise.all([
       api.listVolumes().then((res) => setVolumes(res.volumes || [])),
       api.fetchInstances().then((res) => setInstances(res.instances || [])).catch(() => {}),
@@ -97,9 +97,20 @@ export default function VolumesPage() {
     ])
       .catch(() => toast.error(t("dash.volumes.load_failed")))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api.listVolumes().then((res) => { if (active) setVolumes(res.volumes || []); }),
+      api.fetchInstances().then((res) => { if (active) setInstances(res.instances || []); }).catch(() => {}),
+      api.fetchAvailableGPUs().then((res) => { if (active) setGpus(res.gpus || []); }).catch(() => {}),
+      api.fetchHosts().then((res) => { if (active) setHosts(res.hosts || []); }).catch(() => {}),
+    ])
+      .catch(() => { if (active) toast.error(t("dash.volumes.load_failed")); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [t]);
 
   useEffect(() => {
     const onTeamChanged = () => { load(); };
@@ -321,7 +332,7 @@ export default function VolumesPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button variant="outline" className="h-10" onClick={load}>
+            <Button variant="outline" className="h-10" onClick={() => load({ refresh: true })}>
               <RefreshCw className="h-4 w-4" /> Refresh
             </Button>
             <Button

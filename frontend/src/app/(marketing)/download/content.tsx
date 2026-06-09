@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { m } from "@/components/marketing/motion";
 import {
@@ -98,12 +98,10 @@ const DESKTOP_FEATURES = [
 ];
 
 export function DownloadContent() {
-  const [detected, setDetected] = useState<Platform | null>(null);
+  const [detected] = useState<Platform | null>(() =>
+    typeof window === "undefined" ? null : detectPlatform(),
+  );
   const { t } = useLocale();
-
-  useEffect(() => {
-    setDetected(detectPlatform());
-  }, []);
 
   const primary =
     detected == null || detected === "unknown"

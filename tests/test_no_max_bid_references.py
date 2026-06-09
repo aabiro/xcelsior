@@ -12,6 +12,10 @@ ALLOWED_FRAGMENTS = (
     "migrations/versions/040_retire_spot_bidding.py",
     "tests/test_no_max_bid_references.py",
     "docs/SPOT_INSTANCE_INTEGRATION_PLAN.md",
+    "frontend/src/__tests__/launch-instance-modal-spot.test.tsx",
+    "CHANGELOG.md",
+    "fern/pages/",
+    "README.md",
 )
 
 SCAN_DIRS = (

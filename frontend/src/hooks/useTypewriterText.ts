@@ -17,18 +17,24 @@ export function useTypewriterText(
   useEffect(() => {
     if (previousKeyRef.current !== resetKey) {
       previousKeyRef.current = resetKey;
-      setDisplayedText(animate ? "" : text);
-      return;
+      const frameId = requestAnimationFrame(() => {
+        setDisplayedText(animate ? "" : text);
+      });
+      return () => cancelAnimationFrame(frameId);
     }
 
     if (!text) {
-      setDisplayedText("");
-      return;
+      const frameId = requestAnimationFrame(() => {
+        setDisplayedText("");
+      });
+      return () => cancelAnimationFrame(frameId);
     }
 
     if (!text.startsWith(displayedText)) {
-      setDisplayedText(text);
-      return;
+      const frameId = requestAnimationFrame(() => {
+        setDisplayedText(text);
+      });
+      return () => cancelAnimationFrame(frameId);
     }
 
     if (displayedText.length >= text.length) return;

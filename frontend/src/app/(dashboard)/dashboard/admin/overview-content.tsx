@@ -33,15 +33,21 @@ export default function AdminOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api.fetchAdminOverview(days).then(setData).finally(() => setLoading(false));
   }, [days]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    api.fetchAdminOverview(days)
+      .then((res) => { if (active) setData(res); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [days]);
   useEventStream({
     eventTypes: ["job_status", "job_submitted", "host_registered", "host_removed", "user_registered"],
-    onEvent: load,
+    onEvent: () => load({ refresh: true }),
   });
 
   const k = data?.kpis;
@@ -71,7 +77,7 @@ export default function AdminOverviewPage() {
               </button>
             ))}
           </div>
-          <Button variant="outline" size="sm" onClick={load}>
+          <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
         </div>

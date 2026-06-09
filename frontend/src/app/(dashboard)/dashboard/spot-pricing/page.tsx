@@ -246,7 +246,6 @@ export default function SpotPricingPage() {
                       fontSize: 12,
                     }}
                     labelStyle={{ color: "#94a3b8" }}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     formatter={((value: any, _name: any, item: any) => {
                       const cad = item?.payload?.priceCad ?? Number(value) / 100;
                       return [`$${cad.toFixed(2)} CAD/hr`, "Spot Price"];

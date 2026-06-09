@@ -16,18 +16,16 @@ function AcceptInviteContent() {
   const { user, loading: authLoading, refreshUser } = useAuth();
   const token = searchParams.get("token") ?? "";
 
-  const [status, setStatus] = useState<"loading" | "pending" | "accepted" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "pending" | "accepted" | "error">(
+    () => (token ? "loading" : "error"),
+  );
   const [teamName, setTeamName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [role, setRole] = useState("member");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState(() => (token ? "" : "Invalid invite link."));
 
   useEffect(() => {
-    if (!token) {
-      setStatus("error");
-      setErrorMsg("Invalid invite link.");
-      return;
-    }
+    if (!token) return;
     // Peek at the invite
     apiFetch<{ ok: boolean; pending?: boolean; accepted?: boolean; team_name: string; email: string; role: string; token?: string }>(
       `/api/teams/invite/${encodeURIComponent(token)}`

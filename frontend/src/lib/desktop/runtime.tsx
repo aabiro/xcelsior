@@ -162,7 +162,6 @@ export function DesktopRuntimeProvider({ children }: { children: ReactNode }) {
     return () => {
       unlisten?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDesktopDevice]);
 
   useEffect(() => {

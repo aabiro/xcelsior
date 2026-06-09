@@ -77,15 +77,24 @@ export default function NotificationsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     fetchNotifications(filter === "unread", 200)
       .then((r) => setNotifications(Array.isArray(r.notifications) ? r.notifications : []))
       .catch((e) => console.error("Failed to load notifications", e))
       .finally(() => setLoading(false));
   }, [filter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    fetchNotifications(filter === "unread", 200)
+      .then((r) => {
+        if (active) setNotifications(Array.isArray(r.notifications) ? r.notifications : []);
+      })
+      .catch((e) => { if (active) console.error("Failed to load notifications", e); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [filter]);
 
   // Live updates
   useEventStream({
@@ -93,7 +102,7 @@ export default function NotificationsPage() {
       "job_submitted", "job_status", "job_completed", "job_failed",
       "host_registered", "host_removed", "preemption_scheduled", "job_preempted",
     ],
-    onEvent: () => { load(); },
+    onEvent: () => { load({ refresh: true }); },
   });
 
   async function handleMarkRead(id: string) {

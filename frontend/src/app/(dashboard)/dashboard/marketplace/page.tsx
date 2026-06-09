@@ -37,8 +37,8 @@ export default function MarketplacePage() {
     );
   };
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api
       .fetchMarketplace()
       .then((res) => setListings(res.listings || []))
@@ -47,12 +47,19 @@ export default function MarketplacePage() {
   }, [api]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let active = true;
+    api.fetchMarketplace()
+      .then((res) => { if (active) setListings(res.listings || []); })
+      .catch(() => { if (active) toast.error("Failed to load marketplace"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api]);
 
   useEffect(() => {
+    let active = true;
     api.fetchSpotPrices()
       .then((res) => {
+        if (!active) return;
         const raw = res.spot_prices || res.prices || {};
         const normalized: Record<string, number> = {};
         for (const [model, value] of Object.entries(raw)) {
@@ -61,7 +68,8 @@ export default function MarketplacePage() {
         setSpotRates(normalized);
       })
       .catch(() => {});
-  }, []);
+    return () => { active = false; };
+  }, [api]);
 
   const gpuModels = useMemo(
     () => [...new Set(listings.map((l) => l.gpu_model).filter((v): v is string => !!v))],
@@ -114,15 +122,12 @@ export default function MarketplacePage() {
   const { paginate, totalPages } = usePagination(filtered, 12);
   const pageItems = paginate(page);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, gpuFilter, regionFilter, sortBy]);
-
   const clearFilters = () => {
     setSearch("");
     setGpuFilter("all");
     setRegionFilter("all");
     setSortBy("price_asc");
+    setPage(1);
   };
 
   const hasFilters = !!search || gpuFilter !== "all" || regionFilter !== "all";
@@ -142,7 +147,7 @@ export default function MarketplacePage() {
             </p>
             <div className="flex items-center gap-2 pt-2">
               <button
-                onClick={load}
+                onClick={() => load({ refresh: true })}
                 className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary hover:border-ice-blue/40 hover:text-text-primary transition-colors"
               >
                 <RefreshCw className="h-3 w-3" />
@@ -228,13 +233,13 @@ export default function MarketplacePage() {
             className="w-full rounded-full border border-border/60 bg-surface py-2 pl-9 pr-3 text-sm placeholder:text-text-muted focus:border-ice-blue/50 focus:outline-none focus:ring-1 focus:ring-ice-blue/30"
             placeholder={t("dash.market.search")}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
 
         <PillSelect
           value={gpuFilter}
-          onChange={setGpuFilter}
+          onChange={(value) => { setGpuFilter(value); setPage(1); }}
           icon={<Cpu className="h-3 w-3" />}
           options={[
             { value: "all", label: "All GPUs" },
@@ -244,7 +249,7 @@ export default function MarketplacePage() {
 
         <PillSelect
           value={regionFilter}
-          onChange={setRegionFilter}
+          onChange={(value) => { setRegionFilter(value); setPage(1); }}
           icon={<Globe2 className="h-3 w-3" />}
           options={[
             { value: "all", label: "All regions" },
@@ -254,7 +259,7 @@ export default function MarketplacePage() {
 
         <PillSelect
           value={sortBy}
-          onChange={setSortBy}
+          onChange={(value) => { setSortBy(value); setPage(1); }}
           options={[
             { value: "price_asc", label: t("dash.market.price_low") },
             { value: "price_desc", label: t("dash.market.price_high") },

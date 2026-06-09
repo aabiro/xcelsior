@@ -20,6 +20,36 @@ import { toast } from "sonner";
 type User = Awaited<ReturnType<typeof api.fetchAdminUsers>>["users"][number];
 type SortKey = "email" | "role" | "created_at" | "wallet_balance_cad" | "total_jobs";
 
+function UserSortHeader({
+  label,
+  field,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  field: SortKey;
+  sortKey: SortKey;
+  sortDir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <th
+      className="py-3 px-4 text-left font-medium cursor-pointer select-none hover:text-text-primary transition-colors"
+      onClick={() => onSort(field)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortKey === field ? (
+          sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-30" />
+        )}
+      </span>
+    </th>
+  );
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,19 +59,26 @@ export default function AdminUsersPage() {
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api.fetchAdminUsers()
       .then((r) => setUsers(Array.isArray(r.users) ? r.users : []))
       .catch(() => toast.error("Failed to load users"))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    api.fetchAdminUsers()
+      .then((r) => { if (active) setUsers(Array.isArray(r.users) ? r.users : []); })
+      .catch(() => { if (active) toast.error("Failed to load users"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEventStream({
     eventTypes: ["user_registered", "user_role_changed", "user_admin_toggled"],
-    onEvent: load,
+    onEvent: () => load({ refresh: true }),
   });
 
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
@@ -145,22 +182,6 @@ export default function AdminUsersPage() {
     URL.revokeObjectURL(url);
   };
 
-  const SortHeader = ({ label, field }: { label: string; field: SortKey }) => (
-    <th
-      className="py-3 px-4 text-left font-medium cursor-pointer select-none hover:text-text-primary transition-colors"
-      onClick={() => toggleSort(field)}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {sortKey === field ? (
-          sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
-        ) : (
-          <ArrowUpDown className="h-3 w-3 opacity-30" />
-        )}
-      </span>
-    </th>
-  );
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -170,7 +191,7 @@ export default function AdminUsersPage() {
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="h-3.5 w-3.5" /> CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={load}>
+          <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
         </div>
@@ -229,14 +250,14 @@ export default function AdminUsersPage() {
                       <thead>
                         <tr className="border-b border-border text-text-secondary">
                           <th className="py-3 px-4 w-8"></th>
-                          <SortHeader label="Email" field="email" />
-                          <SortHeader label="Role" field="role" />
+                          <UserSortHeader label="Email" field="email" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                          <UserSortHeader label="Role" field="role" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                           <th className="py-3 px-4 text-center font-medium">Access</th>
                           <th className="py-3 px-4 text-center font-medium">Status</th>
-                          <SortHeader label="Wallet (CAD)" field="wallet_balance_cad" />
-                          <SortHeader label="Jobs" field="total_jobs" />
+                          <UserSortHeader label="Wallet (CAD)" field="wallet_balance_cad" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                          <UserSortHeader label="Jobs" field="total_jobs" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                           <th className="py-3 px-4 text-left font-medium">Province</th>
-                          <SortHeader label="Created" field="created_at" />
+                          <UserSortHeader label="Created" field="created_at" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                           <th className="py-3 px-4 w-10"></th>
                         </tr>
                       </thead>
