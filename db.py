@@ -301,7 +301,13 @@ _GPU_PRICING_BASE: list[tuple[str, int, str, bool, float]] = [
 
 # Deterministic expansion of base rates into the full tier × mode matrix.
 _TIER_MULT = {"standard": 1.0, "premium": 1.30, "sovereign": 1.43}  # sovereign = premium × 1.10
-_MODE_MULT = {"on_demand": 1.0, "spot": 0.40, "reserved_1mo": 0.80, "reserved_1yr": 0.55}
+_MODE_MULT = {
+    "on_demand": 1.0,
+    "spot": 0.40,
+    "reserved_1mo": 0.80,
+    "reserved_3mo": 0.70,  # 30% off — matches billing API 3_month commitment
+    "reserved_1yr": 0.55,
+}
 _TIER_SOVEREIGNTY = {"standard": 0.0, "premium": 0.0, "sovereign": 0.10}
 
 

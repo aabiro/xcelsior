@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Xcelsior",
-    "description": "Distributed GPU orchestration platform for AI/ML workloads. Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.",
+    "description": "Distributed GPU orchestration platform for AI/ML workloads. Canadian-first data sovereignty (PIPEDA/Law 25), automated trust scoring, Stripe Connect marketplace billing, and real-time GPU telemetry.\n\n**Authentication**: Bearer token via `Authorization: Bearer <token>` header.\n\n**Regions**: Canada-first with province-level filtering (ON, QC, BC, AB, etc.).\n\n**SDK**: Generate idiomatic Python/TypeScript SDKs with [Fern](https://buildwithfern.com).\n\n**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.\n\nThis published OpenAPI document contains the public developer surface only. Account settings, internal worker, admin, maintenance, and callback endpoints are intentionally omitted.",
     "contact": {
       "name": "Xcelsior",
       "url": "https://xcelsior.ca/",
@@ -3198,6 +3198,28 @@
   },
   "components": {
     "schemas": {
+      "RunJobRequest": {
+        "properties": {
+          "input": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input"
+          },
+          "webhook": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook"
+          }
+        },
+        "type": "object",
+        "title": "RunJobRequest"
+      },
       "VolumeCreate": {
         "properties": {
           "name": {
@@ -3230,168 +3252,353 @@
         ],
         "title": "VolumeCreate"
       },
-      "RegisterRequest": {
+      "V1InferenceRequest": {
         "properties": {
-          "email": {
+          "model": {
             "type": "string",
-            "maxLength": 128,
-            "minLength": 5,
-            "title": "Email"
+            "title": "Model",
+            "description": "Model name or HuggingFace repo"
           },
-          "password": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 8,
-            "title": "Password"
+          "inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Inputs",
+            "description": "Text input(s) for inference"
           },
-          "name": {
-            "type": "string",
-            "maxLength": 64,
-            "title": "Name",
-            "default": ""
+          "max_tokens": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "default": 512
           },
-          "role": {
-            "type": "string",
-            "maxLength": 32,
-            "title": "Role",
-            "default": "submitter"
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 1.0
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "description": "Stream response via SSE",
+            "default": false
           }
         },
         "type": "object",
         "required": [
-          "email",
-          "password"
+          "model",
+          "inputs"
         ],
-        "title": "RegisterRequest"
+        "title": "V1InferenceRequest",
+        "description": "OpenAI-compatible inference request for /v1/inference."
       },
-      "ServerlessEndpointPatch": {
+      "PayPalCreateOrderRequest": {
         "properties": {
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
+          "customer_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id"
           },
-          "min_workers": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 32.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min Workers"
-          },
-          "max_workers": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 32.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Workers"
-          },
-          "max_concurrency": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 256.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Concurrency"
-          },
-          "idle_timeout_sec": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 86400.0,
-                "minimum": 60.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Idle Timeout Sec"
-          },
-          "scaling_policy_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scaling Policy Type"
-          },
-          "scaling_policy_value": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scaling Policy Value"
-          },
-          "request_timeout_sec": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 3600.0,
-                "minimum": 10.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Request Timeout Sec"
-          },
-          "max_queue_size": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 10000.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Queue Size"
-          },
-          "keep_warm": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Keep Warm"
+          "amount_cad": {
+            "type": "number",
+            "maximum": 10000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Cad"
           }
         },
         "type": "object",
-        "title": "ServerlessEndpointPatch"
+        "required": [
+          "customer_id",
+          "amount_cad"
+        ],
+        "title": "PayPalCreateOrderRequest"
+      },
+      "ChatCompletionRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "maximum": 32768.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "default": 512
+          },
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 1.0
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "ChatCompletionRequest"
+      },
+      "EstimateRequest": {
+        "properties": {
+          "gpu_model": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Gpu Model",
+            "default": "RTX 4090"
+          },
+          "duration_hours": {
+            "type": "number",
+            "maximum": 8760.0,
+            "minimum": 0.0,
+            "title": "Duration Hours",
+            "default": 1.0
+          },
+          "spot": {
+            "type": "boolean",
+            "title": "Spot",
+            "default": false
+          },
+          "sovereignty": {
+            "type": "boolean",
+            "title": "Sovereignty",
+            "default": false
+          },
+          "is_canadian": {
+            "type": "boolean",
+            "title": "Is Canadian",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "EstimateRequest"
+      },
+      "InferenceRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')"
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Inputs",
+            "description": "Text input(s) for inference"
+          },
+          "gpu_model": {
+            "type": "string",
+            "title": "Gpu Model",
+            "description": "Preferred GPU model or 'any'",
+            "default": "any"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "default": 512
+          },
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 1.0
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 10.0,
+            "title": "Timeout Sec",
+            "default": 300
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "inputs"
+        ],
+        "title": "InferenceRequest"
+      },
+      "VolumeAttachRequest": {
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "mount_path": {
+            "type": "string",
+            "pattern": "^/(workspace|mnt/[a-zA-Z0-9._-]+|data)$",
+            "title": "Mount Path",
+            "default": "/workspace"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "rw",
+              "ro"
+            ],
+            "title": "Mode",
+            "default": "rw"
+          }
+        },
+        "type": "object",
+        "required": [
+          "instance_id"
+        ],
+        "title": "VolumeAttachRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "AutoTopupConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "amount_cad": {
+            "type": "number",
+            "title": "Amount Cad",
+            "default": 25.0
+          },
+          "threshold_cad": {
+            "type": "number",
+            "title": "Threshold Cad",
+            "default": 5.0
+          },
+          "stripe_payment_method_id": {
+            "type": "string",
+            "title": "Stripe Payment Method Id",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AutoTopupConfig"
+      },
+      "UploadRequest": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "artifact_type": {
+            "type": "string",
+            "title": "Artifact Type",
+            "default": "job_output"
+          },
+          "residency_policy": {
+            "type": "string",
+            "title": "Residency Policy",
+            "default": "canada_only"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "filename"
+        ],
+        "title": "UploadRequest"
+      },
+      "MarketplaceSearchParams": {
+        "properties": {
+          "gpu_model": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Gpu Model",
+            "default": ""
+          },
+          "min_vram_gb": {
+            "type": "number",
+            "maximum": 1024.0,
+            "minimum": 0.0,
+            "title": "Min Vram Gb",
+            "default": 0
+          },
+          "max_price_cents": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Max Price Cents",
+            "default": 0
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Region",
+            "default": ""
+          },
+          "canada_only": {
+            "type": "boolean",
+            "title": "Canada Only",
+            "default": false
+          },
+          "sort_by": {
+            "type": "string",
+            "pattern": "^(price|reputation|region|vram)$",
+            "title": "Sort By",
+            "default": "price"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          }
+        },
+        "type": "object",
+        "title": "MarketplaceSearchParams"
       },
       "JobIn": {
         "properties": {
@@ -3622,155 +3829,6 @@
         ],
         "title": "JobIn"
       },
-      "ApiKeyCreateRequest": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "default": "default"
-          },
-          "scopes": {
-            "type": "string",
-            "title": "Scopes",
-            "default": "inference:write"
-          },
-          "rate_limit_rpm": {
-            "type": "integer",
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Rate Limit Rpm",
-            "default": 60
-          }
-        },
-        "type": "object",
-        "title": "ApiKeyCreateRequest"
-      },
-      "RunJobRequest": {
-        "properties": {
-          "input": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Input"
-          },
-          "webhook": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Webhook"
-          }
-        },
-        "type": "object",
-        "title": "RunJobRequest"
-      },
-      "ChatCompletionRequest": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "messages": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Messages"
-          },
-          "max_tokens": {
-            "type": "integer",
-            "maximum": 32768.0,
-            "minimum": 1.0,
-            "title": "Max Tokens",
-            "default": 512
-          },
-          "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
-            "title": "Temperature",
-            "default": 1.0
-          },
-          "stream": {
-            "type": "boolean",
-            "title": "Stream",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "model"
-        ],
-        "title": "ChatCompletionRequest"
-      },
-      "V1InferenceRequest": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model",
-            "description": "Model name or HuggingFace repo"
-          },
-          "inputs": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "title": "Inputs",
-            "description": "Text input(s) for inference"
-          },
-          "max_tokens": {
-            "type": "integer",
-            "maximum": 8192.0,
-            "minimum": 1.0,
-            "title": "Max Tokens",
-            "default": 512
-          },
-          "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
-            "title": "Temperature",
-            "default": 1.0
-          },
-          "stream": {
-            "type": "boolean",
-            "title": "Stream",
-            "description": "Stream response via SSE",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "model",
-          "inputs"
-        ],
-        "title": "V1InferenceRequest",
-        "description": "OpenAI-compatible inference request for /v1/inference."
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "title": "HTTPValidationError"
-      },
       "ServerlessEndpointCreate": {
         "properties": {
           "name": {
@@ -3927,6 +3985,179 @@
         "type": "object",
         "title": "ServerlessEndpointCreate"
       },
+      "DepositRequest": {
+        "properties": {
+          "amount_cad": {
+            "type": "number",
+            "maximum": 10000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Cad"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Description",
+            "default": "Credit deposit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount_cad"
+        ],
+        "title": "DepositRequest"
+      },
+      "ServerlessEndpointPatch": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "min_workers": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 32.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Workers"
+          },
+          "max_workers": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 32.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Workers"
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 256.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
+          },
+          "idle_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Timeout Sec"
+          },
+          "scaling_policy_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scaling Policy Type"
+          },
+          "scaling_policy_value": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scaling Policy Value"
+          },
+          "request_timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3600.0,
+                "minimum": 10.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout Sec"
+          },
+          "max_queue_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Queue Size"
+          },
+          "keep_warm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Warm"
+          }
+        },
+        "type": "object",
+        "title": "ServerlessEndpointPatch"
+      },
+      "ApiKeyCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": "default"
+          },
+          "scopes": {
+            "type": "string",
+            "title": "Scopes",
+            "default": "inference:write"
+          },
+          "rate_limit_rpm": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Rpm",
+            "default": 60
+          }
+        },
+        "type": "object",
+        "title": "ApiKeyCreateRequest"
+      },
       "ReservationCreate": {
         "properties": {
           "gpu_model": {
@@ -3950,119 +4181,6 @@
         ],
         "title": "ReservationCreate"
       },
-      "VolumeAttachRequest": {
-        "properties": {
-          "instance_id": {
-            "type": "string",
-            "title": "Instance Id"
-          },
-          "mount_path": {
-            "type": "string",
-            "pattern": "^/(workspace|mnt/[a-zA-Z0-9._-]+|data)$",
-            "title": "Mount Path",
-            "default": "/workspace"
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "rw",
-              "ro"
-            ],
-            "title": "Mode",
-            "default": "rw"
-          }
-        },
-        "type": "object",
-        "required": [
-          "instance_id"
-        ],
-        "title": "VolumeAttachRequest"
-      },
-      "UploadRequest": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
-          },
-          "filename": {
-            "type": "string",
-            "title": "Filename"
-          },
-          "artifact_type": {
-            "type": "string",
-            "title": "Artifact Type",
-            "default": "job_output"
-          },
-          "residency_policy": {
-            "type": "string",
-            "title": "Residency Policy",
-            "default": "canada_only"
-          }
-        },
-        "type": "object",
-        "required": [
-          "job_id",
-          "filename"
-        ],
-        "title": "UploadRequest"
-      },
-      "InferenceRequest": {
-        "properties": {
-          "model": {
-            "type": "string",
-            "title": "Model",
-            "description": "Model name or HuggingFace repo (e.g. 'distilbert-base-uncased-finetuned-sst-2-english')"
-          },
-          "inputs": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "title": "Inputs",
-            "description": "Text input(s) for inference"
-          },
-          "gpu_model": {
-            "type": "string",
-            "title": "Gpu Model",
-            "description": "Preferred GPU model or 'any'",
-            "default": "any"
-          },
-          "max_tokens": {
-            "type": "integer",
-            "maximum": 8192.0,
-            "minimum": 1.0,
-            "title": "Max Tokens",
-            "default": 512
-          },
-          "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
-            "title": "Temperature",
-            "default": 1.0
-          },
-          "timeout_sec": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 10.0,
-            "title": "Timeout Sec",
-            "default": 300
-          }
-        },
-        "type": "object",
-        "required": [
-          "model",
-          "inputs"
-        ],
-        "title": "InferenceRequest"
-      },
       "PayPalCaptureRequest": {
         "properties": {
           "customer_id": {
@@ -4084,55 +4202,6 @@
           "order_id"
         ],
         "title": "PayPalCaptureRequest"
-      },
-      "MarketplaceSearchParams": {
-        "properties": {
-          "gpu_model": {
-            "type": "string",
-            "maxLength": 64,
-            "title": "Gpu Model",
-            "default": ""
-          },
-          "min_vram_gb": {
-            "type": "number",
-            "maximum": 1024.0,
-            "minimum": 0.0,
-            "title": "Min Vram Gb",
-            "default": 0
-          },
-          "max_price_cents": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Max Price Cents",
-            "default": 0
-          },
-          "region": {
-            "type": "string",
-            "maxLength": 32,
-            "title": "Region",
-            "default": ""
-          },
-          "canada_only": {
-            "type": "boolean",
-            "title": "Canada Only",
-            "default": false
-          },
-          "sort_by": {
-            "type": "string",
-            "pattern": "^(price|reputation|region|vram)$",
-            "title": "Sort By",
-            "default": "price"
-          },
-          "limit": {
-            "type": "integer",
-            "maximum": 500.0,
-            "minimum": 1.0,
-            "title": "Limit",
-            "default": 50
-          }
-        },
-        "type": "object",
-        "title": "MarketplaceSearchParams"
       },
       "DownloadRequest": {
         "properties": {
@@ -4157,67 +4226,7 @@
         ],
         "title": "DownloadRequest"
       },
-      "EstimateRequest": {
-        "properties": {
-          "gpu_model": {
-            "type": "string",
-            "maxLength": 64,
-            "title": "Gpu Model",
-            "default": "RTX 4090"
-          },
-          "duration_hours": {
-            "type": "number",
-            "maximum": 8760.0,
-            "minimum": 0.0,
-            "title": "Duration Hours",
-            "default": 1.0
-          },
-          "spot": {
-            "type": "boolean",
-            "title": "Spot",
-            "default": false
-          },
-          "sovereignty": {
-            "type": "boolean",
-            "title": "Sovereignty",
-            "default": false
-          },
-          "is_canadian": {
-            "type": "boolean",
-            "title": "Is Canadian",
-            "default": true
-          }
-        },
-        "type": "object",
-        "title": "EstimateRequest"
-      },
-      "AutoTopupConfig": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
-          },
-          "amount_cad": {
-            "type": "number",
-            "title": "Amount Cad",
-            "default": 25.0
-          },
-          "threshold_cad": {
-            "type": "number",
-            "title": "Threshold Cad",
-            "default": 5.0
-          },
-          "stripe_payment_method_id": {
-            "type": "string",
-            "title": "Stripe Payment Method Id",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "title": "AutoTopupConfig"
-      },
-      "LoginRequest": {
+      "RegisterRequest": {
         "properties": {
           "email": {
             "type": "string",
@@ -4230,6 +4239,18 @@
             "maxLength": 128,
             "minLength": 8,
             "title": "Password"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Name",
+            "default": ""
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Role",
+            "default": "submitter"
           }
         },
         "type": "object",
@@ -4237,28 +4258,7 @@
           "email",
           "password"
         ],
-        "title": "LoginRequest"
-      },
-      "DepositRequest": {
-        "properties": {
-          "amount_cad": {
-            "type": "number",
-            "maximum": 10000.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Amount Cad"
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 500,
-            "title": "Description",
-            "default": "Credit deposit"
-          }
-        },
-        "type": "object",
-        "required": [
-          "amount_cad"
-        ],
-        "title": "DepositRequest"
+        "title": "RegisterRequest"
       },
       "ValidationError": {
         "properties": {
@@ -4300,6 +4300,28 @@
         ],
         "title": "ValidationError"
       },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 5,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
       "PaymentIntentRequest": {
         "properties": {
           "customer_id": {
@@ -4327,28 +4349,6 @@
           "amount_cad"
         ],
         "title": "PaymentIntentRequest"
-      },
-      "PayPalCreateOrderRequest": {
-        "properties": {
-          "customer_id": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Customer Id"
-          },
-          "amount_cad": {
-            "type": "number",
-            "maximum": 10000.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Amount Cad"
-          }
-        },
-        "type": "object",
-        "required": [
-          "customer_id",
-          "amount_cad"
-        ],
-        "title": "PayPalCreateOrderRequest"
       }
     }
   },

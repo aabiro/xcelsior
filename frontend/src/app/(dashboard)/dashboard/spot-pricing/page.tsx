@@ -5,9 +5,8 @@ import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
-  TrendingUp, RefreshCw, Loader2, DollarSign, Cpu, BarChart3, Rocket, Zap,
+  TrendingUp, RefreshCw, Loader2, DollarSign, Cpu, BarChart3, Rocket,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -15,14 +14,12 @@ import {
 import * as api from "@/lib/api";
 import type { SpotPricePoint } from "@/lib/api";
 import { toast } from "sonner";
-
-function supplyDemandLabel(supply = 0, demand = 0): { label: string; tone: string } {
-  if (supply <= 0) return { label: "Tight supply", tone: "text-amber-400" };
-  const ratio = demand / supply;
-  if (ratio < 0.5) return { label: "High availability", tone: "text-emerald" };
-  if (ratio < 1) return { label: "Balanced", tone: "text-ice-blue" };
-  return { label: "Elevated demand", tone: "text-amber-400" };
-}
+import {
+  SpotBadge,
+  SpotSavingsPill,
+  SpotSupplyIndicator,
+  SpotSurface,
+} from "@/components/spot/spot-surface";
 
 export default function SpotPricingPage() {
   const [spotPrices, setSpotPrices] = useState<SpotPricePoint[]>([]);
@@ -81,24 +78,29 @@ export default function SpotPricingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Spot Pricing</h1>
-          <p className="text-sm text-text-muted">
-            Published interruptible GPU rates — no bidding. Save up to 60% vs on-demand.
-          </p>
-        </div>
+      <SpotSurface variant="hero" className="p-5 md:p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <SpotBadge size="md">Spot Instances</SpotBadge>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Spot Pricing</h1>
+            <p className="text-sm text-text-secondary mt-1 max-w-xl">
+              Published interruptible GPU rates — no bidding. Save up to 60% vs on-demand with
+              automatic requeue when capacity returns.
+            </p>
+          </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" asChild className="shadow-[0_0_20px_rgba(16,185,129,0.15)]">
             <Link href="/dashboard/instances?launch=true&mode=spot">
               <Rocket className="h-3.5 w-3.5" /> Launch spot instance
             </Link>
           </Button>
         </div>
-      </div>
+      </SpotSurface>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
@@ -134,53 +136,45 @@ export default function SpotPricingPage() {
               {spotPrices.map((p) => {
                 const spotCad = p.rate_cad ?? p.spot_cents / 100;
                 const onDemand = p.on_demand_cad;
-                const sd = supplyDemandLabel(p.supply, p.demand);
+                const selected = selectedModel === p.gpu_model;
                 return (
                   <button
                     key={p.gpu_model}
                     type="button"
                     onClick={() => setSelectedModel(p.gpu_model)}
-                    className={`rounded-lg border p-4 text-left transition-colors ${
-                      selectedModel === p.gpu_model
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-muted/50"
+                    className={`group rounded-xl border p-4 text-left transition-all duration-200 ${
+                      selected
+                        ? "border-emerald/45 bg-emerald/[0.06] shadow-[0_0_24px_rgba(16,185,129,0.08)] ring-1 ring-emerald/20"
+                        : "border-border hover:border-emerald/25 hover:bg-emerald/[0.03]"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">
+                      <span className="font-semibold tracking-tight">
                         {p.gpu_model === "unknown" ? "Any GPU" : p.gpu_model}
                       </span>
-                      <Badge variant="info">SPOT</Badge>
+                      <SpotBadge>Spot</SpotBadge>
                     </div>
                     <div className="mt-2 flex items-baseline gap-2 flex-wrap">
-                      <span className="text-2xl font-bold font-mono">
+                      <span className="text-2xl font-bold font-mono text-emerald tabular-nums">
                         ${spotCad.toFixed(2)}
                       </span>
                       <span className="text-sm text-text-muted">/hr CAD</span>
-                      {(p.savings_pct ?? 0) > 0 && (
-                        <span className="rounded-full bg-emerald/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald">
-                          −{p.savings_pct}%
-                        </span>
-                      )}
+                      <SpotSavingsPill pct={p.savings_pct ?? 0} />
                     </div>
                     {onDemand != null && onDemand > spotCad && (
-                      <p className="mt-1 text-xs text-text-muted line-through font-mono">
+                      <p className="mt-1 text-xs text-text-muted line-through font-mono tabular-nums">
                         ${onDemand.toFixed(2)}/hr on-demand
                       </p>
                     )}
-                    <p className={`mt-2 text-[11px] ${sd.tone}`}>
-                      <Zap className="inline h-3 w-3 mr-0.5" />
-                      {sd.label}
-                      {p.supply != null && p.demand != null && (
-                        <span className="text-text-muted ml-1">
-                          · {p.supply} GPUs · {p.demand} queued
-                        </span>
-                      )}
-                    </p>
+                    <SpotSupplyIndicator
+                      supply={p.supply}
+                      demand={p.demand}
+                      className="mt-2"
+                    />
                     <Link
                       href={`/dashboard/instances?launch=true&mode=spot&gpu=${encodeURIComponent(p.gpu_model)}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-ice-blue hover:underline"
+                      className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-accent-cyan opacity-80 group-hover:opacity-100 hover:underline"
                     >
                       Launch {p.gpu_model} spot <Rocket className="h-3 w-3" />
                     </Link>

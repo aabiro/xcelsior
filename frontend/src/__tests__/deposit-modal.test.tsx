@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const confirmCardPayment = vi.hoisted(() => vi.fn());
+const confirmPayment = vi.hoisted(() => vi.fn());
 
 const apiMocks = vi.hoisted(() => ({
   createPaymentIntent: vi.fn(),
@@ -24,18 +24,18 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@stripe/stripe-js", () => ({
-  loadStripe: vi.fn(() => ({})),
+  loadStripe: vi.fn(() => Promise.resolve({})),
 }));
 
 vi.mock("@stripe/react-stripe-js", () => ({
   Elements: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  CardElement: ({ onChange }: { onChange?: (event: { complete: boolean }) => void }) => (
+  PaymentElement: ({ onChange }: { onChange?: (event: { complete: boolean }) => void }) => (
     <button type="button" onClick={() => onChange?.({ complete: true })}>
-      Mock card element
+      Mock payment element
     </button>
   ),
-  useStripe: () => ({ confirmCardPayment }),
-  useElements: () => ({ getElement: vi.fn(() => ({})) }),
+  useStripe: () => ({ confirmPayment }),
+  useElements: () => ({}),
 }));
 
 import { DepositModal } from "@/components/billing/deposit-modal";
@@ -53,14 +53,14 @@ describe("DepositModal", () => {
       ok: true,
       intent: { client_secret: "pi_test_secret" },
     });
-    confirmCardPayment.mockResolvedValue({
+    confirmPayment.mockResolvedValue({
       error: null,
       paymentIntent: { status: "succeeded" },
     });
   });
 
   it(
-    "shows card checkout first and exposes PayPal as a secondary option",
+    "shows embedded payment element and exposes PayPal as a secondary option",
     async () => {
       render(
         <DepositModal
@@ -75,7 +75,8 @@ describe("DepositModal", () => {
 
       await waitFor(
         () => {
-          expect(screen.getByText("Card details")).toBeInTheDocument();
+          expect(screen.getByText("Secure payment")).toBeInTheDocument();
+          expect(apiMocks.createPaymentIntent).toHaveBeenCalled();
           expect(apiMocks.checkPayPalEnabled).toHaveBeenCalled();
         },
         { timeout: 10000 },
@@ -83,7 +84,6 @@ describe("DepositModal", () => {
 
       expect(screen.getByText("Or use PayPal")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /pay with paypal/i })).toBeInTheDocument();
-      expect(screen.queryByText(/stripe/i)).not.toBeInTheDocument();
     },
     15000,
   );
@@ -106,14 +106,14 @@ describe("DepositModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Card details")).toBeInTheDocument();
+      expect(screen.getByText("Mock payment element")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /mock card element/i }));
+    fireEvent.click(screen.getByRole("button", { name: /mock payment element/i }));
     fireEvent.click(screen.getByRole("button", { name: /pay \$25\.00 cad/i }));
 
     await waitFor(() => {
-      expect(confirmCardPayment).toHaveBeenCalled();
+      expect(confirmPayment).toHaveBeenCalled();
       expect(apiMocks.depositWallet).not.toHaveBeenCalled();
       expect(apiMocks.fetchWallet.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
