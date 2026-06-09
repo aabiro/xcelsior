@@ -61,6 +61,27 @@ error() { echo -e "${RED}✗${NC} $1"; exit 1; }
 
 # ── Helper Functions ──────────────────────────────────────────────────
 SSH_KEY="${XCELSIOR_SSH_KEY:-$HOME/.ssh/xcelsior}"
+WORKER_MODE_FILE="${XCELSIOR_WORKER_MODE_FILE:-$HOME/.xcelsior/worker.mode}"
+
+switch_local_worker() {
+    local mode="$1"
+    if [[ ! -x "$SCRIPT_DIR/switch_worker_env.sh" ]]; then
+        warn "switch_worker_env.sh missing — worker not switched to $mode"
+        return 0
+    fi
+    log "Switching local GPU worker -> ${BOLD}$mode${NC}..."
+    if bash "$SCRIPT_DIR/switch_worker_env.sh" "$mode"; then
+        success "Local worker configured for $mode"
+    else
+        warn "Worker switch to $mode failed (sudo may be required)"
+    fi
+}
+
+ensure_prod_worker_if_test() {
+    if [[ -f "$WORKER_MODE_FILE" ]] && [[ "$(tr -d '[:space:]' <"$WORKER_MODE_FILE")" == "test" ]]; then
+        switch_local_worker prod
+    fi
+}
 
 ssh_cmd() {
     ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$REMOTE_USER@$REMOTE_HOST" "$@"
@@ -868,14 +889,31 @@ deploy_test_local() {
     done
 
     docker compose -p xcelsior-test ps
-    success "Test environment running"
+
+    log "Spot test smoke (infra)..."
+    if python3 "$SCRIPT_DIR/spot_staging_smoke.py" --base-url "http://localhost:$api_port"; then
+        success "Spot infra smoke passed"
+    else
+        warn "Spot infra smoke failed — check test API logs"
+    fi
+
+    switch_local_worker test
+
+    success "Test environment running (worker -> test)"
+    log "Run: python3 scripts/spot_preemption_live.py"
+    log "Restore prod: ./scripts/deploy.sh --test-stop"
 }
 
 stop_test_local() {
     log "Stopping test environment..."
     cd "$PROJECT_DIR"
     docker compose --env-file .env.test -p xcelsior-test down --remove-orphans
-    success "Test environment stopped"
+    switch_local_worker prod
+    success "Test environment stopped; local worker restored to prod"
+}
+
+restore_prod_worker() {
+    switch_local_worker prod
 }
 
 # ── Health Check ──────────────────────────────────────────────────────
@@ -928,8 +966,10 @@ ${BOLD}Xcelsior Deployment Script${NC}
 ${CYAN}Usage:${NC}
   $0                    Full production deploy (backup, sync, build, restart)
   $0 --quick            Quick prod deploy (sync + restart, no rebuild)
-  $0 --test             Deploy test environment locally (Docker)
-  $0 --test-stop        Stop local test environment
+  $0 --test             Deploy test stack + switch local GPU worker to test API
+  $0 --test-stop        Stop test stack + restore local GPU worker to prod
+  $0 --worker-prod      Restore local GPU worker to prod (no deploy)
+  $0 --worker-test      Point local GPU worker at test API (stack must be up)
   $0 --setup            First-time server setup
   $0 --ssl              Setup SSL certificates
   $0 --rollback         Rollback to previous backup
@@ -967,8 +1007,12 @@ ${CYAN}Examples:${NC}
   # Run test environment locally
   ./scripts/deploy.sh --test
 
-  # Stop test environment
+  # Stop test environment and restore prod worker
   ./scripts/deploy.sh --test-stop
+
+  # Manually switch worker only
+  ./scripts/deploy.sh --worker-prod
+  ./scripts/deploy.sh --worker-test
 
   # Worker maintenance
   ./scripts/deploy.sh --drain-host gpu-worker-01
@@ -999,6 +1043,12 @@ main() {
             TARGET_ENV="test"
             resolve_env
             stop_test_local
+            ;;
+        --worker-prod)
+            restore_prod_worker
+            ;;
+        --worker-test)
+            switch_local_worker test
             ;;
         --setup)
             TARGET_ENV="prod"
@@ -1063,6 +1113,7 @@ main() {
         --post-merge)
             TARGET_ENV="prod"
             resolve_env
+            ensure_prod_worker_if_test
             check_ssh
             detect_deploy_inputs
             backup_current
@@ -1109,6 +1160,7 @@ main() {
         ""|--docker)
             TARGET_ENV="prod"
             resolve_env
+            ensure_prod_worker_if_test
             check_ssh
             detect_deploy_inputs
 
