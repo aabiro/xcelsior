@@ -18,7 +18,7 @@ BTC_PORT="${XCELSIOR_BTC_RPC_PORT:-8332}"
 LN_URL="${XCELSIOR_LN_CLNREST_URL:-https://127.0.0.1:3010}"
 
 probe_btc_rpc() {
-  timeout 5 curl -s --user "${XCELSIOR_BTC_RPC_USER:-}:${XCELSIOR_BTC_RPC_PASS:-}" \
+  timeout 30 curl -s --user "${XCELSIOR_BTC_RPC_USER:-}:${XCELSIOR_BTC_RPC_PASS:-}" \
     -d '{"jsonrpc":"1.0","id":"probe","method":"getblockchaininfo","params":[]}' \
     -H "content-type: text/plain;" "http://${BTC_HOST}:${BTC_PORT}/"
 }
@@ -36,7 +36,7 @@ else
 fi
 
 echo "▸ Lightning CLN REST ${LN_URL}"
-if timeout 5 curl -sk -H "Rune: ${XCELSIOR_LN_RUNE:-}" -X POST "${LN_URL}/v1/getinfo" -d "null" >/dev/null 2>&1; then
+if timeout 10 curl -sk -H "Rune: ${XCELSIOR_LN_RUNE:-}" -H "Content-Type: application/json" -X POST "${LN_URL}/v1/getinfo" -d "{}" >/dev/null 2>&1; then
   echo "✓ CLN REST reachable"
 else
   if systemctl is-active lightningd >/dev/null 2>&1 || systemctl show -p ActiveState lightningd 2>/dev/null | grep -q activating; then
