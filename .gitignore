@@ -86,6 +86,7 @@ docs/*
 !docs/NEXT_PRIORITIES_ROADMAP.md
 !docs/INFERENCE_DESIGN.md
 !docs/site-audit-report-2026-06-08-post-recovery.md
+!docs/SPOT_INSTANCE_INTEGRATION_PLAN.md
 
 # ── Editor / OS ──────────────────────────────────────────────────────
 .vscode/settings.json
