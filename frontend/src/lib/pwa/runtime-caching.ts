@@ -57,7 +57,6 @@ const SENSITIVE_PATH_PREFIXES = [
   "/instances",
   "/job",
   "/jobs",
-  "/spot/instance",
 ];
 
 export function isPublicDataPath(pathname: string) {

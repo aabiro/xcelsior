@@ -235,21 +235,21 @@ class TestSlurmCancel:
 # ══════════════════════════════════════════════════════════════════════
 
 
-class TestSpotBid:
-    """Tests for POST /spot/instance."""
+class TestSpotInstance:
+    """Tests for spot instance launch via POST /instance."""
 
     def setup_method(self):
         _seed_wallet()
 
-    def test_submit_spot_bid(self):
-        """Submit a valid spot bid."""
+    def test_submit_spot_instance(self):
+        """Submit a spot instance via unified launch API."""
         _register_host("spot-host-1")
         r = client.post(
-            "/spot/instance",
+            "/instance",
             json={
                 "name": "spot-inference",
                 "vram_needed_gb": 16.0,
-                "max_bid": 0.75,
+                "pricing_mode": "spot",
                 "priority": 5,
             },
         )
@@ -259,29 +259,30 @@ class TestSpotBid:
         assert "instance" in d
         assert d["instance"]["name"] == "spot-inference"
 
-    def test_spot_bid_missing_name(self):
+    def test_spot_instance_missing_name(self):
         """Name is required."""
         r = client.post(
-            "/spot/instance",
+            "/instance",
             json={
                 "name": "",
                 "vram_needed_gb": 8.0,
-                "max_bid": 0.50,
+                "pricing_mode": "spot",
             },
         )
         assert r.status_code == 422
 
-    def test_spot_bid_zero_bid_rejected(self):
-        """Max bid must be > 0."""
+    def test_spot_instance_premium_tier_rejected(self):
+        """Spot cannot use premium/sovereign tiers."""
         r = client.post(
-            "/spot/instance",
+            "/instance",
             json={
-                "name": "zero-bid",
+                "name": "spot-premium",
                 "vram_needed_gb": 8.0,
-                "max_bid": 0,
+                "pricing_mode": "spot",
+                "tier": "premium",
             },
         )
-        assert r.status_code == 422
+        assert r.status_code == 400
 
     def test_spot_prices_endpoint(self):
         """GET /spot-prices should return prices dict."""
@@ -429,12 +430,9 @@ class TestDashboardHTML:
     def test_slurm_tab_in_switcher(self):
         assert "'tab-slurm'" in self.html
 
-    def test_spot_bid_form(self):
-        assert 'id="spot-bid-name"' in self.html
-        assert 'id="spot-bid-vram"' in self.html
-        assert 'id="spot-bid-max"' in self.html
-        assert 'id="spot-bid-priority"' in self.html
-        assert "submitSpotBid()" in self.html
+    def test_spot_bid_form_removed(self):
+        assert 'id="spot-bid-name"' not in self.html
+        assert "submitSpotBid" not in self.html
 
     def test_sla_credit_calculator(self):
         assert "SLA Credit Calculator" in self.html
@@ -464,9 +462,6 @@ class TestDashboardHTML:
         assert "cancelSlurmJob" in self.html
         assert "renderSlurmRecent" in self.html
         assert "selectClusterProfile" in self.html
-
-    def test_spot_bid_js_function(self):
-        assert "submitSpotBid" in self.html
 
     def test_sla_js_function(self):
         assert "fetchSLAHostsSummary" in self.html

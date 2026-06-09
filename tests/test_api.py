@@ -1222,17 +1222,20 @@ class TestSpotPricingEndpoints:
         r = client.post("/spot-prices/update")
         assert r.status_code == 200
 
-    def test_submit_spot_job(self):
-        """POST /spot/instance submits interruptible job."""
+    def test_submit_spot_instance(self):
+        """POST /instance with pricing_mode=spot submits interruptible job."""
         r = client.post(
-            "/spot/instance",
+            "/instance",
             json={
                 "name": "spot-test",
                 "vram_needed_gb": 8,
-                "max_bid": 1.0,
+                "pricing_mode": "spot",
             },
         )
         assert r.status_code == 200
+        body = r.json()
+        inst = body.get("instance") or {}
+        assert inst.get("pricing_mode") == "spot" or inst.get("spot") is True
 
     def test_preemption_cycle(self):
         """POST /spot/preemption-cycle runs without error."""

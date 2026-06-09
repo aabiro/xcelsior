@@ -830,22 +830,16 @@ class TestSpotPricing:
 
 
 class TestPreemption:
-    """Verify spot job preemption when bid < current spot price."""
+    """Verify preempt_job requeue and retired bid-based eviction."""
 
-    def test_identify_preemptible_jobs(self):
+    def test_identify_preemptible_jobs_retired_bid_model(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
-        job = scheduler.submit_job("test", 8, tier="free")
+        job = scheduler.submit_job("test", 8, pricing_mode="spot")
         scheduler.update_job_status(job["job_id"], "running", host_id="h1")
-        # Set max_bid below any reasonable price
-        jobs = scheduler.load_jobs()
-        for j in jobs:
-            if j["job_id"] == job["job_id"]:
-                j["max_bid"] = 0.01
-        scheduler.save_jobs(jobs)
 
-        spot_prices = {"RTX 4090": 1.00}  # Way above bid
-        preemptible = scheduler.identify_preemptible_jobs(spot_prices)
-        assert len(preemptible) >= 1
+        # Bid-based preemption removed; capacity model arrives in Phase 7.
+        preemptible = scheduler.identify_preemptible_jobs({"RTX 4090": 1.00})
+        assert preemptible == []
 
     def test_preempt_job_requeues(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)

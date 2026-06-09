@@ -66,15 +66,15 @@ POST /queue/process
 
 ## Spot Instances
 
-Submit interruptible instances at a bid price:
+Submit interruptible instances at the published spot rate:
 
 ```bash
-curl -X POST https://xcelsior.ca/spot/instance \
+curl -X POST https://xcelsior.ca/instance \
   -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
   -d '{
     "name": "batch-embeddings",
     "vram_needed_gb": 8,
-    "max_bid": 0.50
+    "pricing_mode": "spot"
   }'
 ```
 

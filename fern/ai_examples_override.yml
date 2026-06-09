@@ -341,15 +341,15 @@ paths:
             provider_id: provider_id
           request:
             file_id: a3f47b9e-8c2d-4f1a-9b7e-2d5f6c8a1e4b
-  /spot/job:
+  /instance:
     post:
       x-fern-examples:
         - request:
             name: AI Model Training Job
             vram_needed_gb: 16
-            max_bid: 3.75
+            pricing_mode: spot
             priority: 5
-            tier: premium
+            tier: standard
   /api/transparency/legal-request:
     post:
       x-fern-examples:
@@ -538,15 +538,7 @@ paths:
       x-fern-examples:
         - request:
             phone_number: +1-416-555-0198
-  /spot/instance:
-    post:
-      x-fern-examples:
-        - request:
-            name: AI Model Training Job
-            vram_needed_gb: 16
-            max_bid: 3.75
-            priority: 5
-            tier: premium
+
   /api/auth/mfa/verify:
     post:
       x-fern-examples:

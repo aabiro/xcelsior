@@ -389,6 +389,10 @@ def _ensure_pg_tables(conn):
             payload JSONB NOT NULL
         )
         """)
+    cur.execute(
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand'"
+    )
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS spot_rate_cad DOUBLE PRECISION")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS hosts (
@@ -762,22 +766,41 @@ class DatabaseOps:
         priority = int(job.get("priority", 0) or 0)
         submitted_at = float(job.get("submitted_at", time.time()) or time.time())
         host_id = job.get("host_id")
+        pricing_mode = str(job.get("pricing_mode") or "on_demand")
+        if pricing_mode not in ("on_demand", "spot", "reserved"):
+            pricing_mode = "on_demand"
+        spot_rate = job.get("spot_rate_cad")
+        spot_rate_cad = float(spot_rate) if spot_rate is not None else None
 
         if backend == "postgres":
             from psycopg.types.json import Jsonb
 
             conn.execute(
                 """
-                INSERT INTO jobs(job_id, status, priority, submitted_at, host_id, payload)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO jobs(
+                    job_id, status, priority, submitted_at, host_id,
+                    pricing_mode, spot_rate_cad, payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(job_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
                     submitted_at = EXCLUDED.submitted_at,
                     host_id = EXCLUDED.host_id,
+                    pricing_mode = EXCLUDED.pricing_mode,
+                    spot_rate_cad = EXCLUDED.spot_rate_cad,
                     payload = EXCLUDED.payload
                 """,
-                (job_id, status, priority, submitted_at, host_id, Jsonb(job)),
+                (
+                    job_id,
+                    status,
+                    priority,
+                    submitted_at,
+                    host_id,
+                    pricing_mode,
+                    spot_rate_cad,
+                    Jsonb(job),
+                ),
             )
         else:
             conn.execute(

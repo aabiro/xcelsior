@@ -54,7 +54,7 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 
 ### Spot Pricing
 - `GET /spot-prices` — Current spot pricing per GPU model
-- `POST /spot/job` — Submit interruptible spot job (fields: name, vram_needed_gb, max_bid)
+- `POST /instance` with `pricing_mode: "spot"` — Submit interruptible spot instance
 - `POST /spot/preemption-cycle` — Run preemption on underbid jobs
 
 ### Marketplace

@@ -7,7 +7,7 @@ import os
 import re
 import time
 import uuid
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -281,7 +281,7 @@ class JobIn(BaseModel):
     interactive: bool = True
     command: str | None = None
     ssh_port: int = Field(default=22, ge=1, le=65535)
-    max_bid: float | None = Field(default=None, gt=0)
+    pricing_mode: Literal["on_demand", "spot"] = "on_demand"
     volume_ids: list[str] | None = Field(default=None, max_length=16)
     encrypted_workspace: bool = False
     # P2.1 — optional provisioning hooks, all run inside the container with a
@@ -591,46 +591,41 @@ def api_submit_instance(j: JobIn, request: Request):
                     )
                 validated_volume_ids.append(vid)
 
-        # Spot path: max_bid present → delegate to spot submission
-        if j.max_bid is not None:
-            from scheduler import submit_spot_job
+        if j.pricing_mode == "spot" and j.tier in ("premium", "sovereign"):
+            raise HTTPException(
+                status_code=400,
+                detail="Spot instances use the standard service tier only",
+            )
 
-            job = submit_spot_job(
-                j.name,
-                vram_needed,
-                j.max_bid,
-                j.priority,
-                tier=j.tier,
-                owner=customer_id,
-                image=j.image,
-                gpu_model=j.gpu_model,
-            )
-            event_name = "spot_job_submitted"
-        else:
-            job = submit_job(
-                j.name,
-                vram_needed,
-                j.priority,
-                tier=j.tier,
-                num_gpus=j.num_gpus,
-                gpu_model=j.gpu_model,
-                nfs_server=j.nfs_server,
-                nfs_path=j.nfs_path,
-                nfs_mount_point=j.nfs_mount_point,
-                image=j.image,
-                interactive=j.interactive,
-                command=j.command,
-                ssh_port=j.ssh_port,
-                owner=customer_id,
-                volume_ids=validated_volume_ids,
-                encrypted_workspace=j.encrypted_workspace,
-                init_script=j.init_script,
-                git_repo=j.git_repo,
-                auto_launch=j.auto_launch,
-                exposed_ports=j.exposed_ports,
-                source_template_id=source_template_id,
-            )
-            event_name = "job_submitted"
+        launch_tier = j.tier
+        if j.pricing_mode == "spot":
+            launch_tier = "spot"
+
+        job = submit_job(
+            j.name,
+            vram_needed,
+            j.priority,
+            tier=launch_tier,
+            num_gpus=j.num_gpus,
+            gpu_model=j.gpu_model,
+            nfs_server=j.nfs_server,
+            nfs_path=j.nfs_path,
+            nfs_mount_point=j.nfs_mount_point,
+            image=j.image,
+            interactive=j.interactive,
+            command=j.command,
+            ssh_port=j.ssh_port,
+            owner=customer_id,
+            volume_ids=validated_volume_ids,
+            encrypted_workspace=j.encrypted_workspace,
+            init_script=j.init_script,
+            git_repo=j.git_repo,
+            auto_launch=j.auto_launch,
+            exposed_ports=j.exposed_ports,
+            source_template_id=source_template_id,
+            pricing_mode=j.pricing_mode,
+        )
+        event_name = "spot_job_submitted" if j.pricing_mode == "spot" else "job_submitted"
 
         # Track job ownership (response-only, already persisted via owner param)
         job["submitted_by"] = user.get("email", "")

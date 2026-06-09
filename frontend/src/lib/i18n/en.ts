@@ -38,7 +38,7 @@ const en: Record<string, string> = {
   "home.val_pricing_desc": "CAD pricing from $0.30/hr for RTX GPUs. No exchange rate risk. Eligible for 2:1 federal AI Compute Access Fund rebate.",
   "home.built_title": "Built in Canada, for teams everywhere",
   "home.feat_marketplace_title": "GPU Marketplace",
-  "home.feat_marketplace_desc": "Browse, bid, and rent GPUs from verified providers, with strong support for Canadian sovereignty requirements and teams worldwide. RTX 3090, A100, H100 — on-demand or spot.",
+  "home.feat_marketplace_desc": "Browse and rent GPUs from verified providers, with strong support for Canadian sovereignty requirements and teams worldwide. RTX 3090, A100, H100 — on-demand or spot.",
   "home.feat_trust_title": "Trust & Reputation",
   "home.feat_trust_desc": "6-tier reputation system with hardware verification, audit trails, and tamper-evident logging.",
   "home.feat_telemetry_title": "Real-Time Telemetry",
