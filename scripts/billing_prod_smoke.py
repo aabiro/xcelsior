@@ -78,7 +78,7 @@ def main() -> int:
     )
     results["payment_intent_idor"] = idor.status_code
 
-    spot_flag = requests.get(f"{base}/api/pricing/spot-enabled", timeout=30)
+    spot_flag = s.get(f"{base}/api/pricing/spot-enabled", timeout=30)
     results["spot_enabled_status"] = spot_flag.status_code
     if spot_flag.status_code == 200:
         spot_body = spot_flag.json()
@@ -86,7 +86,7 @@ def main() -> int:
     else:
         results["spot_enabled"] = None
 
-    spot_prices = requests.get(f"{base}/spot-prices", timeout=30)
+    spot_prices = s.get(f"{base}/spot-prices", timeout=30)
     results["spot_prices_status"] = spot_prices.status_code
     if spot_prices.status_code == 200:
         sp_body = spot_prices.json()
