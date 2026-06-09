@@ -85,7 +85,9 @@ const SENSITIVE_HEADERS = new Set([
 
 function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
     const filtered: Record<string, string> = {};
-    for (const [key, value] of headers instanceof Headers ? headers.entries() : Object.entries(headers)) {
+    for (const [key, value] of headers instanceof Headers
+        ? Array.from(headers.entries())
+        : Object.entries(headers)) {
         if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
             filtered[key] = "[REDACTED]";
         } else {
