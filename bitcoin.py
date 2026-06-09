@@ -119,11 +119,22 @@ def _rpc_call_host(
             "Authorization": f"Basic {auth}",
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout or BTC_RPC_TIMEOUT) as resp:
-        result = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout or BTC_RPC_TIMEOUT) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        try:
+            result = json.loads(body)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Bitcoin RPC HTTP {exc.code}: {body[:200]}") from exc
         if result.get("error"):
             raise RuntimeError(f"Bitcoin RPC error: {result['error']}")
-        return result["result"]
+        raise RuntimeError(f"Bitcoin RPC HTTP {exc.code}: {body[:200]}") from exc
+
+    if result.get("error"):
+        raise RuntimeError(f"Bitcoin RPC error: {result['error']}")
+    return result["result"]
 
 
 def _rpc_call(

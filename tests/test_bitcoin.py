@@ -1,5 +1,6 @@
 """Tests for Bitcoin deposit module (bitcoin.py)."""
 
+import io
 import os
 import time
 import json
@@ -154,6 +155,26 @@ class TestServiceStatus:
         assert status["rpc_reachable"] is True
         assert status["wallet_ready"] is False
         assert status["reason"] == "Bitcoin node is starting (verifying blocks)"
+
+    def test_rpc_call_parses_http_500_warmup_body(self):
+        payload = json.dumps(
+            {
+                "result": None,
+                "error": {"code": -28, "message": "Verifying blocks…"},
+                "id": 1,
+            }
+        ).encode()
+        http_exc = urllib.error.HTTPError(
+            url="http://127.0.0.1:8332/",
+            code=500,
+            msg="Internal Server Error",
+            hdrs=None,
+            fp=io.BytesIO(payload),
+        )
+
+        with patch("urllib.request.urlopen", side_effect=http_exc):
+            with pytest.raises(RuntimeError, match="Verifying blocks"):
+                bitcoin._rpc_call_host("127.0.0.1", "getblockchaininfo")
 
     def test_reports_unavailable_when_wallet_is_not_ready(self, mock_rpc):
         mock_rpc.return_value = {"chain": "main", "blocks": 123}
