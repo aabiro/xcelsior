@@ -100,6 +100,7 @@ export default function SpotPricingPage() {
             </Link>
           </Button>
         </div>
+        </div>
       </SpotSurface>
 
       <div className="grid gap-4 sm:grid-cols-3">
