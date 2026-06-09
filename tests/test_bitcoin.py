@@ -142,6 +142,19 @@ class TestServiceStatus:
         assert status["wallet_ready"] is False
         assert status["reason"] == "Bitcoin node is offline or unavailable"
 
+    def test_reports_warming_up_when_verifying_blocks(self, mock_rpc):
+        mock_rpc.side_effect = RuntimeError(
+            "Bitcoin RPC error: {'code': -28, 'message': 'Verifying blocks…'}"
+        )
+
+        with patch("bitcoin.BTC_ENABLED", True):
+            status = bitcoin.get_service_status()
+
+        assert status["available"] is False
+        assert status["rpc_reachable"] is True
+        assert status["wallet_ready"] is False
+        assert status["reason"] == "Bitcoin node is starting (verifying blocks)"
+
     def test_reports_unavailable_when_wallet_is_not_ready(self, mock_rpc):
         mock_rpc.return_value = {"chain": "main", "blocks": 123}
 

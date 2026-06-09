@@ -28,6 +28,25 @@ from serverless.repo import (
 from serverless.service import ServerlessService
 
 
+class TestPredictiveScaling:
+    def test_forecast_increases_desired_workers(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SERVERLESS_PREDICTIVE_SCALING", "true")
+        now = time.time()
+        inp = AutoscalerInput(
+            min_workers=0,
+            max_workers=8,
+            max_concurrency=2,
+            scaling_policy_type="queue_request_count",
+            scaling_policy_value=1,
+            queue_depth=2,
+            max_queue_wait_sec=0.0,
+            workers=[],
+            queue_depth_samples=[(now - 30, 2), (now, 6)],
+        )
+        desired = compute_desired_workers(inp)
+        assert desired >= 3
+
+
 class TestDrainBeforeReap:
     def test_mark_draining_idle_excess(self):
         now = time.time()

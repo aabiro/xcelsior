@@ -28,7 +28,7 @@ BTC_CONFIRMATIONS = int(os.environ.get("XCELSIOR_BTC_CONFIRMATIONS", "3"))
 BTC_DEPOSIT_EXPIRY = int(os.environ.get("XCELSIOR_BTC_DEPOSIT_EXPIRY", "1800"))  # 30 min
 BTC_ENABLED = os.environ.get("XCELSIOR_BTC_ENABLED", "false").lower() == "true"
 BTC_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_RPC_TIMEOUT", "3"))
-BTC_STATUS_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_STATUS_RPC_TIMEOUT", "1.5"))
+BTC_STATUS_RPC_TIMEOUT = float(os.environ.get("XCELSIOR_BTC_STATUS_RPC_TIMEOUT", "5"))
 BTC_RPC_FALLBACK_HOSTS = tuple(
     host.strip()
     for host in os.environ.get("XCELSIOR_BTC_RPC_FALLBACK_HOSTS", "").split(",")
@@ -203,6 +203,28 @@ def _wallet_error_message(exc: Exception) -> str:
     return str(exc).lower()
 
 
+def _wait_for_wallet_load(
+    wallet_name: str,
+    *,
+    timeout: float | None = None,
+    skip_fallback: bool = False,
+    max_wait_sec: float = 30.0,
+) -> None:
+    """Poll until a descriptively loading wallet appears in listwallets."""
+    deadline = time.time() + max_wait_sec
+    while time.time() < deadline:
+        try:
+            loaded = _wallet_names(
+                _rpc_call("listwallets", timeout=timeout, skip_fallback=skip_fallback)
+            )
+            if wallet_name in loaded:
+                return
+        except Exception:
+            pass
+        time.sleep(1.0)
+    raise RuntimeError(f"Bitcoin wallet '{wallet_name}' did not finish loading within {max_wait_sec}s")
+
+
 def _ensure_wallet_ready(
     wallet_name: str,
     timeout: float | None = None,
@@ -229,8 +251,11 @@ def _ensure_wallet_ready(
             try:
                 _rpc_call("loadwallet", [wallet_name], timeout=timeout, skip_fallback=skip_fallback)
             except Exception as exc:
-                if "already loaded" not in _wallet_error_message(exc):
+                msg = _wallet_error_message(exc)
+                if "already loaded" not in msg and "already loading" not in msg:
                     raise
+                if "already loading" in msg:
+                    _wait_for_wallet_load(wallet_name, timeout=timeout, skip_fallback=skip_fallback)
         else:
             try:
                 _rpc_call(
@@ -344,6 +369,27 @@ def get_btc_cad_rate() -> float:
         raise RuntimeError("Unable to fetch BTC/CAD rate") from e
 
 
+def _is_bitcoin_warming_up(exc: Exception | str) -> bool:
+    """True when bitcoind RPC is reachable but still loading or verifying."""
+    message = exc.strip() if isinstance(exc, str) else str(exc).strip()
+    normalized = message.lower()
+    if "'code': -28" in normalized or '"code": -28' in normalized:
+        return True
+    return any(
+        token in normalized
+        for token in (
+            "loading block index",
+            "verifying blocks",
+            "starting network",
+            "warming up",
+            "reindexing",
+            "loading wallet",
+            "work queue depth exceeded",
+            "initialblockdownload",
+        )
+    )
+
+
 def describe_service_error(exc: Exception | str) -> str:
     """Normalize low-level BTC service failures into concise user-facing text."""
     message = exc.strip() if isinstance(exc, str) else str(exc).strip()
@@ -351,6 +397,15 @@ def describe_service_error(exc: Exception | str) -> str:
 
     if "unable to fetch btc/cad rate" in normalized or "failed to fetch btc/cad rate" in normalized:
         return "Bitcoin pricing service is currently unavailable"
+
+    if _is_bitcoin_warming_up(exc):
+        if "verifying blocks" in normalized:
+            return "Bitcoin node is starting (verifying blocks)"
+        if "starting network" in normalized:
+            return "Bitcoin node is starting (starting network threads)"
+        if "work queue depth exceeded" in normalized:
+            return "Bitcoin node is busy (catching up — try again shortly)"
+        return "Bitcoin node is starting (loading block index)"
 
     if any(
         token in normalized
@@ -410,6 +465,8 @@ def get_service_status() -> dict:
         status["blocks"] = chain_info.get("blocks")
     except Exception as exc:
         status["reason"] = describe_service_error(exc)
+        if _is_bitcoin_warming_up(exc) or not _is_transport_error(exc):
+            status["rpc_reachable"] = True
         return status
 
     try:

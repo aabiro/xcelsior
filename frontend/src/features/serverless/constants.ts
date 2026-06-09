@@ -2,6 +2,13 @@ import type { DeployStudioForm } from "./types";
 
 export const PRESET_IMAGE = "xcelsior/serverless-vllm:12.4";
 
+/** Phase 15 — additional managed engines (vLLM default; TGI/SGLang opt-in). */
+export const MANAGED_ENGINES = [
+  { id: "vllm", label: "vLLM (default)", image: "xcelsior/serverless-vllm:12.4" },
+  { id: "tgi", label: "Text Generation Inference", image: "ghcr.io/huggingface/text-generation-inference:latest" },
+  { id: "sglang", label: "SGLang", image: "lmsysorg/sglang:latest" },
+] as const;
+
 export const PRESET_MODELS = [
   { id: "meta-llama/Llama-3.1-8B-Instruct", label: "Llama 3.1 8B Instruct", vram: 16 },
   { id: "meta-llama/Llama-3.1-70B-Instruct", label: "Llama 3.1 70B Instruct", vram: 80 },

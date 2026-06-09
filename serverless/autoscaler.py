@@ -12,6 +12,7 @@ from serverless.repo import (
     WORKER_STATE_IDLE,
     WORKER_STATE_READY,
 )
+from serverless.scaling_predictive import forecast_queue_depth, predictive_scaling_enabled
 
 ACTIVE_WORKER_STATES = frozenset(
     {WORKER_STATE_BOOTING, WORKER_STATE_READY, WORKER_STATE_IDLE, WORKER_STATE_DRAINING}
@@ -34,6 +35,7 @@ class AutoscalerInput:
     queue_depth: int
     max_queue_wait_sec: float
     workers: list[dict] = field(default_factory=list)
+    queue_depth_samples: list[tuple[float, int]] = field(default_factory=list)
 
 
 def count_active_workers(workers: list[dict]) -> int:
@@ -74,10 +76,12 @@ def compute_desired_workers(inp: AutoscalerInput) -> int:
     desired = max(inp.min_workers, current)
 
     if should_scale_up(inp):
-        # Add enough workers to absorb queue depth at max_concurrency per worker.
-        needed_slots = inp.queue_depth
+        effective_depth = inp.queue_depth
+        if predictive_scaling_enabled() and inp.queue_depth_samples:
+            forecast = forecast_queue_depth(inp.queue_depth_samples, horizon_sec=60.0)
+            effective_depth = max(effective_depth, forecast)
         free = free_concurrency_slots(inp.workers, inp.max_concurrency)
-        deficit = max(0, needed_slots - free)
+        deficit = max(0, effective_depth - free)
         extra_workers = max(1, math.ceil(deficit / max(1, inp.max_concurrency)))
         desired = current + extra_workers
 
