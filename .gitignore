@@ -1,3 +1,6 @@
+# Agent signing private key (public key + .sig files are committed)
+scripts/agent-signing.key
+
 # ── Environment ───────────────────────────────────────────────────────
 .env
 .env.*

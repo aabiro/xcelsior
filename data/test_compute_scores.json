@@ -145,5 +145,12 @@
     "score": 8.26,
     "details": null,
     "run_at": 1780946128.0343928
+  },
+  {
+    "host_id": "h-slv-b7c8eaf6",
+    "gpu_model": "RTX 4090",
+    "score": 8.26,
+    "details": null,
+    "run_at": 1780975378.5016491
   }
 ]

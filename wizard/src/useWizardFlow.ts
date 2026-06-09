@@ -4,11 +4,11 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { existsSync, readFileSync } from "node:fs";
-import { WIZARD_STEPS, getNextStep, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
+import { WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP } from "./wizard-flow.js";
 import {
     streamChat, confirmAction, type ApiClientConfig,
-    requestDeviceCode, pollDeviceToken, type DeviceCodeResult,
-    getMe, generateApiKey, createOAuthClient, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
+    requestDeviceCode, pollDeviceToken,
+    getMe, createOAuthClient, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
     getWallet, claimFreeCredits,
     launchInstance, getInstance, type InstanceInfo,
     registerHost, reportVersions, reportBenchmark, reportVerification,
@@ -22,6 +22,12 @@ import {
     type GpuInfo, type BenchmarkResult, type NetworkBenchResult,
     type VersionCheck, type VerificationReport,
 } from "./provider-checks.js";
+import {
+    clearWizardCheckpoint,
+    loadWizardCheckpoint,
+    saveWizardCheckpoint,
+    type WizardCheckpoint,
+} from "./wizard-state.js";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -29,7 +35,7 @@ const API_BASE_URL = process.env["XCELSIOR_API_URL"] || "https://xcelsior.ca";
 const CONFIG_HOME = process.env["HOME"] ?? "/tmp";
 const TOKEN_FILE = `${CONFIG_HOME}/.xcelsior/token.json`;
 const CONFIG_FILE = `${CONFIG_HOME}/.xcelsior/config.toml`;
-const DEVICE_POLL_MS = 5_000;
+const DEFAULT_DEVICE_POLL_MS = 5_000;
 const DEVICE_CODE_EXPIRY_MS = 15 * 60 * 1000;
 const WALLET_POLL_MS = 5_000;
 const CHOREOGRAPHY_DELAY_MS = 8_000;
@@ -261,10 +267,10 @@ async function writeProjectEnv(
                     content = content.trimEnd() + "\n" + `${key}=${value}` + "\n";
                 }
             }
-            fs.writeFileSync(envPath, content);
+            fs.writeFileSync(envPath, content, { mode: 0o600 });
         } else {
             const lines = pairs.map(({ key, value }) => `${key}=${value}`);
-            fs.writeFileSync(envPath, `# Added by Xcelsior setup wizard\n${lines.join("\n")}\n`);
+            fs.writeFileSync(envPath, `# Added by Xcelsior setup wizard\n${lines.join("\n")}\n`, { mode: 0o600 });
         }
         return true;
     } catch (err) {
@@ -496,10 +502,16 @@ function buildWorkerOAuthClientName(
 // ── Hook ─────────────────────────────────────────────────────────────
 
 export function useWizardFlow(): UseWizardFlowReturn {
-    const [stepIndex, setStepIndex] = useState(0);
-    const stepIndexRef = useRef(0);
-    const [answers, setAnswers] = useState<Record<string, string | string[]>>({ "_api_base_url": API_BASE_URL });
-    const answersRef = useRef<Record<string, string | string[]>>({ "_api_base_url": API_BASE_URL });
+    const initialCheckpoint = loadWizardCheckpoint();
+    const [stepIndex, setStepIndex] = useState(initialCheckpoint?.stepIndex ?? 0);
+    const stepIndexRef = useRef(initialCheckpoint?.stepIndex ?? 0);
+    const [answers, setAnswers] = useState<Record<string, string | string[]>>(
+        initialCheckpoint?.answers ?? { "_api_base_url": API_BASE_URL },
+    );
+    const answersRef = useRef<Record<string, string | string[]>>(
+        initialCheckpoint?.answers ?? { "_api_base_url": API_BASE_URL },
+    );
+    const completedStepIdsRef = useRef<string[]>(initialCheckpoint?.completedStepIds ?? []);
     const [wizardState, setWizardState] = useState<WizardState>("idle");
     const [wizardMessage, setWizardMessage] = useState(WIZARD_STEPS[0].prompt);
     const [checkResults, setCheckResults] = useState<Record<string, AutoCheckResults>>({});
@@ -525,7 +537,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         email: null,
         errorMessage: null,
     });
-    const devicePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const browserTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Marketplace
@@ -555,7 +567,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const [tokenSaveError, setTokenSaveError] = useState<string | null>(null);
 
     // AI conversation tracking
-    const conversationIdRef = useRef<string | null>(null);
+    const conversationIdRef = useRef<string | null>(initialCheckpoint?.conversationId ?? null);
     const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
     const [aiToolCalls, setAiToolCalls] = useState<AiToolCall[]>([]);
 
@@ -595,7 +607,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
             browserTimeoutRef.current = null;
         }
         if (devicePollRef.current) {
-            clearInterval(devicePollRef.current);
+            clearTimeout(devicePollRef.current as unknown as ReturnType<typeof setTimeout>);
             devicePollRef.current = null;
         }
     }, []);
@@ -665,13 +677,19 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 openBrowser(result.verification_uri);
             }, 15_000);
 
-            // Start polling
+            // RFC 8628 polling with server interval + slow_down backoff
             let devicePollInFlight = false;
             const pollStartTime = Date.now();
-            devicePollRef.current = setInterval(async () => {
-                if (devicePollInFlight) return; // prevent overlapping poll iterations
-                // Check expiry
-                if (Date.now() - pollStartTime > DEVICE_CODE_EXPIRY_MS) {
+            let pollIntervalMs = Math.max((result.interval ?? 5) * 1000, DEFAULT_DEVICE_POLL_MS);
+
+            const schedulePoll = (delayMs: number) => {
+                if (devicePollRef.current) clearTimeout(devicePollRef.current);
+                devicePollRef.current = setTimeout(() => { void pollOnce(); }, delayMs);
+            };
+
+            const pollOnce = async () => {
+                if (devicePollInFlight) return;
+                if (Date.now() - pollStartTime > (result.expires_in * 1000 || DEVICE_CODE_EXPIRY_MS)) {
                     stopDevicePoll();
                     setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: "Device code expired — please retry" }));
                     setWizardState("error");
@@ -680,21 +698,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 }
                 devicePollInFlight = true;
                 try {
-                    const tokenResult = await pollDeviceToken(API_BASE_URL, result.device_code);
-                    if (tokenResult) {
+                    const pollResult = await pollDeviceToken(API_BASE_URL, result.device_code);
+                    if (pollResult.status === "authorized") {
                         stopDevicePoll();
-                        const sessionToken = tokenResult.access_token;
+                        const sessionToken = pollResult.token.access_token;
+                        const apiKey = sessionToken;
 
-                        // Generate a proper API key so it appears in dashboard Settings
-                        let apiKey = sessionToken;
-                        try {
-                            const keyResult = await generateApiKey(API_BASE_URL, sessionToken, "CLI Wizard");
-                            apiKey = keyResult.key;
-                        } catch {
-                            // Fall back to session token if key generation fails
-                        }
-
-                        // Save API key
                         const saveResult = await saveToken(apiKey);
 
                         // Get user profile
@@ -765,22 +774,38 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setDeviceAuthEnvPath(null);
                             setWizardMessage(`Token save failed: ${saveResult}`);
                         }
+                    } else if (pollResult.status === "slow_down") {
+                        pollIntervalMs = Math.min(pollIntervalMs + 5000, 60_000);
+                        schedulePoll(pollIntervalMs);
+                    } else if (pollResult.status === "expired") {
+                        stopDevicePoll();
+                        setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: "Device code expired" }));
+                        setWizardState("error");
+                        setWizardMessage("Device code expired — press Enter to retry");
+                    } else if (pollResult.status === "error") {
+                        stopDevicePoll();
+                        setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: pollResult.message }));
+                        setWizardState("error");
+                        setWizardMessage("Authentication failed — press Enter to retry");
+                    } else {
+                        schedulePoll(pollIntervalMs);
                     }
                 } catch (err) {
-                    // Don't stop polling on transient errors — only on fatal ones
                     const msg = err instanceof Error ? err.message : "Auth failed";
-                    // "expired_token" or "access_denied" are fatal
                     if (msg.includes("expired") || msg.includes("denied")) {
                         stopDevicePoll();
                         setDeviceAuth((prev) => ({ ...prev, status: "error", errorMessage: msg }));
                         setWizardState("error");
                         setWizardMessage("Authentication failed — press Enter to retry");
+                    } else {
+                        schedulePoll(pollIntervalMs);
                     }
-                    // Otherwise keep polling — user might not have entered code yet
                 } finally {
                     devicePollInFlight = false;
                 }
-            }, DEVICE_POLL_MS);
+            };
+
+            schedulePoll(pollIntervalMs);
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Auth init failed";
             setDeviceAuth({ status: "error", userCode: null, verificationUri: null, token: null, email: null, errorMessage: msg });
@@ -1306,6 +1331,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
             setChatHistory([]);
             setCurrentAiQuestion(null);
 
+            const currentStep = WIZARD_STEPS[stepIndexRef.current];
+            if (currentStep && !completedStepIdsRef.current.includes(currentStep.id)) {
+                completedStepIdsRef.current.push(currentStep.id);
+            }
+
             const next = getNextStep(stepIndexRef.current, currentAnswers);
             if (next === -1 || WIZARD_STEPS[next].type === "done") {
                 // Find the done step
@@ -1323,6 +1353,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     saveConfig(currentAnswers).catch((err) => {
                         setWizardMessage((prev) => `${prev}\n⚠ Could not save config: ${err instanceof Error ? err.message : "unknown error"}`);
                     });
+                    clearWizardCheckpoint();
                 }
                 setIsComplete(true);
                 return;
@@ -1331,6 +1362,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
             const nextStep = WIZARD_STEPS[next];
             stepIndexRef.current = next;
             setStepIndex(next);
+            saveWizardCheckpoint({
+                stepIndex: next,
+                answers: currentAnswers,
+                conversationId: conversationIdRef.current ?? undefined,
+                completedStepIds: [...completedStepIdsRef.current],
+                savedAt: new Date().toISOString(),
+            } satisfies WizardCheckpoint);
 
             // Brief pause so the user can read the step prompt before init kicks in
             const needsInit = nextStep.type === "device-auth"
@@ -1879,7 +1917,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
             } catch (err) {
                 lastAiContentRef.current = content || null;
                 setWizardState("error");
-                setWizardMessage(content ? "AI error — press d to see details" : "AI unavailable — continue with the wizard steps.");
+                const staticHelp = STATIC_STEP_HELP[step.id];
+                const helpHint = staticHelp?.length ? ` ${staticHelp[0]}` : "";
+                setWizardMessage(
+                    content
+                        ? `AI error — press d to see details.${helpHint}`
+                        : `AI unavailable — continue with the wizard steps.${helpHint}`,
+                );
             } finally {
                 setAiStreaming(false);
             }
@@ -1944,7 +1988,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
     useEffect(() => {
         return () => {
             if (browserTimeoutRef.current) clearTimeout(browserTimeoutRef.current);
-            if (devicePollRef.current) clearInterval(devicePollRef.current);
+            if (devicePollRef.current) clearTimeout(devicePollRef.current);
             if (walletPollRef.current) clearInterval(walletPollRef.current);
         };
     }, []);

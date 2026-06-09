@@ -1170,6 +1170,16 @@ def cmd_config(args):
 
 
 def main():
+    import sys
+    if "-h" not in sys.argv and "--help" not in sys.argv:
+        print(
+            "Note: xcelsior CLI is an ADMIN-ONLY operator tool with in-process scheduler access.",
+            file=sys.stderr,
+        )
+        print(
+            "It bypasses API auth/tenancy — never ship in provider or customer artifacts.",
+            file=sys.stderr,
+        )
     parser = argparse.ArgumentParser(
         prog="xcelsior",
         description="Xcelsior — distributed GPU scheduler",

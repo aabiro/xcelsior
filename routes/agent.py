@@ -515,6 +515,25 @@ def api_agent_versions(report: VersionReport):
     }
 
 
+class AgentDegradedReport(BaseModel):
+    host_id: str
+    reason: str
+    context: str = ""
+
+
+@router.post("/agent/degraded", tags=["Agent"])
+def api_agent_degraded(report: AgentDegradedReport, request: Request):
+    """Receive degraded-state reports from worker hot loops (B11)."""
+    _require_agent_auth(request, host_id=report.host_id)
+    log.warning(
+        "AGENT DEGRADED host=%s reason=%s context=%s",
+        report.host_id,
+        report.reason,
+        report.context[:200],
+    )
+    return {"ok": True, "received": True}
+
+
 @router.post("/agent/mining-alert", tags=["Agent"])
 def api_mining_alert(alert: MiningAlert, request: Request):
     """Receive mining detection alert from an agent."""

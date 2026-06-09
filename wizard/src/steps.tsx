@@ -307,9 +307,9 @@ export function DeviceAuthStep({
         <Text color="#22c55e">✓ Authenticated{email ? ` as ${email}` : ""}</Text>
         {token && (
           <Box marginTop={1} flexDirection="column">
-            <Text>Your API key:</Text>
+            <Text>Session token saved (masked):</Text>
             <Box marginTop={0}>
-              <Text bold color="#ffcc00">{token}</Text>
+              <Text bold color="#ffcc00">{token.length > 12 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : "••••••••"}</Text>
             </Box>
             {tokenSaveError ? (
               <Text color="#ef4444">✗ Failed to save token: {tokenSaveError}</Text>

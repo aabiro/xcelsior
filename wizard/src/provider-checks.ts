@@ -15,6 +15,19 @@ export const MINIMUM_VERSIONS: Record<string, string> = {
     docker: "24.0.0",
 };
 
+/** Actionable remediation hints for check failures (A9). */
+export const CHECK_REMEDIATION: Record<string, string> = {
+    docker: "Install Docker 24+ and add your user to the docker group: sudo usermod -aG docker $USER",
+    nvidia_driver: "Install NVIDIA driver 550+: https://www.nvidia.com/Download/index.aspx",
+    nvidia_toolkit: "Install NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html",
+    runc: "Upgrade runc to >= 1.1.12 via your distro packages or containerd",
+    network: "Open outbound HTTPS (443) and ensure mesh (Tailscale) or public IP is reachable",
+    benchmark: "Verify GPU is not throttled; check nvidia-smi and thermal limits",
+    verify: "Re-run verification after fixing failed checks listed above",
+    "host-register": "Confirm OAuth/API credentials in ~/.xcelsior/token.json and scheduler URL",
+    "worker-install": "Run: curl -fsSL https://xcelsior.ca/install.sh | bash -s -- --agent-only",
+};
+
 // ── Verification thresholds (mirrors verification.py) ────────────────
 
 export const VERIFICATION_THRESHOLDS = {

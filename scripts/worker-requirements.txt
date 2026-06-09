@@ -1,0 +1,6 @@
+# Pinned dependencies for the worker agent on clean hosts (install.sh venv).
+requests>=2.31.0,<3
+python-dotenv>=1.0.0,<2
+prometheus-client>=0.20.0,<1
+cryptography>=42.0.0,<44
+psutil>=5.9.0,<7
