@@ -276,8 +276,8 @@ export default function ReputationPage() {
   const { user } = useAuth();
   const userId = user?.customer_id || user?.user_id || "";
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     Promise.allSettled([
       api.fetchLeaderboard(),
       fetch("/api/reputation/me", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
@@ -305,8 +305,34 @@ export default function ReputationPage() {
   }, [api, userId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let active = true;
+    Promise.allSettled([
+      api.fetchLeaderboard(),
+      fetch("/api/reputation/me", { credentials: "include" }).then((r) => r.ok ? r.json() : Promise.reject()),
+      userId ? apiLib.fetchReputationHistory(userId) : Promise.reject("no user"),
+    ]).then(([lb, me, hist]) => {
+      if (!active) return;
+      if (lb.status === "fulfilled") setLeaderboard(lb.value.leaderboard || []);
+      if (me.status === "fulfilled") setMyRep(me.value);
+      if (hist.status === "fulfilled") {
+        const events: Array<{ created_at?: number; points_delta?: number; delta?: number }> =
+          hist.value.events || [];
+        let running = 0;
+        setHistory(
+          events.map((e) => {
+            running += e.points_delta ?? e.delta ?? 0;
+            const ts = (e.created_at ?? 0) * 1000;
+            return {
+              date: new Date(ts).toLocaleDateString("en-CA"),
+              score: Math.max(0, running),
+            };
+          }),
+        );
+      }
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, [api, userId]);
 
   const tierKey = (myRep?.tier || "new_user") as TierKey;
   const tierCfg = TIER_MAP[tierKey] ?? TIER_MAP.new_user;
@@ -348,7 +374,7 @@ export default function ReputationPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Reputation</h1>
-        <Button variant="outline" size="sm" onClick={load}>
+        <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
           <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
         </Button>
       </div>

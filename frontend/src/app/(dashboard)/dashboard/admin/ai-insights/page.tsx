@@ -111,8 +111,8 @@ export default function AdminAiInsightsPage() {
       .catch(() => toast.error("Failed to load conversations"));
   }, [source, days, search, page]);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     Promise.allSettled([
       api.fetchAdminAiStats(days),
       api.fetchAdminAiConversations(source, days, search, page),
@@ -124,7 +124,20 @@ export default function AdminAiInsightsPage() {
     });
   }, [days, source, search, page]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([
+      api.fetchAdminAiStats(days),
+      api.fetchAdminAiConversations(source, days, search, page),
+    ]).then(([s, c]) => {
+      if (!active) return;
+      if (s.status === "fulfilled") setStats(s.value);
+      if (c.status === "fulfilled")
+        setConvosData({ conversations: c.value.conversations, total: c.value.total, page: c.value.page });
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, [days, source, search, page]);
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -195,7 +208,7 @@ export default function AdminAiInsightsPage() {
               </button>
             ))}
           </div>
-          <Button size="sm" variant="outline" onClick={load} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => load({ refresh: true })} className="gap-1.5">
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
             Refresh
           </Button>

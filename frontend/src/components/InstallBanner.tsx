@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
@@ -60,28 +62,32 @@ export function InstallBanner() {
 
     const hasLaunched = localStorage.getItem(LS_LAUNCHED) === "1";
 
-    if (isDesktopDevice) {
-      // On desktop, suggest the native Tauri app
-      if (hasLaunched || visits >= 5) {
-        setVariant("desktop");
+    const frameId = requestAnimationFrame(() => {
+      if (isDesktopDevice) {
+        // On desktop, suggest the native Tauri app
+        if (hasLaunched || visits >= 5) {
+          setVariant("desktop");
+          setShow(true);
+        }
+        return;
+      }
+
+      // Mobile — need the browser install prompt to be available
+      if (!canInstall) return;
+
+      if (hasLaunched) {
+        setVariant("post-launch");
+        setShow(true);
+      } else if (visits >= 5) {
+        setVariant("frequent");
+        setShow(true);
+      } else if (visits >= 2) {
+        setVariant("default");
         setShow(true);
       }
-      return;
-    }
+    });
 
-    // Mobile — need the browser install prompt to be available
-    if (!canInstall) return;
-
-    if (hasLaunched) {
-      setVariant("post-launch");
-      setShow(true);
-    } else if (visits >= 5) {
-      setVariant("frequent");
-      setShow(true);
-    } else if (visits >= 2) {
-      setVariant("default");
-      setShow(true);
-    }
+    return () => cancelAnimationFrame(frameId);
   }, [allowPromo, canInstall, isDesktopDevice, isInstalled]);
 
   const handleInstall = async () => {

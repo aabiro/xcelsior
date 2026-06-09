@@ -31,8 +31,8 @@ export default function AdminRevenuePage() {
   const [days, setDays] = useState(90);
   const [showComparison, setShowComparison] = useState(false);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     const d = days === 0
       ? Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000)
       : days;
@@ -56,11 +56,33 @@ export default function AdminRevenuePage() {
       .finally(() => setLoading(false));
   }, [days, showComparison]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    const d = days === 0
+      ? Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000)
+      : days;
+    const promises: Promise<unknown>[] = [
+      api.fetchAdminRevenue(d).then((res) => { if (active) setData(res); }),
+    ];
+    if (showComparison) {
+      promises.push(
+        api.fetchAdminRevenue(d * 2).then((full) => {
+          if (!active) return;
+          const cutoff = full.daily.length - d;
+          const prev = { ...full, daily: full.daily.slice(0, Math.max(0, cutoff)) };
+          setPrevData(prev);
+        }).catch(() => { if (active) setPrevData(null); }),
+      );
+    }
+    Promise.allSettled(promises)
+      .catch(() => { if (active) toast.error("Failed to load revenue data"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [days, showComparison]);
 
   useEventStream({
     eventTypes: ["payment_received", "job_completed"],
-    onEvent: load,
+    onEvent: () => load({ refresh: true }),
   });
 
   const totalRevenue = data?.daily?.reduce((s, d) => s + d.revenue, 0) ?? 0;
@@ -102,7 +124,7 @@ export default function AdminRevenuePage() {
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="h-3.5 w-3.5" /> CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={load}>
+          <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
         </div>

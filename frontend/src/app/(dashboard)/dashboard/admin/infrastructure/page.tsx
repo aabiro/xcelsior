@@ -37,19 +37,26 @@ export default function AdminInfrastructurePage() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.fetchAdminInfrastructure>> | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     api.fetchAdminInfrastructure()
       .then(setData)
       .catch(() => toast.error("Failed to load infrastructure data"))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    api.fetchAdminInfrastructure()
+      .then((res) => { if (active) setData(res); })
+      .catch(() => { if (active) toast.error("Failed to load infrastructure data"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEventStream({
     eventTypes: ["host_registered", "host_removed"],
-    onEvent: load,
+    onEvent: () => load({ refresh: true }),
   });
 
   const hasData = (data?.total_hosts ?? 0) > 0;
@@ -79,7 +86,7 @@ export default function AdminInfrastructurePage() {
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="h-3.5 w-3.5" /> CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={load}>
+          <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
         </div>

@@ -66,6 +66,32 @@ graph TB
 | **Reputation Engine** | Multi-factor scoring with 7-day grace decay. Bronze → Silver → Gold → Platinum → Diamond → Sovereign tiers. |
 | **Private Mesh** | Headscale overlay network — GPU workers never exposed to the public internet. |
 | **Admission Gating** | Hosts must pass version checks + GPU fingerprinting before receiving any work. |
+| **Spot Instances** | Interruptible GPUs at published spot rates (no bidding). Capacity-based preemption when on-demand needs capacity. |
+
+---
+
+## Spot Instances
+
+Spot workloads use **`pricing_mode: "spot"`** — not an auction. Customers accept the **published spot rate** (CAD/hr) at launch; the rate is **locked for billing** when the job is assigned. Preemption is **capacity-driven** (on-demand contention or host drain), not bid-based.
+
+```bash
+# Launch an interruptible spot instance
+curl -X POST https://xcelsior.ca/instance \
+  -H "Authorization: Bearer $XCELSIOR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "embed-batch", "vram_needed_gb": 8, "pricing_mode": "spot", "gpu_model": "RTX 4090"}'
+```
+
+| | On-Demand | Spot |
+|---|-----------|------|
+| Availability | Guaranteed while funded | Best-effort; may queue |
+| Price | Fixed catalog rate | Published spot rate (typically 40–60% below on-demand) |
+| Preemption | Never | Yes — when higher-priority work needs GPUs |
+| Billing | Metered at on-demand rate | Metered at `spot_rate_cad` locked at allocation |
+
+**Provider controls:** `spot_enabled`, `spot_gpu_slots`, `spot_min_cents` per host. **Kill switch:** `XCELSIOR_SPOT_ENABLED=false` disables new spot launches (503). See [SPOT_RUNBOOK.md](SPOT_RUNBOOK.md) for on-call guidance.
+
+> **Breaking change:** `max_bid` and spot bidding are removed. Use `pricing_mode=spot` instead. See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

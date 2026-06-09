@@ -78,10 +78,19 @@ curl -X POST https://xcelsior.ca/instance \
   }'
 ```
 
-Spot instances can be preempted if a higher-priority instance arrives. Run preemption cycles:
+Spot instances are **preemptible**: when on-demand work needs GPU capacity on a full host, running spot jobs are reclaimed (lowest priority first). Preemption is **capacity-driven**, not auction-based — customers do not submit bids.
+
+Check feature availability:
 
 ```bash
-POST /spot/preemption-cycle
+GET /api/pricing/spot-enabled
+```
+
+Ops dry-run (admin):
+
+```bash
+curl -X POST "https://xcelsior.ca/spot/preemption-cycle?dry_run=true" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ## Listing Instances

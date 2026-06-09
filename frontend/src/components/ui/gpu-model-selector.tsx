@@ -60,16 +60,8 @@ export function GpuModelSelector({
     return map;
   }, [flatFiltered]);
 
-  useEffect(() => {
-    setHighlightIndex(0);
-  }, [search]);
-
-  // Clamp highlightIndex when filtered list shrinks (prevents stale index)
-  useEffect(() => {
-    if (flatFiltered.length > 0 && highlightIndex >= flatFiltered.length) {
-      setHighlightIndex(flatFiltered.length - 1);
-    }
-  }, [flatFiltered.length, highlightIndex]);
+  const effectiveHighlightIndex =
+    flatFiltered.length === 0 ? 0 : Math.min(highlightIndex, flatFiltered.length - 1);
 
   // Click-outside handler
   useEffect(() => {
@@ -89,7 +81,7 @@ export function GpuModelSelector({
     if (!open || !listRef.current) return;
     const highlighted = listRef.current.querySelector("[data-highlighted=true]");
     if (highlighted) highlighted.scrollIntoView({ block: "nearest" });
-  }, [highlightIndex, open]);
+  }, [effectiveHighlightIndex, open]);
 
   const selectItem = useCallback(
     (model: GpuModel) => {
@@ -112,7 +104,7 @@ export function GpuModelSelector({
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setHighlightIndex((i) => Math.min(i + 1, flatFiltered.length - 1));
+        setHighlightIndex((i) => Math.min(i + 1, Math.max(flatFiltered.length - 1, 0)));
         break;
       case "ArrowUp":
         e.preventDefault();
@@ -120,8 +112,8 @@ export function GpuModelSelector({
         break;
       case "Enter":
         e.preventDefault();
-        if (flatFiltered.length > 0 && flatFiltered[highlightIndex]) {
-          selectItem(flatFiltered[highlightIndex]);
+        if (flatFiltered.length > 0 && flatFiltered[effectiveHighlightIndex]) {
+          selectItem(flatFiltered[effectiveHighlightIndex]);
         }
         break;
       case "Escape":
@@ -135,8 +127,8 @@ export function GpuModelSelector({
     }
   }
 
-  const activeDescendant = flatFiltered[highlightIndex]
-    ? `gpu-opt-${flatFiltered[highlightIndex].value}`
+  const activeDescendant = flatFiltered[effectiveHighlightIndex]
+    ? `gpu-opt-${flatFiltered[effectiveHighlightIndex].value}`
     : undefined;
 
   return (
@@ -159,9 +151,13 @@ export function GpuModelSelector({
           if (!disabled) {
             setOpen(true);
             setSearch("");
+            setHighlightIndex(0);
           }
         }}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setHighlightIndex(0);
+        }}
         onKeyDown={handleKeyDown}
         autoComplete="off"
       />
@@ -190,7 +186,7 @@ export function GpuModelSelector({
                 </div>
                 {(models as GpuModel[]).map((model) => {
                   const idx = modelIndexMap.get(model.value) ?? 0;
-                  const isHighlighted = idx === highlightIndex;
+                  const isHighlighted = idx === effectiveHighlightIndex;
                   const isSelected = model.value === value;
                   return (
                     <button
