@@ -41,6 +41,31 @@ _raw_cut = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 PLATFORM_CUT_FRAC = _raw_cut if _raw_cut <= 1.0 else _raw_cut / 100.0
 STRIPE_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_SECRET_KEY.startswith("sk_"))
 
+
+def _webhook_secret_candidates() -> list:
+    """All configured Stripe webhook signing secrets, in priority order.
+
+    A single endpoint can be the target of multiple Stripe destinations — e.g.
+    a general account webhook (``xcelsior-webhook``) and a Connect-specific one
+    (``xcelsior-connect-snapshot``) — and each destination has its own signing
+    secret. We try every configured secret until one verifies, so an event is
+    never rejected just because it arrived from a sibling destination.
+    """
+    raw = [
+        STRIPE_WEBHOOK_SECRET,  # mode-resolved primary (sandbox or live)
+        os.environ.get("XCELSIOR_STRIPE_WEBHOOK_SECRET", ""),
+        os.environ.get("XCELSIOR_STRIPE_CONNECT_WEBHOOK_SECRET", ""),
+        os.environ.get("XCELSIOR_STRIPE_SANDBOX_WEBHOOK_SECRET", ""),
+    ]
+    seen = set()
+    out = []
+    for secret in raw:
+        if secret and secret not in seen:
+            seen.add(secret)
+            out.append(secret)
+    return out
+
+
 DB_PATH = os.environ.get("XCELSIOR_STRIPE_DB", "xcelsior_stripe.db")
 
 # Only import stripe if API key is configured
@@ -745,15 +770,26 @@ class StripeConnectManager:
         if not STRIPE_ENABLED or not stripe:
             return {"handled": False, "reason": "Stripe not enabled"}
 
-        try:
-            event = stripe.Webhook.construct_event(
-                payload,
-                sig_header,
-                STRIPE_WEBHOOK_SECRET,
+        secrets = _webhook_secret_candidates()
+        if not secrets:
+            log.error("No Stripe webhook secret configured — rejecting event")
+            return {"handled": False, "error": "no webhook secret configured"}
+
+        event = None
+        last_err = None
+        for secret in secrets:
+            try:
+                event = stripe.Webhook.construct_event(payload, sig_header, secret)
+                break
+            except Exception as e:  # SignatureVerificationError or ValueError
+                last_err = e
+        if event is None:
+            log.error(
+                "Webhook signature verification failed against %d secret(s): %s",
+                len(secrets),
+                last_err,
             )
-        except Exception as e:
-            log.error("Webhook signature verification failed: %s", e)
-            return {"handled": False, "error": str(e)}
+            return {"handled": False, "error": str(last_err)}
 
         # Convert StripeObject to plain dict for safe attribute access
         # str(event) returns JSON reliably across all stripe SDK versions
@@ -869,6 +905,8 @@ class StripeConnectManager:
             self._handle_payout_paid(data)
         elif event_type == "payout.failed":
             self._handle_payout_failed(data)
+        elif event_type == "checkout.session.completed":
+            self._handle_checkout_completed(data, event_id)
         else:
             log.debug("Unhandled event type: %s", event_type)
 
@@ -947,6 +985,59 @@ class StripeConnectManager:
                 (si_id,),
             )
         log.warning("Payment failed: %s reason=%s", si_id, failure_code)
+
+    def _handle_checkout_completed(self, data: dict, event_id: str):
+        """Record a completed marketplace Checkout (destination charge).
+
+        Fired when a customer finishes paying on a Connect Checkout Session
+        created by the marketplace storefront. The session is a *destination
+        charge*: the platform kept an application fee and the remainder is
+        transferred to the connected account named in
+        ``payment_intent_data.transfer_data.destination``. We persist the sale
+        idempotently (``session_id`` is the primary key) so the storefront can
+        show fulfilment and we have a provider-level ledger of marketplace
+        revenue. The inbox already dedupes on ``event_id``; the ON CONFLICT is a
+        second guard against Stripe's at-least-once retries.
+        """
+        session_id = data.get("id", "")
+        payment_status = data.get("payment_status")
+        if payment_status not in ("paid", "no_payment_required"):
+            log.info(
+                "checkout.session.completed %s payment_status=%s — not recording",
+                session_id,
+                payment_status,
+            )
+            return
+        meta = data.get("metadata") or {}
+        amount_total = data.get("amount_total", 0) or 0
+        currency = (data.get("currency") or "").lower()
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO marketplace_sales
+                     (session_id, payment_intent_id, destination_account, product_id,
+                      amount_total_cents, currency, customer_email, event_id, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (session_id) DO NOTHING""",
+                (
+                    session_id,
+                    data.get("payment_intent", "") or "",
+                    meta.get("destination_account", ""),
+                    meta.get("product_id", ""),
+                    amount_total,
+                    currency,
+                    (data.get("customer_details") or {}).get("email", ""),
+                    event_id,
+                    time.time(),
+                ),
+            )
+        log.info(
+            "Marketplace sale recorded: session=%s intent=%s dest=%s amount=%d %s",
+            session_id,
+            data.get("payment_intent", ""),
+            meta.get("destination_account", ""),
+            amount_total,
+            currency.upper(),
+        )
 
     def _handle_transfer_created(self, data: dict):
         transfer_id = data["id"]

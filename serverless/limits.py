@@ -41,6 +41,12 @@ def _bucket_key(key_id: str) -> str:
 
 def check_key_rate_limit(key_id: str, rpm: int) -> RateLimitInfo:
     """Sliding-window per-key RPM check. Raises RateLimitExceeded when over limit."""
+    from serverless.rate_limit_store import check_key_rate_limit_redis
+
+    redis_info = check_key_rate_limit_redis(key_id, rpm)
+    if redis_info is not None:
+        return redis_info
+
     limit = max(1, int(rpm))
     now = time.time()
     bucket = _RATE_BUCKETS[_bucket_key(key_id)]

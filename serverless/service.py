@@ -18,7 +18,11 @@ from serverless.autoscaler import (
     workers_to_mark_draining,
     workers_to_reap,
 )
-from serverless.cache import attach_cache_to_endpoint_spec, resolve_cache_volume
+from serverless.cache import (
+    attach_cache_to_endpoint_spec,
+    replicate_cache_volumes,
+)
+from serverless.github_deploy import GitHubSourceError, apply_github_source
 from serverless.dispatcher import ServerlessDispatcher
 from serverless.metering import (
     charge_serverless_worker,
@@ -126,7 +130,8 @@ class ServerlessService:
                 f"managed_engine must be one of: {', '.join(sorted(ALLOWED_MANAGED_ENGINES))}"
             )
         if spec.mode == "custom" and not spec.image_ref:
-            raise ValueError("image_ref is required for custom endpoints")
+            if (spec.source_type or "").strip().lower() != "github" or not (spec.source_ref or "").strip():
+                raise ValueError("image_ref is required for custom endpoints")
         if spec.min_workers < 0 or spec.max_workers < spec.min_workers:
             raise ValueError("invalid min_workers / max_workers")
         if spec.scaling_policy_type not in ("queue_request_count", "queue_delay"):
@@ -162,14 +167,31 @@ class ServerlessService:
         if spec.mode == "preset" and not spec.startup_command:
             spec.startup_command = _preset_startup_command(spec.managed_engine, spec.model_ref)
 
-        vol_id = resolve_cache_volume(
+        if spec.mode == "custom" and (spec.source_type or "").strip().lower() == "github":
+            try:
+                image, gh_env = apply_github_source(
+                    mode=spec.mode,
+                    image_ref=spec.image_ref,
+                    source_type=spec.source_type,
+                    source_ref=spec.source_ref,
+                    source_ref_branch=spec.source_ref_branch,
+                )
+            except GitHubSourceError as exc:
+                raise ValueError(str(exc)) from exc
+            spec.image_ref = image
+            spec.env.update(gh_env)
+
+        cache_by_region = replicate_cache_volumes(
             self.repo,
             spec.owner_id,
             spec.model_ref,
             spec.model_revision,
             spec.region,
         )
-        attach_cache_to_endpoint_spec(spec, vol_id)
+        attach_cache_to_endpoint_spec(spec, cache_by_region.get(spec.region))
+        peer_regions = [r for r, vid in cache_by_region.items() if r != spec.region and vid]
+        if peer_regions:
+            spec.env["XCELSIOR_CACHE_REPLICA_REGIONS"] = ",".join(peer_regions)
 
         ep = self.repo.create_endpoint(spec)
         if int(spec.min_workers) >= 1:

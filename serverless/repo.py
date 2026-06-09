@@ -61,6 +61,9 @@ class EndpointCreate:
     keep_warm: bool = False
     cache_volume_id: str | None = None
     region: str = "ca-east"
+    source_type: str = ""
+    source_ref: str = ""
+    source_ref_branch: str = "main"
     env: dict[str, Any] = field(default_factory=dict)
 
 

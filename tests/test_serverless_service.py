@@ -68,6 +68,15 @@ class TestManagedEngines:
         with pytest.raises(ValueError, match="managed_engine"):
             ServerlessService.validate_endpoint_spec(spec)
 
+    def test_github_custom_without_image_is_valid(self):
+        spec = EndpointCreate(
+            owner_id="cust-test",
+            mode="custom",
+            source_type="github",
+            source_ref="https://github.com/acme/infer",
+        )
+        ServerlessService.validate_endpoint_spec(spec)
+
 
 class TestAutoscalerMath:
     def test_no_scale_when_queue_empty(self):

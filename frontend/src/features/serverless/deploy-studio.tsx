@@ -17,7 +17,7 @@ import { GPU_MODELS } from "@/lib/gpu-models";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  DEFAULT_FORM, DEPLOY_STUDIO_STEPS, IDLE_TIMEOUT_OPTIONS, PRESET_IMAGE, PRESET_MODELS,
+  DEFAULT_FORM, DEPLOY_STUDIO_STEPS, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
 } from "./constants";
 import type { DeployStudioForm } from "./types";
 
@@ -66,7 +66,12 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     if (idx === 0) return null;
     if (idx === 1) {
       if (form.method === "preset" && !form.modelRef.trim()) return t("dash.serverless.err_model");
-      if (form.method === "custom" && !form.imageRef.trim()) return t("dash.serverless.err_image");
+      if (form.method === "custom" && form.customSource === "docker" && !form.imageRef.trim()) {
+        return t("dash.serverless.err_image");
+      }
+      if (form.method === "custom" && form.customSource === "github" && !form.githubRepo.trim()) {
+        return t("dash.serverless.err_github");
+      }
       return null;
     }
     if (idx === 2) {
@@ -96,18 +101,27 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     }
     setDeploying(true);
     try {
-      const image = form.method === "preset" ? PRESET_IMAGE : form.imageRef.trim();
+      const presetEngine = MANAGED_ENGINES.find((e) => e.id === form.managedEngine) ?? MANAGED_ENGINES[0];
+      const image = form.method === "preset"
+        ? presetEngine.image
+        : form.customSource === "github"
+          ? form.imageRef.trim()
+          : form.imageRef.trim();
       const res = await api.createServerlessEndpoint({
-        name: form.name.trim() || form.modelRef || form.imageRef,
+        name: form.name.trim() || form.modelRef || form.imageRef || form.githubRepo,
         mode: form.method === "preset" ? "preset" : "custom",
+        managed_engine: form.method === "preset" ? form.managedEngine : undefined,
         model_name: form.method === "preset" ? form.modelRef.trim() : undefined,
         model_ref: form.method === "preset" ? form.modelRef.trim() : undefined,
+        source_type: form.method === "custom" && form.customSource === "github" ? "github" : undefined,
+        source_ref: form.method === "custom" && form.customSource === "github" ? form.githubRepo.trim() : undefined,
+        source_ref_branch: form.method === "custom" && form.customSource === "github" ? form.githubBranch.trim() : undefined,
         gpu_type: form.gpuTier,
         gpu_tier: form.gpuTier,
         gpu_count: form.gpuCount,
         region: form.region,
-        docker_image: image,
-        image_ref: image,
+        docker_image: image || undefined,
+        image_ref: image || undefined,
         min_workers: form.minWorkers,
         max_workers: form.maxWorkers,
         max_concurrency: form.maxConcurrency,
@@ -243,6 +257,26 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                 </div>
                 {form.method === "preset" ? (
                   <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">{t("dash.serverless.managed_engine")}</label>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {MANAGED_ENGINES.map((engine) => (
+                          <button
+                            key={engine.id}
+                            type="button"
+                            onClick={() => update("managedEngine", engine.id)}
+                            className={cn(
+                              "rounded-lg border px-3 py-2.5 text-left text-sm transition-all",
+                              form.managedEngine === engine.id
+                                ? "border-accent-violet/50 bg-accent-violet/10"
+                                : "border-border hover:bg-surface-hover",
+                            )}
+                          >
+                            <span className="font-medium">{engine.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <label className="block text-sm font-medium">{t("dash.serverless.model_library")}</label>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {PRESET_MODELS.map((m) => (
@@ -273,6 +307,51 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                   </div>
                 ) : (
                   <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2 flex gap-2">
+                      {(["docker", "github"] as const).map((src) => (
+                        <button
+                          key={src}
+                          type="button"
+                          onClick={() => update("customSource", src)}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-sm font-medium transition-all",
+                            form.customSource === src
+                              ? "border-accent-violet/50 bg-accent-violet/10"
+                              : "border-border hover:bg-surface-hover",
+                          )}
+                        >
+                          {src === "docker" ? t("dash.serverless.source_docker") : t("dash.serverless.source_github")}
+                        </button>
+                      ))}
+                    </div>
+                    {form.customSource === "github" ? (
+                      <>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium mb-1">{t("dash.serverless.github_repo")}</label>
+                          <Input
+                            value={form.githubRepo}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("githubRepo", e.target.value)}
+                            placeholder="https://github.com/org/repo"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">{t("dash.serverless.github_branch")}</label>
+                          <Input
+                            value={form.githubBranch}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("githubBranch", e.target.value)}
+                            placeholder="main"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">{t("dash.serverless.container_image")}</label>
+                          <Input
+                            value={form.imageRef}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("imageRef", e.target.value)}
+                            placeholder={t("dash.serverless.github_image_ph")}
+                          />
+                        </div>
+                      </>
+                    ) : (
                     <div className="sm:col-span-2">
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.container_image")}</label>
                       <Input
@@ -281,6 +360,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                         placeholder="registry.io/your-image:tag"
                       />
                     </div>
+                    )}
                     <div className="sm:col-span-2">
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.start_command")}</label>
                       <Input

@@ -67,11 +67,17 @@ def _repo() -> ServerlessRepo:
 
 def _serialize_endpoint(ep: dict) -> dict:
     eid = str(ep.get("endpoint_id") or "")
+    from serverless.vanity import endpoint_vanity_slug, vanity_invoke_path
+
+    slug = endpoint_vanity_slug(str(ep.get("name") or ""), eid)
     return {
         "endpoint_id": eid,
         "owner_id": ep.get("owner_id"),
         "name": ep.get("name") or "",
         "mode": ep.get("mode"),
+        "managed_engine": ep.get("managed_engine") or "vllm",
+        "vanity_slug": slug,
+        "invoke_path": vanity_invoke_path(eid, slug),
         "model_id": ep.get("model_ref"),
         "model_name": ep.get("model_ref"),
         "model_ref": ep.get("model_ref"),
@@ -109,10 +115,14 @@ def _serialize_endpoint(ep: dict) -> dict:
 class ServerlessEndpointCreate(BaseModel):
     name: str = ""
     mode: str = "preset"
+    managed_engine: str = "vllm"
     model_name: str = ""
     model_ref: str = ""
     image_ref: str = ""
     docker_image: str = ""
+    source_type: str = ""
+    source_ref: str = ""
+    source_ref_branch: str = "main"
     gpu_type: str = ""
     gpu_tier: str = ""
     gpu_count: int = Field(1, ge=1, le=8)
@@ -176,12 +186,17 @@ def _body_to_endpoint_create(body: ServerlessEndpointCreate, owner_id: str) -> E
     idle = body.idle_timeout_sec
     if body.scaledown_window_sec is not None:
         idle = body.scaledown_window_sec
+    managed = (body.managed_engine or "vllm").strip().lower() or "vllm"
     return EndpointCreate(
         owner_id=owner_id,
         name=body.name.strip(),
         mode=body.mode,
+        managed_engine=managed,
         model_ref=model_ref,
         image_ref=image_ref,
+        source_type=(body.source_type or "").strip(),
+        source_ref=(body.source_ref or "").strip(),
+        source_ref_branch=(body.source_ref_branch or "main").strip() or "main",
         gpu_tier=gpu_tier,
         gpu_count=body.gpu_count,
         region=body.region,
@@ -281,6 +296,24 @@ def api_serverless_enabled(request: Request):
     user = _get_current_user(request)
     owner_id = _serverless_scope_owner_id(user) if user else None
     return {"ok": True, **serverless_feature_status(owner_id=owner_id)}
+
+
+class GitHubResolveRequest(BaseModel):
+    source_ref: str
+    source_ref_branch: str = "main"
+
+
+@router.post("/api/v2/serverless/github/resolve", tags=["Serverless"])
+def api_serverless_github_resolve(body: GitHubResolveRequest, request: Request):
+    """Resolve a GitHub repo URL to the default GHCR image reference."""
+    _require_auth(request)
+    from serverless.github_deploy import GitHubSourceError, resolve_github_image
+
+    try:
+        image = resolve_github_image(body.source_ref, ref=body.source_ref_branch)
+    except GitHubSourceError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "image_ref": image, "source_type": "github"}
 
 
 @router.post("/api/v2/serverless/endpoints", tags=["Serverless"])
