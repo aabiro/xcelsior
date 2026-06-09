@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { LaunchInstanceModal } from "@/components/instances/launch-instance-modal";
+import { InstancePricingModeBadge } from "@/components/instances/pricing-mode-badge";
 import {
   Briefcase, Plus, Search, RefreshCw, XCircle, ArrowUpDown, ArrowUp, ArrowDown,
   Square, Play, RotateCcw, Zap, Camera, Lock, Unlock, Pencil, RotateCw,
@@ -309,14 +310,21 @@ export default function InstancesPage() {
   }, [load]);
 
   useEventStream({
-    eventTypes: ["job_status", "job_submitted", "job_error"],
-    onEvent: (_type, data) => {
+    eventTypes: ["job_status", "job_submitted", "job_error", "job_preempted"],
+    onEvent: (type, data) => {
+      if (type === "job_preempted") {
+        toast.warning("Spot instance reclaimed — requeued for available capacity");
+        load();
+        return;
+      }
       if (data.error) toast.warning(String(data.message || "Your instance is waiting for a GPU"));
       else load();
     },
   });
 
   const launchOpen = searchParams.get("launch") === "true";
+  const launchGpu = searchParams.get("gpu") || undefined;
+  const launchMode = searchParams.get("mode") === "spot" ? "spot" as const : undefined;
 
   const openLaunchModal = useCallback(() => {
     const next = new URLSearchParams(searchParams.toString());
@@ -526,12 +534,15 @@ export default function InstancesPage() {
                   className="border-b border-border/50 hover:bg-surface-hover transition-colors"
                 >
                   <td className="py-3 pr-4">
-                    <Link
-                      href={`/dashboard/instances/${inst.job_id}`}
-                      className="font-medium text-ice-blue hover:underline"
-                    >
-                      {inst.name || inst.job_id}
-                    </Link>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link
+                        href={`/dashboard/instances/${inst.job_id}`}
+                        className="font-medium text-ice-blue hover:underline"
+                      >
+                        {inst.name || inst.job_id}
+                      </Link>
+                      <InstancePricingModeBadge instance={inst} compact />
+                    </div>
                   </td>
                   <td className="py-3 px-4 text-text-secondary">{inst.gpu_type || inst.host_gpu || inst.gpu_model || (inst.host_id ? "Auto" : "Pending")}</td>
                   <td className="py-3 px-4 text-center">
@@ -601,6 +612,8 @@ export default function InstancesPage() {
       <LaunchInstanceModal
         open={launchOpen}
         onClose={closeLaunchModal}
+        initialGpuModel={launchGpu}
+        initialPricingMode={launchMode}
         onLaunched={(jobId, inst) => {
           closeLaunchModal();
           // Optimistically add so the user can navigate to it immediately

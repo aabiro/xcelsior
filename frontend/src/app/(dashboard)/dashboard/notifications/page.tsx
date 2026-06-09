@@ -32,6 +32,7 @@ const TYPE_META: Record<string, { icon: React.ReactNode; color: string; label: s
   host_registered:      { icon: <Server className="h-4 w-4" />,         color: "text-green-400",  label: "Host Registered" },
   host_removed:         { icon: <Server className="h-4 w-4" />,         color: "text-red-400",    label: "Host Removed" },
   preemption_scheduled: { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-orange-400", label: "Preemption Scheduled" },
+  job_preempted:        { icon: <AlertTriangle className="h-4 w-4" />,  color: "text-amber-400",  label: "Spot Reclaimed" },
   billing_alert:        { icon: <DollarSign className="h-4 w-4" />,     color: "text-yellow-400", label: "Billing Alert" },
   security_alert:       { icon: <Shield className="h-4 w-4" />,         color: "text-red-400",    label: "Security Alert" },
 };
@@ -61,7 +62,7 @@ function notificationHref(n: Notification): string | null {
 }
 
 function routeForType(type: string): string {
-  if (type.startsWith("job") || type === "preemption_scheduled") return "/dashboard/instances";
+  if (type.startsWith("job") || type === "preemption_scheduled" || type === "job_preempted") return "/dashboard/instances";
   if (type.startsWith("host")) return "/dashboard/hosts";
   if (type.startsWith("billing")) return "/dashboard/billing";
   if (type.startsWith("security")) return "/dashboard/settings";
@@ -90,7 +91,7 @@ export default function NotificationsPage() {
   useEventStream({
     eventTypes: [
       "job_submitted", "job_status", "job_completed", "job_failed",
-      "host_registered", "host_removed", "preemption_scheduled",
+      "host_registered", "host_removed", "preemption_scheduled", "job_preempted",
     ],
     onEvent: () => { load(); },
   });

@@ -712,6 +712,17 @@ const fr: Record<string, string> = {
   "dash.instances.submitted": "Soumise",
   "dash.instances.job_id": "ID d'instance",
   "dash.instances.logs": "Journaux",
+  "dash.instances.pricing_card": "Tarification",
+  "dash.instances.pricing_rate": "Tarif",
+  "dash.instances.preemption_count_label": "Préemptions",
+  "dash.instances.preemption_count": "{count} préemption(s) au total",
+  "dash.instances.spot_rate_locked": "Tarif spot verrouillé à l'allocation — facturation à la seconde à ce tarif.",
+  "dash.instances.preempted_title": "Instance spot récupérée",
+  "dash.instances.preempted_desc": "La capacité était requise pour des charges à plus haute priorité. Votre instance est automatiquement remise en file d'attente avec la même configuration.",
+  "dash.instances.preempted_requeue": "En attente de capacité spot disponible…",
+  "dash.instances.preempted_toast": "Instance spot récupérée — remise en file automatiquement",
+  "dash.spot.hero_savings": "Économisez jusqu'à 60 % avec des GPU spot interruptibles",
+  "dash.spot.no_bidding": "Tarifs publiés — pas d'enchères",
 
   /* ── Tableau de bord — Nouvelle instance ──────────────────────────── */
   "dash.newinstance.title": "Lancer une instance",
