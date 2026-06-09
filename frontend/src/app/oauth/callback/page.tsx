@@ -17,23 +17,15 @@ function OAuthCallbackContent() {
   const state = searchParams.get("state");
   const oauthError = searchParams.get("error");
   const oauthErrorDescription = searchParams.get("error_description");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    if (oauthError) return oauthErrorDescription || oauthError;
+    if (!code || !state) return "OAuth callback is missing required parameters.";
+    return "";
+  });
 
   useEffect(() => {
     let cancelled = false;
-
-    if (oauthError) {
-      setError(oauthErrorDescription || oauthError);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!code || !state) {
-      setError("OAuth callback is missing required parameters.");
-      return () => {
-        cancelled = true;
-      };
-    }
+    if (error) return () => { cancelled = true; };
 
     (async () => {
       try {
@@ -52,7 +44,7 @@ function OAuthCallbackContent() {
     return () => {
       cancelled = true;
     };
-  }, [code, state, oauthError, oauthErrorDescription, login, router]);
+  }, [code, state, error, login, router]);
 
   if (error) {
     return (

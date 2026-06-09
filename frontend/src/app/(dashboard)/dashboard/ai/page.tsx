@@ -22,6 +22,15 @@ import {
 
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 
+function readAiPanelOpen(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(AI_PANEL_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 // ── Sidebar: Conversation History (animated) ─────────────────────────
 function ConversationSidebar({
   conversations,
@@ -127,17 +136,12 @@ export default function AiAssistantPage() {
 
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [panelActive, setPanelActive] = useState(false);
+  const [panelActive, setPanelActive] = useState(readAiPanelOpen);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Detect if the AI side panel is currently open
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(AI_PANEL_KEY);
-      if (stored === "true") setPanelActive(true);
-    } catch { /* SSR */ }
-
     const handler = () => {
       try {
         setPanelActive(localStorage.getItem(AI_PANEL_KEY) === "true");

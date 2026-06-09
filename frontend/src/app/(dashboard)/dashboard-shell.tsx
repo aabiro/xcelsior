@@ -32,6 +32,15 @@ import * as api from "@/lib/api";
 const AI_PANEL_KEY = "xcelsior-ai-panel-open";
 const SIDEBAR_COLLAPSED_KEY = "xcelsior-sidebar-collapsed";
 
+function readStoredFlag(key: string, match = "true"): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(key) === match;
+  } catch {
+    return false;
+  }
+}
+
 const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles?: string[]; badge?: string }[] = [
   { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
@@ -56,13 +65,13 @@ const navItems: { href: string; key: string; icon: typeof LayoutDashboard; roles
 ];
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => readStoredFlag(SIDEBAR_COLLAPSED_KEY, "1"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [gearOpen, setGearOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [supportPopoutOpen, setSupportPopoutOpen] = useState(false);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(() => readStoredFlag(AI_PANEL_KEY));
   const [serverlessEnabled, setServerlessEnabled] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLDivElement>(null);
@@ -73,16 +82,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const team = getTeamContext(user);
   const { state: desktopState, openControlCenter } = useDesktopRuntime();
   const desktopMode = desktopState.isNativeDesktop || desktopState.isStandalonePwa;
-
-  // Restore AI panel state from localStorage
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(AI_PANEL_KEY);
-      if (stored === "true") setAiPanelOpen(true);
-      const storedSidebarState = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
-      if (storedSidebarState === "1") setCollapsed(true);
-    } catch { /* SSR */ }
-  }, []);
 
   useEffect(() => {
     try {
@@ -133,10 +132,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [authLoading, user, pathname]);
 
   useEffect(() => {
-    if (!user) {
-      setServerlessEnabled(false);
-      return;
-    }
+    if (!user) return;
     let cancelled = false;
     void api.getServerlessEnabled()
       .then((res) => { if (!cancelled) setServerlessEnabled(!!res.enabled); })
@@ -144,8 +140,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [user]);
 
+  const showServerless = user ? serverlessEnabled : false;
+
   // Close mobile drawer on route change
-  useEffect(() => { setMobileOpen(false); setProfileOpen(false); setGearOpen(false); setOnboardingOpen(false); }, [pathname]);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      setMobileOpen(false);
+      setProfileOpen(false);
+      setGearOpen(false);
+      setOnboardingOpen(false);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [pathname]);
 
   // Close profile dropdown on click outside
   useEffect(() => {
@@ -260,7 +266,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
         {navItems
           .filter((item) => !item.roles || item.roles.some(canAccessRole))
-          .filter((item) => item.href !== "/dashboard/inference" || serverlessEnabled)
+          .filter((item) => item.href !== "/dashboard/inference" || showServerless)
           .map((item) => {
           const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
           const label = t(item.key);
@@ -732,30 +738,37 @@ function useOnboardingState(
 
   // Track marketplace & settings visits as they happen
   useEffect(() => {
+    let frameId = 0;
     if (pathname.startsWith("/dashboard/marketplace") && !completed.browse) {
-      setCompleted((prev) => {
-        const next = { ...prev, browse: true };
-        fetch("/api/users/me/preferences", {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preferences: { onboarding: next } }),
-        }).catch(() => {});
-        return next;
+      frameId = requestAnimationFrame(() => {
+        setCompleted((prev) => {
+          const next = { ...prev, browse: true };
+          fetch("/api/users/me/preferences", {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preferences: { onboarding: next } }),
+          }).catch(() => {});
+          return next;
+        });
+      });
+    } else if (pathname.startsWith("/dashboard/settings") && !completed.jurisdiction) {
+      frameId = requestAnimationFrame(() => {
+        setCompleted((prev) => {
+          const next = { ...prev, jurisdiction: true };
+          fetch("/api/users/me/preferences", {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preferences: { onboarding: next } }),
+          }).catch(() => {});
+          return next;
+        });
       });
     }
-    if (pathname.startsWith("/dashboard/settings") && !completed.jurisdiction) {
-      setCompleted((prev) => {
-        const next = { ...prev, jurisdiction: true };
-        fetch("/api/users/me/preferences", {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preferences: { onboarding: next } }),
-        }).catch(() => {});
-        return next;
-      });
-    }
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
   }, [pathname, completed.browse, completed.jurisdiction]);
 
   // Manual toggle for items that can't be auto-detected (jurisdiction)

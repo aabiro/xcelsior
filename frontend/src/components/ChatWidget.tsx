@@ -329,7 +329,7 @@ export function ChatWidget({ showFab = true, externalOpen, onClose, onOpenAiPane
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
+  }, [open, onClose]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
@@ -48,8 +48,8 @@ export default function TrustPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const load = () => {
-    setLoading(true);
+  const load = useCallback((opts?: { refresh?: boolean }) => {
+    if (opts?.refresh) setLoading(true);
     Promise.allSettled([
       fetchVerifiedHosts(),
       fetchTrustTiers(),
@@ -60,9 +60,23 @@ export default function TrustPage() {
       if (r.status === "fulfilled") setReport(r.value);
       setLoading(false);
     });
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([
+      fetchVerifiedHosts(),
+      fetchTrustTiers(),
+      fetchTransparencyReport(),
+    ]).then(([h, t, r]) => {
+      if (!active) return;
+      if (h.status === "fulfilled") setHosts(h.value.hosts || []);
+      if (t.status === "fulfilled") setTiers(t.value.tiers || {});
+      if (r.status === "fulfilled") setReport(r.value);
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   async function handleApprove(hostId: string) {
     try {
@@ -96,7 +110,7 @@ export default function TrustPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("dash.trust.title")}</h1>
-        <Button variant="outline" size="sm" onClick={load}>
+        <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
           <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
         </Button>
       </div>
