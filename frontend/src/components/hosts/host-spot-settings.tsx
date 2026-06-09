@@ -61,11 +61,9 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
   }, [host.gpu_model, host.spot_min_cents]);
 
   useEffect(() => {
-    if (spotEnabled && host.gpu_model) {
-      const timer = setTimeout(() => loadPreview(spotMinCents), 300);
-      return () => clearTimeout(timer);
-    }
-    setPreview(null);
+    if (!spotEnabled || !host.gpu_model) return;
+    const timer = setTimeout(() => loadPreview(spotMinCents), 300);
+    return () => clearTimeout(timer);
   }, [spotEnabled, spotMinCents, host.gpu_model, loadPreview]);
 
   async function handleSave() {
@@ -96,7 +94,13 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
 
       <button
         type="button"
-        onClick={() => setSpotEnabled(!spotEnabled)}
+        onClick={() => {
+          setSpotEnabled((prev) => {
+            const next = !prev;
+            if (!next) setPreview(null);
+            return next;
+          });
+        }}
         className={cn(
           "flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors mb-4",
           spotEnabled ? "border-emerald/40 bg-emerald/5" : "border-border hover:border-text-muted",

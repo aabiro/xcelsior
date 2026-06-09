@@ -14,6 +14,7 @@ from spot_pricing import (
     update_all_spot_prices,
 )
 from scheduler import preemption_cycle
+from spot.feature import spot_feature_status
 
 router = APIRouter()
 
@@ -43,9 +44,17 @@ def api_spot_floor_suggestion(gpu_model: str, spot_min_cents: int | None = None)
     return {"ok": True, **preview}
 
 
+@router.get("/api/pricing/spot-enabled", tags=["Spot Pricing"])
+def api_spot_enabled():
+    """Spot instance feature flag — global kill switch status for UI."""
+    return {"ok": True, **spot_feature_status()}
+
+
 @router.post("/spot/preemption-cycle", tags=["Spot Pricing"])
-def api_preemption_cycle(request: Request):
-    """Run a preemption cycle (capacity-based eviction in Phase 7)."""
+def api_preemption_cycle(request: Request, dry_run: bool = False):
+    """Capacity preemption cycle for ops (set ``dry_run=true`` to preview only)."""
     _require_admin(request)
-    preempted = preemption_cycle()
-    return {"ok": True, "preempted": preempted}
+    prices, result = preemption_cycle(dry_run=dry_run)
+    if dry_run:
+        return {"ok": True, "dry_run": True, "candidates": result, "prices": prices}
+    return {"ok": True, "preempted": result, "prices": prices}

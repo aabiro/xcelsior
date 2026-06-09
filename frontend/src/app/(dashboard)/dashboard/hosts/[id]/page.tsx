@@ -21,6 +21,10 @@ import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
 
 export default function HostDetailPage() {
   const { id } = useParams<{ id: string }>();
+  return <HostDetailContent key={id} id={id} />;
+}
+
+function HostDetailContent({ id }: { id: string }) {
   const { t } = useLocale();
   const [host, setHost] = useState<Host | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,24 +35,26 @@ export default function HostDetailPage() {
   const [reputation, setReputation] = useState<ReputationEntry | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    let active = true;
 
     fetchHost(id)
-      .then((r) => setHost(r.host))
-      .catch(() => toast.error("Failed to load host"))
-      .finally(() => setLoading(false));
+      .then((r) => { if (active) setHost(r.host); })
+      .catch(() => { if (active) toast.error("Failed to load host"); })
+      .finally(() => { if (active) setLoading(false); });
 
-    // Parallel secondary fetches — each can fail independently
-    fetchComputeScore(id).then((r) => setComputeScore(r.score)).catch((e) => console.error("Failed to load compute score", e));
-    fetchSlaStatus(id).then((r) => setSla(r)).catch((e) => console.error("Failed to load SLA status", e));
-    fetchVerificationStatus(id).then((r) => setVerification(r)).catch((e) => console.error("Failed to load verification", e));
-    fetchReputation(id).then((r) => setReputation(r.reputation)).catch((e) => console.error("Failed to load reputation", e));
+    fetchComputeScore(id).then((r) => { if (active) setComputeScore(r.score); }).catch((e) => console.error("Failed to load compute score", e));
+    fetchSlaStatus(id).then((r) => { if (active) setSla(r); }).catch((e) => console.error("Failed to load SLA status", e));
+    fetchVerificationStatus(id).then((r) => { if (active) setVerification(r); }).catch((e) => console.error("Failed to load verification", e));
+    fetchReputation(id).then((r) => { if (active) setReputation(r.reputation); }).catch((e) => console.error("Failed to load reputation", e));
     fetchTelemetry()
       .then((r) => {
+        if (!active) return;
         const data = r.telemetry?.[id];
         if (data) setTelemetry(data);
       })
       .catch((e) => console.error("Failed to load telemetry", e));
+
+    return () => { active = false; };
   }, [id]);
 
   if (loading) {

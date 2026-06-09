@@ -1267,6 +1267,15 @@ export async function fetchHostSpotPreview(hostId: string, spotMinCents?: number
   );
 }
 
+export async function fetchSpotFeatureStatus() {
+  return apiFetch<{
+    ok: boolean;
+    enabled: boolean;
+    global_enabled: boolean;
+    message?: string | null;
+  }>("/api/pricing/spot-enabled");
+}
+
 export async function fetchSpotFloorSuggestion(gpuModel: string, spotMinCents?: number) {
   const params = new URLSearchParams({ gpu_model: gpuModel });
   if (spotMinCents != null) params.set("spot_min_cents", String(spotMinCents));

@@ -2016,6 +2016,13 @@ def process_queue():
             lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
             assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
             assign_kwargs["pricing_mode"] = "spot"
+            log.info(
+                "spot.allocated job_id=%s host_id=%s gpu_model=%s spot_rate_cad=%s",
+                job.get("job_id"),
+                host["host_id"],
+                host.get("gpu_model"),
+                job.get("spot_rate_cad"),
+            )
 
         updated = update_job_status(
             job["job_id"],
@@ -4325,6 +4332,13 @@ def get_metrics_snapshot():
     except Exception as exc:
         log.debug("Volume metrics unavailable: %s", exc)
 
+    try:
+        from spot_metrics import get_spot_metrics_snapshot
+
+        snapshot["spot"] = get_spot_metrics_snapshot(jobs)
+    except Exception as exc:
+        log.debug("Spot metrics unavailable: %s", exc)
+
     return snapshot
 
 
@@ -4368,7 +4382,17 @@ def update_spot_prices():
 
     spot_prices = update_all_spot_prices()
     emit_event("spot_prices", spot_prices)
-    log.info("SPOT PRICES UPDATED: %s", json.dumps(spot_prices))
+    log.info(
+        "spot.price_updated prices=%s models=%d",
+        json.dumps(spot_prices),
+        len(spot_prices),
+    )
+    try:
+        from spot_metrics import refresh_spot_gauges
+
+        refresh_spot_gauges()
+    except Exception as exc:
+        log.debug("Spot gauge refresh after price update skipped: %s", exc)
     return spot_prices
 
 
@@ -4451,11 +4475,18 @@ def preempt_job(job_id):
 
     emit_event("job_preempted", {"job_id": job_id, "name": preempted_job.get("name")})
     log.warning(
-        "JOB PREEMPTED %s | %s | count=%s",
+        "spot.preempted job_id=%s name=%s host_id=%s preemption_count=%s",
         job_id,
         preempted_job.get("name"),
+        worker_host_id,
         preempted_job.get("preemption_count"),
     )
+    try:
+        from spot_metrics import record_spot_preemption
+
+        record_spot_preemption()
+    except Exception as exc:
+        log.debug("Spot preemption metric skipped: %s", exc)
 
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
@@ -4468,6 +4499,12 @@ def preempt_job(job_id):
                 j["submitted_at"] = time.time() + delay
             _upsert_job_row(conn, j)
             preempted_job = dict(j)
+            log.info(
+                "spot.requeued job_id=%s preemption_count=%s pricing_mode=%s",
+                job_id,
+                preempted_job.get("preemption_count"),
+                preempted_job.get("pricing_mode"),
+            )
 
     # Detach volumes — job is leaving this host
     try:
@@ -4480,18 +4517,39 @@ def preempt_job(job_id):
     return preempted_job
 
 
-def preemption_cycle():
-    """Run a full preemption cycle.
+def preemption_cycle(*, dry_run: bool = False):
+    """Run a capacity preemption cycle (or dry-run preview for ops).
 
     1. Update spot prices
     2. Find preemptible jobs blocking on-demand capacity
-    3. Preempt them (+ drain hosts)
-    Returns (spot_prices, preempted_jobs).
+    3. Preempt them (+ drain hosts) unless ``dry_run``
+    Returns (spot_prices, preempted_jobs_or_candidates).
     """
     prices = update_spot_prices()
     preemptible = identify_preemptible_jobs(prices)
-    preempted = []
 
+    if dry_run:
+        candidates = [
+            {
+                "job_id": job["job_id"],
+                "host_id": job.get("host_id"),
+                "reason": reason,
+            }
+            for job, reason in preemptible
+        ]
+        for host in list_hosts(active_only=False):
+            if host.get("status") == "draining":
+                for victim in identify_drain_preemption_candidates(host["host_id"]):
+                    candidates.append(
+                        {
+                            "job_id": victim["job_id"],
+                            "host_id": victim.get("host_id"),
+                            "reason": f"host drain ({host['host_id']})",
+                        }
+                    )
+        return prices, candidates
+
+    preempted = []
     for job, reason in preemptible:
         result = preempt_job(job["job_id"])
         if result:
