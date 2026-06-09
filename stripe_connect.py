@@ -623,9 +623,11 @@ class StripeConnectManager:
                 pi = stripe.PaymentIntent.create(
                     amount=amount_cents,
                     currency="cad",
+                    automatic_payment_methods={"enabled": True},
                     metadata={
                         "xcelsior_customer_id": customer_id,
                         "xcelsior_intent_id": intent_id,
+                        "product_type": "wallet_deposit",
                     },
                     description=description,
                 )
@@ -1019,6 +1021,7 @@ class StripeConnectManager:
         meta = data.get("metadata") or {}
         amount_total = data.get("amount_total", 0) or 0
         currency = (data.get("currency") or "").lower()
+
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO marketplace_sales

@@ -39,6 +39,12 @@ from scheduler import (
 from db import UserStore
 from stripe_connect import get_stripe_manager
 from billing import get_billing_engine, get_tax_rate_for_province
+from pricing_reference import (
+    build_gpu_pricing_reference,
+    build_reference_list,
+    get_on_demand_rate,
+    get_reserved_rate,
+)
 from reputation import GPU_REFERENCE_PRICING_CAD, estimate_job_cost
 
 router = APIRouter()
@@ -836,21 +842,19 @@ def api_list_invoices(customer_id: str, request: Request, limit: int = 12):
             inv = be.generate_invoice(customer_id, "", period_start, period_end, 0.13)
             inv_dict = inv.to_dict()
             # Only include months with actual usage
-            if inv_dict.get("total_compute_cad", 0) > 0 or inv_dict.get("line_items"):
+            if inv_dict.get("subtotal_cad", 0) > 0 or inv_dict.get("line_items"):
                 invoices.append(
                     {
-                        "invoice_id": f"INV-{customer_id[:8]}-{i+1:03d}",
+                        "invoice_id": inv_dict.get("invoice_id") or f"INV-{customer_id[:8]}-{i+1:03d}",
                         "period_start": period_start,
                         "period_end": period_end,
-                        "total_cad": inv_dict.get(
-                            "total_with_tax_cad", inv_dict.get("total_compute_cad", 0)
-                        ),
-                        "subtotal_cad": inv_dict.get("total_compute_cad", 0),
-                        "tax_cad": inv_dict.get("tax_cad", 0),
+                        "total_cad": inv_dict.get("total_cad", 0),
+                        "subtotal_cad": inv_dict.get("subtotal_cad", 0),
+                        "tax_cad": inv_dict.get("tax_amount_cad", 0),
                         "tax_rate": inv_dict.get("tax_rate", 0.13),
                         "line_items": len(inv_dict.get("line_items", [])),
-                        "caf_eligible_cad": inv_dict.get("caf_eligible_cad", 0),
-                        "status": "paid",
+                        "caf_eligible_cad": inv_dict.get("fund_eligible_reimbursement_cad", 0),
+                        "status": inv_dict.get("status", "paid"),
                     }
                 )
         except Exception as e:
@@ -1177,8 +1181,19 @@ def api_estimate_cost(req: EstimateRequest):
 
 @router.get("/api/pricing/reference", tags=["Billing"])
 def api_reference_pricing():
-    """Get reference GPU pricing table in CAD."""
-    return {"ok": True, "currency": "CAD", "pricing": GPU_REFERENCE_PRICING_CAD}
+    """Get reference GPU pricing table in CAD from live ``gpu_pricing``."""
+    pricing = build_gpu_pricing_reference()
+    source = "gpu_pricing"
+    if not pricing:
+        pricing = GPU_REFERENCE_PRICING_CAD
+        source = "static_fallback"
+    return {
+        "ok": True,
+        "currency": "CAD",
+        "source": source,
+        "pricing": pricing,
+        "reference": build_reference_list(pricing) if source == "gpu_pricing" else [],
+    }
 
 
 @router.get("/api/pricing/rates", tags=["Billing"])
@@ -1375,17 +1390,23 @@ def api_reserved_plans():
 
     Compare with on-demand (`POST /instance`) and spot (`POST /instance` with `pricing_mode=spot`).
     """
-    # Enrich each tier with sample pricing based on reference GPU pricing
+    live = build_gpu_pricing_reference()
     enriched = {}
     for tier_key, tier in RESERVED_PRICING_TIERS.items():
         samples = {}
-        for gpu, ref in GPU_REFERENCE_PRICING_CAD.items():
-            rate = (
-                ref.get("base_rate_cad", ref.get("cad_per_hour", 0))
-                if isinstance(ref, dict)
-                else ref
-            )
-            samples[gpu] = round(rate * (1 - tier["discount_pct"] / 100), 4)
+        if live:
+            for gpu in live:
+                rate = get_reserved_rate(gpu, tier_key)
+                if rate > 0:
+                    samples[gpu] = round(rate, 4)
+        else:
+            for gpu, ref in GPU_REFERENCE_PRICING_CAD.items():
+                base = (
+                    ref.get("base_rate_cad", ref.get("cad_per_hour", 0))
+                    if isinstance(ref, dict)
+                    else ref
+                )
+                samples[gpu] = round(base * (1 - tier["discount_pct"] / 100), 4)
         enriched[tier_key] = {**tier, "sample_hourly_rates_cad": samples}
     return {"ok": True, "currency": "CAD", "reserved_tiers": enriched}
 
@@ -1407,17 +1428,12 @@ def api_reserve_commitment(req: ReservedCommitmentRequest, request: Request):
             f"Valid: {list(RESERVED_PRICING_TIERS.keys())}",
         )
 
-    # Calculate pricing
-    ref_pricing = GPU_REFERENCE_PRICING_CAD.get(req.gpu_model, {})
-    base_rate = (
-        ref_pricing.get("base_rate_cad", ref_pricing.get("cad_per_hour", 0))
-        if isinstance(ref_pricing, dict)
-        else (ref_pricing if isinstance(ref_pricing, (int, float)) else 0)
-    )
-    if base_rate <= 0:
+    base_rate = get_on_demand_rate(req.gpu_model)
+    discounted_rate = get_reserved_rate(req.gpu_model, req.commitment_type)
+    if discounted_rate <= 0 and base_rate > 0:
+        discounted_rate = round(base_rate * (1 - tier["discount_pct"] / 100), 4)
+    if base_rate <= 0 and discounted_rate <= 0:
         raise HTTPException(400, f"Unknown GPU model: {req.gpu_model}")
-
-    discounted_rate = round(base_rate * (1 - tier["discount_pct"] / 100), 4)
     tax_rate, tax_desc = get_tax_rate_for_province(req.province)
 
     now = time.time()
@@ -2072,6 +2088,23 @@ def api_billing_get_topup(request: Request):
 
 
 # ── Saved payment methods (Stripe SetupIntent — backs auto-top-up) ──────────
+
+
+@router.post("/api/billing/portal-session", tags=["Billing"])
+def api_billing_portal_session(request: Request):
+    """Create a Stripe Customer Portal session for the authenticated wallet owner."""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    be = get_billing_engine()
+    customer_id = _analytics_customer_scope(user)
+    try:
+        result = be.create_billing_portal_session(customer_id, email=user.get("email", ""))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        raise HTTPException(503, f"Stripe unavailable: {e}") from e
+    return {"ok": True, **result}
 
 
 @router.post("/api/billing/setup-intent", tags=["Billing"])
