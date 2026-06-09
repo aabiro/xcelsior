@@ -60,10 +60,11 @@ def _poll_instance(client: httpx.Client, hdrs: dict[str, str], job_id: str) -> d
     return last
 
 
-def _infra_checks(client: httpx.Client, results: dict[str, object]) -> bool:
+def _infra_checks(client: httpx.Client, results: dict[str, object], hdrs: dict[str, str] | None = None) -> bool:
     ok = True
+    req_hdrs = hdrs or {}
 
-    spot_flag = client.get("/api/pricing/spot-enabled", timeout=30)
+    spot_flag = client.get("/api/pricing/spot-enabled", headers=req_hdrs, timeout=30)
     results["spot_enabled_status"] = spot_flag.status_code
     if spot_flag.status_code == 200:
         body = spot_flag.json()
@@ -73,7 +74,7 @@ def _infra_checks(client: httpx.Client, results: dict[str, object]) -> bool:
     else:
         ok = False
 
-    prices = client.get("/spot-prices", timeout=30)
+    prices = client.get("/spot-prices", headers=req_hdrs, timeout=30)
     results["spot_prices_status"] = prices.status_code
     if prices.status_code == 200:
         body = prices.json()
@@ -115,30 +116,32 @@ def main() -> int:
     results: dict[str, object] = {"base": base}
 
     with httpx.Client(base_url=base, timeout=30.0) as client:
-        infra_ok = _infra_checks(client, results)
-        if not args.launch:
-            results["pass"] = infra_ok
-            print(json.dumps(results, indent=2))
-            return 0 if infra_ok else 1
-
         token = args.token
         if not token:
             email = args.email or cfg["email"]
             password = args.password or cfg["password"]
-            if not email or not password:
+            if email and password:
+                login = client.post("/api/auth/login", json={"email": email, "password": password})
+                results["login"] = login.status_code
+                if login.status_code == 200:
+                    token = login.json()["access_token"]
+            elif args.launch:
                 print("Missing AUDIT_EMAIL/AUDIT_PASSWORD for --launch")
                 results["pass"] = False
                 print(json.dumps(results, indent=2))
                 return 1
-            login = client.post("/api/auth/login", json={"email": email, "password": password})
-            results["login"] = login.status_code
-            if login.status_code != 200:
-                results["pass"] = False
-                print(json.dumps(results, indent=2))
-                return 1
-            token = login.json()["access_token"]
 
-        hdrs = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        hdrs: dict[str, str] = {}
+        if token:
+            hdrs["Authorization"] = f"Bearer {token}"
+        if args.launch:
+            hdrs["Content-Type"] = "application/json"
+
+        infra_ok = _infra_checks(client, results, hdrs=hdrs)
+        if not args.launch:
+            results["pass"] = infra_ok
+            print(json.dumps(results, indent=2))
+            return 0 if infra_ok else 1
 
         launch = client.post(
             "/instance",
