@@ -1202,6 +1202,12 @@ def api_pricing_rates(
     priority = priority.lower()
     pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
 
+    live_spot_quote = None
+    if mode == "spot":
+        from spot_pricing import compute_live_spot_quote
+
+        live_spot_quote = compute_live_spot_quote(gpu_model, tier=tier)
+
     with pg_connection() as conn:
         cur = conn.execute(
             """SELECT base_rate_cad, sovereignty_premium,
@@ -1214,14 +1220,24 @@ def api_pricing_rates(
         )
         row = cur.fetchone()
 
-    if not row:
+    if not row and live_spot_quote is None:
         raise HTTPException(status_code=404, detail=f"No pricing for {gpu_model}/{tier}/{mode}")
 
-    base_rate = row[0]
-    sovereignty_premium = row[1]
-    mg4_disc = row[2]
-    mg8_disc = row[3]
-    vram_gb = row[4]
+    if row:
+        base_rate = row[0]
+        sovereignty_premium = row[1]
+        mg4_disc = row[2]
+        mg8_disc = row[3]
+        vram_gb = row[4]
+    else:
+        base_rate = live_spot_quote.rate_cad
+        sovereignty_premium = 0.0
+        mg4_disc = 0.05
+        mg8_disc = 0.10
+        vram_gb = 0
+
+    if live_spot_quote is not None:
+        base_rate = live_spot_quote.rate_cad
 
     # Multi-GPU discount
     if num_gpus >= 8:
@@ -1243,7 +1259,7 @@ def api_pricing_rates(
     tax_amount = round(total_per_hour * tax_rate, 4)
     total_with_tax = round(total_per_hour + tax_amount, 4)
 
-    return {
+    result = {
         "ok": True,
         "currency": "CAD",
         "gpu_model": gpu_model,
@@ -1263,6 +1279,61 @@ def api_pricing_rates(
         "tax_description": tax_desc,
         "tax_amount": tax_amount,
         "total_with_tax": total_with_tax,
+    }
+    if live_spot_quote is not None:
+        result["on_demand_cad"] = live_spot_quote.on_demand_cad
+        result["savings_pct"] = live_spot_quote.savings_pct
+        result["spot_supply"] = live_spot_quote.supply
+        result["spot_demand"] = live_spot_quote.demand
+    return result
+
+
+@router.get("/api/pricing/spot-quote", tags=["Billing"])
+def api_spot_quote(
+    gpu_model: str = "RTX 4090",
+    tier: str = "standard",
+    num_gpus: int = 1,
+    province: str = "ON",
+    priority: str = "normal",
+):
+    """Live spot quote with tax breakdown for launch UI."""
+    from db import GPU_PRIORITY_MULTIPLIERS
+    from spot_pricing import compute_live_spot_quote
+
+    priority = priority.lower()
+    pri_mult = GPU_PRIORITY_MULTIPLIERS.get(priority, 1.0)
+    quote = compute_live_spot_quote(gpu_model, tier=tier)
+
+    effective_rate = round(quote.rate_cad * pri_mult, 4)
+    total_per_hour = round(effective_rate * num_gpus, 4)
+    tax_rate, tax_desc = get_tax_rate_for_province(province)
+    tax_amount = round(total_per_hour * tax_rate, 4)
+    total_with_tax = round(total_per_hour + tax_amount, 4)
+
+    return {
+        "ok": True,
+        "currency": "CAD",
+        "gpu_model": gpu_model,
+        "tier": tier,
+        "pricing_mode": "spot",
+        "num_gpus": num_gpus,
+        "priority": priority,
+        "rate_cad": quote.rate_cad,
+        "on_demand_cad": quote.on_demand_cad,
+        "savings_pct": quote.savings_pct,
+        "spot_cents": quote.spot_cents,
+        "supply": quote.supply,
+        "demand": quote.demand,
+        "provider_floor_cents": quote.provider_floor_cents,
+        "priority_multiplier": pri_mult,
+        "effective_rate_per_gpu": effective_rate,
+        "total_per_hour": total_per_hour,
+        "province": province,
+        "tax_rate": tax_rate,
+        "tax_description": tax_desc,
+        "tax_amount": tax_amount,
+        "total_with_tax": total_with_tax,
+        "as_of": quote.as_of,
     }
 
 
