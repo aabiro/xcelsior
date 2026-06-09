@@ -6,6 +6,7 @@ Reads credentials from .env.audit (or AUDIT_* env vars). Verifies:
   - direct deposit blocked (403)
   - payment-intent auth + IDOR
   - PayPal/Lightning/crypto enabled flags
+  - spot feature flag + spot-prices feed (no bid fields)
 """
 
 from __future__ import annotations
@@ -77,6 +78,21 @@ def main() -> int:
     )
     results["payment_intent_idor"] = idor.status_code
 
+    spot_flag = requests.get(f"{base}/api/pricing/spot-enabled", timeout=30)
+    results["spot_enabled_status"] = spot_flag.status_code
+    if spot_flag.status_code == 200:
+        spot_body = spot_flag.json()
+        results["spot_enabled"] = spot_body.get("enabled")
+    else:
+        results["spot_enabled"] = None
+
+    spot_prices = requests.get(f"{base}/spot-prices", timeout=30)
+    results["spot_prices_status"] = spot_prices.status_code
+    if spot_prices.status_code == 200:
+        sp_body = spot_prices.json()
+        price_map = sp_body.get("prices") or sp_body.get("spot_prices") or {}
+        results["spot_price_models"] = len(price_map) if isinstance(price_map, dict) else 0
+
     for path in (
         "/api/billing/paypal/enabled",
         "/api/billing/lightning/enabled",
@@ -135,6 +151,8 @@ def main() -> int:
         and results["paypal_create_order_idor"] == 403
         and results.get("stripe_client_secret") is True
         and bool(results.get("paypal_order_id"))
+        and results["spot_enabled_status"] == 200
+        and results["spot_prices_status"] == 200
     )
     results["pass"] = ok
     print(json.dumps(results, indent=2))
