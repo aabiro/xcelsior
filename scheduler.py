@@ -412,6 +412,65 @@ def _save_json(path, data):
 
 _allocate_blocked_notified: dict[str, float] = {}
 
+_ACTIVE_GPU_STATUSES = ("running", "starting", "assigned", "leased")
+
+
+def _is_spot_job(job: dict) -> bool:
+    """True when job should use spot capacity pools and preemptible semantics."""
+    return bool(
+        job.get("pricing_mode") == "spot"
+        or job.get("preemptible")
+        or job.get("spot")
+        or job.get("tier") == "spot"
+    )
+
+
+def _host_gpu_count(host: dict) -> int:
+    return max(1, int(host.get("gpu_count", 1) or 1))
+
+
+def _host_spot_gpu_slots(host: dict) -> int:
+    """GPUs on this host reserved for interruptible spot workloads."""
+    total = _host_gpu_count(host)
+    slots = host.get("spot_gpu_slots")
+    if slots is None:
+        return total
+    return max(0, min(int(slots), total))
+
+
+def _gpus_active_on_host(jobs: list[dict], host_id: str, *, spot_only: bool = False) -> int:
+    used = 0
+    for j in jobs:
+        if j.get("host_id") != host_id:
+            continue
+        if j.get("status") not in _ACTIVE_GPU_STATUSES:
+            continue
+        if spot_only and not _is_spot_job(j):
+            continue
+        used += max(1, int(j.get("num_gpus", 1) or 1))
+    return used
+
+
+def host_accepts_spot_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
+    """Spot jobs require spot_enabled and free capacity in the spot GPU pool."""
+    if not host.get("spot_enabled", True):
+        return False
+    if jobs is None:
+        jobs = list_jobs()
+    needed = max(1, int(job.get("num_gpus", 1) or 1))
+    host_id = host["host_id"]
+    total_gpus = _host_gpu_count(host)
+    total_used = _gpus_active_on_host(jobs, host_id, spot_only=False)
+    spot_used = _gpus_active_on_host(jobs, host_id, spot_only=True)
+    spot_slots = _host_spot_gpu_slots(host)
+    return total_used + needed <= total_gpus and spot_used + needed <= spot_slots
+
+
+def _filter_spot_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -> list[dict]:
+    if not _is_spot_job(job):
+        return candidates
+    return [h for h in candidates if host_accepts_spot_job(h, job, jobs)]
+
 # GPU driver / CUDA context overhead — nvidia-smi always reports free_vram_gb
 # as slightly less than total_vram_gb (typically 0.3–1.0 GB lost to driver,
 # display output, and reserved system memory). Without this tolerance,
@@ -504,6 +563,12 @@ def allocate(job, hosts):
             )
         return None
     candidates = admitted_candidates
+
+    # Step 2b: Spot capacity — spot jobs only land on hosts with spot pool headroom
+    jobs = list_jobs()
+    candidates = _filter_spot_capacity(job, candidates, jobs)
+    if not candidates:
+        return None
 
     # Step 3: Isolation tier enforcement
     # Per REPORT_FEATURE_FINAL.md §193: "untrusted workloads require
@@ -628,6 +693,11 @@ def allocate_binpack(job, hosts, user_province=None, volume_host_ids=None):
         if isolated:
             candidates = isolated
 
+    jobs = list_jobs()
+    candidates = _filter_spot_capacity(job, candidates, jobs)
+    if not candidates:
+        return None
+
     def _binpack_score(h):
         total_vram = max(h.get("total_vram_gb", 1), 1)
         free_vram = h.get("free_vram_gb", 0)
@@ -718,7 +788,17 @@ def process_queue_binpack(canada_only=None, province=None):
                 pass
         host = allocate_binpack(job, hosts, volume_host_ids=vol_host_ids)
         if host:
-            update_job_status(job["job_id"], "assigned", host["host_id"])
+            assign_kwargs: dict = {
+                "host_gpu_model": host.get("gpu_model", ""),
+                "host_vram_gb": host.get("total_vram_gb", host.get("free_vram_gb", 0)),
+            }
+            if job.get("pricing_mode") == "spot" or job.get("spot"):
+                from spot_pricing import lock_spot_rate_for_job
+
+                lock_spot_rate_for_job(job, host_gpu_model=host.get("gpu_model", ""))
+                assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+                assign_kwargs["pricing_mode"] = "spot"
+            update_job_status(job["job_id"], "assigned", host["host_id"], **assign_kwargs)
             assigned.append({"job_id": job["job_id"], "host_id": host["host_id"]})
             # Reduce host's available VRAM for subsequent allocations (clamped)
             host["free_vram_gb"] = max(
@@ -819,6 +899,21 @@ def _diagnose_queue_block(job: dict | None, hosts: list[dict]) -> tuple[str, str
             "The provider has been notified. Your job will be assigned automatically once a host is cleared."
         )
 
+    if job and _is_spot_job(job):
+        jobs = list_jobs()
+        spot_ready = [h for h in admitted if host_accepts_spot_job(h, job, jobs)]
+        if not spot_ready:
+            disabled = [h for h in admitted if not h.get("spot_enabled", True)]
+            if disabled and len(disabled) == len(admitted):
+                return (
+                    "spot_disabled",
+                    "Matching hosts have spot instances disabled. Your job remains queued.",
+                )
+            return (
+                "no_spot_capacity",
+                "No hosts have free spot GPU capacity right now. Your job remains queued.",
+            )
+
     return (
         "no_hosts_available",
         "No GPU hosts currently match your requirements. Your job remains queued.",
@@ -903,6 +998,7 @@ def register_host(
     with _atomic_mutation() as conn:
         _migrate_hosts_if_needed(conn)
         existing = _get_host_by_id_conn(conn, host_id)
+        gpu_count = max(1, int(existing.get("gpu_count", 1) or 1)) if existing else 1
         entry = {
             "host_id": host_id,
             "ip": ip,
@@ -910,6 +1006,9 @@ def register_host(
             "total_vram_gb": total_vram_gb,
             "free_vram_gb": free_vram_gb,
             "cost_per_hour": cost_per_hour,
+            "gpu_count": gpu_count,
+            "spot_enabled": True,
+            "spot_gpu_slots": gpu_count,
             "registered_at": time.time(),
             "last_seen": time.time(),
             "status": "active",
@@ -920,9 +1019,20 @@ def register_host(
             entry["province"] = province.upper()
         if existing:
             # Preserve host metadata set by other flows (country/autoscaled tags).
-            for field in ("country", "province", "autoscaled", "compute_score", "admitted"):
+            for field in (
+                "country",
+                "province",
+                "autoscaled",
+                "compute_score",
+                "admitted",
+                "gpu_count",
+                "spot_enabled",
+                "spot_gpu_slots",
+            ):
                 if field in existing and field not in entry:
                     entry[field] = existing[field]
+            if "spot_gpu_slots" not in existing:
+                entry["spot_gpu_slots"] = _host_spot_gpu_slots(entry)
             if existing.get("status") == "draining":
                 entry["status"] = "draining"
                 if "draining_since" in existing:
@@ -4030,28 +4140,41 @@ def identify_preemptible_jobs(spot_prices=None):
 def preempt_job(job_id):
     """Preempt a running spot job.
 
-    1. Mark job as 'preempted' (terminal state)
-    2. Signal the agent to send SIGTERM (grace period for checkpoint)
-    3. After grace period, force kill
-    4. Requeue if user chose auto-requeue
+    Lifecycle: running → preempted → queued (auto-requeue, preserve pricing_mode).
 
     Returns the updated job or None.
     """
+    preempted_job = None
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
         if not j or j["status"] != "running":
             return None
 
-        j["status"] = "queued"
+        j["status"] = "preempted"
         j["preempted_at"] = time.time()
+        j["preemption_count"] = int(j.get("preemption_count", 0) or 0) + 1
         j["host_id"] = None
         j["started_at"] = None
         j["retries"] = j.get("retries", 0)  # Don't count preemption as retry
         _upsert_job_row(conn, j)
+        preempted_job = dict(j)
 
-    emit_event("job_preempted", {"job_id": job_id, "name": j.get("name")})
-    log.warning("JOB PREEMPTED %s | %s | requeued", job_id, j.get("name"))
+    emit_event("job_preempted", {"job_id": job_id, "name": preempted_job.get("name")})
+    log.warning(
+        "JOB PREEMPTED %s | %s | count=%s",
+        job_id,
+        preempted_job.get("name"),
+        preempted_job.get("preemption_count"),
+    )
+
+    with _atomic_mutation() as conn:
+        _migrate_jobs_if_needed(conn)
+        j = _get_job_by_id_conn(conn, job_id)
+        if j and j["status"] == "preempted":
+            j["status"] = "queued"
+            _upsert_job_row(conn, j)
+            preempted_job = dict(j)
 
     # Detach volumes — job is leaving this host
     try:
@@ -4061,7 +4184,7 @@ def preempt_job(job_id):
     except Exception as e:
         log.warning("Volume detach on preempt failed for %s: %s", job_id, e)
 
-    return j
+    return preempted_job
 
 
 def preemption_cycle():

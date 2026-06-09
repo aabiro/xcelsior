@@ -52,6 +52,7 @@ from scheduler import (
     API_TOKEN,
     failover_and_reassign,
     get_job,
+    host_accepts_spot_job,
     kill_job,
     list_hosts,
     list_jobs,
@@ -414,15 +415,40 @@ class StatusUpdate(BaseModel):
     error_message: str | None = None
 
 
-def _wallet_preflight(customer_id: str):
-    """Shared wallet check — raises 402 if wallet is suspended or empty."""
+def _wallet_preflight(
+    customer_id: str,
+    *,
+    pricing_mode: str = "on_demand",
+    gpu_model: str | None = None,
+    num_gpus: int = 1,
+):
+    """Shared wallet check — raises 402 if wallet is suspended or underfunded."""
     from billing import get_billing_engine
 
     be = get_billing_engine()
     wallet = be.get_wallet(customer_id)
     if wallet.get("status") == "suspended":
         raise HTTPException(402, detail="Wallet suspended — please add funds to resume service")
-    if wallet["balance_cad"] <= 0 and wallet.get("grace_until", 0) < time.time():
+
+    balance = float(wallet.get("balance_cad", 0) or 0)
+    in_grace = float(wallet.get("grace_until", 0) or 0) >= time.time()
+
+    if pricing_mode == "spot":
+        from spot_pricing import compute_live_spot_quote
+
+        model = (gpu_model or "").strip() or "RTX 4090"
+        hourly = compute_live_spot_quote(model).rate_cad * max(1, int(num_gpus or 1))
+        if balance < hourly and not in_grace:
+            raise HTTPException(
+                402,
+                detail=(
+                    f"Insufficient wallet balance for spot launch "
+                    f"(~${hourly:.2f}/hr CAD required for one hour)"
+                ),
+            )
+        return
+
+    if balance <= 0 and not in_grace:
         raise HTTPException(402, detail="Insufficient wallet balance — please deposit credits")
 
 
@@ -559,7 +585,12 @@ def api_submit_instance(j: JobIn, request: Request):
         "job.submit", {"job.name": j.name, "job.tier": j.tier or "", "job.num_gpus": j.num_gpus}
     ):
         customer_id = _effective_billing_customer_id(user)
-        _wallet_preflight(customer_id)
+        _wallet_preflight(
+            customer_id,
+            pricing_mode=j.pricing_mode,
+            gpu_model=j.gpu_model or (target_host.get("gpu_model") if target_host else None),
+            num_gpus=j.num_gpus,
+        )
 
         # ── Concurrent instance cap (personal or shared team pool) ──
         _enforce_concurrency_limit(user)
@@ -596,6 +627,23 @@ def api_submit_instance(j: JobIn, request: Request):
                 status_code=400,
                 detail="Spot instances use the standard service tier only",
             )
+
+        if j.pricing_mode == "spot" and target_host:
+            if not target_host.get("spot_enabled", True):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Host {target_host_id} does not accept spot instances",
+                )
+            spot_probe = {
+                "num_gpus": j.num_gpus,
+                "pricing_mode": "spot",
+                "preemptible": True,
+            }
+            if not host_accepts_spot_job(target_host, spot_probe, list_jobs()):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Host {target_host_id} has no free spot GPU capacity",
+                )
 
         launch_tier = j.tier
         if j.pricing_mode == "spot":
@@ -648,7 +696,53 @@ def api_submit_instance(j: JobIn, request: Request):
         # Direct host assignment: assign + start immediately
         if target_host_id:
             try:
-                updated = update_job_status(job["job_id"], "assigned", host_id=target_host_id)
+                if j.pricing_mode == "spot":
+                    try:
+                        from marketplace import get_marketplace_engine
+
+                        me = get_marketplace_engine()
+                        offer = me.get_offer_for_host(
+                            target_host_id,
+                            target_host.get("gpu_model", "") if target_host else "",
+                        )
+                        if offer:
+                            alloc = me.allocate_gpu(
+                                offer["offer_id"],
+                                job["job_id"],
+                                j.num_gpus,
+                                allocation_type="spot",
+                            )
+                            if alloc and alloc.get("price_cents_per_hour"):
+                                from scheduler import _set_job_fields
+
+                                job["spot_rate_cad"] = alloc["price_cents_per_hour"] / 100.0
+                                _set_job_fields(
+                                    job["job_id"],
+                                    spot_rate_cad=job["spot_rate_cad"],
+                                )
+                    except Exception as exc:
+                        log.debug("Marketplace spot allocation skipped: %s", exc)
+
+                assign_kwargs: dict = {}
+                if j.pricing_mode == "spot" and not job.get("spot_rate_cad"):
+                    from spot_pricing import lock_spot_rate_for_job
+
+                    lock_spot_rate_for_job(
+                        job,
+                        host_gpu_model=target_host.get("gpu_model", "") if target_host else "",
+                    )
+                    assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+                    assign_kwargs["pricing_mode"] = "spot"
+                elif j.pricing_mode == "spot":
+                    assign_kwargs["spot_rate_cad"] = job.get("spot_rate_cad")
+                    assign_kwargs["pricing_mode"] = "spot"
+
+                updated = update_job_status(
+                    job["job_id"],
+                    "assigned",
+                    host_id=target_host_id,
+                    **assign_kwargs,
+                )
                 if updated and updated.get("status") == "assigned":
                     hosts = list_hosts()
                     hmap = {h["host_id"]: h for h in hosts}
@@ -746,11 +840,23 @@ def _enrich_instance(j: dict, host_map: dict[str, dict]) -> dict:
     if pub_port:
         j["ssh_port"] = pub_port
 
+    pricing_mode = j.get("pricing_mode") or (
+        "spot" if j.get("preemptible") or j.get("spot") else "on_demand"
+    )
+    j.setdefault("pricing_mode", pricing_mode)
+    j.setdefault("preemptible", bool(j.get("preemptible") or pricing_mode == "spot"))
+    if j.get("spot_rate_cad") is not None:
+        j["spot_rate_cad"] = float(j["spot_rate_cad"])
+    j.setdefault("preempted_at", j.get("preempted_at"))
+    j.setdefault("preemption_count", int(j.get("preemption_count", 0) or 0))
+
     # Cost
     elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
     if elapsed > 0 and j.get("cost_cad") is None:
         rate = 0.20  # default CAD/hr
-        if host and host.get("cost_per_hour"):
+        if pricing_mode == "spot" and j.get("spot_rate_cad"):
+            rate = float(j["spot_rate_cad"]) * max(1, int(j.get("num_gpus", 1) or 1))
+        elif host and host.get("cost_per_hour"):
             rate = float(host["cost_per_hour"])
         j["cost_cad"] = round((elapsed / 3600) * rate, 4)
 
@@ -849,6 +955,30 @@ def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
             update_job_status(job_id, update.status, host_id=update.host_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+        if update.status == "preempted":
+            job = get_job(job_id)
+            if job and (
+                job.get("pricing_mode") == "spot"
+                or job.get("preemptible")
+                or job.get("tier") == "spot"
+            ):
+                from scheduler import _set_job_fields
+
+                count = int(job.get("preemption_count", 0) or 0)
+                if job.get("status") == "preempted":
+                    count += 1
+                _set_job_fields(
+                    job_id,
+                    preempted_at=time.time(),
+                    preemption_count=count,
+                    host_id=None,
+                    started_at=None,
+                )
+                update_job_status(job_id, "queued")
+                broadcast_sse("job_status", {"job_id": job_id, "status": "queued"})
+                return {"ok": True, "job_id": job_id, "status": "queued"}
+
         # Store container info if provided by worker agent
         extras = {}
         if update.container_id:
