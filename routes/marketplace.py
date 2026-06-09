@@ -187,6 +187,7 @@ class MarketplaceSearchParams(BaseModel):
     max_price_cents: int = Field(default=0, ge=0)
     region: str = Field(default="", max_length=32)
     canada_only: bool = False
+    spot_available: bool = False
     sort_by: str = Field(default="price", pattern="^(price|reputation|region|vram)$")
     limit: int = Field(default=50, ge=1, le=500)
 
@@ -201,6 +202,7 @@ def api_marketplace_search(body: MarketplaceSearchParams):
         max_price_cents=body.max_price_cents,
         region=body.region,
         canada_only=body.canada_only,
+        spot_available=body.spot_available,
         sort_by=body.sort_by,
         limit=body.limit,
     )

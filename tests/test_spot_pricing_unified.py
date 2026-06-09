@@ -13,6 +13,37 @@ import spot_pricing as sp
 import scheduler
 
 
+class TestProviderSpotFloorGuidance:
+    def test_suggested_floor_known_gpu(self):
+        assert sp.suggested_spot_min_cents("RTX 4090") == 15
+        assert sp.suggested_spot_min_cents("H100 80GB") == 150
+
+    def test_suggested_floor_heuristic_fallback(self):
+        assert sp.suggested_spot_min_cents("GeForce RTX 4090 Ti") == 15
+        assert sp.suggested_spot_min_cents("unknown-gpu") == 10
+
+    def test_effective_spot_rate_respects_provider_floor(self, monkeypatch):
+        monkeypatch.setattr(
+            sp,
+            "compute_live_spot_quote",
+            lambda gpu_model, supply=0, demand=0: sp.SpotQuote(
+                gpu_model=gpu_model,
+                rate_cad=0.12,
+                on_demand_cad=0.55,
+                savings_pct=78,
+                supply=supply,
+                demand=demand,
+                spot_cents=12,
+                provider_floor_cents=0,
+                as_of=0.0,
+            ),
+        )
+        preview = sp.effective_spot_rate_cad("RTX 4090", spot_min_cents=20)
+        assert preview["spot_min_cents"] == 20
+        assert preview["effective_spot_cad"] == 0.20
+        assert preview["live_spot_cad"] == 0.12
+
+
 class TestSpotPricingMath:
     def test_zero_supply_surge_cap(self):
         rate = sp.apply_surge(1.0, demand=5, supply=0)

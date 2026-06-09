@@ -490,6 +490,11 @@ export function ProviderSummaryStep({ summary, onConfirm, error }: ProviderSumma
         <Text>  Status: <Text bold color={summary.verified ? "#22c55e" : "#ef4444"}>{summary.verified ? "VERIFIED ✓" : summary.verificationState.toUpperCase()}</Text></Text>
         <Text>  Host ID: <Text bold>{summary.hostId}</Text></Text>
         <Text>  Pricing: <Text bold>${summary.costPerHour.toFixed(2)}/hr ({summary.pricing})</Text></Text>
+        {summary.spotEnabled != null && (
+          <Text>  Spot: <Text bold color={summary.spotEnabled ? "#22c55e" : "#94a3b8"}>
+            {summary.spotEnabled ? `enabled · floor ¢${summary.spotMinCents ?? 0}/hr` : "disabled"}
+          </Text></Text>
+        )}
         <Text>  Admission: <Text bold color={summary.admitted ? "#22c55e" : "#ef4444"}>{summary.admitted ? "Admitted ✓" : "Pending"}</Text></Text>
         <Text>  Runtime: <Text bold>{summary.runtimeRecommendation}</Text></Text>
         <Text>  Reputation: <Text bold color="#a78bfa">{summary.reputationPoints} pts — {summary.tier}</Text></Text>

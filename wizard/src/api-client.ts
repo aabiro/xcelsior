@@ -620,6 +620,9 @@ export interface HostRegistration {
     country?: string;
     province?: string;
     versions?: Record<string, string>;
+    spot_enabled?: boolean;
+    spot_gpu_slots?: number;
+    spot_min_cents?: number;
 }
 
 export interface HostInfo {

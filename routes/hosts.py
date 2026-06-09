@@ -26,6 +26,7 @@ from scheduler import (
     register_host,
     remove_host,
     set_host_draining,
+    update_host_spot_settings,
 )
 from db import UserStore
 from verification import get_verification_engine
@@ -124,6 +125,9 @@ class HostIn(BaseModel):
     # agents that haven't been rolled out yet still pass validation.
     agent_version: str | None = Field(default=None, max_length=32)
     agent_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$|^$")
+    spot_enabled: bool | None = None
+    spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
+    spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 # ── Model: JobIn ──
@@ -173,7 +177,15 @@ def api_register_host(h: HostIn, request: Request):
 
     # Register the host with country/province metadata
     entry = register_host(
-        h.host_id, h.ip, h.gpu_model, h.total_vram_gb, h.free_vram_gb, h.cost_per_hour
+        h.host_id,
+        h.ip,
+        h.gpu_model,
+        h.total_vram_gb,
+        h.free_vram_gb,
+        h.cost_per_hour,
+        spot_enabled=h.spot_enabled,
+        spot_gpu_slots=h.spot_gpu_slots,
+        spot_min_cents=h.spot_min_cents,
     )
     entry["country"] = h.country.upper()
     entry["province"] = h.province.upper() if h.province else ""
@@ -632,6 +644,9 @@ class RegisterHostRequest(BaseModel):
     country: str = Field(default="CA", min_length=2, max_length=2)
     province: str = Field(default="", max_length=4)
     notes: str = Field(default="", max_length=1000)
+    spot_enabled: bool = True
+    spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
+    spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)
 
     @field_validator("hostname")
     @classmethod
@@ -716,6 +731,13 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
     client_ip = request.client.host if request.client else "0.0.0.0"
 
     # Register using the existing scheduler function
+    from spot_pricing import suggested_spot_min_cents
+
+    spot_min = (
+        h.spot_min_cents
+        if h.spot_min_cents is not None
+        else suggested_spot_min_cents(h.gpu_model)
+    )
     entry = register_host(
         host_id,
         client_ip,
@@ -725,6 +747,9 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         h.cost_per_hour,
         country=h.country,
         province=h.province,
+        spot_enabled=h.spot_enabled,
+        spot_gpu_slots=h.spot_gpu_slots,
+        spot_min_cents=spot_min,
     )
 
     # Store web-form-specific fields (validators already strip/normalize)
@@ -762,6 +787,16 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         owner=entry["owner"],
     )
 
+    try:
+        update_host_spot_settings(
+            host_id,
+            spot_enabled=entry.get("spot_enabled", True),
+            spot_gpu_slots=entry.get("spot_gpu_slots"),
+            spot_min_cents=entry.get("spot_min_cents", spot_min),
+        )
+    except Exception as exc:
+        log.debug("Spot offer sync on web register skipped: %s", exc)
+
     # Auto-create verification + reputation records
     try:
         ve = get_verification_engine()
@@ -791,6 +826,61 @@ def api_register_host_web(h: RegisterHostRequest, request: Request):
         },
     )
     return {"ok": True, "host": entry}
+
+
+class HostSpotSettingsUpdate(BaseModel):
+    spot_enabled: bool | None = None
+    spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
+    spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)
+
+
+@router.patch("/api/hosts/{host_id}/spot-settings", tags=["Hosts"])
+def api_update_host_spot_settings(host_id: str, body: HostSpotSettingsUpdate, request: Request):
+    """Update provider spot controls for a host (scheduler + marketplace offer)."""
+    user = _require_auth(request)
+    _require_scope(user, "hosts:write")
+    resolved, _hosts = _resolve_host_id(host_id)
+    if not resolved:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    _require_host_operator(user, resolved)
+
+    updated = update_host_spot_settings(
+        resolved,
+        spot_enabled=body.spot_enabled,
+        spot_gpu_slots=body.spot_gpu_slots,
+        spot_min_cents=body.spot_min_cents,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+
+    from spot_pricing import effective_spot_rate_cad
+
+    preview = effective_spot_rate_cad(
+        str(updated.get("gpu_model") or ""),
+        int(updated.get("spot_min_cents", 0) or 0),
+    )
+    broadcast_sse("host_update", {"host_id": resolved, "spot_enabled": updated.get("spot_enabled")})
+    return {"ok": True, "host": updated, "spot_preview": preview}
+
+
+@router.get("/api/hosts/{host_id}/spot-preview", tags=["Hosts"])
+def api_host_spot_preview(host_id: str, request: Request, spot_min_cents: int | None = None):
+    """Live spot rate preview for a host GPU and optional provider floor."""
+    user = _require_auth(request)
+    _require_scope(user, "hosts:read")
+    resolved, hosts = _resolve_host_id(host_id)
+    if not resolved:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    host = next(h for h in hosts if h["host_id"] == resolved)
+    from spot_pricing import effective_spot_rate_cad, suggested_spot_min_cents
+
+    floor = (
+        spot_min_cents
+        if spot_min_cents is not None
+        else int(host.get("spot_min_cents", suggested_spot_min_cents(host.get("gpu_model", ""))) or 0)
+    )
+    preview = effective_spot_rate_cad(str(host.get("gpu_model") or ""), floor)
+    return {"ok": True, "host_id": resolved, "spot_preview": preview}
 
 
 @router.get("/host/{host_id}", tags=["Hosts"])

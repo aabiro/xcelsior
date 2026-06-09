@@ -202,6 +202,32 @@ export const WIZARD_STEPS: WizardStep[] = [
         },
     },
 
+    // ── Step 7a: Provider — Spot instances ─────────────────────────────
+    {
+        id: "spot-enabled",
+        type: "select",
+        prompt: "Enable interruptible spot instances on this host?",
+        options: [
+            { label: "✓ Yes — accept spot workloads (recommended)", value: "yes" },
+            { label: "✗ No — on-demand only", value: "no" },
+        ],
+        condition: (a) => a.mode === "provide" || a.mode === "both",
+    },
+    {
+        id: "spot-min-cents",
+        type: "text",
+        prompt: "Minimum spot floor in ¢/hr CAD (provider minimum for interruptible work):",
+        placeholder: "10",
+        condition: (a) =>
+            (a.mode === "provide" || a.mode === "both") && a["spot-enabled"] === "yes",
+        validate: (v) => {
+            const n = parseInt(v, 10);
+            if (isNaN(n) || n < 0) return "Enter a non-negative integer (cents per hour)";
+            if (n > 100000) return "Floor seems too high";
+            return null;
+        },
+    },
+
     // ── Step 7b: Provider — Host registration ──────────────────────────
     {
         id: "host-register",

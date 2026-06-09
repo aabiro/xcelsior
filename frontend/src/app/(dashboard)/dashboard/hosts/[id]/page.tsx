@@ -17,6 +17,7 @@ import {
 import type { Host, TelemetryData, ReputationEntry } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
+import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
 
 export default function HostDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -130,6 +131,8 @@ export default function HostDetailPage() {
           </div>
         </Card>
       </div>
+
+      <HostSpotSettings host={host} onUpdated={setHost} />
 
       {/* Verification & Reputation */}
       <div className="grid gap-4 sm:grid-cols-2">

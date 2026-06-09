@@ -118,3 +118,49 @@ class TestPreemptionLifecycle:
         assert result.get("preemption_count") == 1
         assert result.get("pricing_mode") == "spot"
         assert result.get("preemptible") is True
+
+
+class TestHostSpotSettings:
+    def test_update_disables_spot(self):
+        _host("spot-ctrl", spot_enabled=True)
+        updated = scheduler.update_host_spot_settings("spot-ctrl", spot_enabled=False)
+        assert updated is not None
+        assert updated["spot_enabled"] is False
+        job = scheduler.submit_job("no-spot", 8, pricing_mode="spot", gpu_model="RTX 4090")
+        picked = scheduler.allocate(job, scheduler.list_hosts())
+        assert picked is None
+
+    def test_update_spot_gpu_slots_clamped_to_gpu_count(self):
+        _host("slot-ctrl", spot_gpu_slots=2, gpu_count=2)
+        updated = scheduler.update_host_spot_settings("slot-ctrl", spot_gpu_slots=99)
+        assert updated["spot_gpu_slots"] == 2
+        updated = scheduler.update_host_spot_settings("slot-ctrl", spot_gpu_slots=0)
+        assert updated["spot_gpu_slots"] == 0
+        job = scheduler.submit_job("zero-slots", 8, pricing_mode="spot", gpu_model="RTX 4090")
+        picked = scheduler.allocate(job, scheduler.list_hosts())
+        assert picked is None
+
+    def test_update_spot_min_cents_persisted(self):
+        _host("floor-ctrl")
+        updated = scheduler.update_host_spot_settings("floor-ctrl", spot_min_cents=25)
+        assert updated["spot_min_cents"] == 25
+        host = scheduler.list_hosts(active_only=False)[0]
+        assert host["spot_min_cents"] == 25
+
+    def test_update_unknown_host_returns_none(self):
+        assert scheduler.update_host_spot_settings("missing-host", spot_enabled=False) is None
+
+    def test_register_host_accepts_spot_overrides(self):
+        entry = scheduler.register_host(
+            "custom-spot",
+            "10.0.0.3",
+            "RTX 4090",
+            24,
+            24,
+            spot_enabled=False,
+            spot_gpu_slots=0,
+            spot_min_cents=18,
+        )
+        assert entry["spot_enabled"] is False
+        assert entry["spot_gpu_slots"] == 0
+        assert entry["spot_min_cents"] == 18

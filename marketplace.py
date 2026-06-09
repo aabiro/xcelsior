@@ -149,12 +149,16 @@ class MarketplaceEngine:
         max_price_cents: int = 0,
         region: str = "",
         canada_only: bool = False,
+        spot_available: bool = False,
         sort_by: str = "price",  # price, vram, reliability
         limit: int = 50,
     ) -> list[dict]:
         """Search available GPU offers with filters."""
         conditions = ["available = true"]
         params = []
+
+        if spot_available:
+            conditions.append("spot_enabled = true")
 
         if gpu_model:
             conditions.append("gpu_model ILIKE %s")
