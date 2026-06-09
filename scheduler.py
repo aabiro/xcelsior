@@ -466,10 +466,29 @@ def host_accepts_spot_job(host: dict, job: dict, jobs: list[dict] | None = None)
     return total_used + needed <= total_gpus and spot_used + needed <= spot_slots
 
 
+def host_accepts_job(host: dict, job: dict, jobs: list[dict] | None = None) -> bool:
+    """Return True when host has GPU capacity for this job (spot pool rules included)."""
+    if host.get("status", "active") != "active":
+        return False
+    if jobs is None:
+        jobs = list_jobs()
+    needed = max(1, int(job.get("num_gpus", 1) or 1))
+    host_id = host["host_id"]
+    total_gpus = _host_gpu_count(host)
+    total_used = _gpus_active_on_host(jobs, host_id, spot_only=False)
+    if total_used + needed > total_gpus:
+        return False
+    if _is_spot_job(job):
+        return host_accepts_spot_job(host, job, jobs)
+    return True
+
+
+def _filter_host_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -> list[dict]:
+    return [h for h in candidates if host_accepts_job(h, job, jobs)]
+
+
 def _filter_spot_capacity(job: dict, candidates: list[dict], jobs: list[dict]) -> list[dict]:
-    if not _is_spot_job(job):
-        return candidates
-    return [h for h in candidates if host_accepts_spot_job(h, job, jobs)]
+    return _filter_host_capacity(job, candidates, jobs)
 
 # GPU driver / CUDA context overhead — nvidia-smi always reports free_vram_gb
 # as slightly less than total_vram_gb (typically 0.3–1.0 GB lost to driver,
@@ -494,33 +513,36 @@ def _vram_fits(host, vram_needed):
     return total >= vram_needed and (free + VRAM_DRIVER_OVERHEAD_GB) >= vram_needed
 
 
-def allocate(job, hosts):
-    """Find the best host for this job.
+def _allocate_host_score(job: dict, host: dict, *, volume_host_ids: set[str] | None = None) -> tuple:
+    """Sort key for host preference (higher is better)."""
+    num_gpus_needed = job.get("num_gpus", 1) or 1
+    volume_host_ids = volume_host_ids or set()
+    gpu_match = min(host.get("gpu_count", 1), num_gpus_needed)
+    vram = host.get("free_vram_gb", 0)
+    latency = host.get("latency_ms", 999)
+    base_cost = host.get("cost_per_hour", 999)
+    compute = host.get("compute_score") or estimate_compute_score(host.get("gpu_model", ""))
+    price = max(base_cost, 0.01)
+    efficiency = compute / price
+    gravity = 1.3 if host.get("host_id") in volume_host_ids else 1.0
+    return (gpu_match, efficiency * gravity, vram, -latency, -base_cost)
 
-    Enforces:
-    - VRAM capacity check
-    - GPU count check (multi-GPU jobs)
-    - Admission gating (REPORT_FEATURE_FINAL.md §62: only admitted hosts)
-    - Isolation tier enforcement (REPORT_FEATURE_FINAL.md §193:
-      untrusted workloads require strong isolation tier)
-    - Data gravity: prefer hosts that already have job's volumes mounted
 
-    Prioritize: available VRAM > GPU count > speed > lowest cost.
-    If nothing fits, return None (queue or reject).
-    """
+def _allocate_candidates(job, hosts, jobs: list[dict] | None = None):
+    """Hosts matching VRAM/admission/isolation filters (before GPU capacity)."""
+    del jobs  # capacity applied separately
     if not hosts:
-        return None
+        return []
 
     num_gpus_needed = job.get("num_gpus", 1) or 1
     requested_gpu_model = (job.get("gpu_model") or "").strip().lower()
 
-    # Step 1: VRAM filter (with driver-overhead tolerance — see _vram_fits)
     vram_needed = job.get("vram_needed_gb", 0) or 0
     candidates = [
         h for h in hosts if h.get("status", "active") == "active" and _vram_fits(h, vram_needed)
     ]
     if not candidates:
-        return None
+        return []
 
     if requested_gpu_model:
         candidates = [
@@ -529,9 +551,8 @@ def allocate(job, hosts):
             if (h.get("gpu_model") or "").strip().lower() == requested_gpu_model
         ]
         if not candidates:
-            return None
+            return []
 
-    # Step 1b: GPU count filter (multi-GPU jobs)
     if num_gpus_needed > 1:
         gpu_candidates = [h for h in candidates if h.get("gpu_count", 1) >= num_gpus_needed]
         if gpu_candidates:
@@ -544,12 +565,7 @@ def allocate(job, hosts):
                 num_gpus_needed,
                 max((h.get("gpu_count", 1) for h in candidates), default=0),
             )
-            # Fall through — allocate to best-available even if fewer GPUs
-            # (job may still run with data parallelism across fewer GPUs)
 
-    # Step 2: Admission gating — only admitted hosts can receive work
-    # Per REPORT_FEATURE_FINAL.md §62: "refuse to run customer workloads
-    # on hosts that are not patched to minimum safe versions"
     admitted_candidates = [h for h in candidates if h.get("admitted", False)]
     if not admitted_candidates:
         _now = time.time()
@@ -561,18 +577,9 @@ def allocate(job, hosts):
                 len(candidates),
                 job.get("name", "?"),
             )
-        return None
+        return []
     candidates = admitted_candidates
 
-    # Step 2b: Spot capacity — spot jobs only land on hosts with spot pool headroom
-    jobs = list_jobs()
-    candidates = _filter_spot_capacity(job, candidates, jobs)
-    if not candidates:
-        return None
-
-    # Step 3: Isolation tier enforcement
-    # Per REPORT_FEATURE_FINAL.md §193: "untrusted workloads require
-    # the strong isolation tier" (gVisor/Kata)
     job_tier = job.get("tier", "free") or "free"
     requires_isolation = job_tier in ("sovereign", "regulated", "secure")
     if requires_isolation:
@@ -587,9 +594,32 @@ def allocate(job, hosts):
                 job.get("name", "?"),
             )
 
-    # Prioritize: GPU count match > compute efficiency > VRAM > speed > cost
-    # Uses compute scores when available, and spot-adjusted cost for price comparison.
-    # Data gravity: look up which hosts already have job's volumes
+    return candidates
+
+
+def allocate(job, hosts, jobs: list[dict] | None = None):
+    """Find the best host for this job.
+
+    Enforces:
+    - VRAM capacity check
+    - GPU count check (multi-GPU jobs)
+    - Admission gating (REPORT_FEATURE_FINAL.md §62: only admitted hosts)
+    - Isolation tier enforcement (REPORT_FEATURE_FINAL.md §193:
+      untrusted workloads require strong isolation tier)
+    - Data gravity: prefer hosts that already have job's volumes mounted
+
+    Prioritize: available VRAM > GPU count > speed > lowest cost.
+    If nothing fits, return None (queue or reject).
+    """
+    jobs = jobs or list_jobs()
+    candidates = _allocate_candidates(job, hosts, jobs)
+    if not candidates:
+        return None
+
+    candidates = _filter_host_capacity(job, candidates, jobs)
+    if not candidates:
+        return None
+
     volume_ids = job.get("volume_ids", [])
     volume_host_ids = set()
     if volume_ids:
@@ -599,25 +629,9 @@ def allocate(job, hosts):
             ve = get_volume_engine()
             volume_host_ids = ve.get_volume_host_ids(volume_ids)
         except Exception:
-            pass  # Best-effort
+            pass
 
-    def _host_score(h):
-        gpu_match = min(h.get("gpu_count", 1), num_gpus_needed)
-        vram = h.get("free_vram_gb", 0)
-        latency = h.get("latency_ms", 999)
-        base_cost = h.get("cost_per_hour", 999)
-
-        # Compute efficiency: XCU per dollar (higher = better GPU per dollar)
-        compute = h.get("compute_score") or estimate_compute_score(h.get("gpu_model", ""))
-        price = max(base_cost, 0.01)
-        efficiency = compute / price
-
-        # Data gravity bonus: prefer hosts already mounting our volumes
-        gravity = 1.3 if h.get("host_id") in volume_host_ids else 1.0
-
-        return (gpu_match, efficiency * gravity, vram, -latency, -base_cost)
-
-    best = max(candidates, key=_host_score)
+    best = max(candidates, key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids))
     log.info(
         "ALLOCATE job=%s -> host=%s (%s, %sGB free, %d GPUs, admitted=%s, runtime=%s)",
         job.get("name", "?"),
@@ -629,6 +643,145 @@ def allocate(job, hosts):
         best.get("recommended_runtime", "runc"),
     )
     return best
+
+
+def _job_may_trigger_preemption(job: dict) -> bool:
+    """Non-spot workloads may reclaim GPUs from preemptible spot jobs."""
+    return not _is_spot_job(job)
+
+
+def _running_jobs_on_host(jobs: list[dict], host_id: str) -> list[dict]:
+    return [
+        j
+        for j in jobs
+        if j.get("host_id") == host_id and j.get("status") in _ACTIVE_GPU_STATUSES
+    ]
+
+
+def identify_preemption_candidates(
+    host_id: str,
+    gpus_needed: int = 1,
+    jobs: list[dict] | None = None,
+) -> list[dict]:
+    """Select running preemptible jobs on a host to free ``gpus_needed`` GPUs."""
+    jobs = jobs or list_jobs()
+    hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+    host = hosts.get(host_id)
+    if not host:
+        return []
+
+    needed = max(1, int(gpus_needed or 1))
+    total_gpus = _host_gpu_count(host)
+    total_used = _gpus_active_on_host(jobs, host_id, spot_only=False)
+    if total_used + needed <= total_gpus:
+        return []
+
+    shortfall = (total_used + needed) - total_gpus
+    preemptible = [
+        j for j in _running_jobs_on_host(jobs, host_id) if j.get("preemptible")
+    ]
+    preemptible.sort(
+        key=lambda j: (
+            int(j.get("priority", 0) or 0),
+            float(j.get("started_at") or 0),
+            j.get("job_id", ""),
+        )
+    )
+
+    selected: list[dict] = []
+    freed = 0
+    for job in preemptible:
+        selected.append(job)
+        freed += max(1, int(job.get("num_gpus", 1) or 1))
+        if freed >= shortfall:
+            break
+    if freed < shortfall:
+        return []
+    return selected
+
+
+def allocate_with_preemption(job, hosts, jobs: list[dict] | None = None):
+    """Allocate a host, preempting spot jobs when on-demand contention requires it."""
+    jobs = jobs or list_jobs()
+    host = allocate(job, hosts, jobs=jobs)
+    if host:
+        return host, []
+
+    if not _job_may_trigger_preemption(job):
+        return None, []
+
+    candidates = _allocate_candidates(job, hosts, jobs)
+    if not candidates:
+        return None, []
+
+    volume_ids = job.get("volume_ids", [])
+    volume_host_ids = set()
+    if volume_ids:
+        try:
+            from volumes import get_volume_engine
+
+            ve = get_volume_engine()
+            volume_host_ids = ve.get_volume_host_ids(volume_ids)
+        except Exception:
+            pass
+
+    blocked = [h for h in candidates if not host_accepts_job(h, job, jobs)]
+    blocked.sort(
+        key=lambda h: _allocate_host_score(job, h, volume_host_ids=volume_host_ids),
+        reverse=True,
+    )
+
+    needed = max(1, int(job.get("num_gpus", 1) or 1))
+    for candidate in blocked:
+        victims = identify_preemption_candidates(candidate["host_id"], needed, jobs)
+        if not victims:
+            continue
+        preempted = []
+        for victim in victims:
+            result = preempt_job(victim["job_id"])
+            if result:
+                preempted.append(result)
+        jobs = list_jobs()
+        if host_accepts_job(candidate, job, jobs):
+            log.info(
+                "ALLOCATE+PREEMPT job=%s -> host=%s (preempted %s)",
+                job.get("job_id"),
+                candidate["host_id"],
+                [p["job_id"] for p in preempted],
+            )
+            return candidate, preempted
+    return None, []
+
+
+def identify_drain_preemption_candidates(host_id: str, jobs: list[dict] | None = None) -> list[dict]:
+    """Jobs to evict when a host is draining: spot first, then on-demand."""
+    jobs = jobs or list_jobs()
+    hosts = {h["host_id"]: h for h in list_hosts(active_only=False)}
+    host = hosts.get(host_id)
+    if not host or host.get("status") != "draining":
+        return []
+
+    running = _running_jobs_on_host(jobs, host_id)
+    spot_jobs = sorted(
+        [j for j in running if _is_spot_job(j)],
+        key=lambda j: (int(j.get("priority", 0) or 0), float(j.get("started_at") or 0)),
+    )
+    other_jobs = sorted(
+        [j for j in running if not _is_spot_job(j)],
+        key=lambda j: (int(j.get("priority", 0) or 0), float(j.get("started_at") or 0)),
+    )
+    return spot_jobs + other_jobs
+
+
+def run_drain_preemptions(host_id: str) -> list[dict]:
+    """Preempt all workloads on a draining host (spot first, then on-demand)."""
+    victims = identify_drain_preemption_candidates(host_id)
+    preempted = []
+    for victim in victims:
+        result = preempt_job(victim["job_id"])
+        if result:
+            preempted.append(result)
+    return preempted
 
 
 # ── Best-Fit Bin-Packing Allocator ───────────────────────────────────
@@ -1835,12 +1988,15 @@ def process_queue():
     queued = list_jobs(status="queued")
     queued.sort(key=lambda j: (-j["priority"], j["submitted_at"]))
 
+    jobs_snapshot = list_jobs()
     for job in queued:
         hosts = list_hosts()
         if not hosts:
             break
 
-        host = allocate(job, hosts)
+        host, preempted = allocate_with_preemption(job, hosts, jobs=jobs_snapshot)
+        if preempted:
+            jobs_snapshot = list_jobs()
         if not host:
             log.info(
                 "QUEUE: no host for job=%s gpu=%s vram=%sGB",
@@ -4180,6 +4336,12 @@ SPOT_SENSITIVITY = float(os.environ.get("XCELSIOR_SPOT_SENSITIVITY", "0.5"))
 SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_UPDATE_INTERVAL", "600"))  # 10 min
 PREEMPTION_GRACE_SEC = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
+SPOT_REQUEUE_BACKOFF = os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+SPOT_REQUEUE_BACKOFF_BASE_SEC = float(os.environ.get("XCELSIOR_SPOT_REQUEUE_BACKOFF_BASE", "30"))
 
 def load_spot_prices():
     """Load recent spot price history (in-memory / DB-backed via spot_pricing)."""
@@ -4218,13 +4380,32 @@ def get_current_spot_prices():
 
 
 def identify_preemptible_jobs(spot_prices=None):
-    """Return spot jobs eligible for capacity-based preemption.
+    """Return preemptible jobs that block queued on-demand workloads (capacity model)."""
+    del spot_prices
+    jobs = list_jobs()
+    hosts = list_hosts()
+    queued = [j for j in jobs if j.get("status") == "queued"]
+    queued.sort(key=lambda j: (-int(j.get("priority", 0) or 0), j.get("submitted_at", 0)))
 
-    Bid-based eviction is retired. Capacity preemption (on-demand contention)
-    is implemented in Phase 7; until then this returns an empty list.
-    """
-    del spot_prices  # reserved for Phase 7 capacity model
-    return []
+    victims: list[tuple[dict, str]] = []
+    seen: set[str] = set()
+    for job in queued:
+        if not _job_may_trigger_preemption(job):
+            continue
+        candidates = _allocate_candidates(job, hosts, jobs)
+        blocked = [h for h in candidates if not host_accepts_job(h, job, jobs)]
+        needed = max(1, int(job.get("num_gpus", 1) or 1))
+        for host in blocked:
+            found = identify_preemption_candidates(host["host_id"], needed, jobs)
+            if not found:
+                continue
+            for victim in found:
+                jid = victim["job_id"]
+                if jid not in seen:
+                    seen.add(jid)
+                    victims.append((victim, f"capacity for queued {job['job_id']}"))
+            break
+    return victims
 
 
 def preempt_job(job_id):
@@ -4235,11 +4416,14 @@ def preempt_job(job_id):
     Returns the updated job or None.
     """
     preempted_job = None
+    worker_host_id = None
     with _atomic_mutation() as conn:
         _migrate_jobs_if_needed(conn)
         j = _get_job_by_id_conn(conn, job_id)
         if not j or j["status"] != "running":
             return None
+
+        worker_host_id = j.get("host_id")
 
         try:
             from billing import get_billing_engine
@@ -4257,6 +4441,14 @@ def preempt_job(job_id):
         _upsert_job_row(conn, j)
         preempted_job = dict(j)
 
+    if worker_host_id:
+        try:
+            from agent_preempt import schedule_host_preemptions
+
+            schedule_host_preemptions(worker_host_id, [job_id])
+        except Exception as exc:
+            log.debug("Agent preemption schedule skipped for %s: %s", job_id, exc)
+
     emit_event("job_preempted", {"job_id": job_id, "name": preempted_job.get("name")})
     log.warning(
         "JOB PREEMPTED %s | %s | count=%s",
@@ -4270,6 +4462,10 @@ def preempt_job(job_id):
         j = _get_job_by_id_conn(conn, job_id)
         if j and j["status"] == "preempted":
             j["status"] = "queued"
+            if SPOT_REQUEUE_BACKOFF and _is_spot_job(j):
+                count = max(1, int(j.get("preemption_count", 1) or 1))
+                delay = SPOT_REQUEUE_BACKOFF_BASE_SEC * (2 ** (count - 1))
+                j["submitted_at"] = time.time() + delay
             _upsert_job_row(conn, j)
             preempted_job = dict(j)
 
@@ -4288,8 +4484,8 @@ def preemption_cycle():
     """Run a full preemption cycle.
 
     1. Update spot prices
-    2. Find jobs below spot
-    3. Preempt them
+    2. Find preemptible jobs blocking on-demand capacity
+    3. Preempt them (+ drain hosts)
     Returns (spot_prices, preempted_jobs).
     """
     prices = update_spot_prices()
@@ -4301,6 +4497,12 @@ def preemption_cycle():
         if result:
             preempted.append(result)
             log.info("PREEMPTION: %s — %s", job["job_id"], reason)
+
+    for host in list_hosts(active_only=False):
+        if host.get("status") == "draining":
+            for result in run_drain_preemptions(host["host_id"]):
+                if result not in preempted:
+                    preempted.append(result)
 
     return prices, preempted
 

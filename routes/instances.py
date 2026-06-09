@@ -247,7 +247,7 @@ def _count_active_instances(customer_id: str) -> int:
         )
 
 
-from routes.agent import _agent_lock, _agent_preempt
+from agent_preempt import schedule_host_preemptions
 
 router = APIRouter()
 
@@ -1101,8 +1101,7 @@ def api_cancel_instance(job_id: str, request: Request):
                 kill_job(job, host)
             except Exception as e:
                 log.warning("Container kill failed for %s: %s", job_id, e)
-        with _agent_lock:
-            _agent_preempt[job["host_id"]].append(job_id)
+        schedule_host_preemptions(job["host_id"], [job_id])
 
     update_job_status(job_id, "cancelled")
     broadcast_sse("job_cancelled", {"job_id": job_id})

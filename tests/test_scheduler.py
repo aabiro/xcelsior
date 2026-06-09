@@ -832,14 +832,16 @@ class TestSpotPricing:
 class TestPreemption:
     """Verify preempt_job requeue and retired bid-based eviction."""
 
-    def test_identify_preemptible_jobs_retired_bid_model(self):
+    def test_identify_preemptible_jobs_capacity_model(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24, cost_per_hour=0.30)
-        job = scheduler.submit_job("test", 8, pricing_mode="spot")
-        scheduler.update_job_status(job["job_id"], "running", host_id="h1")
+        scheduler._set_host_fields("h1", admitted=True, gpu_count=1, spot_gpu_slots=1)
+        spot = scheduler.submit_job("spot-block", 8, pricing_mode="spot", gpu_model="RTX 4090")
+        scheduler.update_job_status(spot["job_id"], "running", host_id="h1")
+        scheduler.submit_job("od-wait", 8, pricing_mode="on_demand", gpu_model="RTX 4090")
 
-        # Bid-based preemption removed; capacity model arrives in Phase 7.
         preemptible = scheduler.identify_preemptible_jobs({"RTX 4090": 1.00})
-        assert preemptible == []
+        assert len(preemptible) == 1
+        assert preemptible[0][0]["job_id"] == spot["job_id"]
 
     def test_preempt_job_requeues(self):
         scheduler.register_host("h1", "127.0.0.1", "RTX 4090", 24, 24)

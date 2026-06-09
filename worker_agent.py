@@ -4952,6 +4952,7 @@ def _remove_container(container_name):
 
 def handle_preemptions(preempt_job_ids):
     """Handle preemption requests — gracefully stop containers."""
+    grace_sec = int(os.environ.get("XCELSIOR_PREEMPTION_GRACE_SEC", "30"))
     for job_id in preempt_job_ids:
         with _active_lock:
             container_name = _active_containers.get(job_id)
@@ -4960,14 +4961,27 @@ def handle_preemptions(preempt_job_ids):
             log.debug("Preemption for %s but no active container found", job_id)
             continue
 
-        log.warning("PREEMPTING job %s (container %s)", job_id, container_name)
+        log.warning(
+            "PREEMPTING job %s (container %s, grace=%ss)",
+            job_id,
+            container_name,
+            grace_sec,
+        )
 
-        # Send SIGTERM first (10s grace period), then SIGKILL
         try:
             subprocess.run(
-                ["docker", "stop", "-t", "10", container_name],
+                ["docker", "kill", "--signal=SIGTERM", container_name],
                 capture_output=True,
-                timeout=20,
+                timeout=10,
+            )
+        except Exception as e:
+            log.debug("SIGTERM during preemption for %s: %s", job_id, e)
+
+        try:
+            subprocess.run(
+                ["docker", "stop", "-t", str(grace_sec), container_name],
+                capture_output=True,
+                timeout=grace_sec + 15,
             )
         except Exception as e:
             log.warning("docker stop failed during preemption: %s", e)

@@ -130,9 +130,8 @@ _IMAGE_PULL_PATTERNS = (
     "ImagePullBackOff",
 )
 
-# Agent work/preemption state
+# Agent work state
 _agent_work: dict[str, list[dict]] = defaultdict(list)  # host_id -> [job, ...]
-_agent_preempt: dict[str, list[str]] = defaultdict(list)  # host_id -> [job_id, ...]
 _agent_lock = threading.Lock()
 _host_telemetry: dict[str, dict] = {}
 
@@ -221,8 +220,9 @@ def api_agent_work(host_id: str, request: Request):
 def api_agent_preempt(host_id: str, request: Request):
     """Check if any jobs on this host should be preempted."""
     _require_agent_auth(request, host_id=host_id)
-    with _agent_lock:
-        preempt_list = _agent_preempt.pop(host_id, [])
+    from agent_preempt import pop_host_preemptions
+
+    preempt_list = pop_host_preemptions(host_id)
     return {"ok": True, "preempt_jobs": preempt_list}
 
 
@@ -232,8 +232,9 @@ def api_schedule_preemption(host_id: str, job_id: str, request: Request):
     user = _require_user_grant(request, allow_api_key=True)
     if not user.get("is_admin"):
         raise HTTPException(403, "Admin role required")
-    with _agent_lock:
-        _agent_preempt[host_id].append(job_id)
+    from agent_preempt import schedule_host_preemptions
+
+    schedule_host_preemptions(host_id, [job_id])
     broadcast_sse("preemption_scheduled", {"host_id": host_id, "job_id": job_id})
     return {"ok": True, "host_id": host_id, "job_id": job_id}
 

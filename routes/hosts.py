@@ -963,10 +963,14 @@ def api_drain_host(host_id: str, request: Request):
         raise HTTPException(status_code=409, detail="Cannot drain a dead host")
 
     updated = set_host_draining(host_id, draining=True)
+    from scheduler import run_drain_preemptions
+
+    preempted = run_drain_preemptions(host_id)
     broadcast_sse("host_update", {"host_id": host_id, "status": "draining"})
     return {
         "ok": True,
         "host": updated,
+        "preempted": [j["job_id"] for j in preempted],
         "maintenance": api_host_maintenance(host_id, request),
     }
 
