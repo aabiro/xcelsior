@@ -77,21 +77,24 @@ export function MetricsPanel({ metrics, jobs, loading }: MetricsPanelProps) {
           label={t("dash.serverless.metric_workers")}
           value={`${m?.active_workers ?? 0} active`}
           icon={Layers}
+          glow="violet"
         />
         <StatCard
           label={t("dash.serverless.metric_tokens")}
           value={m?.tokens_per_sec ? `${m.tokens_per_sec}/s` : "—"}
           icon={Zap}
+          glow="cyan"
         />
         <StatCard
           label={t("dash.serverless.metric_queue_depth")}
           value={m?.queue_depth ?? 0}
           icon={Gauge}
+          glow="gold"
         />
       </div>
 
       {chartData.length > 1 && (
-        <div className="glow-card rounded-xl border border-border bg-surface p-4">
+        <div className="glow-card brand-top-accent rounded-xl border border-border bg-surface p-4">
           <p className="text-sm font-medium mb-4">{t("dash.serverless.job_activity")}</p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">

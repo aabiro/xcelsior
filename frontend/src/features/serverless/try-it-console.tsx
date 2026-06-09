@@ -11,8 +11,9 @@ import type { ServerlessEndpoint } from "@/lib/api";
 import * as api from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+
 import { CopyableText } from "./copyable-text";
+import { ServerlessPanel, ServerlessSegmentedTabs } from "./serverless-ui";
 
 type ConsoleMode = "chat" | "job" | "snippets";
 
@@ -155,30 +156,15 @@ response = client.chat.completions.create(
 for chunk in response:
     print(chunk.choices[0].delta.content or "", end="")`;
 
+  const modeTabs = ([
+    { id: "chat" as const, icon: MessageSquare, labelKey: "dash.serverless.try_chat", show: isPreset },
+    { id: "job" as const, icon: Terminal, labelKey: "dash.serverless.try_job", show: true },
+    { id: "snippets" as const, icon: Code2, labelKey: "dash.serverless.try_snippets", show: true },
+  ]).filter((m) => m.show);
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-1 rounded-xl border border-border p-1 bg-surface-hover/50">
-        {([
-          { id: "chat" as const, icon: MessageSquare, label: t("dash.serverless.try_chat"), show: isPreset },
-          { id: "job" as const, icon: Terminal, label: t("dash.serverless.try_job"), show: true },
-          { id: "snippets" as const, icon: Code2, label: t("dash.serverless.try_snippets"), show: true },
-        ]).filter((m) => m.show).map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => setMode(m.id)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all",
-              mode === m.id
-                ? "bg-accent-violet/15 text-accent-violet shadow-sm"
-                : "text-text-muted hover:text-text-primary",
-            )}
-          >
-            <m.icon className="h-3.5 w-3.5" />
-            {m.label}
-          </button>
-        ))}
-      </div>
+    <ServerlessPanel className="p-4 sm:p-5 space-y-4">
+      <ServerlessSegmentedTabs tabs={modeTabs} value={mode} onChange={setMode} label={t} />
 
       {mode === "chat" && isPreset && (
         <div className="space-y-3">
@@ -251,7 +237,7 @@ for chunk in response:
           )}
         </div>
       )}
-    </div>
+    </ServerlessPanel>
   );
 }
 

@@ -5,6 +5,7 @@ import { ScrollText, Loader2 } from "lucide-react";
 import type { ServerlessJob } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { CopyableText } from "./copyable-text";
+import { ServerlessEmptyState } from "./serverless-ui";
 
 const STATUS_VARIANT: Record<string, "active" | "warning" | "default"> = {
   COMPLETED: "active",
@@ -37,10 +38,7 @@ export function LogsPanel({ jobs, loading }: LogsPanelProps) {
 
   if (jobs.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border py-12 text-center text-text-muted">
-        <ScrollText className="mx-auto h-8 w-8 mb-2 opacity-40" />
-        <p className="text-sm">{t("dash.serverless.jobs_empty")}</p>
-      </div>
+      <ServerlessEmptyState icon={ScrollText} title={t("dash.serverless.jobs_empty")} />
     );
   }
 
@@ -49,7 +47,7 @@ export function LogsPanel({ jobs, loading }: LogsPanelProps) {
       {jobs.map((job) => (
         <div
           key={job.job_id}
-          className="rounded-xl border border-border bg-surface px-4 py-3 hover:bg-surface-hover/50 transition-colors"
+          className="glow-card rounded-xl border border-border bg-surface px-4 py-3 hover:border-accent-violet/20 transition-colors"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CopyableText text={job.job_id} />

@@ -30,16 +30,20 @@ export function ServerlessFeatureGate({ children }: { children: React.ReactNode 
 
   if (!enabled) {
     return (
-      <Card className="max-w-lg mx-auto mt-16 border-border/60">
-        <CardContent className="pt-8 pb-8 text-center space-y-4">
-          <Zap className="h-10 w-10 mx-auto text-text-muted" />
-          <h1 className="text-xl font-semibold">{t("dash.serverless.feature_off_title")}</h1>
-          <p className="text-sm text-text-muted">{t("dash.serverless.feature_off_desc")}</p>
-          <Button asChild variant="outline">
-            <Link href="/dashboard">{t("dash.overview")}</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="max-w-lg mx-auto mt-16">
+        <Card className="border-accent-violet/20 bg-gradient-to-br from-accent-violet/5 via-surface to-surface overflow-hidden">
+          <CardContent className="pt-10 pb-10 text-center space-y-4">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-violet/15">
+              <Zap className="h-7 w-7 text-accent-violet" />
+            </div>
+            <h1 className="text-xl font-semibold">{t("dash.serverless.feature_off_title")}</h1>
+            <p className="text-sm text-text-muted max-w-sm mx-auto">{t("dash.serverless.feature_off_desc")}</p>
+            <Link href="/dashboard">
+              <Button variant="outline">{t("dash.overview")}</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 

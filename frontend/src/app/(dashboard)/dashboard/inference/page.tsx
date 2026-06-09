@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
+
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { CopyableText } from "@/features/serverless/copyable-text";
+import { EngineBadge, ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serverless-ui";
 import { toast } from "sonner";
 
 function serverlessActionError(err: unknown, viewerMessage: string): string {
@@ -88,37 +89,28 @@ export default function InferencePage() {
       <TeamContextBanner team={team} variant="general" />
 
       <FadeIn>
-        <div className="relative overflow-hidden rounded-2xl border border-accent-cyan/20 bg-gradient-to-br from-accent-cyan/8 via-surface to-accent-violet/5 p-6 sm:p-8">
-          <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent-cyan/10 blur-3xl" />
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-cyan/20">
-                  <Zap className="h-5 w-5 text-accent-cyan" />
-                </div>
-                <Badge variant="info" className="text-[10px] uppercase tracking-widest">GPU-seconds</Badge>
-              </div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t("dash.serverless.title")}</h1>
-              <p className="mt-2 text-sm text-text-muted max-w-xl">{t("dash.serverless.subtitle")}</p>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={() => void load(true)}>
-                <RefreshCw className="h-3.5 w-3.5" />
+        <ServerlessHero
+          icon={Zap}
+          badge="GPU-seconds"
+          title={t("dash.serverless.title")}
+          description={t("dash.serverless.subtitle")}
+          accent="cyan"
+        >
+          <Button variant="outline" size="sm" onClick={() => void load(true)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+          {canWrite ? (
+            <Link href="/dashboard/inference/new">
+              <Button size="sm">
+                <Rocket className="h-3.5 w-3.5" /> {t("dash.serverless.open_studio")}
               </Button>
-              {canWrite ? (
-                <Link href="/dashboard/inference/new">
-                  <Button size="sm">
-                    <Rocket className="h-3.5 w-3.5" /> {t("dash.serverless.open_studio")}
-                  </Button>
-                </Link>
-              ) : (
-                <Button size="sm" disabled title={t("dash.serverless.viewer_blocked")}>
-                  <Plus className="h-3.5 w-3.5" /> {t("dash.serverless.view_only")}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
+            </Link>
+          ) : (
+            <Button size="sm" disabled title={t("dash.serverless.viewer_blocked")}>
+              <Plus className="h-3.5 w-3.5" /> {t("dash.serverless.view_only")}
+            </Button>
+          )}
+        </ServerlessHero>
       </FadeIn>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -133,19 +125,19 @@ export default function InferencePage() {
             <Loader2 className="h-7 w-7 animate-spin text-text-muted" />
           </div>
         ) : endpoints.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="py-16 text-center">
-              <Cpu className="mx-auto h-10 w-10 mb-3 text-text-muted opacity-40" />
-              <p className="text-text-muted">{t("dash.serverless.empty")}</p>
-              {canWrite && (
-                <Link href="/dashboard/inference/new" className="inline-block mt-4">
-                  <Button>
-                    <Rocket className="h-4 w-4" /> {t("dash.serverless.open_studio")}
-                  </Button>
-                </Link>
-              )}
-            </CardContent>
-          </Card>
+          <ServerlessEmptyState
+            icon={Cpu}
+            title={t("dash.serverless.empty")}
+            accent="cyan"
+          >
+            {canWrite && (
+              <Link href="/dashboard/inference/new" className="inline-block mt-2">
+                <Button>
+                  <Rocket className="h-4 w-4" /> {t("dash.serverless.open_studio")}
+                </Button>
+              </Link>
+            )}
+          </ServerlessEmptyState>
         ) : (
           <StaggerList className="space-y-3">
             {endpoints.map((ep) => (
@@ -160,6 +152,7 @@ export default function InferencePage() {
                           </span>
                           <Badge variant={ep.status === "active" ? "active" : "warning"}>{ep.status}</Badge>
                           {ep.mode && <Badge variant="default" className="text-[10px]">{ep.mode}</Badge>}
+                          {ep.mode === "preset" && <EngineBadge engine={ep.managed_engine} />}
                         </div>
                         <CopyableText text={ep.endpoint_id} />
                       </div>
@@ -168,7 +161,7 @@ export default function InferencePage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="text-red-500 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                             onClick={(e) => handleDelete(e, ep.endpoint_id)}
                           >
                             <Trash2 className="h-4 w-4" />

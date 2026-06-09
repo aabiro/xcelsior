@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  ArrowLeft, RefreshCw, Trash2, Loader2, Activity, Server, ScrollText,
+  RefreshCw, Trash2, Loader2, Activity, Server, ScrollText,
   Key, Terminal, BarChart3,
 } from "lucide-react";
 import { FadeIn } from "@/components/ui/motion";
@@ -16,7 +16,7 @@ import type {
   ServerlessEndpoint, ServerlessEndpointMetrics, ServerlessWorker, ServerlessJob, ServerlessApiKey,
 } from "@/lib/api";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+
 import { CopyableText } from "./copyable-text";
 import { MetricsPanel } from "./metrics-panel";
 import { WorkersPanel } from "./workers-panel";
@@ -25,6 +25,9 @@ import { KeysPanel } from "./keys-panel";
 import { TryItConsole } from "./try-it-console";
 import { CostUsagePanel } from "./cost-usage-panel";
 import type { DetailTab } from "./types";
+import {
+  ApiUrlCard, EngineBadge, ServerlessBackLink, ServerlessHero, ServerlessSegmentedTabs,
+} from "./serverless-ui";
 
 const TABS: { id: DetailTab; icon: typeof Activity; labelKey: string }[] = [
   { id: "overview", icon: BarChart3, labelKey: "dash.serverless.tab_overview" },
@@ -132,52 +135,45 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 
   return (
     <FadeIn className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
-          <Link
-            href="/dashboard/inference"
-            className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
-          >
-            <ArrowLeft className="h-3 w-3" /> {t("dash.serverless.back_list")}
-          </Link>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold">{title}</h1>
-            <Badge variant={endpoint.status === "active" ? "active" : "warning"}>{endpoint.status}</Badge>
-            <Badge variant="default">{endpoint.mode}</Badge>
-          </div>
-          <CopyableText text={endpoint.endpoint_id} />
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => void load(true)}>
-            <RefreshCw className="h-3.5 w-3.5" />
+      <ServerlessBackLink href="/dashboard/inference">{t("dash.serverless.back_list")}</ServerlessBackLink>
+
+      <ServerlessHero
+        icon={Activity}
+        badge={endpoint.mode}
+        title={title}
+        description={endpoint.model_ref || endpoint.model_name || endpoint.model_id}
+        accent="violet"
+        compact
+      >
+        <Badge variant={endpoint.status === "active" ? "active" : "warning"}>{endpoint.status}</Badge>
+        {endpoint.mode === "preset" && <EngineBadge engine={endpoint.managed_engine} />}
+        <Button variant="outline" size="sm" onClick={() => void load(true)}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </Button>
+        {canWrite && (
+          <Button variant="ghost" size="sm" className="text-red-500" onClick={handleDelete} disabled={deleting}>
+            {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
           </Button>
-          {canWrite && (
-            <Button variant="ghost" size="sm" className="text-red-500" onClick={handleDelete} disabled={deleting}>
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            </Button>
-          )}
-        </div>
+        )}
+      </ServerlessHero>
+
+      <div className="flex flex-wrap items-center gap-3 text-xs text-text-muted -mt-2">
+        <CopyableText text={endpoint.endpoint_id} />
+        {endpoint.vanity_slug && (
+          <span className="font-mono text-text-secondary">/{endpoint.vanity_slug}</span>
+        )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 overflow-x-auto border-b border-border pb-px scrollbar-none">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setTab(item.id)}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
-              tab === item.id
-                ? "border-accent-violet text-accent-violet"
-                : "border-transparent text-text-muted hover:text-text-primary",
-            )}
-          >
-            <item.icon className="h-4 w-4" />
-            {t(item.labelKey)}
-          </button>
-        ))}
-      </div>
+      {endpoint.openai_base_url && endpoint.mode === "preset" && (
+        <ApiUrlCard
+          title={t("dash.serverless.openai_base")}
+          url={endpoint.openai_base_url}
+          slug={endpoint.vanity_slug}
+          invokePath={endpoint.invoke_path}
+        />
+      )}
+
+      <ServerlessSegmentedTabs tabs={TABS} value={tab} onChange={setTab} label={t} />
 
       {tab === "overview" && (
         <div className="space-y-6">

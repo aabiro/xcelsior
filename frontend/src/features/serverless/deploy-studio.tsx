@@ -4,12 +4,12 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Sparkles, Box, Cpu, Layers, Settings2, Rocket, ChevronLeft, ChevronRight,
+  Sparkles, Box, Cpu, Layers, Rocket, ChevronLeft, ChevronRight,
   Loader2, Zap, Globe, Timer, Gauge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, NumberInput } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
 import type { GpuAvailability } from "@/lib/api";
@@ -20,8 +20,7 @@ import {
   DEFAULT_FORM, DEPLOY_STUDIO_STEPS, IDLE_TIMEOUT_OPTIONS, MANAGED_ENGINES, PRESET_MODELS,
 } from "./constants";
 import type { DeployStudioForm } from "./types";
-
-const STEP_ICONS = [Sparkles, Box, Cpu, Layers, Settings2, Rocket];
+import { ServerlessHero, ServerlessSelect, StepRail } from "./serverless-ui";
 
 interface DeployStudioProps {
   gpus: GpuAvailability[];
@@ -144,55 +143,28 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     }
   };
 
+  const reviewSource = form.method === "preset"
+    ? `${MANAGED_ENGINES.find((e) => e.id === form.managedEngine)?.label ?? form.managedEngine} · ${form.modelRef}`
+    : form.customSource === "github"
+      ? form.githubRepo || form.imageRef
+      : form.imageRef;
+
   return (
     <div className="space-y-6">
-      {/* Hero header */}
-      <div className="relative overflow-hidden rounded-2xl border border-accent-violet/20 bg-gradient-to-br from-accent-violet/10 via-surface to-accent-cyan/5 p-6 sm:p-8">
-        <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-accent-violet/10 blur-3xl" />
-        <div className="absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-accent-cyan/10 blur-3xl" />
-        <div className="relative">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-violet/20">
-              <Rocket className="h-5 w-5 text-accent-violet" />
-            </div>
-            <Badge variant="info" className="text-[10px] uppercase tracking-widest">
-              {t("dash.serverless.studio_badge")}
-            </Badge>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            {t("dash.serverless.studio_title")}
-          </h1>
-          <p className="mt-2 text-sm text-text-muted max-w-2xl">
-            {t("dash.serverless.studio_desc")}
-          </p>
-        </div>
-      </div>
+      <ServerlessHero
+        icon={Rocket}
+        badge={t("dash.serverless.studio_badge")}
+        title={t("dash.serverless.studio_title")}
+        description={t("dash.serverless.studio_desc")}
+        accent="violet"
+      />
 
-      {/* Step rail */}
-      <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none">
-        {DEPLOY_STUDIO_STEPS.map((s, i) => {
-          const Icon = STEP_ICONS[i];
-          const active = i === step;
-          const done = i < step;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => i < step && setStep(i)}
-              className={cn(
-                "flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium whitespace-nowrap transition-all shrink-0",
-                active && "bg-accent-violet/15 text-accent-violet border border-accent-violet/30 shadow-[0_0_20px_rgba(139,92,246,0.15)]",
-                done && !active && "text-text-secondary hover:bg-surface-hover cursor-pointer",
-                !active && !done && "text-text-muted",
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t(s.labelKey)}</span>
-              <span className="sm:hidden">{i + 1}</span>
-            </button>
-          );
-        })}
-      </div>
+      <StepRail
+        steps={DEPLOY_STUDIO_STEPS}
+        current={step}
+        onStepClick={setStep}
+        label={t}
+      />
 
       {/* Step content */}
       <div className="glow-card brand-top-accent stat-glow-violet rounded-2xl border border-border bg-surface p-6 sm:p-8 min-h-[360px]">
@@ -406,10 +378,9 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_type")}</label>
-                    <select
+                    <ServerlessSelect
                       value={form.gpuTier}
                       onChange={(e) => update("gpuTier", e.target.value)}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                     >
                       <option value="">{t("dash.serverless.select_gpu")}</option>
                       {gpuTypes.map((g) => {
@@ -421,19 +392,18 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                           </option>
                         );
                       })}
-                    </select>
+                    </ServerlessSelect>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.region")}</label>
-                    <select
+                    <ServerlessSelect
                       value={form.region}
                       onChange={(e) => update("region", e.target.value)}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                     >
                       {regions.map((r) => (
                         <option key={r} value={r}>{r}</option>
                       ))}
-                    </select>
+                    </ServerlessSelect>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_count")}</label>
@@ -474,15 +444,14 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.idle_timeout")}</label>
-                    <select
+                    <ServerlessSelect
                       value={form.idleTimeoutSec}
                       onChange={(e) => update("idleTimeoutSec", Number(e.target.value))}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                     >
                       {IDLE_TIMEOUT_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                       ))}
-                    </select>
+                    </ServerlessSelect>
                   </div>
                 </div>
                 <div>
@@ -566,7 +535,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                 <div className="grid gap-3 sm:grid-cols-2">
                   {[
                     { icon: Sparkles, label: t("dash.serverless.review_method"), value: form.method === "preset" ? t("dash.serverless.method_preset") : t("dash.serverless.method_custom") },
-                    { icon: Box, label: t("dash.serverless.review_source"), value: form.method === "preset" ? form.modelRef : form.imageRef },
+                    { icon: Box, label: t("dash.serverless.review_source"), value: reviewSource },
                     { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "—"} · ${form.region}` },
                     { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}–${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
                     { icon: Timer, label: t("dash.serverless.idle_timeout"), value: `${form.idleTimeoutSec}s` },
