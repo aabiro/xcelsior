@@ -851,6 +851,7 @@ class TestPreemption:
         assert result["status"] == "queued"
         assert result["host_id"] is None
         assert result.get("preempted_at") is not None
+        assert result.get("preemption_count") == 1
 
     def test_preempt_non_running_returns_none(self):
         job = scheduler.submit_job("test-queued", 8)

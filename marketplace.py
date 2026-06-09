@@ -197,6 +197,25 @@ class MarketplaceEngine:
             ).fetchone()
             return dict(row) if row else None
 
+    def get_offer_for_host(self, host_id: str, gpu_model: str = "") -> Optional[dict]:
+        """Return the active offer for a host (optionally filtered by GPU model)."""
+        with self._conn() as conn:
+            if gpu_model:
+                row = conn.execute(
+                    """SELECT * FROM gpu_offers
+                       WHERE host_id = %s AND gpu_model = %s AND available = TRUE
+                       ORDER BY updated_at DESC LIMIT 1""",
+                    (host_id, gpu_model),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """SELECT * FROM gpu_offers
+                       WHERE host_id = %s AND available = TRUE
+                       ORDER BY updated_at DESC LIMIT 1""",
+                    (host_id,),
+                ).fetchone()
+            return dict(row) if row else None
+
     def disable_offer(self, offer_id: str):
         with self._conn() as conn:
             conn.execute(

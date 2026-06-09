@@ -23,3 +23,20 @@ Legacy statuses such as `paused_low_balance` may still appear in DB rows; the da
 Status updates and agent callbacks use `X-Xcelsior-API-Key` / `XCELSIOR_API_TOKEN` (`_require_worker_status_update`), not end-user session auth.
 
 Removed symbols: `pause_instance`, `resume_instance`, `POST .../pause`, `POST .../resume`. See `billing.py` and migration `031_drop_pause_resume_state`.
+
+## Spot (interruptible) instances
+
+Spot jobs are submitted with `pricing_mode: "spot"` on `POST /instance`. They are **preemptible** and billed at the **spot rate locked at assignment** (`spot_rate_cad`), not the host on-demand rate.
+
+| Stage | Status | Notes |
+|-------|--------|-------|
+| Submit | `queued` | `pricing_mode=spot`, `preemptible=true`, `tier=spot` |
+| Assigned | `assigned` → `running` | Host must have `spot_enabled` and free spot GPU slots |
+| Preempted | `preempted` → `queued` | Worker or scheduler evicts; volumes detached; auto-requeue |
+| Terminal | `completed` / `failed` / `cancelled` | Same as on-demand |
+
+**Preemption path:** `running` → `preempted` (SIGTERM grace) → `queued` with `preempted_at` and `preemption_count` incremented. Capacity-based eviction (on-demand contention) is Phase 7; bid-based eviction is retired.
+
+**API fields on instance detail:** `pricing_mode`, `spot_rate_cad`, `preemptible`, `preempted_at`, `preemption_count`.
+
+**Host payload (scheduler):** `spot_enabled` (default `true`), `spot_gpu_slots` (default = `gpu_count`). Spot jobs may only allocate when the spot pool has headroom.
