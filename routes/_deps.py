@@ -122,6 +122,9 @@ PUBLIC_PATHS = {
     "/api/pricing/reference",
     "/api/pricing/rates",
     "/api/pricing/spot",
+    "/api/pricing/spot-enabled",
+    "/api/pricing/spot-floor-suggestion",
+    "/spot-prices",
     "/api/provinces",
     # Crypto / Lightning service-status checks (no sensitive data)
     "/api/billing/crypto/enabled",
