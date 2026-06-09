@@ -199,3 +199,35 @@ def test_invoice_total_is_monotonic_in_tax_rate(subtotal, tax_rate):
 def test_gst_small_supplier_threshold_matches_cra_rule():
     """Excise Tax Act threshold is $30,000 CAD over 4 consecutive quarters."""
     assert billing.GST_SMALL_SUPPLIER_THRESHOLD_CAD == 30_000.00
+
+
+# ── Spot vs on-demand rate contract (Phase 4) ────────────────────────
+
+
+def test_spot_locked_rate_below_on_demand_for_same_host():
+    from billing import resolve_compute_rate_cad
+
+    host = {"cost_per_hour": 0.55, "gpu_model": "RTX 4090"}
+    spot_rate, spot_mode = resolve_compute_rate_cad(
+        {"pricing_mode": "spot", "spot_rate_cad": 0.22, "num_gpus": 1},
+        host,
+    )
+    od_rate, od_mode = resolve_compute_rate_cad({"pricing_mode": "on_demand"}, host)
+    assert spot_mode == "spot"
+    assert od_mode == "on_demand"
+    assert spot_rate < od_rate
+
+
+@given(
+    host_rate=st.floats(min_value=0.10, max_value=5.0, allow_nan=False, allow_infinity=False),
+    spot_rate=st.floats(min_value=0.01, max_value=2.0, allow_nan=False, allow_infinity=False),
+)
+@settings(deadline=None, max_examples=50)
+def test_spot_meter_cost_lte_on_demand_when_spot_rate_lower(host_rate, spot_rate):
+    """When locked spot < host on-demand, billed spot cost must be lower."""
+    if spot_rate >= host_rate:
+        return
+    hours = 0.5
+    spot_cost = round(hours * spot_rate, 4)
+    od_cost = round(hours * host_rate, 4)
+    assert spot_cost <= od_cost

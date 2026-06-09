@@ -83,6 +83,46 @@ def get_tax_rate_for_province(province: str) -> tuple[float, str]:
 GST_SMALL_SUPPLIER_THRESHOLD_CAD = 30_000.00
 
 
+def resolve_job_pricing_mode(job: dict) -> str:
+    """Normalized pricing mode for billing (on_demand | spot | reserved)."""
+    mode = str(job.get("pricing_mode") or "").strip().lower()
+    if mode in ("on_demand", "spot", "reserved"):
+        return mode
+    if job.get("preemptible") or job.get("spot") or job.get("tier") == "spot":
+        return "spot"
+    return "on_demand"
+
+
+def resolve_compute_rate_cad(job: dict, host: dict | None = None) -> tuple[float, str]:
+    """Effective CAD/hr for billing and pricing_mode label.
+
+    Spot jobs bill at locked ``spot_rate_cad`` (per GPU) × ``num_gpus``.
+    On-demand keeps the host ``cost_per_hour`` path unchanged.
+    """
+    pricing_mode = resolve_job_pricing_mode(job)
+    num_gpus = max(1, int(job.get("num_gpus", 1) or 1))
+
+    if pricing_mode == "spot":
+        locked = job.get("spot_rate_cad")
+        if locked is not None:
+            return round(float(locked) * num_gpus, 6), "spot"
+        gpu_model = (
+            (job.get("gpu_model") or "")
+            or (job.get("host_gpu_model") or "")
+            or ((host or {}).get("gpu_model") or "")
+            or "RTX 4090"
+        )
+        try:
+            from spot_pricing import compute_live_spot_quote
+
+            return round(compute_live_spot_quote(gpu_model).rate_cad * num_gpus, 6), "spot"
+        except Exception:
+            base = float((host or {}).get("cost_per_hour", 0.20))
+            return round(base * 0.4 * num_gpus, 6), "spot"
+
+    return round(float((host or {}).get("cost_per_hour", 0.20)), 6), "on_demand"
+
+
 # ── Metering ─────────────────────────────────────────────────────────
 
 
@@ -121,6 +161,7 @@ class UsageMeter:
     base_rate_per_hour: float = 0.0
     tier_multiplier: float = 1.0
     spot_discount: float = 0.0
+    pricing_mode: str = "on_demand"
     total_cost_cad: float = 0.0
 
     def to_dict(self) -> dict:
@@ -288,15 +329,14 @@ class BillingEngine:
             country = "CA"
             is_canadian = True
 
-        # Pricing
-        base_rate = float(host.get("cost_per_hour", 0.20))
+        pricing_mode = resolve_job_pricing_mode(job)
+        base_rate, _ = resolve_compute_rate_cad(job, host)
         tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(trust_tier), {})
-        multiplier = tier_req.get("pricing_multiplier", 1.0)
-        spot_discount = float(job.get("spot_discount", 0))
+        multiplier = 1.0 if pricing_mode == "spot" else tier_req.get("pricing_multiplier", 1.0)
+        spot_discount = 0.0
 
-        # Total cost
         duration_hr = duration / 3600
-        cost = round(duration_hr * base_rate * multiplier * (1 - spot_discount), 4)
+        cost = round(duration_hr * base_rate * multiplier, 4)
 
         meter = UsageMeter(
             job_id=job.get("job_id", ""),
@@ -316,6 +356,7 @@ class BillingEngine:
             base_rate_per_hour=base_rate,
             tier_multiplier=multiplier,
             spot_discount=spot_discount,
+            pricing_mode=pricing_mode,
             total_cost_cad=cost,
         )
 
@@ -327,13 +368,14 @@ class BillingEngine:
                     duration_sec, gpu_seconds, gpu_model, vram_gb,
                     gpu_utilization_pct, xcu_score, country, province,
                     is_canadian_compute, trust_tier, base_rate_per_hour,
-                    tier_multiplier, spot_discount, total_cost_cad, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    tier_multiplier, spot_discount, pricing_mode, total_cost_cad, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (meter_id) DO UPDATE SET
                      job_id = EXCLUDED.job_id, host_id = EXCLUDED.host_id, owner = EXCLUDED.owner,
                      started_at = EXCLUDED.started_at, completed_at = EXCLUDED.completed_at,
                      duration_sec = EXCLUDED.duration_sec, gpu_seconds = EXCLUDED.gpu_seconds,
-                     total_cost_cad = EXCLUDED.total_cost_cad, created_at = EXCLUDED.created_at""",
+                     total_cost_cad = EXCLUDED.total_cost_cad, pricing_mode = EXCLUDED.pricing_mode,
+                     created_at = EXCLUDED.created_at""",
                 (
                     meter.meter_id,
                     meter.job_id,
@@ -354,15 +396,17 @@ class BillingEngine:
                     meter.base_rate_per_hour,
                     meter.tier_multiplier,
                     meter.spot_discount,
+                    meter.pricing_mode,
                     meter.total_cost_cad,
                     time.time(),
                 ),
             )
 
         log.info(
-            "METERED job=%s cost=$%.4f CAD tier=%s canadian=%s",
+            "METERED job=%s cost=$%.4f CAD mode=%s tier=%s canadian=%s",
             meter.job_id,
             meter.total_cost_cad,
+            pricing_mode,
             trust_tier,
             is_canadian,
         )
@@ -408,8 +452,10 @@ class BillingEngine:
             cost = float(row["total_cost_cad"])
             is_ca = bool(row["is_canadian_compute"])
 
+            mode = (row.get("pricing_mode") or "on_demand").strip().lower()
+            mode_label = "Spot" if mode == "spot" else "On-Demand"
             li = InvoiceLineItem(
-                description=f"GPU Compute: {row['gpu_model']} ({row['trust_tier']} tier)",
+                description=f"{mode_label} — {row['gpu_model']} ({row['trust_tier']} tier)",
                 category="compute",
                 quantity=round(row["duration_sec"] / 3600, 4),
                 unit="GPU-hours",
@@ -573,6 +619,10 @@ class BillingEngine:
                     SUM(total_cost_cad) as total_cost_cad,
                     SUM(CASE WHEN is_canadian_compute = 1 THEN total_cost_cad ELSE 0 END) as ca_cost,
                     SUM(CASE WHEN is_canadian_compute = 0 THEN total_cost_cad ELSE 0 END) as non_ca_cost,
+                    SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') = 'spot'
+                        THEN total_cost_cad ELSE 0 END) as spot_cost,
+                    SUM(CASE WHEN COALESCE(pricing_mode, 'on_demand') != 'spot'
+                        THEN total_cost_cad ELSE 0 END) as on_demand_cost,
                     COUNT(DISTINCT host_id) as hosts_used,
                     COUNT(DISTINCT trust_tier) as tiers_used
                 FROM usage_meters
@@ -589,7 +639,10 @@ class BillingEngine:
             "total_cost_cad": round(rows["total_cost_cad"] or 0, 2),
             "canadian_compute_cad": round(rows["ca_cost"] or 0, 2),
             "non_canadian_compute_cad": round(rows["non_ca_cost"] or 0, 2),
+            "spot_spend_cad": round(rows["spot_cost"] or 0, 2),
+            "on_demand_spend_cad": round(rows["on_demand_cost"] or 0, 2),
             "hosts_used": rows["hosts_used"] or 0,
+            "tiers_used": rows["tiers_used"] or 0,
             "currency": "CAD",
         }
 
@@ -1718,6 +1771,172 @@ class BillingEngine:
 
     # ── Auto-Billing Cycle (Running Instances) ────────────────────────
 
+    def _bill_gpu_period(
+        self,
+        conn,
+        job_row: dict,
+        period_start: float,
+        period_end: float,
+        *,
+        min_seconds: float = 60.0,
+        description_prefix: str = "Auto-billing",
+    ) -> dict | None:
+        """Charge one GPU billing period and insert billing_cycles row."""
+        from psycopg.rows import dict_row
+
+        conn.row_factory = dict_row
+
+        job_id = job_row["job_id"]
+        customer_id = job_row.get("owner") or ""
+        if not customer_id:
+            return None
+
+        if period_end - period_start < min_seconds:
+            return None
+
+        duration_sec = period_end - period_start
+        host_id = job_row.get("host_id") or ""
+        gpu_model = job_row.get("gpu_model") or ""
+        tier = job_row.get("tier", "free")
+
+        host = conn.execute(
+            "SELECT payload FROM hosts WHERE host_id = %s",
+            (host_id,),
+        ).fetchone()
+        host_payload = {}
+        if host and host.get("payload"):
+            raw = host["payload"]
+            host_payload = raw if isinstance(raw, dict) else json.loads(raw)
+
+        job_payload = {
+            "job_id": job_id,
+            "pricing_mode": job_row.get("pricing_mode")
+            or job_row.get("payload_pricing_mode"),
+            "spot_rate_cad": job_row.get("spot_rate_cad"),
+            "preemptible": job_row.get("preemptible"),
+            "spot": job_row.get("spot"),
+            "tier": tier,
+            "gpu_model": gpu_model,
+            "host_gpu_model": job_row.get("host_gpu_model"),
+            "num_gpus": job_row.get("num_gpus") or 1,
+        }
+        rate_per_hour, pricing_mode = resolve_compute_rate_cad(job_payload, host_payload)
+
+        from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
+
+        if pricing_mode == "spot":
+            tier_multiplier = 1.0
+        else:
+            try:
+                tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
+                tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
+            except (ValueError, KeyError):
+                tier_multiplier = 1.0
+
+        amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
+        if amount_cad <= 0:
+            return None
+
+        charge_result = self.charge(
+            customer_id,
+            amount_cad,
+            job_id=job_id,
+            description=f"{description_prefix}: {gpu_model} ({duration_sec/60:.1f}min)",
+        )
+
+        now = time.time()
+        cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
+        status = "charged" if charge_result.get("charged") else "failed"
+
+        conn.execute(
+            """INSERT INTO billing_cycles
+               (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
+                duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
+                amount_cad, status, pricing_mode, created_at)
+               VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                cycle_id,
+                job_id,
+                customer_id,
+                host_id,
+                period_start,
+                period_end,
+                duration_sec,
+                rate_per_hour,
+                gpu_model,
+                tier,
+                tier_multiplier,
+                amount_cad,
+                status,
+                pricing_mode,
+                now,
+            ),
+        )
+        return {
+            "job_id": job_id,
+            "amount_cad": amount_cad,
+            "charge_result": charge_result,
+            "pricing_mode": pricing_mode,
+        }
+
+    def bill_running_period(
+        self,
+        job_id: str,
+        period_end: float | None = None,
+        *,
+        min_seconds: float = 0.0,
+    ) -> dict:
+        """Bill a running job from its last cycle (or started_at) through period_end.
+
+        Used on preemption to close compute billing pro-rata.
+        """
+        from db import _get_pg_pool
+        from psycopg.rows import dict_row
+
+        period_end = period_end or time.time()
+        pool = _get_pg_pool()
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            job = conn.execute(
+                """SELECT job_id, status, host_id,
+                          payload->>'owner' AS owner,
+                          (payload->>'started_at')::double precision AS started_at,
+                          payload->>'gpu_model' AS gpu_model,
+                          payload->>'host_gpu_model' AS host_gpu_model,
+                          COALESCE((payload->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(payload->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (payload->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          payload->>'preemptible' AS preemptible,
+                          payload->>'spot' AS spot,
+                          COALESCE(payload->>'tier', 'free') AS tier
+                   FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                return {"billed": False, "reason": "not_running"}
+
+            last = conn.execute(
+                """SELECT period_end FROM billing_cycles
+                   WHERE job_id = %s ORDER BY period_end DESC LIMIT 1""",
+                (job_id,),
+            ).fetchone()
+            period_start = last["period_end"] if last else float(job["started_at"] or 0)
+            if period_start <= 0:
+                return {"billed": False, "reason": "no_start_time"}
+
+            result = self._bill_gpu_period(
+                conn,
+                job,
+                period_start,
+                period_end,
+                min_seconds=min_seconds,
+                description_prefix="Preempt billing",
+            )
+            conn.commit()
+            if not result:
+                return {"billed": False, "reason": "below_minimum"}
+            return {"billed": True, **result}
+
     def auto_billing_cycle(self) -> dict:
         """Bill all running instances for the current billing period.
 
@@ -1743,6 +1962,12 @@ class BillingEngine:
                           (j.payload->>'started_at')::double precision AS started_at,
                           j.host_id,
                           j.payload->>'gpu_model' AS gpu_model,
+                          j.payload->>'host_gpu_model' AS host_gpu_model,
+                          COALESCE((j.payload->>'num_gpus')::int, 1) AS num_gpus,
+                          COALESCE(j.payload->>'pricing_mode', 'on_demand') AS pricing_mode,
+                          (j.payload->>'spot_rate_cad')::double precision AS spot_rate_cad,
+                          j.payload->>'preemptible' AS preemptible,
+                          j.payload->>'spot' AS spot,
                           COALESCE(j.payload->>'tier', 'free') AS tier
                    FROM jobs j
                    WHERE j.status = 'running'
@@ -1756,21 +1981,14 @@ class BillingEngine:
                 if not customer_id:
                     log.warning("AUTO-BILLING: skipping job %s — no owner set", job_id)
                     continue
-                host_id = job.get("host_id", "")
-                gpu_model = job.get("gpu_model", "")
-                tier = job.get("tier", "free")
-
-                # Find the last billing cycle end for this job
-                # Single transaction with row lock prevents double-billing from concurrent ticks
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
-                    # Lock the job row so a concurrent billing tick skips it
                     locked = conn.execute(
                         "SELECT job_id FROM jobs WHERE job_id = %s AND status = 'running' FOR UPDATE SKIP LOCKED",
                         (job_id,),
                     ).fetchone()
                     if not locked:
-                        continue  # Another tick already processing this job
+                        continue
 
                     last = conn.execute(
                         """SELECT period_end FROM billing_cycles
@@ -1781,71 +1999,16 @@ class BillingEngine:
                     period_start = last["period_end"] if last else float(job["started_at"])
                     period_end = now
 
-                    # Skip if less than 60 seconds since last billing
-                    if period_end - period_start < 60:
+                    result = self._bill_gpu_period(
+                        conn,
+                        job,
+                        period_start,
+                        period_end,
+                        min_seconds=60.0,
+                    )
+                    if not result:
                         continue
-
-                    duration_sec = period_end - period_start
-
-                    # Get the host's rate (same transaction)
-                    host = conn.execute(
-                        "SELECT payload->>'cost_per_hour' AS cost_per_hour FROM hosts WHERE host_id = %s",
-                        (host_id,),
-                    ).fetchone()
-
-                    rate_per_hour = (
-                        float(host["cost_per_hour"]) if host and host.get("cost_per_hour") else 0.20
-                    )
-
-                    # Tier multiplier
-                    from jurisdiction import TRUST_TIER_REQUIREMENTS, TrustTier
-
-                    try:
-                        tier_req = TRUST_TIER_REQUIREMENTS.get(TrustTier(tier), {})
-                        tier_multiplier = tier_req.get("pricing_multiplier", 1.0)
-                    except (ValueError, KeyError):
-                        tier_multiplier = 1.0
-
-                    amount_cad = round((duration_sec / 3600) * rate_per_hour * tier_multiplier, 4)
-
-                    if amount_cad <= 0:
-                        continue
-
-                    # Charge the wallet
-                    charge_result = self.charge(
-                        customer_id,
-                        amount_cad,
-                        job_id=job_id,
-                        description=f"Auto-billing: {gpu_model} ({duration_sec/60:.1f}min)",
-                    )
-
-                    cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
-                    status = "charged" if charge_result.get("charged") else "failed"
-
-                    # Record the billing cycle (inside same locked transaction)
-                    conn.execute(
-                        """INSERT INTO billing_cycles
-                           (cycle_id, job_id, customer_id, host_id, resource_type, period_start, period_end,
-                            duration_seconds, rate_per_hour, gpu_model, tier, tier_multiplier,
-                            amount_cad, status, created_at)
-                           VALUES (%s, %s, %s, %s, 'gpu', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        (
-                            cycle_id,
-                            job_id,
-                            customer_id,
-                            host_id,
-                            period_start,
-                            period_end,
-                            duration_sec,
-                            rate_per_hour,
-                            gpu_model,
-                            tier,
-                            tier_multiplier,
-                            amount_cad,
-                            status,
-                            now,
-                        ),
-                    )
+                    charge_result = result["charge_result"]
                     conn.commit()
 
                 billed += 1

@@ -3593,12 +3593,41 @@ def marketplace_bill(job_id):
 
     duration_sec = job["completed_at"] - job["started_at"]
     duration_hr = duration_sec / 3600
-    total_cost = round(duration_hr * listing["price_per_hour"], 6)
 
-    # Tier multiplier
+    rate_per_hour = None
+    allocation_type = "on_demand"
+    try:
+        from marketplace import get_marketplace_engine
+
+        me = get_marketplace_engine()
+        with me._conn() as conn:
+            alloc = conn.execute(
+                """SELECT price_cents_per_hour, allocation_type
+                   FROM gpu_allocations WHERE job_id = %s
+                   ORDER BY created_at DESC LIMIT 1""",
+                (job_id,),
+            ).fetchone()
+        if alloc:
+            rate_per_hour = float(alloc["price_cents_per_hour"]) / 100.0
+            allocation_type = alloc.get("allocation_type") or "on_demand"
+    except Exception:
+        pass
+
+    if rate_per_hour is None:
+        from billing import resolve_compute_rate_cad
+
+        hosts = load_hosts(active_only=False)
+        host_data = next((h for h in hosts if h["host_id"] == job["host_id"]), {})
+        rate_per_hour, allocation_type = resolve_compute_rate_cad(job, host_data)
+        if allocation_type != "spot":
+            rate_per_hour = listing["price_per_hour"]
+
+    total_cost = round(duration_hr * rate_per_hour, 6)
+
     tier = job.get("tier", "free")
-    tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
-    total_cost = round(total_cost * tier_info["multiplier"], 6)
+    if allocation_type != "spot":
+        tier_info = PRIORITY_TIERS.get(tier, PRIORITY_TIERS["free"])
+        total_cost = round(total_cost * tier_info["multiplier"], 6)
 
     platform_cut = float(listing.get("platform_cut", PLATFORM_CUT) or PLATFORM_CUT)
     platform_fee = round(total_cost * platform_cut, 6)
@@ -4150,6 +4179,13 @@ def preempt_job(job_id):
         j = _get_job_by_id_conn(conn, job_id)
         if not j or j["status"] != "running":
             return None
+
+        try:
+            from billing import get_billing_engine
+
+            get_billing_engine().bill_running_period(job_id, period_end=time.time(), min_seconds=0)
+        except Exception as exc:
+            log.warning("Preempt billing close failed for %s: %s", job_id, exc)
 
         j["status"] = "preempted"
         j["preempted_at"] = time.time()

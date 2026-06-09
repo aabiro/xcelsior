@@ -100,6 +100,23 @@ _CUSTOMER_MUTATIONS = [
 ]
 
 
+def test_spot_instance_launch_requires_auth(monkeypatch):
+    """Spot launch must not bypass session/API auth when auth is enforced."""
+    import routes._deps as _deps_mod
+
+    monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+    r = client.post(
+        "/instance",
+        json={
+            "name": "spot-unauth",
+            "vram_needed_gb": 8,
+            "pricing_mode": "spot",
+            "gpu_model": "RTX 4090",
+        },
+    )
+    assert r.status_code in (401, 503), r.text[:200]
+
+
 @pytest.mark.parametrize("method,path_tpl,body_fn", _CUSTOMER_MUTATIONS)
 def test_billing_mutation_requires_auth(method, path_tpl, body_fn, two_users):
     user_a, _ = two_users
